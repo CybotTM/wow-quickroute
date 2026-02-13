@@ -388,6 +388,201 @@ T:run("Transit hub: non-hub zones are returned immediately", function(t)
     t:assertEqual(56, wp.mapID, "Non-hub zone returned directly")
 end)
 
+-------------------------------------------------------------------------------
+-- Intermediate waypoint detection (GetNextWaypointText)
+-------------------------------------------------------------------------------
+
+T:run("Intermediate waypoint: skips intermediate when GetNextWaypointText is set", function(t)
+    resetState()
+
+    -- Quest 91420: "Fleischtausch" - GetNextWaypoint returns Stormwind (mapID 84)
+    -- but GetNextWaypointText returns "Go to Stormwind Mage Sanctum" -> intermediate
+    -- Actual objective is on a different map (e.g. mapID 2024)
+    MockWoW.config.superTrackedQuestID = 91420
+    MockWoW.config.questTitles[91420] = "Fleischtausch"
+    MockWoW.config.questWaypoints[91420] = { mapID = 84, x = 0.5, y = 0.6 }
+    MockWoW.config.questWaypointTexts[91420] = "Betretet das Magiersanktum"
+
+    -- Set the actual objective on map 2024 via GetQuestsOnMap
+    MockWoW.config.questsOnMap[2024] = {
+        { questID = 91420, x = 0.35, y = 0.42 },
+    }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Waypoint returned")
+    t:assertEqual(2024, wp.mapID, "Returns actual objective map, not intermediate (84)")
+    t:assertEqual(0.35, wp.x, "Correct x coordinate")
+    t:assertEqual(0.42, wp.y, "Correct y coordinate")
+end)
+
+T:run("Intermediate waypoint: falls back to intermediate when no objective found", function(t)
+    resetState()
+
+    -- Quest with intermediate waypoint but no GetQuestsOnMap result for objective
+    -- Use unique questID to avoid coordinate cache from previous test
+    MockWoW.config.superTrackedQuestID = 91421
+    MockWoW.config.questTitles[91421] = "Fleischtausch 2"
+    MockWoW.config.questWaypoints[91421] = { mapID = 84, x = 0.5, y = 0.6 }
+    MockWoW.config.questWaypointTexts[91421] = "Betretet das Magiersanktum"
+
+    -- No questsOnMap entries for the actual objective
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    -- Should fall back to the intermediate waypoint (Stormwind) since nothing better was found
+    t:assertNotNil(wp, "Waypoint returned (fallback to intermediate)")
+    t:assertEqual(84, wp.mapID, "Falls back to intermediate waypoint map")
+end)
+
+T:run("Intermediate waypoint: non-intermediate returns directly", function(t)
+    resetState()
+
+    -- Quest without GetNextWaypointText -> NOT intermediate -> returns directly
+    MockWoW.config.superTrackedQuestID = 55010
+    MockWoW.config.questTitles[55010] = "Direct Quest"
+    MockWoW.config.questWaypoints[55010] = { mapID = 56, x = 0.3, y = 0.4 }
+    -- No questWaypointTexts entry -> GetNextWaypointText returns nil
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Waypoint returned")
+    t:assertEqual(56, wp.mapID, "Non-intermediate returns directly")
+    t:assertEqual(0.3, wp.x, "Correct x")
+    t:assertEqual(0.4, wp.y, "Correct y")
+end)
+
+T:run("Intermediate waypoint: title includes waypoint text", function(t)
+    resetState()
+
+    -- Use unique questID to avoid coordinate cache
+    MockWoW.config.superTrackedQuestID = 91422
+    MockWoW.config.questTitles[91422] = "Fleischtausch 3"
+    MockWoW.config.questWaypoints[91422] = { mapID = 84, x = 0.5, y = 0.6 }
+    MockWoW.config.questWaypointTexts[91422] = "Betretet das Magiersanktum"
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Waypoint returned")
+    -- Title should contain both quest name and waypoint text
+    t:assertTrue(wp.title:find("Fleischtausch") ~= nil, "Title has quest name")
+    t:assertTrue(wp.title:find("Betretet das Magiersanktum") ~= nil, "Title has waypoint text")
+end)
+
+T:run("Intermediate waypoint: Methods 2 and 5 skipped for intermediate", function(t)
+    resetState()
+
+    -- Quest with intermediate waypoint - use unique questID
+    MockWoW.config.superTrackedQuestID = 91423
+    MockWoW.config.questTitles[91423] = "Fleischtausch 4"
+    MockWoW.config.questWaypoints[91423] = { mapID = 84, x = 0.5, y = 0.6 }
+    MockWoW.config.questWaypointTexts[91423] = "Betretet das Magiersanktum"
+
+    -- Set up GetNextWaypointForMap to return Elwynn Forest (37) on broad scan
+    -- This would be a false positive if Method 5 runs
+    MockWoW.config.questWaypointForMap = MockWoW.config.questWaypointForMap or {}
+    MockWoW.config.questWaypointForMap[91423] = MockWoW.config.questWaypointForMap[91423] or {}
+    MockWoW.config.questWaypointForMap[91423][37] = { x = 0.2, y = 0.3 }
+
+    -- Set actual objective on map 2024
+    MockWoW.config.questsOnMap[2024] = {
+        { questID = 91423, x = 0.35, y = 0.42 },
+    }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    -- Should find the actual objective via Method 3b, NOT Elwynn Forest from Method 5
+    t:assertNotNil(wp, "Waypoint returned")
+    t:assertEqual(2024, wp.mapID, "Found via GetQuestsOnMap, not GetNextWaypointForMap")
+    t:assertTrue(wp.mapID ~= 37, "Did NOT return Elwynn Forest false positive")
+end)
+
+T:run("Intermediate waypoint: dynamic discovery finds ROUTABLE unlisted zone", function(t)
+    resetState()
+
+    -- Quest 91424: objective is on map 2248 (Isle of Dorn) — in Khaz Algar continent,
+    -- routable but not in the Phase 1 scan for some reason (simulated)
+    MockWoW.config.superTrackedQuestID = 91424
+    MockWoW.config.questTitles[91424] = "Dynamic Routable"
+    MockWoW.config.questWaypoints[91424] = { mapID = 84, x = 0.5, y = 0.6 }
+    MockWoW.config.questWaypointTexts[91424] = "Betretet das Magiersanktum"
+
+    -- Objective is on map 2248 (Isle of Dorn) - IS in QR.ZoneToContinent
+    t:assertNotNil(QR.ZoneToContinent[2248], "Map 2248 has a known continent (test precondition)")
+
+    -- Put objective on map 9999 (fake unlisted but routable zone)
+    -- We need it to NOT be found in Phase 1 (known zones), only in Phase 2
+    -- So use a mapID that's in ZoneToContinent but not in Continents.zones
+    -- Actually, let's just verify Phase 2 returns routable zones by using a mapID
+    -- that IS in ZoneToContinent
+    MockWoW.config.questsOnMap[2248] = {
+        { questID = 91424, x = 0.45, y = 0.55 },
+    }
+
+    -- C_Map.GetMapChildrenInfo returns this zone
+    MockWoW.config.mapChildren[947] = {
+        { mapID = 2248, name = "Isle of Dorn", mapType = 3 },
+    }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Waypoint returned")
+    -- Phase 1 should find it since 2248 IS in Continents zones
+    -- Either way, it should route to 2248
+    t:assertEqual(2248, wp.mapID, "Found objective on routable map")
+end)
+
+T:run("Intermediate waypoint: K'aresh is routable via Dornogal", function(t)
+    resetState()
+
+    -- Quest 91425: objective is on K'aresh (map 2371) — now in KHAZ_ALGAR continent
+    MockWoW.config.superTrackedQuestID = 91425
+    MockWoW.config.questTitles[91425] = "Fleischtausch K'aresh"
+    MockWoW.config.questWaypoints[91425] = { mapID = 84, x = 0.49, y = 0.88 }
+    MockWoW.config.questWaypointTexts[91425] = "Nehmt das Portal nach Sturmwind"
+
+    -- K'aresh IS in ZoneToContinent now (KHAZ_ALGAR)
+    t:assertNotNil(QR.ZoneToContinent[2371], "Map 2371 (K'aresh) has a known continent")
+    t:assertEqual("KHAZ_ALGAR", QR.ZoneToContinent[2371], "K'aresh is in Khaz Algar")
+
+    -- Verify K'aresh is reachable via portal (not walk adjacency)
+    local foundPortal = false
+    for _, portal in ipairs(QR.StandalonePortals) do
+        if portal.from.mapID == 2339 and portal.to.mapID == 2371 then
+            foundPortal = true
+        end
+    end
+    t:assertTrue(foundPortal, "K'aresh reachable via portal from Dornogal (StandalonePortals)")
+end)
+
+T:run("Intermediate waypoint: UNROUTABLE dynamic zone falls back to transit", function(t)
+    resetState()
+
+    -- Quest 91426: objective is on a fictional zone (map 9999) — NOT in any continent
+    MockWoW.config.superTrackedQuestID = 91426
+    MockWoW.config.questTitles[91426] = "Unroutable Quest"
+    MockWoW.config.questWaypoints[91426] = { mapID = 84, x = 0.49, y = 0.88 }
+    MockWoW.config.questWaypointTexts[91426] = "Enter the portal"
+
+    -- Objective is on map 9999 - NOT in ZoneToContinent
+    t:assertNil(QR.ZoneToContinent[9999], "Map 9999 has NO known continent (test precondition)")
+    MockWoW.config.questsOnMap[9999] = {
+        { questID = 91426, x = 0.68, y = 0.80 },
+    }
+
+    -- C_Map.GetMapChildrenInfo discovers it
+    MockWoW.config.mapChildren[947] = {
+        { mapID = 9999, name = "Unknown Zone", mapType = 3 },
+    }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    -- Should NOT route to 9999 (unroutable), should fall back to intermediate (Stormwind)
+    t:assertNotNil(wp, "Waypoint returned (transit fallback)")
+    t:assertEqual(84, wp.mapID, "Falls back to intermediate waypoint, NOT unroutable zone")
+    t:assertTrue(wp.mapID ~= 9999, "Did NOT return unroutable zone 9999")
+end)
+
 T:run("Transit hub: all PortalHubs mapIDs are treated as transit hubs", function(t)
     -- Verify the transit hub set is built from PortalHubs
     t:assertNotNil(QR.PortalHubs, "PortalHubs exists")

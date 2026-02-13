@@ -62,8 +62,10 @@ MockWoW.config = {
     superTrackedQuestID = 0,
     questTitles = {},       -- { [questID] = "title" }
     questWaypoints = {},    -- { [questID] = { mapID, x, y } }
+    questWaypointTexts = {},-- { [questID] = "Go to Stormwind" } -- non-nil = intermediate waypoint
     questsOnMap = {},       -- { [mapID] = { { questID, x, y }, ... } }
     questWatches = {},      -- { questID, questID, ... } indexed array of tracked quest IDs
+    mapChildren = {},       -- { [parentMapID] = { {mapID, name, mapType}, ... } } for C_Map.GetMapChildrenInfo
 
     -- TomTom addon (nil means not loaded)
     tomtom = nil,
@@ -236,7 +238,9 @@ MockWoW.mapDatabase = {
     [2107] = { mapID = 2107, name = "Forbidden Reach", mapType = 3 },
     [2112] = { mapID = 2112, name = "Valdrakken", mapType = 3 },
     [2133] = { mapID = 2133, name = "Zaralek Cavern", mapType = 3 },
+    [2151] = { mapID = 2151, name = "The Forbidden Reach", mapType = 3 },
     [2200] = { mapID = 2200, name = "Emerald Dream", mapType = 3 },
+    [2239] = { mapID = 2239, name = "Bel'ameth", mapType = 3 },
 
     -- Khaz Algar
     [2213] = { mapID = 2213, name = "City of Threads", mapType = 3 },
@@ -246,6 +250,10 @@ MockWoW.mapDatabase = {
     [2255] = { mapID = 2255, name = "Azj-Kahet", mapType = 3 },
     [2274] = { mapID = 2274, name = "Khaz Algar", mapType = 2 },
     [2339] = { mapID = 2339, name = "Dornogal", mapType = 3 },
+    [2346] = { mapID = 2346, name = "Undermine", mapType = 3 },
+    [2369] = { mapID = 2369, name = "Siren Isle", mapType = 3 },
+    [2371] = { mapID = 2371, name = "K'aresh", mapType = 3 },
+    [2472] = { mapID = 2472, name = "Tazavesh", mapType = 3 },
 }
 
 -------------------------------------------------------------------------------
@@ -305,7 +313,9 @@ function MockWoW:Reset()
     self.config.superTrackedQuestID = 0
     self.config.questTitles = {}
     self.config.questWaypoints = {}
+    self.config.questWaypointTexts = {}
     self.config.questsOnMap = {}
+    self.config.mapChildren = {}
     self.config.tomtom = nil
     self.config.baseTime = 1000000
     self.config.playedSounds = {}
@@ -328,7 +338,8 @@ local function CreateMockTexture(parent)
         _alpha = 1.0,
         _desaturated = false,
     }
-    function tex:SetTexture() end
+    function tex:SetTexture(t) self._texture = t end
+    function tex:GetTexture() return self._texture end
     function tex:SetColorTexture() end
     function tex:SetSize() end
     function tex:SetHeight() end
@@ -1007,6 +1018,12 @@ function MockWoW:Install()
         return nil
     end
 
+    _G.C_Map.GetMapChildrenInfo = function(mapID, mapType, allDescendants)
+        -- Return configured child maps or empty table
+        -- cfg.mapChildren = { [parentMapID] = { {mapID=123, name="Zone", mapType=3}, ... } }
+        return cfg.mapChildren and cfg.mapChildren[mapID] or {}
+    end
+
     ---------------------------------------------------------------------------
     -- C_Container Namespace
     ---------------------------------------------------------------------------
@@ -1112,6 +1129,16 @@ function MockWoW:Install()
     end
 
     ---------------------------------------------------------------------------
+    -- C_MountJournal Namespace
+    ---------------------------------------------------------------------------
+
+    _G.C_MountJournal = {}
+
+    _G.C_MountJournal.SummonByID = function(mountID)
+        -- 0 = random favorite mount
+    end
+
+    ---------------------------------------------------------------------------
     -- C_SuperTrack Namespace
     ---------------------------------------------------------------------------
 
@@ -1152,11 +1179,16 @@ function MockWoW:Install()
         if wp and wp.mapID == mapID then
             return wp.x, wp.y
         end
+        -- Also check per-map overrides (for testing projections to other maps)
+        local perMap = cfg.questWaypointForMap and cfg.questWaypointForMap[questID]
+        if perMap and perMap[mapID] then
+            return perMap[mapID].x, perMap[mapID].y
+        end
         return nil, nil
     end
 
     _G.C_QuestLog.GetNextWaypointText = function(questID)
-        return nil
+        return cfg.questWaypointTexts and cfg.questWaypointTexts[questID] or nil
     end
 
     _G.C_QuestLog.GetQuestsOnMap = function(mapID)

@@ -610,3 +610,144 @@ T:run("GetLocalizedContinentName: returns key for unknown continent", function(t
     local name = QR.GetLocalizedContinentName("NONEXISTENT_CONTINENT")
     t:assertEqual("NONEXISTENT_CONTINENT", name, "Returns raw key as last resort")
 end)
+
+-------------------------------------------------------------------------------
+-- 12. Missing zones audit (Patch 11.0.7 - 11.2 + Dragonflight 10.2.5)
+-------------------------------------------------------------------------------
+
+T:run("New zones: Siren Isle (2369) is in KHAZ_ALGAR", function(t)
+    t:assertEqual("KHAZ_ALGAR", QR.GetContinentForZone(2369),
+        "Siren Isle -> Khaz Algar")
+end)
+
+T:run("New zones: Siren Isle is accessible via StandalonePortals, not walk adjacency", function(t)
+    -- Siren Isle should NOT have walk adjacency (it's zeppelin/portal)
+    local fwd = QR.AreAdjacentZones(2369, 2248)
+    t:assertFalse(fwd, "Siren Isle -> Isle of Dorn is NOT a walk adjacency")
+    local rev = QR.AreAdjacentZones(2248, 2369)
+    t:assertFalse(rev, "Isle of Dorn -> Siren Isle is NOT a walk adjacency")
+
+    -- Verify the standalone portals exist in Portals.lua
+    local foundZeppelin = false
+    local foundMoleMachine = false
+    for _, portal in ipairs(QR.StandalonePortals) do
+        if portal.from.mapID == 2248 and portal.to.mapID == 2369 then
+            foundZeppelin = true
+            t:assertEqual("zeppelin", portal.type, "Isle of Dorn -> Siren Isle is zeppelin")
+        end
+        if portal.from.mapID == 2214 and portal.to.mapID == 2369 then
+            foundMoleMachine = true
+            t:assertEqual("portal", portal.type, "Ringing Deeps -> Siren Isle is portal")
+        end
+    end
+    t:assertTrue(foundZeppelin, "Zeppelin from Isle of Dorn to Siren Isle exists")
+    t:assertTrue(foundMoleMachine, "Mole Machine from Ringing Deeps to Siren Isle exists")
+end)
+
+T:run("New zones: Undermine (2346) is in KHAZ_ALGAR", function(t)
+    t:assertEqual("KHAZ_ALGAR", QR.GetContinentForZone(2346),
+        "Undermine -> Khaz Algar")
+end)
+
+T:run("New zones: Undermine is accessible via StandalonePortal, not walk adjacency", function(t)
+    -- Undermine should NOT have walk adjacency to Dornogal
+    local fwd = QR.AreAdjacentZones(2346, 2339)
+    t:assertFalse(fwd, "Undermine -> Dornogal is NOT a walk adjacency")
+    local rev = QR.AreAdjacentZones(2339, 2346)
+    t:assertFalse(rev, "Dornogal -> Undermine is NOT a walk adjacency")
+
+    -- Verify the standalone portal exists
+    local foundPortal = false
+    for _, portal in ipairs(QR.StandalonePortals) do
+        if portal.from.mapID == 2339 and portal.to.mapID == 2346 then
+            foundPortal = true
+            t:assertEqual("portal", portal.type, "Dornogal -> Undermine is portal")
+            t:assertTrue(portal.bidirectional, "Portal is bidirectional")
+        end
+    end
+    t:assertTrue(foundPortal, "Portal from Dornogal to Undermine exists")
+end)
+
+T:run("New zones: Tazavesh (2472) is in KHAZ_ALGAR", function(t)
+    t:assertEqual("KHAZ_ALGAR", QR.GetContinentForZone(2472),
+        "Tazavesh -> Khaz Algar")
+end)
+
+T:run("New zones: Tazavesh has bidirectional adjacency to K'aresh", function(t)
+    local fwd, fwdTime = QR.AreAdjacentZones(2472, 2371)
+    local rev, revTime = QR.AreAdjacentZones(2371, 2472)
+    t:assertTrue(fwd, "Tazavesh -> K'aresh")
+    t:assertTrue(rev, "K'aresh -> Tazavesh")
+    t:assertEqual(15, fwdTime, "Tazavesh -> K'aresh = 15s")
+    t:assertEqual(15, revTime, "K'aresh -> Tazavesh = 15s")
+end)
+
+T:run("New zones: Tazavesh reachable from K'aresh via walk", function(t)
+    -- K'aresh -> Tazavesh is walkable (same open-world area)
+    local time = QR.EstimateSameContinentTravel(2371, 2472)
+    t:assertNotNil(time, "Path found K'aresh -> Tazavesh")
+    t:assertEqual(15, time, "K'aresh -> Tazavesh = 15s")
+end)
+
+T:run("New zones: Bel'ameth (2239) is in DRAGON_ISLES", function(t)
+    t:assertEqual("DRAGON_ISLES", QR.GetContinentForZone(2239),
+        "Bel'ameth -> Dragon Isles")
+end)
+
+T:run("New zones: Bel'ameth has bidirectional adjacency to Ohn'ahran Plains", function(t)
+    local fwd, fwdTime = QR.AreAdjacentZones(2239, 2023)
+    local rev, revTime = QR.AreAdjacentZones(2023, 2239)
+    t:assertTrue(fwd, "Bel'ameth -> Ohn'ahran Plains")
+    t:assertTrue(rev, "Ohn'ahran Plains -> Bel'ameth")
+    t:assertEqual(60, fwdTime, "Bel'ameth -> Ohn'ahran Plains = 60s")
+    t:assertEqual(60, revTime, "Ohn'ahran Plains -> Bel'ameth = 60s")
+end)
+
+T:run("New zones: Bel'ameth is routable from Valdrakken", function(t)
+    local time = QR.EstimateSameContinentTravel(2112, 2239)
+    t:assertNotNil(time, "Path found Valdrakken -> Bel'ameth")
+    -- Valdrakken -> Thaldraszus (30) -> Ohn'ahran (60) -> Bel'ameth (60) = 150
+    t:assertEqual(150, time, "Valdrakken -> Bel'ameth via Thaldraszus+Ohn'ahran = 150s")
+end)
+
+T:run("New zones: Forbidden Reach 2151 is also in DRAGON_ISLES", function(t)
+    -- Both 2107 and 2151 should map to DRAGON_ISLES
+    t:assertEqual("DRAGON_ISLES", QR.GetContinentForZone(2107),
+        "Forbidden Reach (2107) -> Dragon Isles")
+    t:assertEqual("DRAGON_ISLES", QR.GetContinentForZone(2151),
+        "Forbidden Reach (2151) -> Dragon Isles")
+end)
+
+T:run("New zones: K'aresh (2371) accessible via portal, not walk", function(t)
+    -- K'aresh should NOT have walk adjacency to Dornogal
+    local fwd = QR.AreAdjacentZones(2339, 2371)
+    t:assertFalse(fwd, "Dornogal -> K'aresh is NOT a walk adjacency")
+    local rev = QR.AreAdjacentZones(2371, 2339)
+    t:assertFalse(rev, "K'aresh -> Dornogal is NOT a walk adjacency")
+
+    -- Verify the standalone portal exists
+    local foundPortal = false
+    for _, portal in ipairs(QR.StandalonePortals) do
+        if portal.from.mapID == 2339 and portal.to.mapID == 2371 then
+            foundPortal = true
+            t:assertEqual("portal", portal.type, "Dornogal -> K'aresh is portal")
+            t:assertTrue(portal.bidirectional, "Portal is bidirectional")
+        end
+    end
+    t:assertTrue(foundPortal, "Portal from Dornogal to K'aresh exists")
+end)
+
+T:run("New zones: complete KHAZ_ALGAR zone count", function(t)
+    local zones = QR.Continents.KHAZ_ALGAR.zones
+    -- Isle of Dorn, Ringing Deeps, Hallowfall, Azj-Kahet, Dornogal,
+    -- City of Threads, K'aresh, Siren Isle, Undermine, Tazavesh = 10
+    t:assertEqual(10, #zones, "KHAZ_ALGAR has 10 zones")
+end)
+
+T:run("New zones: complete DRAGON_ISLES zone count", function(t)
+    local zones = QR.Continents.DRAGON_ISLES.zones
+    -- Waking Shores, Ohn'ahran Plains, Azure Span, Thaldraszus, Valdrakken,
+    -- Forbidden Reach (2107), Forbidden Reach (2151), Zaralek Cavern,
+    -- Emerald Dream, Bel'ameth = 10
+    t:assertEqual(10, #zones, "DRAGON_ISLES has 10 zones")
+end)

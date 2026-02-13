@@ -67,7 +67,7 @@ local GRID_ROW_PADDING = 6
 
 --- Map of English destination strings (nil-mapID entries) to L[] keys.
 -- Used for destinations that cannot be resolved via C_Map.GetMapInfo.
-local DEST_L_KEYS = {
+QR.DEST_L_KEYS = {
     ["Bound Location"]             = "DEST_BOUND_LOCATION",
     ["Garrison"]                   = "DEST_GARRISON",
     ["Garrison Shipyard"]          = "DEST_GARRISON_SHIPYARD",
@@ -84,7 +84,11 @@ local DEST_L_KEYS = {
     ["Random Dragon Isles Location"] = "DEST_RANDOM_DRAGON_ISLES",
     ["Random Khaz Algar Location"] = "DEST_RANDOM_KHAZ_ALGAR",
     ["Homestead"]                  = "DEST_HOMESTEAD",
+    ["Random location worldwide"]       = "DEST_RANDOM_WORLDWIDE",
+    ["Random natural location"]         = "DEST_RANDOM_NATURAL",
+    ["Random Broken Isles Ley Line"]    = "DEST_RANDOM_BROKEN_ISLES",
 }
+local DEST_L_KEYS = QR.DEST_L_KEYS
 
 --- Map of English acquisition strings to L[] keys.
 local ACQ_L_KEYS = {

@@ -418,6 +418,50 @@ QR.StandalonePortals = {
         type = "portal",
         bidirectional = true,
     },
+
+    -- =========================================================================
+    -- THE WAR WITHIN: DORNOGAL PORTALS (K'aresh, Undermine)
+    -- =========================================================================
+    {
+        name = "Dornogal to K'aresh",
+        from = {mapID = 2339, x = 0.47, y = 0.51},  -- Foundation Hall portal
+        to = {mapID = 2371, x = 0.50, y = 0.50},    -- K'aresh arrival
+        travelTime = 30,
+        faction = "both",
+        type = "portal",
+        bidirectional = true,
+    },
+    {
+        name = "Dornogal to Undermine",
+        from = {mapID = 2339, x = 0.52, y = 0.51},  -- Teleporter in Founder's Hall
+        to = {mapID = 2346, x = 0.27, y = 0.53},    -- Undermine arrival
+        travelTime = 30,
+        faction = "both",
+        type = "portal",
+        bidirectional = true,
+    },
+
+    -- =========================================================================
+    -- THE WAR WITHIN: SIREN ISLE TRANSPORTS
+    -- =========================================================================
+    {
+        name = "Isle of Dorn to Siren Isle",
+        from = {mapID = 2248, x = 0.554, y = 0.339},  -- Zeppelin platform
+        to = {mapID = 2369, x = 0.50, y = 0.50},      -- Siren Isle arrival
+        travelTime = 60,
+        faction = "both",
+        type = "zeppelin",
+        bidirectional = true,
+    },
+    {
+        name = "Ringing Deeps to Siren Isle",
+        from = {mapID = 2214, x = 0.46, y = 0.302},   -- Gundargaz Mole Machine
+        to = {mapID = 2369, x = 0.68, y = 0.386},     -- Flotsam Shoal
+        travelTime = 30,
+        faction = "both",
+        type = "portal",
+        bidirectional = true,
+    },
 }
 
 --- Get all available portals for the current player

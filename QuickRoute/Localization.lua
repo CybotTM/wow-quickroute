@@ -185,6 +185,8 @@ L["TOOLTIP_MINIMAP_MIDDLE"] = "Middle-click: Quick teleports"
 -- Mini Teleport Panel
 L["MINI_PANEL_TITLE"] = "Quick Teleports"
 L["MINI_PANEL_NO_TELEPORTS"] = "No teleports available"
+L["MINI_PANEL_SUMMON_MOUNT"] = "Summon Mount"
+L["MINI_PANEL_RANDOM_FAVORITE"] = "Random favorite"
 
 -- Errors / Hints
 L["UNKNOWN"] = "Unknown"
@@ -216,6 +218,9 @@ L["DEST_RANDOM_SHADOWLANDS"] = "Random Shadowlands Location"
 L["DEST_RANDOM_DRAGON_ISLES"] = "Random Dragon Isles Location"
 L["DEST_RANDOM_KHAZ_ALGAR"] = "Random Khaz Algar Location"
 L["DEST_HOMESTEAD"] = "Homestead"
+L["DEST_RANDOM_WORLDWIDE"] = "Random location worldwide"
+L["DEST_RANDOM_NATURAL"] = "Random natural location"
+L["DEST_RANDOM_BROKEN_ISLES"] = "Random Broken Isles Ley Line"
 
 -- Acquisition text
 L["ACQ_LEGION_INTRO"] = "Quest reward from initial Legion intro questline"
@@ -436,6 +441,8 @@ if GetLocale() == "deDE" then
     -- Mini Teleport Panel
     L["MINI_PANEL_TITLE"] = "Schnell-Teleports"
     L["MINI_PANEL_NO_TELEPORTS"] = "Keine Teleporte verfügbar"
+    L["MINI_PANEL_SUMMON_MOUNT"] = "Reittier rufen"
+    L["MINI_PANEL_RANDOM_FAVORITE"] = "Zufälliger Favorit"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Unbekannt"
@@ -466,6 +473,9 @@ if GetLocale() == "deDE" then
     L["DEST_RANDOM_DRAGON_ISLES"] = "Zufälliger Ort auf den Dracheninseln"
     L["DEST_RANDOM_KHAZ_ALGAR"] = "Zufälliger Ort in Khaz Algar"
     L["DEST_HOMESTEAD"] = "Grundstück"
+    L["DEST_RANDOM_WORLDWIDE"] = "Zufälliger Ort weltweit"
+    L["DEST_RANDOM_NATURAL"] = "Zufälliger natürlicher Ort"
+    L["DEST_RANDOM_BROKEN_ISLES"] = "Zufällige Ley-Linie der Verheerten Inseln"
     -- Acquisition text
     L["ACQ_LEGION_INTRO"] = "Questbelohnung der Legion-Einstiegsquestreihe"
     L["ACQ_WOD_INTRO"] = "Questbelohnung der Warlords-of-Draenor-Einstiegsquestreihe"
@@ -686,6 +696,8 @@ if GetLocale() == "frFR" then
     -- Mini Teleport Panel
     L["MINI_PANEL_TITLE"] = "Téléportations rapides"
     L["MINI_PANEL_NO_TELEPORTS"] = "Aucune téléportation disponible"
+    L["MINI_PANEL_SUMMON_MOUNT"] = "Invoquer la monture"
+    L["MINI_PANEL_RANDOM_FAVORITE"] = "Favori aléatoire"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Inconnu"
@@ -716,6 +728,9 @@ if GetLocale() == "frFR" then
     L["DEST_RANDOM_DRAGON_ISLES"] = "Lieu aléatoire aux Îles des Dragons"
     L["DEST_RANDOM_KHAZ_ALGAR"] = "Lieu aléatoire à Khaz Algar"
     L["DEST_HOMESTEAD"] = "Propriété"
+    L["DEST_RANDOM_WORLDWIDE"] = "Lieu aléatoire mondial"
+    L["DEST_RANDOM_NATURAL"] = "Lieu naturel aléatoire"
+    L["DEST_RANDOM_BROKEN_ISLES"] = "Ligne tellurique aléatoire des Îles Brisées"
     -- Acquisition text
     L["ACQ_LEGION_INTRO"] = "Récompense de quête de l'introduction de Legion"
     L["ACQ_WOD_INTRO"] = "Récompense de quête de l'introduction de Warlords of Draenor"
@@ -937,6 +952,8 @@ if esLocale == "esES" or esLocale == "esMX" then
     -- Mini Teleport Panel
     L["MINI_PANEL_TITLE"] = "Teletransportes rápidos"
     L["MINI_PANEL_NO_TELEPORTS"] = "No hay teletransportes disponibles"
+    L["MINI_PANEL_SUMMON_MOUNT"] = "Invocar montura"
+    L["MINI_PANEL_RANDOM_FAVORITE"] = "Favorito aleatorio"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Desconocido"
@@ -967,6 +984,9 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["DEST_RANDOM_DRAGON_ISLES"] = "Ubicación aleatoria en las Islas Dragón"
     L["DEST_RANDOM_KHAZ_ALGAR"] = "Ubicación aleatoria en Khaz Algar"
     L["DEST_HOMESTEAD"] = "Hogar"
+    L["DEST_RANDOM_WORLDWIDE"] = "Ubicación aleatoria mundial"
+    L["DEST_RANDOM_NATURAL"] = "Ubicación natural aleatoria"
+    L["DEST_RANDOM_BROKEN_ISLES"] = "Línea Ley aleatoria de las Islas Abruptas"
     -- Acquisition text
     L["ACQ_LEGION_INTRO"] = "Recompensa de misión de la introducción de Legion"
     L["ACQ_WOD_INTRO"] = "Recompensa de misión de la introducción de Warlords of Draenor"
@@ -1187,6 +1207,8 @@ if GetLocale() == "ptBR" then
     -- Mini Teleport Panel
     L["MINI_PANEL_TITLE"] = "Teletransportes rápidos"
     L["MINI_PANEL_NO_TELEPORTS"] = "Nenhum teletransporte disponível"
+    L["MINI_PANEL_SUMMON_MOUNT"] = "Invocar montaria"
+    L["MINI_PANEL_RANDOM_FAVORITE"] = "Favorito aleatório"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Desconhecido"
@@ -1217,6 +1239,9 @@ if GetLocale() == "ptBR" then
     L["DEST_RANDOM_DRAGON_ISLES"] = "Local aleatório nas Ilhas Dragão"
     L["DEST_RANDOM_KHAZ_ALGAR"] = "Local aleatório em Khaz Algar"
     L["DEST_HOMESTEAD"] = "Propriedade"
+    L["DEST_RANDOM_WORLDWIDE"] = "Local aleatório mundial"
+    L["DEST_RANDOM_NATURAL"] = "Local natural aleatório"
+    L["DEST_RANDOM_BROKEN_ISLES"] = "Linha Ley aleatória das Ilhas Partidas"
     -- Acquisition text
     L["ACQ_LEGION_INTRO"] = "Recompensa de missão da introdução de Legion"
     L["ACQ_WOD_INTRO"] = "Recompensa de missão da introdução de Warlords of Draenor"
@@ -1437,6 +1462,8 @@ if GetLocale() == "ruRU" then
     -- Mini Teleport Panel
     L["MINI_PANEL_TITLE"] = "Быстрые телепорты"
     L["MINI_PANEL_NO_TELEPORTS"] = "Нет доступных телепортов"
+    L["MINI_PANEL_SUMMON_MOUNT"] = "Призвать ездовое"
+    L["MINI_PANEL_RANDOM_FAVORITE"] = "Случайное избранное"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Неизвестно"
@@ -1467,6 +1494,9 @@ if GetLocale() == "ruRU" then
     L["DEST_RANDOM_DRAGON_ISLES"] = "Случайное место на Островах Дракона"
     L["DEST_RANDOM_KHAZ_ALGAR"] = "Случайное место в Каз Алгаре"
     L["DEST_HOMESTEAD"] = "Усадьба"
+    L["DEST_RANDOM_WORLDWIDE"] = "Случайное место в мире"
+    L["DEST_RANDOM_NATURAL"] = "Случайное природное место"
+    L["DEST_RANDOM_BROKEN_ISLES"] = "Случайная лей-линия Расколотых островов"
     -- Acquisition text
     L["ACQ_LEGION_INTRO"] = "Награда за вступительную цепочку заданий Легиона"
     L["ACQ_WOD_INTRO"] = "Награда за вступительную цепочку заданий Warlords of Draenor"
@@ -1687,6 +1717,8 @@ if GetLocale() == "koKR" then
     -- Mini Teleport Panel
     L["MINI_PANEL_TITLE"] = "빠른 순간이동"
     L["MINI_PANEL_NO_TELEPORTS"] = "사용 가능한 순간이동이 없습니다"
+    L["MINI_PANEL_SUMMON_MOUNT"] = "탈것 소환"
+    L["MINI_PANEL_RANDOM_FAVORITE"] = "무작위 즐겨찾기"
 
     -- Errors / Hints
     L["UNKNOWN"] = "알 수 없음"
@@ -1717,6 +1749,9 @@ if GetLocale() == "koKR" then
     L["DEST_RANDOM_DRAGON_ISLES"] = "무작위 용의 섬 장소"
     L["DEST_RANDOM_KHAZ_ALGAR"] = "무작위 카즈 알가르 장소"
     L["DEST_HOMESTEAD"] = "거주지"
+    L["DEST_RANDOM_WORLDWIDE"] = "전 세계 무작위 장소"
+    L["DEST_RANDOM_NATURAL"] = "무작위 자연 장소"
+    L["DEST_RANDOM_BROKEN_ISLES"] = "무작위 부서진 섬 레이 라인"
     -- Acquisition text
     L["ACQ_LEGION_INTRO"] = "군단 도입 퀘스트 보상"
     L["ACQ_WOD_INTRO"] = "드레노어의 전쟁군주 도입 퀘스트 보상"
@@ -1937,6 +1972,8 @@ if GetLocale() == "zhCN" then
     -- Mini Teleport Panel
     L["MINI_PANEL_TITLE"] = "快速传送"
     L["MINI_PANEL_NO_TELEPORTS"] = "没有可用的传送"
+    L["MINI_PANEL_SUMMON_MOUNT"] = "召唤坐骑"
+    L["MINI_PANEL_RANDOM_FAVORITE"] = "随机最爱"
 
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
@@ -1967,6 +2004,9 @@ if GetLocale() == "zhCN" then
     L["DEST_RANDOM_DRAGON_ISLES"] = "随机巨龙群岛位置"
     L["DEST_RANDOM_KHAZ_ALGAR"] = "随机卡兹阿加位置"
     L["DEST_HOMESTEAD"] = "家园"
+    L["DEST_RANDOM_WORLDWIDE"] = "全球随机位置"
+    L["DEST_RANDOM_NATURAL"] = "随机自然位置"
+    L["DEST_RANDOM_BROKEN_ISLES"] = "随机破碎群岛魔网线"
     -- Acquisition text
     L["ACQ_LEGION_INTRO"] = "军团引导任务线奖励"
     L["ACQ_WOD_INTRO"] = "德拉诺之王引导任务线奖励"
@@ -2187,6 +2227,8 @@ if GetLocale() == "zhTW" then
     -- Mini Teleport Panel
     L["MINI_PANEL_TITLE"] = "快速傳送"
     L["MINI_PANEL_NO_TELEPORTS"] = "沒有可用的傳送"
+    L["MINI_PANEL_SUMMON_MOUNT"] = "召喚坐騎"
+    L["MINI_PANEL_RANDOM_FAVORITE"] = "隨機最愛"
 
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
@@ -2217,6 +2259,9 @@ if GetLocale() == "zhTW" then
     L["DEST_RANDOM_DRAGON_ISLES"] = "隨機巨龍群島位置"
     L["DEST_RANDOM_KHAZ_ALGAR"] = "隨機卡茲阿加位置"
     L["DEST_HOMESTEAD"] = "家園"
+    L["DEST_RANDOM_WORLDWIDE"] = "全球隨機位置"
+    L["DEST_RANDOM_NATURAL"] = "隨機自然位置"
+    L["DEST_RANDOM_BROKEN_ISLES"] = "隨機破碎群島魔網線"
     -- Acquisition text
     L["ACQ_LEGION_INTRO"] = "軍臨天下引導任務線獎勵"
     L["ACQ_WOD_INTRO"] = "德拉諾之霸引導任務線獎勵"
@@ -2437,6 +2482,8 @@ if GetLocale() == "itIT" then
     -- Mini Teleport Panel
     L["MINI_PANEL_TITLE"] = "Teletrasporti rapidi"
     L["MINI_PANEL_NO_TELEPORTS"] = "Nessun teletrasporto disponibile"
+    L["MINI_PANEL_SUMMON_MOUNT"] = "Evoca cavalcatura"
+    L["MINI_PANEL_RANDOM_FAVORITE"] = "Preferito casuale"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Sconosciuto"
@@ -2467,6 +2514,9 @@ if GetLocale() == "itIT" then
     L["DEST_RANDOM_DRAGON_ISLES"] = "Posizione casuale alle Isole dei Draghi"
     L["DEST_RANDOM_KHAZ_ALGAR"] = "Posizione casuale a Khaz Algar"
     L["DEST_HOMESTEAD"] = "Dimora"
+    L["DEST_RANDOM_WORLDWIDE"] = "Posizione casuale mondiale"
+    L["DEST_RANDOM_NATURAL"] = "Posizione naturale casuale"
+    L["DEST_RANDOM_BROKEN_ISLES"] = "Linea di Ley casuale delle Isole Disperse"
     -- Acquisition text
     L["ACQ_LEGION_INTRO"] = "Ricompensa missione dell'introduzione di Legion"
     L["ACQ_WOD_INTRO"] = "Ricompensa missione dell'introduzione di Warlords of Draenor"

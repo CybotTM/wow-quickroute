@@ -162,11 +162,17 @@ function WaypointIntegration:GetSuperTrackedWaypoint()
     end
     local transitFallback = nil
 
-    -- Append waypoint text if available (e.g. "Go to Valdrakken")
+    -- Check for intermediate waypoint text (e.g. "Go to Valdrakken")
+    -- When GetNextWaypointText returns non-nil, the waypoint from GetNextWaypoint
+    -- is an INTERMEDIATE navigation step (like a portal room), NOT the final objective.
+    -- In that case, we save it as fallback and search for the actual destination.
+    local isIntermediateWaypoint = false
     if C_QuestLog.GetNextWaypointText then
         local wpText = C_QuestLog.GetNextWaypointText(questID)
         if wpText and wpText ~= "" then
             questTitle = questTitle .. " - " .. wpText
+            isIntermediateWaypoint = true
+            QR:Debug(string_format("Quest %d: intermediate waypoint detected (text: %s)", questID, wpText))
         end
     end
 
@@ -198,13 +204,18 @@ function WaypointIntegration:GetSuperTrackedWaypoint()
                                 if zoneX and zoneY then
                                     QR:Debug(string_format("Quest %d: Resolved continent %d -> zone %d (%s) coords (%.4f, %.4f)",
                                         questID, wpMapID, childInfo.mapID, childInfo.name or "?", zoneX, zoneY))
-                                    questCoordCache[questID] = { mapID = childInfo.mapID, x = zoneX, y = zoneY, time = now }
-                                    return {
-                                        mapID = childInfo.mapID,
-                                        x = zoneX,
-                                        y = zoneY,
-                                        title = questTitle,
-                                    }
+                                    if isIntermediateWaypoint or transitHubMapIDs[childInfo.mapID] then
+                                        QR:Debug(string_format("Quest %d: zone %d is intermediate/transit, scanning for final destination", questID, childInfo.mapID))
+                                        transitFallback = { mapID = childInfo.mapID, x = zoneX, y = zoneY }
+                                    else
+                                        questCoordCache[questID] = { mapID = childInfo.mapID, x = zoneX, y = zoneY, time = now }
+                                        return {
+                                            mapID = childInfo.mapID,
+                                            x = zoneX,
+                                            y = zoneY,
+                                            title = questTitle,
+                                        }
+                                    end
                                 end
                             end
                             -- Fallback: use zone mapID but skip continent coords (let methods below handle it)
@@ -217,8 +228,9 @@ function WaypointIntegration:GetSuperTrackedWaypoint()
             end
 
             if not useContinent then
-                if transitHubMapIDs[wpMapID] then
-                    QR:Debug(string_format("Quest %d: waypoint map %d is transit hub, scanning for final destination", questID, wpMapID))
+                if isIntermediateWaypoint or transitHubMapIDs[wpMapID] then
+                    QR:Debug(string_format("Quest %d: waypoint map %d is %s, scanning for final destination",
+                        questID, wpMapID, isIntermediateWaypoint and "intermediate" or "transit hub"))
                     transitFallback = { mapID = wpMapID, x = wpX, y = wpY }
                     -- Fall through to Methods 2-5 to find actual objective
                 else
@@ -236,8 +248,10 @@ function WaypointIntegration:GetSuperTrackedWaypoint()
 
     -- Method 2: GetNextWaypointForMap projects the objective onto a specific map
     -- Signature: C_QuestLog.GetNextWaypointForMap(questID, uiMapID) -> x, y
+    -- NOTE: Skip when intermediate - GetNextWaypointForMap also returns projected
+    -- intermediate waypoints, not the actual objective location
     local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
-    if playerMapID and C_QuestLog.GetNextWaypointForMap then
+    if not isIntermediateWaypoint and playerMapID and C_QuestLog.GetNextWaypointForMap then
         local wpX, wpY = C_QuestLog.GetNextWaypointForMap(questID, playerMapID)
         if wpX and wpY and not (transitFallback and transitHubMapIDs[playerMapID]) then
             QR:Debug(string_format("Quest %d: GetNextWaypointForMap -> (%.4f, %.4f) on map %d", questID, wpX, wpY, playerMapID))
@@ -273,6 +287,88 @@ function WaypointIntegration:GetSuperTrackedWaypoint()
         end
     end
 
+    -- Method 3b: Broad scan using GetQuestsOnMap across all zone maps
+    -- GetQuestsOnMap returns actual objective POIs (not intermediate waypoints),
+    -- making it reliable for finding the true destination when Method 1 returned an intermediate step.
+    -- Only runs when intermediate waypoint is detected and Method 3 didn't find the objective on player's map.
+    if isIntermediateWaypoint and C_QuestLog.GetQuestsOnMap then
+        QR:Debug(string_format("Quest %d: Broad GetQuestsOnMap scan for actual objective", questID))
+        local scannedMaps = {}
+        if playerMapID then scannedMaps[playerMapID] = true end
+
+        -- Phase 1: Scan all known zones from QR.Continents
+        if QR.Continents then
+            for _, continentData in pairs(QR.Continents) do
+                for _, zoneID in ipairs(continentData.zones) do
+                    if not scannedMaps[zoneID] then
+                        scannedMaps[zoneID] = true
+                        local questsOnMap = C_QuestLog.GetQuestsOnMap(zoneID)
+                        if questsOnMap then
+                            for _, questInfo in ipairs(questsOnMap) do
+                                if questInfo.questID == questID then
+                                    local qx, qy = questInfo.x, questInfo.y
+                                    if qx and qy and (qx ~= 0 or qy ~= 0) then
+                                        QR:Debug(string_format("Quest %d: Broad GetQuestsOnMap found objective on map %d (%.4f, %.4f)", questID, zoneID, qx, qy))
+                                        questCoordCache[questID] = { mapID = zoneID, x = qx, y = qy, time = now }
+                                        return {
+                                            mapID = zoneID,
+                                            x = qx,
+                                            y = qy,
+                                            title = questTitle,
+                                        }
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Phase 2: Dynamic map discovery via C_Map.GetMapChildrenInfo
+        -- Catches zones not in our hardcoded list (e.g. Tazavesh, instance zones)
+        -- World map (947) -> all descendant zone maps (mapType 3)
+        -- Only returns results for ROUTABLE zones (known continent) — unroutable maps
+        -- (e.g. K'aresh) are skipped so the transit fallback is used instead.
+        if C_Map and C_Map.GetMapChildrenInfo then
+            local childMaps = C_Map.GetMapChildrenInfo(947, 3, true) -- world, zones, all descendants
+            if childMaps then
+                for _, childInfo in ipairs(childMaps) do
+                    local childMapID = childInfo.mapID
+                    if childMapID and not scannedMaps[childMapID] then
+                        scannedMaps[childMapID] = true
+                        local questsOnMap = C_QuestLog.GetQuestsOnMap(childMapID)
+                        if questsOnMap then
+                            for _, questInfo in ipairs(questsOnMap) do
+                                if questInfo.questID == questID then
+                                    local qx, qy = questInfo.x, questInfo.y
+                                    if qx and qy and (qx ~= 0 or qy ~= 0) then
+                                        -- Verify the zone is routable (has a known continent)
+                                        local continent = QR.GetContinentForZone and QR.GetContinentForZone(childMapID)
+                                        if continent then
+                                            QR:Debug(string_format("Quest %d: Dynamic scan found routable objective on map %d (%s) (%.4f, %.4f)",
+                                                questID, childMapID, childInfo.name or "?", qx, qy))
+                                            questCoordCache[questID] = { mapID = childMapID, x = qx, y = qy, time = now }
+                                            return {
+                                                mapID = childMapID,
+                                                x = qx,
+                                                y = qy,
+                                                title = questTitle,
+                                            }
+                                        else
+                                            QR:Debug(string_format("Quest %d: Dynamic scan found objective on map %d (%s) but zone is not routable, skipping",
+                                                questID, childMapID, childInfo.name or "?"))
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- Method 4: For world quests, try C_TaskQuest.GetQuestLocation
     if playerMapID and C_TaskQuest and C_TaskQuest.GetQuestLocation then
         local tqX, tqY = C_TaskQuest.GetQuestLocation(questID, playerMapID)
@@ -290,7 +386,9 @@ function WaypointIntegration:GetSuperTrackedWaypoint()
 
     -- Method 5: Broad scan - try GetNextWaypointForMap on all known zone maps
     -- Only runs when faster methods fail; result is cached to avoid repeated scans
-    if C_QuestLog.GetNextWaypointForMap and QR.Continents then
+    -- NOTE: Skip when intermediate - GetNextWaypointForMap projects intermediate waypoints
+    -- onto zone maps, causing false positives (e.g. Elwynn Forest for a Stormwind portal waypoint)
+    if not isIntermediateWaypoint and C_QuestLog.GetNextWaypointForMap and QR.Continents then
         for _, continentData in pairs(QR.Continents) do
             for _, zoneID in ipairs(continentData.zones) do
                 if zoneID ~= playerMapID then  -- already checked player's map in Method 2

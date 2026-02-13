@@ -225,9 +225,11 @@ QR.Continents = {
             2024, -- Azure Span
             2025, -- Thaldraszus
             2112, -- Valdrakken
-            2107, -- Forbidden Reach
+            2107, -- Forbidden Reach (alternate ID)
+            2151, -- Forbidden Reach (10.0.7 open-world)
             2133, -- Zaralek Cavern
             2200, -- Emerald Dream
+            2239, -- Bel'ameth (10.2.5, Night Elf capital on Amirdrassil)
         },
     },
     KHAZ_ALGAR = {
@@ -240,6 +242,10 @@ QR.Continents = {
             2255, -- Azj-Kahet
             2339, -- Dornogal
             2213, -- City of Threads
+            2371, -- K'aresh (Patch 11.2)
+            2369, -- Siren Isle (11.0.7, zeppelin from Isle of Dorn)
+            2346, -- Undermine (11.1, teleporter from Dornogal)
+            2472, -- Tazavesh (11.2, hub within K'aresh)
         },
     },
 }
@@ -454,6 +460,10 @@ QR.ZoneAdjacencies = {
         {zone = 2022, travelTime = 60},  -- Waking Shores
         {zone = 2024, travelTime = 60},  -- Azure Span
         {zone = 2025, travelTime = 60},  -- Thaldraszus
+        {zone = 2239, travelTime = 60},  -- Bel'ameth (Amirdrassil, west coast)
+    },
+    [2239] = {  -- Bel'ameth (Night Elf capital, Patch 10.2.5)
+        {zone = 2023, travelTime = 60},  -- Ohn'ahran Plains (dragonriding)
     },
     [2024] = {  -- Azure Span
         {zone = 2023, travelTime = 60},  -- Ohn'ahran Plains
@@ -463,15 +473,18 @@ QR.ZoneAdjacencies = {
     -- Khaz Algar connections (The War Within)
     [2339] = {  -- Dornogal
         {zone = 2248, travelTime = 30},  -- Isle of Dorn
+        -- K'aresh and Undermine accessed via portals (see StandalonePortals in Portals.lua)
     },
     [2248] = {  -- Isle of Dorn
         {zone = 2339, travelTime = 30},  -- Dornogal
         {zone = 2214, travelTime = 60},  -- The Ringing Deeps
+        -- Siren Isle accessed via zeppelin (see StandalonePortals in Portals.lua)
     },
     [2214] = {  -- The Ringing Deeps
         {zone = 2248, travelTime = 60},  -- Isle of Dorn
         {zone = 2215, travelTime = 60},  -- Hallowfall
         {zone = 2255, travelTime = 90},  -- Azj-Kahet
+        -- Siren Isle accessed via Mole Machine (see StandalonePortals in Portals.lua)
     },
     [2215] = {  -- Hallowfall
         {zone = 2214, travelTime = 60},  -- The Ringing Deeps
@@ -484,6 +497,20 @@ QR.ZoneAdjacencies = {
     },
     [2213] = {  -- City of Threads
         {zone = 2255, travelTime = 30},  -- Azj-Kahet
+    },
+    [2371] = {  -- K'aresh (Patch 11.2)
+        -- Dornogal accessed via return portal (see StandalonePortals in Portals.lua)
+        {zone = 2472, travelTime = 15},  -- Tazavesh (hub within K'aresh)
+    },
+    [2472] = {  -- Tazavesh (open-world hub within K'aresh, Patch 11.2)
+        {zone = 2371, travelTime = 15},  -- K'aresh
+    },
+    [2369] = {  -- Siren Isle (Patch 11.0.7)
+        -- Isle of Dorn via zeppelin and Ringing Deeps via Mole Machine
+        -- (see StandalonePortals in Portals.lua)
+    },
+    [2346] = {  -- Undermine (Patch 11.1)
+        -- Dornogal via teleporter (see StandalonePortals in Portals.lua)
     },
 
     -- Kul Tiras connections (BFA Alliance)

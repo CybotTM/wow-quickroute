@@ -155,7 +155,13 @@ local function GetLocalizedDestination(entry)
             if bindLoc and bindLoc ~= "" then return bindLoc end
         end
     end
-    return data.destination or ""
+    -- For nil-mapID entries, use L[] keys (same as TeleportPanel)
+    local dest = data.destination
+    if dest and QR.DEST_L_KEYS then
+        local lKey = QR.DEST_L_KEYS[dest]
+        if lKey then return L[lKey] end
+    end
+    return dest or ""
 end
 
 --- Collect owned teleports (READY, ON_CD, or OWNED status only)
@@ -211,6 +217,30 @@ local function CollectOwnedTeleports()
         end
         return (a.data.name or "") < (b.data.name or "")
     end)
+
+    -- Deduplicate by localized destination: keep best entry per destination
+    local destMap = {}   -- destination string -> best entry
+    local destOrder = {} -- maintain insertion order
+    for _, entry in ipairs(teleports) do
+        local dest = GetLocalizedDestination(entry)
+        if not destMap[dest] then
+            destMap[dest] = entry
+            table_insert(destOrder, dest)
+        else
+            local existing = destMap[dest]
+            -- Prefer better status (lower sortOrder = better), then shorter cooldown
+            if entry.status.sortOrder < existing.status.sortOrder
+                or (entry.status.sortOrder == existing.status.sortOrder
+                    and entry.cooldownRemaining < existing.cooldownRemaining) then
+                destMap[dest] = entry
+            end
+        end
+    end
+    -- Rebuild teleports from deduped map (preserving dest order)
+    teleports = {}
+    for _, dest in ipairs(destOrder) do
+        table_insert(teleports, destMap[dest])
+    end
 
     return teleports
 end
@@ -430,10 +460,10 @@ function MiniTeleportPanel:RefreshList()
         local dest = GetLocalizedDestination(entry)
         row.destLabel:SetText(dest)
 
-        -- Status / cooldown
+        -- Status / cooldown (READY/OWNED show nothing; ON_CD shows countdown)
         local statusText
         if entry.status == STATUS.READY or entry.status == STATUS.OWNED then
-            statusText = entry.status.color .. (L[entry.status.key] or "READY") .. "|r"
+            statusText = ""
         elseif entry.status == STATUS.ON_CD then
             local timeStr = QR.CooldownTracker and QR.CooldownTracker:FormatTime(entry.cooldownRemaining) or "?"
             statusText = entry.status.color .. timeStr .. "|r"
@@ -481,10 +511,62 @@ function MiniTeleportPanel:RefreshList()
         yOffset = yOffset + ROW_HEIGHT
     end
 
+    -- Separator line before mount button
+    local separator = CreateFrame("Frame", nil, self.frame.scrollChild)
+    separator:SetHeight(1)
+    separator:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 4, -yOffset - 3)
+    separator:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", -4, 0)
+    local sepTex = separator:CreateTexture(nil, "ARTWORK")
+    sepTex:SetAllPoints()
+    sepTex:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+    table_insert(self.rows, separator)
+    yOffset = yOffset + 7  -- 3px gap + 1px line + 3px gap
+
+    -- Mount button row
+    local mountRow = self:GetRow()
+    mountRow:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 0, -yOffset)
+    mountRow:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", 0, 0)
+    mountRow.icon:SetTexture("Interface\\Icons\\Ability_Mount_RidingHorse")
+    mountRow.nameLabel:SetText(L["MINI_PANEL_SUMMON_MOUNT"])
+    mountRow.nameLabel:SetTextColor(1, 1, 1)
+    mountRow.destLabel:SetText(L["MINI_PANEL_RANDOM_FAVORITE"])
+    mountRow.statusLabel:SetText("")
+
+    -- Secure macro button for mount summon
+    if QR.SecureButtons and not InCombatLockdown() then
+        local secBtn = QR.SecureButtons:GetButton()
+        if secBtn then
+            secBtn:SetAttribute("type", "macro")
+            secBtn:SetAttribute("macrotext", "/run C_MountJournal.SummonByID(0)")
+            secBtn:SetFrameStrata("DIALOG")
+            secBtn:SetFrameLevel(100)
+            secBtn:SetSize(PANEL_WIDTH - PADDING * 2 - 18, ROW_HEIGHT)
+            QR.SecureButtons:AttachOverlay(secBtn, mountRow, self.frame.scrollFrame, 0, true)
+            secBtn:SetAlpha(0)
+
+            secBtn:SetScript("OnEnter", function(btn)
+                GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+                GameTooltip:AddLine(L["MINI_PANEL_SUMMON_MOUNT"], 1, 0.82, 0)
+                GameTooltip:AddLine(L["MINI_PANEL_RANDOM_FAVORITE"], 1, 1, 1)
+                QR.AddTooltipBranding(GameTooltip)
+                GameTooltip:Show()
+            end)
+            secBtn:SetScript("OnLeave", function()
+                GameTooltip_Hide()
+            end)
+
+            table_insert(self.secureButtons, secBtn)
+        end
+    end
+
+    table_insert(self.rows, mountRow)
+    yOffset = yOffset + ROW_HEIGHT
+
     -- Set frame height based on number of rows (capped)
-    local visibleRows = #teleports <= MAX_VISIBLE_ROWS and #teleports or MAX_VISIBLE_ROWS
-    local contentHeight = #teleports * ROW_HEIGHT
-    local frameHeight = TITLE_HEIGHT + visibleRows * ROW_HEIGHT + PADDING * 3
+    local totalRows = #teleports + 1  -- +1 for mount row
+    local visibleRows = totalRows <= MAX_VISIBLE_ROWS and totalRows or MAX_VISIBLE_ROWS
+    local contentHeight = yOffset
+    local frameHeight = TITLE_HEIGHT + visibleRows * ROW_HEIGHT + 7 + PADDING * 3
     self.frame:SetHeight(frameHeight)
     self.frame.scrollChild:SetHeight(contentHeight)
 end
