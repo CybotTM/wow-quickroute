@@ -10,7 +10,7 @@
 ## X-Curse-Project-ID: 1461133
 ## X-WoWI-ID:
 ## X-Wago-ID: Q6aRgaKW
-## IconTexture: Interface\Icons\INV_Misc_Map02
+## IconTexture: Interface\AddOns\QuickRoute\Textures\logo
 ## AddonCompartmentFunc: QuickRoute_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: QuickRoute_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: QuickRoute_OnAddonCompartmentLeave

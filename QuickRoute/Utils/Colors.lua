@@ -38,7 +38,9 @@ QR.Colors = {
 -- Branding: Tooltip attribution + accent borders + micro-icon
 -------------------------------------------------------------------------------
 
-local BRAND_ICON = "Interface\\Icons\\INV_Misc_Map02"
+local BRAND_ICON = "Interface\\AddOns\\QuickRoute\\Textures\\logo"
+QR.LOGO_PATH = BRAND_ICON
+QR.LOGO_MINIMAP_PATH = "Interface\\AddOns\\QuickRoute\\Textures\\logo-minimap"
 local BRAND_COLOR = { r = 0.0, g = 0.8, b = 0.2 }
 
 --- Add QuickRoute branding footer to a GameTooltip.
@@ -47,7 +49,7 @@ local BRAND_COLOR = { r = 0.0, g = 0.8, b = 0.2 }
 function QR.AddTooltipBranding(tooltip)
     if not tooltip then return end
     tooltip:AddLine(" ")
-    tooltip:AddLine("|TInterface\\Icons\\INV_Misc_Map02:12:12:0:0|t " ..
+    tooltip:AddLine("|T" .. BRAND_ICON .. ":12:12:0:0|t " ..
         QR.Colors.BRAND_HEX .. "QuickRoute|r  " ..
         "|cFF888888/qr|r", 1, 1, 1)
 end

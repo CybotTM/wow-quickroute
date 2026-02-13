@@ -6,6 +6,7 @@
 *.jpg
 *.jpeg
 !images/logo.png
+!QuickRoute/Textures/*.tga
 
 # Temporary analysis files
 COVERAGE_ANALYSIS.md

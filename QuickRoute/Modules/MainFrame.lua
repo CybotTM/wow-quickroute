@@ -106,7 +106,7 @@ function MainFrame:CreateFrame()
 
     -- Portrait header
     self.header = QR.CreatePortraitHeader(frame, {
-        icon = "Interface\\Icons\\INV_Misc_Map02",
+        icon = QR.LOGO_PATH,
         title = L["ADDON_TITLE"] or "QuickRoute",
     })
     self.subtitle = self.header.subtitle

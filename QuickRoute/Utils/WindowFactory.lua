@@ -343,7 +343,7 @@ end
 -- @return table { portrait = Texture, title = FontString, subtitle = FontString }
 function QR.CreatePortraitHeader(frame, options)
     options = options or {}
-    local iconPath = options.icon or "Interface\\Icons\\INV_Misc_Map02"
+    local iconPath = options.icon or QR.LOGO_PATH or "Interface\\Icons\\INV_Misc_Map02"
     local titleText = options.title or "QuickRoute"
 
     -- Round portrait

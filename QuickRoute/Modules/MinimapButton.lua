@@ -58,7 +58,7 @@ function MinimapButton:Create()
 
     -- Icon texture (same as addon .toc IconTexture)
     local icon = btn:CreateTexture(nil, "BACKGROUND")
-    icon:SetTexture("Interface\\Icons\\INV_Misc_Map02")
+    icon:SetTexture(QR.LOGO_MINIMAP_PATH or "Interface\\Icons\\INV_Misc_Map02")
     icon:SetSize(ICON_SIZE, ICON_SIZE)
     icon:SetPoint("CENTER")
     btn.icon = icon
