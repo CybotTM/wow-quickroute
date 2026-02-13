@@ -31,8 +31,101 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Package and release
-        uses: BigWigsMods/packager@v2
+      - name: Extract version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          PREV_TAG=$(git tag --sort=-version:refname | head -2 | tail -1)
+          if [ "$PREV_TAG" = "$GITHUB_REF_NAME" ]; then
+            # First release — use all commits
+            LOG=$(git log --pretty=format:"- %s" HEAD)
+          else
+            LOG=$(git log --pretty=format:"- %s" "$PREV_TAG".."$GITHUB_REF_NAME")
+          fi
+          # Write to file for gh release
+          {
+            echo "## QuickRoute $GITHUB_REF_NAME"
+            echo ""
+            echo "### Changes"
+            echo "$LOG"
+            echo ""
+            echo "### Installation"
+            echo "1. Download \`QuickRoute-${{ steps.version.outputs.version }}.zip\`"
+            echo "2. Extract to \`World of Warcraft/_retail_/Interface/AddOns/\`"
+            echo "3. Restart WoW or \`/reload\`"
+          } > /tmp/release-notes.md
+
+      - name: Package addon
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          mkdir -p dist/QuickRoute
+          # Copy addon files (exclude dev/test files)
+          cp -r QuickRoute/Core QuickRoute/Data QuickRoute/Modules QuickRoute/Utils dist/QuickRoute/
+          cp QuickRoute/QuickRoute.lua QuickRoute/QuickRoute.toc QuickRoute/Localization.lua QuickRoute/embeds.xml dist/QuickRoute/
+          # Copy pkgmeta for CurseForge packager compatibility
+          cp QuickRoute/.pkgmeta dist/QuickRoute/
+          # Create zip
+          cd dist
+          zip -r "QuickRoute-${VERSION}.zip" QuickRoute/
+          echo "Created QuickRoute-${VERSION}.zip ($(du -h "QuickRoute-${VERSION}.zip" | cut -f1))"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/QuickRoute-${VERSION}.zip" \
+            --title "QuickRoute $GITHUB_REF_NAME" \
+            --notes-file /tmp/release-notes.md
+
+      - name: Upload to CurseForge
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
-          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Get game version ID for WoW Retail
+          GAME_VERSIONS=$(curl -s -H "X-Api-Token: ${CF_API_KEY}" \
+            "https://wow.curseforge.com/api/game/versions" | \
+            python3 -c "
+          import json, sys
+          versions = json.load(sys.stdin)
+          # Find the latest retail version
+          retail = [v for v in versions if v.get('gameVersionTypeID') == 517]
+          if retail:
+              # Sort by name descending, pick first
+              retail.sort(key=lambda v: v['name'], reverse=True)
+              print(retail[0]['id'])
+          else:
+              # Fallback: use first available
+              print(versions[0]['id'])
+          ")
+          echo "Using game version ID: ${GAME_VERSIONS}"
+          # Read changelog
+          CHANGELOG=$(cat /tmp/release-notes.md)
+          # Build metadata JSON
+          METADATA=$(python3 -c "
+          import json
+          print(json.dumps({
+              'changelog': open('/tmp/release-notes.md').read(),
+              'changelogType': 'markdown',
+              'displayName': 'QuickRoute v${VERSION}',
+              'gameVersions': [int('${GAME_VERSIONS}')],
+              'releaseType': 'release'
+          }))
+          ")
+          # Upload
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://wow.curseforge.com/api/projects/1461133/upload-file" \
+            -H "X-Api-Token: ${CF_API_KEY}" \
+            -F "metadata=${METADATA}" \
+            -F "file=@dist/QuickRoute-${VERSION}.zip")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "CurseForge response (HTTP ${HTTP_CODE}): ${BODY}"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::warning::CurseForge upload failed (HTTP ${HTTP_CODE}). GitHub release was created successfully."
+          fi
