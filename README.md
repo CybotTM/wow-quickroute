@@ -1,5 +1,11 @@
 # QuickRoute
 
+![WoW 12.0](https://img.shields.io/badge/WoW-12.0%20Retail-148EFF)
+![Lua](https://img.shields.io/badge/Lua-5.1-2C2D72?logo=lua&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-7754%20assertions-brightgreen)
+[![Lint](https://github.com/CybotTM/wow-quickroute/actions/workflows/lint.yml/badge.svg)](https://github.com/CybotTM/wow-quickroute/actions/workflows/lint.yml)
+![License](https://img.shields.io/github/license/CybotTM/wow-quickroute)
+
 A World of Warcraft addon that calculates and displays the shortest path to any waypoint destination, recommending which teleport items to use or where the nearest portals are.
 
 ## Features
