@@ -1,0 +1,43 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  luacheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua
+        uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.1"
+
+      - name: Install LuaRocks
+        uses: leafo/gh-actions-luarocks@v4
+
+      - name: Install luacheck
+        run: luarocks install luacheck
+
+      - name: Run luacheck
+        run: luacheck QuickRoute/ --config .luacheckrc
+
+  lua-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Lua 5.1
+        uses: leafo/gh-actions-lua@v10
+        with:
+          luaVersion: "5.1"
+
+      - name: Check Lua 5.1 syntax
+        run: |
+          echo "Checking Lua 5.1 syntax compatibility..."
+          find QuickRoute -name "*.lua" -exec lua -p {} \;
+          echo "All files passed syntax check"

@@ -1,0 +1,13 @@
+# Claude Code
+.claude/
+
+# Screenshots and images
+*.png
+*.jpg
+*.jpeg
+
+# Temporary analysis files
+COVERAGE_ANALYSIS.md
+CRITICAL_GAPS.txt
+TEST_ANALYSIS_README.md
+TEST_PRIORITY_CARD.txt

@@ -1,0 +1,59 @@
+## Interface: 120001
+## Title: QuickRoute
+## Notes: Shows the shortest path to your destination using teleports and portals
+## Author: Sebastian Mendel
+## Version: 1.0.0
+## SavedVariables: QuickRouteDB
+## OptionalDeps: TomTom
+## X-Category: Map
+## X-Website: https://github.com/cybot/wow-pathfinder
+## X-Curse-Project-ID:
+## X-WoWI-ID:
+## X-Wago-ID:
+## IconTexture: Interface\Icons\INV_Misc_Map02
+## AddonCompartmentFunc: QuickRoute_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: QuickRoute_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: QuickRoute_OnAddonCompartmentLeave
+
+# Libraries
+embeds.xml
+
+# Localization
+Localization.lua
+
+# Utils
+Utils\Colors.lua
+Utils\WindowFactory.lua
+Utils\PlayerInfo.lua
+
+# Data
+Data\TeleportItems.lua
+Data\Portals.lua
+Data\ZoneAdjacency.lua
+
+# Core
+Core\Graph.lua
+Core\TravelTime.lua
+Core\PathCalculator.lua
+
+# Modules
+Modules\PlayerInventory.lua
+Modules\CooldownTracker.lua
+Modules\WaypointIntegration.lua
+Modules\MainFrame.lua
+Modules\TeleportPanel.lua
+Modules\SecureButtons.lua
+Modules\UI.lua
+Modules\MinimapButton.lua
+Modules\MiniTeleportPanel.lua
+Modules\MapSidebar.lua
+Modules\MapTeleportButton.lua
+Modules\QuestTeleportButtons.lua
+Modules\POIRouting.lua
+Modules\SettingsPanel.lua
+
+# Main
+QuickRoute.lua
+
+# Tests (loaded last, can be commented out for release)
+Tests\TestGraph.lua
