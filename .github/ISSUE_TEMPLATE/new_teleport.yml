@@ -1,0 +1,44 @@
+name: New Teleport Request
+description: Request adding a missing teleport, portal, or travel option
+labels: ["new-teleport"]
+body:
+  - type: input
+    id: name
+    attributes:
+      label: Teleport name
+      description: In-game name of the item, spell, or portal
+      placeholder: "Wormhole Generator: Khaz Algar"
+    validations:
+      required: true
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type
+      options:
+        - Item
+        - Toy
+        - Spell (class)
+        - Spell (general)
+        - Portal (NPC/world)
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: destination
+    attributes:
+      label: Destination
+      description: Where does it take you?
+      placeholder: "Dornogal"
+    validations:
+      required: true
+  - type: input
+    id: wowhead
+    attributes:
+      label: Wowhead link
+      description: Link to the item/spell on Wowhead
+      placeholder: "https://www.wowhead.com/item=..."
+  - type: textarea
+    id: extra
+    attributes:
+      label: Additional info
+      description: Cooldown, faction restriction, class restriction, etc.

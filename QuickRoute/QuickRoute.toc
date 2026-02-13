@@ -9,7 +9,7 @@
 ## X-Website: https://github.com/CybotTM/wow-quickroute
 ## X-Curse-Project-ID: 1461133
 ## X-WoWI-ID:
-## X-Wago-ID:
+## X-Wago-ID: Q6aRgaKW
 ## IconTexture: Interface\Icons\INV_Misc_Map02
 ## AddonCompartmentFunc: QuickRoute_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: QuickRoute_OnAddonCompartmentEnter

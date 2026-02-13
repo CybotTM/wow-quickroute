@@ -131,3 +131,39 @@ jobs:
           if [ "$HTTP_CODE" -ge 400 ]; then
             echo "::warning::CurseForge upload failed (HTTP ${HTTP_CODE}). GitHub release was created successfully."
           fi
+
+      - name: Upload to Wago
+        env:
+          WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Read Interface version from TOC and convert to patch string (120001 → 12.0.1)
+          TOC_API=$(grep -oP '## Interface:\s*\K\d+' QuickRoute/QuickRoute.toc)
+          MAJOR=$((TOC_API / 10000))
+          MINOR=$(( (TOC_API % 10000) / 100 ))
+          PATCH=$((TOC_API % 100))
+          RETAIL_PATCH="${MAJOR}.${MINOR}.${PATCH}"
+          echo "Retail patch version: ${RETAIL_PATCH}"
+          # Build metadata JSON
+          METADATA=$(python3 -c "
+          import json
+          print(json.dumps({
+              'label': '${VERSION}',
+              'stability': 'stable',
+              'changelog': open('/tmp/release-notes.md').read(),
+              'supported_retail_patch': '${RETAIL_PATCH}'
+          }))
+          ")
+          # Upload
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://addons.wago.io/api/projects/Q6aRgaKW/version" \
+            -H "Authorization: Bearer ${WAGO_API_TOKEN}" \
+            -H "Accept: application/json" \
+            -F "metadata=${METADATA}" \
+            -F "file=@dist/QuickRoute-${VERSION}.zip")
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          echo "Wago response (HTTP ${HTTP_CODE}): ${BODY}"
+          if [ "$HTTP_CODE" -ge 400 ]; then
+            echo "::warning::Wago upload failed (HTTP ${HTTP_CODE}). GitHub release was created successfully."
+          fi
