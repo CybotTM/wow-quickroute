@@ -5,6 +5,7 @@
 *.png
 *.jpg
 *.jpeg
+!images/logo.png
 
 # Temporary analysis files
 COVERAGE_ANALYSIS.md

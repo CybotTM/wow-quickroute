@@ -1,4 +1,8 @@
-# QuickRoute
+<p align="center">
+  <img src="images/logo.png" alt="QuickRoute" width="200">
+</p>
+
+<h1 align="center">QuickRoute</h1>
 
 ![WoW 12.0](https://img.shields.io/badge/WoW-12.0%20Retail-148EFF)
 ![Lua](https://img.shields.io/badge/Lua-5.1-2C2D72?logo=lua&logoColor=white)
