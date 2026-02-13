@@ -417,9 +417,9 @@ function UI:RefreshRoute()
     QR:Log("INFO", "RefreshRoute started")
 
     -- First check if there's a waypoint at all
-    local waypoint, waypointSource = nil, nil
+    local waypoint = nil
     local wpSuccess, wpErr = pcall(function()
-        waypoint, waypointSource = QR.WaypointIntegration:GetActiveWaypoint()
+        waypoint = QR.WaypointIntegration:GetActiveWaypoint()
     end)
 
     if not wpSuccess then

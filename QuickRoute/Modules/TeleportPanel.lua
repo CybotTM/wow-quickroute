@@ -190,13 +190,8 @@ local function InitializeStatusText()
     STATUS.NA.text = L["STATUS_NA"]
 end
 
--- Filter options (will be localized on init)
-local FILTERS = { "All", "Items", "Toys", "Spells" }
-local FILTER_KEYS = { "ALL", "ITEMS", "TOYS", "SPELLS" }
-
 local function InitializeFilters()
     L = QR.L
-    FILTERS = { L["ALL"], L["ITEMS"], L["TOYS"], L["SPELLS"] }
 end
 
 -------------------------------------------------------------------------------

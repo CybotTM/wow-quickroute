@@ -157,8 +157,7 @@ ignore = {
     "211", -- Unused local variable (common: cached globals, ADDON_NAME)
     "212", -- Unused argument (common in callbacks)
     "213", -- Unused loop variable
-    "22", -- Variable never accessed / set (common: destructuring multi-returns)
-    "24", -- Variable mutated but never accessed
+    "221", -- Variable never set (common: destructuring multi-returns)
     "311", -- Value assigned to variable is unused (common: multi-return)
     "431", -- Shadowing upvalue (common: nested self in WoW callbacks)
     "432", -- Shadowing upvalue argument (common: nested self in WoW callbacks)
