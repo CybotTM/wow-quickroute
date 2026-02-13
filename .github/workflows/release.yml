@@ -87,25 +87,27 @@ jobs:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          # Get game version ID for WoW Retail
-          GAME_VERSIONS=$(curl -s -H "X-Api-Token: ${CF_API_KEY}" \
+          # Read Interface version from TOC (e.g. 120001)
+          TOC_API=$(grep -oP '## Interface:\s*\K\d+' QuickRoute/QuickRoute.toc)
+          echo "TOC Interface version: ${TOC_API}"
+          # Find matching CurseForge game version ID by apiVersion
+          GAME_VERSION_ID=$(curl -s -H "X-Api-Token: ${CF_API_KEY}" \
             "https://wow.curseforge.com/api/game/versions" | \
             python3 -c "
           import json, sys
           versions = json.load(sys.stdin)
-          # Find the latest retail version
-          retail = [v for v in versions if v.get('gameVersionTypeID') == 517]
-          if retail:
-              # Sort by name descending, pick first
-              retail.sort(key=lambda v: v['name'], reverse=True)
-              print(retail[0]['id'])
+          toc_api = '${TOC_API}'
+          # Match by apiVersion field (e.g. '120001')
+          match = [v for v in versions if v.get('apiVersion') == toc_api]
+          if match:
+              print(match[0]['id'])
           else:
-              # Fallback: use first available
-              print(versions[0]['id'])
+              # Fallback: highest ID among retail versions (gameVersionTypeID=517)
+              retail = [v for v in versions if v.get('gameVersionTypeID') == 517]
+              retail.sort(key=lambda v: v['id'], reverse=True)
+              print(retail[0]['id'])
           ")
-          echo "Using game version ID: ${GAME_VERSIONS}"
-          # Read changelog
-          CHANGELOG=$(cat /tmp/release-notes.md)
+          echo "CurseForge game version ID: ${GAME_VERSION_ID}"
           # Build metadata JSON
           METADATA=$(python3 -c "
           import json
@@ -113,7 +115,7 @@ jobs:
               'changelog': open('/tmp/release-notes.md').read(),
               'changelogType': 'markdown',
               'displayName': 'QuickRoute v${VERSION}',
-              'gameVersions': [int('${GAME_VERSIONS}')],
+              'gameVersions': [int('${GAME_VERSION_ID}')],
               'releaseType': 'release'
           }))
           ")
