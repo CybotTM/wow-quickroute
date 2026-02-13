@@ -152,6 +152,8 @@ ignore = {
     "211", -- Unused local variable (common: cached globals, ADDON_NAME)
     "212", -- Unused argument (common in callbacks)
     "213", -- Unused loop variable
+    "431", -- Shadowing upvalue (common: nested self in WoW callbacks)
+    "432", -- Shadowing upvalue argument (common: nested self in WoW callbacks)
     "631", -- Line too long
 }
 

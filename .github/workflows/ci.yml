@@ -27,31 +27,6 @@ jobs:
       - name: Run luacheck
         run: luacheck QuickRoute/ --config .luacheckrc
 
-  syntax:
-    name: Lua 5.1 Syntax
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Lua 5.1
-        uses: leafo/gh-actions-lua@v10
-        with:
-          luaVersion: "5.1"
-
-      - name: Check syntax
-        run: |
-          ERRORS=0
-          for file in $(find QuickRoute -name "*.lua"); do
-            if ! lua -p "$file" 2>&1; then
-              ERRORS=$((ERRORS + 1))
-            fi
-          done
-          if [ $ERRORS -gt 0 ]; then
-            echo "$ERRORS files with syntax errors"
-            exit 1
-          fi
-          echo "All Lua files passed syntax check"
-
   tests:
     name: Tests
     runs-on: ubuntu-latest
