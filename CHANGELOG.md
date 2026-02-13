@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.1] - 2026-02-13
+
+### Improved
+- Debug output is now markdown-formatted for direct pasting into GitHub issues
+- Debug info header includes WoW version, build number, locale, and date
+- Teleport list and module status use collapsible sections to keep pastes compact
+- Errors and warnings promoted to their own visible section in debug output
+
+### Added
+- `/qrdebug copy` subcommand to open the Copy Debug popup directly
+- "Debug info" field in bug report issue template with paste instructions
+- Wago.io automated publishing in release workflow
+- GitHub issue templates (bug report, feature request, new teleport)
+- Pull request template
+- CHANGELOG.md
+
 ## [1.0.0] - 2026-02-13
 
 ### Added
