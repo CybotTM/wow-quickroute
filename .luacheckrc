@@ -83,6 +83,11 @@ globals = {
     "ShoppingTooltip1",
     "ShoppingTooltip2",
     "MinimalSliderWithSteppersMixin",
+    "CLOSE",
+
+    -- WoW API functions (equipment/achievement)
+    "EquipItemByName",
+    "GetAchievementInfo",
 
     -- WoW constants
     "NUM_BAG_SLOTS",
@@ -152,8 +157,11 @@ ignore = {
     "211", -- Unused local variable (common: cached globals, ADDON_NAME)
     "212", -- Unused argument (common in callbacks)
     "213", -- Unused loop variable
+    "221", -- Variable never accessed (common: destructuring returns)
+    "311", -- Value assigned to variable is unused (common: multi-return)
     "431", -- Shadowing upvalue (common: nested self in WoW callbacks)
     "432", -- Shadowing upvalue argument (common: nested self in WoW callbacks)
+    "512", -- Loop executed at most once (pattern: for with early return)
     "631", -- Line too long
 }
 
