@@ -6,7 +6,7 @@
 ## SavedVariables: QuickRouteDB
 ## OptionalDeps: TomTom
 ## X-Category: Map
-## X-Website: https://github.com/cybot/wow-pathfinder
+## X-Website: https://github.com/CybotTM/wow-quickroute
 ## X-Curse-Project-ID:
 ## X-WoWI-ID:
 ## X-Wago-ID:
