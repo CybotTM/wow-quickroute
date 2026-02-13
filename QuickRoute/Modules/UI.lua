@@ -438,7 +438,6 @@ function UI:RefreshRoute()
             local questWP = QR.WaypointIntegration:GetSuperTrackedWaypoint()
             if questWP then
                 waypoint = questWP
-                waypointSource = "quest"
             end
         end
         if not waypoint then

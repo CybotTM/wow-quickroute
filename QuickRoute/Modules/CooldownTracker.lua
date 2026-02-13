@@ -31,11 +31,11 @@ local CooldownTracker = QR.CooldownTracker
 -- @param itemID number The item ID to check
 -- @return table {ready=bool, remaining=seconds, start=number, duration=number}
 function CooldownTracker:GetItemCooldown(itemID)
-    local start, duration, _enable
+    local start, duration
     if GetItemCooldown then
-        start, duration, _enable = GetItemCooldown(itemID)
+        start, duration = GetItemCooldown(itemID)
     elseif C_Container and C_Container.GetItemCooldown then
-        start, duration, _enable = C_Container.GetItemCooldown(itemID)
+        start, duration = C_Container.GetItemCooldown(itemID)
     end
 
     local remaining = 0
