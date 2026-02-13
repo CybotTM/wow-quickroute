@@ -13,7 +13,15 @@ externals:
 
 ignore:
   - README.md
+  - AGENTS.md
+  - LICENSE
   - .gitignore
+  - .luacheckrc
+  - .github
+  - docs
+  - scripts
+  - tests
   - Tests
+  - "*.png"
 
 enable-nolib-creation: yes
