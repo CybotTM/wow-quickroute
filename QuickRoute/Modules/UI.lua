@@ -1045,17 +1045,18 @@ end
 --- Append player class/faction/map info to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendPlayerDebugInfo(lines)
-    table_insert(lines, "--- Player Info ---")
+    table_insert(lines, "### Player")
+    table_insert(lines, "")
     local _, playerClass = UnitClass("player")
     local playerFaction = UnitFactionGroup("player")
-    table_insert(lines, "Class: " .. tostring(playerClass))
-    table_insert(lines, "Faction: " .. tostring(playerFaction))
     local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
-    table_insert(lines, "Current MapID: " .. tostring(playerMapID))
     local mapInfo = playerMapID and C_Map.GetMapInfo(playerMapID)
-    if mapInfo then
-        table_insert(lines, "Current Zone: " .. tostring(mapInfo.name))
-    end
+    local zoneName = mapInfo and mapInfo.name or "?"
+    table_insert(lines, "| | |")
+    table_insert(lines, "|---|---|")
+    table_insert(lines, "| Class | " .. tostring(playerClass) .. " |")
+    table_insert(lines, "| Faction | " .. tostring(playerFaction) .. " |")
+    table_insert(lines, "| Current Zone | " .. zoneName .. " (MapID " .. tostring(playerMapID) .. ") |")
     table_insert(lines, "")
 end
 
@@ -1063,54 +1064,52 @@ end
 -- @param lines table The lines table to append to
 -- @return table|nil waypoint The active waypoint (for use by other debug sections)
 function UI:AppendWaypointDebugInfo(lines)
-    table_insert(lines, "--- Waypoint Detection ---")
+    table_insert(lines, "### Waypoint Detection")
+    table_insert(lines, "")
+    table_insert(lines, "```")
     local hasUserWP = C_Map.HasUserWaypoint and C_Map.HasUserWaypoint()
-    table_insert(lines, "C_Map.HasUserWaypoint(): " .. tostring(hasUserWP))
+    table_insert(lines, "Map Pin: " .. tostring(hasUserWP))
 
     if hasUserWP then
         local point = C_Map.GetUserWaypoint()
         if point then
-            table_insert(lines, "  uiMapID: " .. tostring(point.uiMapID))
-            if point.position then
-                table_insert(lines, string_format("  position: (%.4f, %.4f)", point.position.x or 0, point.position.y or 0))
-            end
-            -- Get destination zone name
-            if point.uiMapID then
-                local destMapInfo = C_Map.GetMapInfo(point.uiMapID)
-                if destMapInfo then
-                    table_insert(lines, "  Zone name: " .. tostring(destMapInfo.name))
-                end
-            end
+            local destMapInfo = point.uiMapID and C_Map.GetMapInfo(point.uiMapID)
+            table_insert(lines, string_format("  -> %s (MapID %s) at (%.4f, %.4f)",
+                destMapInfo and destMapInfo.name or "?",
+                tostring(point.uiMapID),
+                point.position and point.position.x or 0,
+                point.position and point.position.y or 0))
         end
     end
 
     -- TomTom
-    table_insert(lines, "TomTom loaded: " .. tostring(TomTom ~= nil))
+    table_insert(lines, "TomTom: " .. tostring(TomTom ~= nil))
     if TomTom then
         local uid = TomTom.GetClosestWaypoint and TomTom:GetClosestWaypoint()
-        table_insert(lines, "  GetClosestWaypoint: " .. tostring(uid) .. " (type: " .. type(uid) .. ")")
+        table_insert(lines, "  -> Waypoint: " .. tostring(uid) .. " (" .. type(uid) .. ")")
     end
 
     -- Super-tracked quest
     local questID = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
-    table_insert(lines, "Super-tracked quest: " .. tostring(questID))
+    table_insert(lines, "Super-tracked Quest: " .. tostring(questID))
+    table_insert(lines, "```")
 
     -- Final waypoint result
     table_insert(lines, "")
-    table_insert(lines, "--- Active Waypoint ---")
+    table_insert(lines, "**Active Waypoint:**")
     local waypoint, source = QR.WaypointIntegration:GetActiveWaypoint()
     if waypoint then
-        table_insert(lines, "Source: " .. tostring(source))
-        table_insert(lines, "Title: " .. tostring(waypoint.title))
-        table_insert(lines, "MapID: " .. tostring(waypoint.mapID))
-        table_insert(lines, string_format("Position: (%.4f, %.4f)", waypoint.x or 0, waypoint.y or 0))
-        local destMapInfo = C_Map.GetMapInfo(waypoint.mapID)
-        if destMapInfo then
-            table_insert(lines, "Destination Zone: " .. tostring(destMapInfo.name))
-        end
+        local destMapInfo = waypoint.mapID and C_Map.GetMapInfo(waypoint.mapID)
+        table_insert(lines, string_format("> **%s** (%s) — source: `%s`, MapID %s at (%.4f, %.4f)",
+            waypoint.title or "?",
+            destMapInfo and destMapInfo.name or "?",
+            tostring(source),
+            tostring(waypoint.mapID),
+            waypoint.x or 0, waypoint.y or 0))
     else
-        table_insert(lines, "No waypoint detected")
+        table_insert(lines, "> None detected")
     end
+    table_insert(lines, "")
 
     return waypoint
 end
@@ -1118,22 +1117,9 @@ end
 --- Append available teleports listing to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendTeleportDebugInfo(lines)
+    table_insert(lines, "### Teleports")
     table_insert(lines, "")
-    table_insert(lines, "--- Available Teleports (Detailed) ---")
     if QR.PlayerInventory then
-        -- First, check data sources
-        local dataCount = 0
-        if QR.TeleportItemsData then
-            for _ in pairs(QR.TeleportItemsData) do dataCount = dataCount + 1 end
-        end
-        table_insert(lines, "TeleportItemsData entries: " .. dataCount)
-
-        local classSpellCount = 0
-        if QR.ClassTeleportSpells then
-            for _ in pairs(QR.ClassTeleportSpells) do classSpellCount = classSpellCount + 1 end
-        end
-        table_insert(lines, "ClassTeleportSpells entries: " .. classSpellCount)
-
         -- Count raw inventory
         local rawItems, rawToys, rawSpells = 0, 0, 0
         if QR.PlayerInventory.teleportItems then
@@ -1145,377 +1131,348 @@ function UI:AppendTeleportDebugInfo(lines)
         if QR.PlayerInventory.spells then
             for _ in pairs(QR.PlayerInventory.spells) do rawSpells = rawSpells + 1 end
         end
-        table_insert(lines, string_format("Raw inventory: %d items, %d toys, %d spells", rawItems, rawToys, rawSpells))
-        table_insert(lines, "")
 
         -- List all teleports with full details
         local teleports = QR.PlayerInventory:GetAllTeleports()
         local count = 0
+        local teleportLines = {}
         for id, entry in pairs(teleports) do
             count = count + 1
-            local cdInfo = ""
+            local cdInfo = "?"
             if QR.CooldownTracker then
                 local cdData = QR.CooldownTracker:GetItemCooldown(id)
                 if cdData and cdData.remaining and cdData.remaining > 0 then
-                    cdInfo = " [CD: " .. QR.CooldownTracker:FormatTime(cdData.remaining) .. "]"
+                    cdInfo = QR.CooldownTracker:FormatTime(cdData.remaining)
                 else
-                    cdInfo = " [READY]"
+                    cdInfo = "Ready"
                 end
             end
-            -- entry.data contains the actual teleport info
             local teleportData = entry.data
             if teleportData then
-                local name = teleportData.name or "nil"
-                local dest = teleportData.destination or "nil"
-                local destMap = teleportData.mapID
-                local teleType = teleportData.type or "nil"
-                table_insert(lines, string_format("  %d. ID=%s src=%s type=%s",
-                    count, tostring(id), entry.sourceType or "?", tostring(teleType)))
-                table_insert(lines, string_format("      name=%s dest=%s mapID=%s%s",
-                    name, dest, tostring(destMap), cdInfo))
+                table_insert(teleportLines, string_format("| %s | %s | %s | %s | %s |",
+                    tostring(id),
+                    entry.sourceType or "?",
+                    teleportData.name or "?",
+                    teleportData.destination or "?",
+                    cdInfo))
             else
-                table_insert(lines, string_format("  %d. ID=%s src=%s DATA=NIL%s",
-                    count, tostring(id), entry.sourceType or "?", cdInfo))
-                -- Try to look up in data tables directly
-                local directLookup = QR.TeleportItemsData and QR.TeleportItemsData[id]
-                local spellLookup = QR.ClassTeleportSpells and QR.ClassTeleportSpells[id]
-                if directLookup then
-                    table_insert(lines, "      (Found in TeleportItemsData: " .. tostring(directLookup.name) .. ")")
-                elseif spellLookup then
-                    table_insert(lines, "      (Found in ClassTeleportSpells: " .. tostring(spellLookup.name) .. ")")
-                else
-                    table_insert(lines, "      (NOT found in any data table)")
-                end
+                table_insert(teleportLines, string_format("| %s | %s | (no data) | - | %s |",
+                    tostring(id), entry.sourceType or "?", cdInfo))
             end
         end
+
+        table_insert(lines, string_format("**%d** teleports (%d items, %d toys, %d spells)", count, rawItems, rawToys, rawSpells))
         table_insert(lines, "")
-        table_insert(lines, "Total teleports: " .. count)
+
+        if count > 0 then
+            table_insert(lines, "<details>")
+            table_insert(lines, "<summary>Teleport list</summary>")
+            table_insert(lines, "")
+            table_insert(lines, "| ID | Source | Name | Destination | Cooldown |")
+            table_insert(lines, "|---|---|---|---|---|")
+            for _, line in ipairs(teleportLines) do
+                table_insert(lines, line)
+            end
+            table_insert(lines, "")
+            table_insert(lines, "</details>")
+        end
     else
         table_insert(lines, "PlayerInventory module not loaded")
     end
+    table_insert(lines, "")
 end
 
 --- Append available portals info to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendPortalDebugInfo(lines)
+    table_insert(lines, "### Portals")
     table_insert(lines, "")
-    table_insert(lines, "--- Available Portals ---")
     if QR.GetAvailablePortals then
         local portals = QR:GetAvailablePortals()
         if portals.hubs then
             local hubCount = 0
+            table_insert(lines, "```")
             for hubName, hubData in pairs(portals.hubs) do
                 hubCount = hubCount + 1
-                table_insert(lines, string_format("  Hub: %s (MapID: %s) - %d portals",
+                table_insert(lines, string_format("Hub: %s (MapID %s) - %d portals",
                     hubName, tostring(hubData.mapID), #hubData.portals))
             end
-            table_insert(lines, "Total hubs: " .. hubCount)
-        end
-        if portals.standalone then
-            table_insert(lines, "Standalone portals: " .. #portals.standalone)
+            table_insert(lines, string_format("Total: %d hubs, %d standalone",
+                hubCount, portals.standalone and #portals.standalone or 0))
+            table_insert(lines, "```")
         end
     else
-        table_insert(lines, "GetAvailablePortals not available")
+        table_insert(lines, "`GetAvailablePortals` not available")
     end
+    table_insert(lines, "")
 end
 
 --- Append graph info and path calculation to debug lines
 -- @param lines table The lines table to append to
 -- @param waypoint table|nil The active waypoint
 function UI:AppendPathDebugInfo(lines, waypoint)
+    table_insert(lines, "### Path Calculation")
     table_insert(lines, "")
-    table_insert(lines, "--- Path Calculation ---")
     if waypoint then
-        -- Read existing graph state (debug should be read-only, no rebuild)
-        if QR.PathCalculator and not QR.PathCalculator.graph then
-            table_insert(lines, "Graph not yet built (run Refresh to build)")
-        end
-
-        -- Try to calculate path
         if QR.PathCalculator then
-            table_insert(lines, "Graph built: " .. tostring(QR.PathCalculator.graph ~= nil))
-
-            if QR.PathCalculator.graph then
-                -- Count nodes
-                local nodeCount = 0
-                for _ in pairs(QR.PathCalculator.graph.nodes or {}) do
-                    nodeCount = nodeCount + 1
-                end
-                table_insert(lines, "Graph nodes: " .. nodeCount)
-
-                -- Count edges and show same-map connections
-                local edgeCount = 0
-                local sameMapEdges = 0
-                for fromNode, edges in pairs(QR.PathCalculator.graph.edges or {}) do
-                    for toNode, edge in pairs(edges) do
-                        edgeCount = edgeCount + 1
-                        if edge.data and edge.data.autoConnected then
-                            sameMapEdges = sameMapEdges + 1
-                        end
-                    end
-                end
-                table_insert(lines, "Graph edges: " .. edgeCount .. " (same-map auto: " .. sameMapEdges .. ")")
-
-                -- Show nodes on destination map and Stormwind (84) for debugging path
+            local graphBuilt = QR.PathCalculator.graph ~= nil
+            if not graphBuilt then
+                table_insert(lines, "> Graph not yet built (run Refresh)")
                 table_insert(lines, "")
-                table_insert(lines, "Nodes on key maps:")
-                local keyMaps = {84, 371, waypoint.mapID}  -- Stormwind, Jade Forest, destination
-                for _, checkMapID in ipairs(keyMaps) do
-                    local nodesOnMap = {}
-                    for nodeName, nodeData in pairs(QR.PathCalculator.graph.nodes) do
-                        if nodeData.mapID == checkMapID then
-                            table_insert(nodesOnMap, nodeName)
-                        end
-                    end
-                    local mapInfo = C_Map.GetMapInfo(checkMapID)
-                    table_insert(lines, string_format("  MapID %d (%s): %d nodes",
-                        checkMapID, mapInfo and mapInfo.name or "?", #nodesOnMap))
-                    for _, name in ipairs(nodesOnMap) do
-                        table_insert(lines, "    - " .. name)
-                    end
-                end
+                return
             end
 
+            -- Count nodes/edges
+            local nodeCount = 0
+            for _ in pairs(QR.PathCalculator.graph.nodes or {}) do
+                nodeCount = nodeCount + 1
+            end
+            local edgeCount = 0
+            for _, edges in pairs(QR.PathCalculator.graph.edges or {}) do
+                for _ in pairs(edges) do edgeCount = edgeCount + 1 end
+            end
+            table_insert(lines, string_format("Graph: %d nodes, %d edges", nodeCount, edgeCount))
             table_insert(lines, "")
+
             local success, result = pcall(function()
                 return QR.PathCalculator:CalculatePath(waypoint.mapID, waypoint.x, waypoint.y)
             end)
 
             if not success then
-                table_insert(lines, "ERROR calculating path: " .. tostring(result))
+                table_insert(lines, "**ERROR:** `" .. tostring(result) .. "`")
             elseif result then
-                table_insert(lines, "Path found!")
-                table_insert(lines, "Total time: " .. (QR.CooldownTracker and QR.CooldownTracker:FormatTime(result.totalTime) or tostring(result.totalTime)))
-                table_insert(lines, "Steps: " .. (result.steps and #result.steps or 0))
+                local timeStr = QR.CooldownTracker and QR.CooldownTracker:FormatTime(result.totalTime) or tostring(result.totalTime)
+                table_insert(lines, string_format("**Route found** — %s (%d steps)",
+                    timeStr, result.steps and #result.steps or 0))
+                table_insert(lines, "")
+                table_insert(lines, "```")
                 if result.steps then
                     for i, step in ipairs(result.steps) do
-                        local timeStr = step.time and QR.CooldownTracker and QR.CooldownTracker:FormatTime(step.time) or "?"
-                        table_insert(lines, string_format("  %d. [%s] %s (%s)",
-                            i, step.type or "?", step.action or "?", timeStr))
+                        local stepTime = step.time and QR.CooldownTracker and QR.CooldownTracker:FormatTime(step.time) or "?"
+                        table_insert(lines, string_format("%d. [%s] %s (%s)",
+                            i, step.type or "?", step.action or "?", stepTime))
                     end
                 end
+                table_insert(lines, "```")
             else
-                table_insert(lines, "No path found (result is nil)")
-                table_insert(lines, "Reason: Destination may not be reachable with current teleports")
+                table_insert(lines, "> No path found — destination may not be reachable with current teleports")
             end
         else
-            table_insert(lines, "PathCalculator module not loaded")
+            table_insert(lines, "`PathCalculator` not loaded")
         end
     else
-        table_insert(lines, "Skipped - no waypoint to calculate path to")
+        table_insert(lines, "> No waypoint set — path calculation skipped")
     end
+    table_insert(lines, "")
 end
 
 --- Append cooldown status to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendCooldownDebugInfo(lines)
+    table_insert(lines, "### Cooldowns")
     table_insert(lines, "")
-    table_insert(lines, "--- Cooldown Status ---")
     if QR.CooldownTracker then
         local ready = QR.CooldownTracker:GetReadyTeleports()
         local readyCount = 0
         for _ in pairs(ready) do readyCount = readyCount + 1 end
-        table_insert(lines, "Ready teleports: " .. readyCount)
+        table_insert(lines, "Ready teleports: **" .. readyCount .. "**")
     else
-        table_insert(lines, "CooldownTracker not loaded")
+        table_insert(lines, "`CooldownTracker` not loaded")
     end
+    table_insert(lines, "")
 end
 
 --- Append zone adjacency info to debug lines
 -- @param lines table The lines table to append to
 -- @param waypoint table|nil The active waypoint
 function UI:AppendZoneDebugInfo(lines, waypoint)
+    table_insert(lines, "### Zone & Adjacency")
     table_insert(lines, "")
-    table_insert(lines, "--- Zone Adjacency Info ---")
-    table_insert(lines, "QR.Continents: " .. tostring(QR.Continents ~= nil))
-    table_insert(lines, "QR.ZoneToContinent: " .. tostring(QR.ZoneToContinent ~= nil))
-    table_insert(lines, "QR.ZoneAdjacencies: " .. tostring(QR.ZoneAdjacencies ~= nil))
-
     if waypoint and waypoint.mapID then
         local destContinent = QR.GetContinentForZone and QR.GetContinentForZone(waypoint.mapID)
-        table_insert(lines, "Destination continent: " .. tostring(destContinent))
-
+        local contName = "?"
         if destContinent and QR.Continents and QR.Continents[destContinent] then
-            local contData = QR.Continents[destContinent]
-            table_insert(lines, "  Continent name: " .. tostring(contData.name))
-            table_insert(lines, "  Hub mapID: " .. tostring(contData.hub))
+            contName = QR.Continents[destContinent].name or destContinent
         end
+        table_insert(lines, "Destination continent: **" .. contName .. "** (`" .. tostring(destContinent) .. "`)")
 
         -- Adjacent zones for destination
         local adjacent = QR.GetAdjacentZones and QR.GetAdjacentZones(waypoint.mapID) or {}
-        table_insert(lines, "Adjacent zones to destination: " .. #adjacent)
-        for i, adj in ipairs(adjacent) do
-            if i <= 5 then
-                table_insert(lines, string_format("  -> MapID %d (%ds travel)", adj.zone, adj.travelTime))
-            end
-        end
-
-        -- Nodes on same continent in graph
-        if QR.PathCalculator and QR.PathCalculator.graph then
-            local sameContinent = {}
-            for nodeName, nodeData in pairs(QR.PathCalculator.graph.nodes) do
-                if nodeData.mapID then
-                    local nodeContinent = QR.GetContinentForZone and QR.GetContinentForZone(nodeData.mapID)
-                    if nodeContinent == destContinent then
-                        table_insert(sameContinent, string_format("%s (map %d)", nodeName, nodeData.mapID))
-                    end
-                end
-            end
-            table_insert(lines, "Graph nodes on destination continent: " .. #sameContinent)
-            for i, name in ipairs(sameContinent) do
+        if #adjacent > 0 then
+            table_insert(lines, "")
+            table_insert(lines, "Adjacent zones: " .. #adjacent)
+            table_insert(lines, "```")
+            for i, adj in ipairs(adjacent) do
                 if i <= 8 then
-                    table_insert(lines, "  - " .. name)
+                    local adjInfo = C_Map.GetMapInfo(adj.zone)
+                    table_insert(lines, string_format("  %s (MapID %d) - %ds", adjInfo and adjInfo.name or "?", adj.zone, adj.travelTime))
                 end
             end
-            if #sameContinent > 8 then
-                table_insert(lines, "  ... and " .. (#sameContinent - 8) .. " more")
+            if #adjacent > 8 then
+                table_insert(lines, "  ... and " .. (#adjacent - 8) .. " more")
             end
+            table_insert(lines, "```")
+        else
+            table_insert(lines, "Adjacent zones: 0")
         end
+    else
+        table_insert(lines, "> No waypoint — zone info skipped")
     end
+    table_insert(lines, "")
 end
 
 --- Append module status to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendModuleDebugInfo(lines)
+    table_insert(lines, "<details>")
+    table_insert(lines, "<summary>Module & API Status</summary>")
     table_insert(lines, "")
-    table_insert(lines, "--- Module Status ---")
-    table_insert(lines, "QR.Graph: " .. tostring(QR.Graph ~= nil))
-    table_insert(lines, "QR.PathCalculator: " .. tostring(QR.PathCalculator ~= nil))
-    table_insert(lines, "QR.PlayerInventory: " .. tostring(QR.PlayerInventory ~= nil))
-    table_insert(lines, "QR.CooldownTracker: " .. tostring(QR.CooldownTracker ~= nil))
-    table_insert(lines, "QR.WaypointIntegration: " .. tostring(QR.WaypointIntegration ~= nil))
-    table_insert(lines, "QR.SecureButtons: " .. tostring(QR.SecureButtons ~= nil))
-    table_insert(lines, "QR.TeleportPanel: " .. tostring(QR.TeleportPanel ~= nil))
-    table_insert(lines, "QR.UI: " .. tostring(QR.UI ~= nil))
-    table_insert(lines, "QR.TeleportItemsData: " .. tostring(QR.TeleportItemsData ~= nil))
-    table_insert(lines, "QR.ClassTeleportSpells: " .. tostring(QR.ClassTeleportSpells ~= nil))
-    table_insert(lines, "QR.MageTeleports: " .. tostring(QR.MageTeleports ~= nil))
-    table_insert(lines, "QR.PortalHubs: " .. tostring(QR.PortalHubs ~= nil))
-    table_insert(lines, "QR.GetContinentForZone: " .. tostring(QR.GetContinentForZone ~= nil))
-    table_insert(lines, "QR.GetAdjacentZones: " .. tostring(QR.GetAdjacentZones ~= nil))
+    local modules = {
+        "Graph", "PathCalculator", "PlayerInventory", "CooldownTracker",
+        "WaypointIntegration", "SecureButtons", "TeleportPanel", "UI",
+        "TeleportItemsData", "ClassTeleportSpells", "MageTeleports", "PortalHubs",
+    }
+    local funcs = { "GetContinentForZone", "GetAdjacentZones" }
+    table_insert(lines, "| Module | Loaded |")
+    table_insert(lines, "|---|---|")
+    for _, m in ipairs(modules) do
+        local ok = QR[m] ~= nil and "Yes" or "No"
+        table_insert(lines, "| " .. m .. " | " .. ok .. " |")
+    end
+    for _, f in ipairs(funcs) do
+        local ok = QR[f] ~= nil and "Yes" or "No"
+        table_insert(lines, "| " .. f .. "() | " .. ok .. " |")
+    end
+    table_insert(lines, "")
 end
 
 --- Append WoW API availability to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendAPIDebugInfo(lines)
+    local apis = {
+        { "C_Map.GetBestMapForUnit",     C_Map and C_Map.GetBestMapForUnit },
+        { "C_Map.HasUserWaypoint",       C_Map and C_Map.HasUserWaypoint },
+        { "C_Map.SetUserWaypoint",       C_Map and C_Map.SetUserWaypoint },
+        { "C_SuperTrack",                C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID },
+        { "C_QuestLog.GetNextWaypointForMap", C_QuestLog and C_QuestLog.GetNextWaypointForMap },
+        { "C_Spell.GetSpellInfo",        C_Spell and C_Spell.GetSpellInfo },
+        { "UiMapPoint",                  UiMapPoint and UiMapPoint.CreateFromCoordinates },
+        { "GetItemInfo",                 GetItemInfo },
+        { "PlayerHasToy",               PlayerHasToy },
+        { "IsSpellKnown",               IsSpellKnown },
+    }
+    local missing = {}
+    for _, api in ipairs(apis) do
+        if not api[2] then table_insert(missing, api[1]) end
+    end
+    if #missing > 0 then
+        table_insert(lines, "**Missing APIs:** " .. table_concat(missing, ", "))
+    else
+        table_insert(lines, "All required WoW APIs available.")
+    end
     table_insert(lines, "")
-    table_insert(lines, "--- WoW API Availability ---")
-    table_insert(lines, "C_Map.GetBestMapForUnit: " .. tostring(C_Map and C_Map.GetBestMapForUnit ~= nil))
-    table_insert(lines, "C_Map.GetMapInfo: " .. tostring(C_Map and C_Map.GetMapInfo ~= nil))
-    table_insert(lines, "C_Map.HasUserWaypoint: " .. tostring(C_Map and C_Map.HasUserWaypoint ~= nil))
-    table_insert(lines, "C_Map.GetUserWaypoint: " .. tostring(C_Map and C_Map.GetUserWaypoint ~= nil))
-    table_insert(lines, "C_Map.SetUserWaypoint: " .. tostring(C_Map and C_Map.SetUserWaypoint ~= nil))
-    table_insert(lines, "UiMapPoint.CreateFromCoordinates: " .. tostring(UiMapPoint and UiMapPoint.CreateFromCoordinates ~= nil))
-    table_insert(lines, "C_SuperTrack.GetSuperTrackedQuestID: " .. tostring(C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID ~= nil))
-    table_insert(lines, "C_SuperTrack.SetSuperTrackedUserWaypoint: " .. tostring(C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint ~= nil))
-    table_insert(lines, "C_QuestLog.GetNextWaypointForMap: " .. tostring(C_QuestLog and C_QuestLog.GetNextWaypointForMap ~= nil))
-    table_insert(lines, "C_QuestLog.GetQuestsOnMap: " .. tostring(C_QuestLog and C_QuestLog.GetQuestsOnMap ~= nil))
-    table_insert(lines, "C_QuestLog.GetTitleForQuestID: " .. tostring(C_QuestLog and C_QuestLog.GetTitleForQuestID ~= nil))
-    table_insert(lines, "C_Spell.GetSpellInfo: " .. tostring(C_Spell and C_Spell.GetSpellInfo ~= nil))
-    table_insert(lines, "GetSpellLink: " .. tostring(GetSpellLink ~= nil))
-    table_insert(lines, "GetItemInfo: " .. tostring(GetItemInfo ~= nil))
-    table_insert(lines, "PlayerHasToy: " .. tostring(PlayerHasToy ~= nil))
-    table_insert(lines, "IsSpellKnown: " .. tostring(IsSpellKnown ~= nil))
-    table_insert(lines, "InCombatLockdown: " .. tostring(InCombatLockdown ~= nil))
 end
 
 --- Append SecureButtons pool status to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendSecureButtonDebugInfo(lines)
-    table_insert(lines, "")
-    table_insert(lines, "--- SecureButtons Status ---")
     if QR.SecureButtons then
         local inUse = 0
         local total = #(QR.SecureButtons.pool or {})
         for _, btn in ipairs(QR.SecureButtons.pool or {}) do
             if btn.inUse then inUse = inUse + 1 end
         end
-        table_insert(lines, "Pool size: " .. total)
-        table_insert(lines, "In use: " .. inUse)
-        table_insert(lines, "Available: " .. (total - inUse))
-        table_insert(lines, "InCombatLockdown: " .. tostring(InCombatLockdown()))
-    else
-        table_insert(lines, "SecureButtons module not loaded")
+        table_insert(lines, string_format("SecureButtons: %d/%d in use, combat=%s",
+            inUse, total, tostring(InCombatLockdown())))
     end
 end
 
 --- Append TeleportPanel status to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendPanelDebugInfo(lines)
-    table_insert(lines, "")
-    table_insert(lines, "--- TeleportPanel Status ---")
     if QR.TeleportPanel then
-        table_insert(lines, "Frame exists: " .. tostring(QR.TeleportPanel.frame ~= nil))
-        table_insert(lines, "isShowing: " .. tostring(QR.TeleportPanel.isShowing))
-        table_insert(lines, "currentFilter: " .. tostring(QR.TeleportPanel.currentFilter))
-        table_insert(lines, "Row pool size: " .. #(QR.TeleportPanel.rowPool or {}))
-        table_insert(lines, "Sorted teleports: " .. #(QR.TeleportPanel.sortedTeleports or {}))
-    else
-        table_insert(lines, "TeleportPanel module not loaded")
+        table_insert(lines, string_format("TeleportPanel: filter=%s, rows=%d, sorted=%d",
+            tostring(QR.TeleportPanel.currentFilter),
+            #(QR.TeleportPanel.rowPool or {}),
+            #(QR.TeleportPanel.sortedTeleports or {})))
     end
 end
 
 --- Append localization check to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendLocalizationCheckDebugInfo(lines)
-    table_insert(lines, "")
-    table_insert(lines, "--- Localization ---")
-    table_insert(lines, "GetLocale(): " .. tostring(GetLocale()))
-    table_insert(lines, "QR.L exists: " .. tostring(QR.L ~= nil))
-    if QR.L then
-        table_insert(lines, "L['REFRESH']: " .. tostring(QR.L["REFRESH"]))
-        table_insert(lines, "L['INVENTORY']: " .. tostring(QR.L["INVENTORY"]))
-    end
-
-    -- Combat button tracking
-    if self.combatDisabledButtons then
-        table_insert(lines, "")
-        table_insert(lines, "--- Combat Button Tracking ---")
-        local combatCount = 0
-        for _ in pairs(self.combatDisabledButtons) do combatCount = combatCount + 1 end
-        table_insert(lines, "Buttons disabled in combat: " .. combatCount)
-    end
+    -- Compact locale line (already in header as Locale)
 end
 
 --- Append cache status to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendCacheDebugInfo(lines)
-    table_insert(lines, "")
-    table_insert(lines, "--- Cache Status ---")
     local itemCacheCount = 0
     for _ in pairs(self.itemInfoCache or {}) do itemCacheCount = itemCacheCount + 1 end
     local spellCacheCount = 0
     for _ in pairs(self.spellInfoCache or {}) do spellCacheCount = spellCacheCount + 1 end
-    table_insert(lines, "Item info cache: " .. itemCacheCount .. " / " .. CACHE_MAX_SIZE)
-    table_insert(lines, "Spell info cache: " .. spellCacheCount .. " / " .. CACHE_MAX_SIZE)
+    table_insert(lines, string_format("Cache: %d/%d items, %d/%d spells",
+        itemCacheCount, CACHE_MAX_SIZE, spellCacheCount, CACHE_MAX_SIZE))
 end
 
 --- Append debug log entries to debug lines
 -- @param lines table The lines table to append to
 function UI:AppendLogDebugInfo(lines)
-    table_insert(lines, "")
-    table_insert(lines, "--- Debug Log (recent) ---")
     local logEntries = QR.GetLogEntries and QR:GetLogEntries() or {}
-    if #logEntries > 0 then
-        -- Show last 50 entries
-        local startIdx = math_max(1, #logEntries - 49)
-        for i = startIdx, #logEntries do
-            local entry = logEntries[i]
-            table_insert(lines, string_format("[%s] [%s] %s",
+    -- Only show WARN/ERROR entries + last 10 entries
+    local errors = {}
+    for _, entry in ipairs(logEntries) do
+        if entry.level == "ERROR" or entry.level == "WARN" then
+            table_insert(errors, entry)
+        end
+    end
+
+    if #errors > 0 then
+        table_insert(lines, "### Errors & Warnings")
+        table_insert(lines, "")
+        table_insert(lines, "```")
+        local startIdx = math_max(1, #errors - 19)
+        for i = startIdx, #errors do
+            local entry = errors[i]
+            table_insert(lines, string_format("[%s] %s: %s",
                 entry.time or "?", entry.level or "?", entry.msg or ""))
         end
-    else
-        table_insert(lines, "(no log entries)")
+        table_insert(lines, "```")
+        table_insert(lines, "")
     end
+
+    if #logEntries > 0 then
+        table_insert(lines, "<details>")
+        table_insert(lines, "<summary>Recent log (" .. #logEntries .. " entries)</summary>")
+        table_insert(lines, "")
+        table_insert(lines, "```")
+        local startIdx = math_max(1, #logEntries - 29)
+        for i = startIdx, #logEntries do
+            local entry = logEntries[i]
+            table_insert(lines, string_format("[%s] %s: %s",
+                entry.time or "?", entry.level or "?", entry.msg or ""))
+        end
+        table_insert(lines, "```")
+        table_insert(lines, "")
+        table_insert(lines, "</details>")
+    end
+    table_insert(lines, "")
 end
 
---- Generate debug info string
+--- Generate debug info string (markdown-formatted for GitHub issue pasting)
 function UI:GenerateDebugInfo()
     local lines = {}
-    table_insert(lines, "=== QuickRoute Debug Info ===")
-    table_insert(lines, "Version: " .. (QR.version or "1.0.0"))
-    table_insert(lines, "Interface: " .. tostring(select(4, GetBuildInfo())))
-    table_insert(lines, "Date: " .. date("%Y-%m-%d %H:%M:%S"))
+
+    -- Header with key system info
+    local wowVersion, wowBuild, _, tocVersion = GetBuildInfo()
+    table_insert(lines, "## QuickRoute Debug Info")
+    table_insert(lines, "")
+    table_insert(lines, "| | |")
+    table_insert(lines, "|---|---|")
+    table_insert(lines, "| QuickRoute | v" .. (QR.version or "?") .. " |")
+    table_insert(lines, "| WoW | " .. tostring(wowVersion) .. " (build " .. tostring(wowBuild) .. ", TOC " .. tostring(tocVersion) .. ") |")
+    table_insert(lines, "| Locale | " .. tostring(GetLocale()) .. " |")
+    table_insert(lines, "| Date | " .. date("%Y-%m-%d %H:%M:%S") .. " |")
     table_insert(lines, "")
 
     self:AppendPlayerDebugInfo(lines)
@@ -1531,21 +1488,10 @@ function UI:GenerateDebugInfo()
     self:AppendPanelDebugInfo(lines)
     self:AppendLocalizationCheckDebugInfo(lines)
     self:AppendCacheDebugInfo(lines)
+    table_insert(lines, "")
+    table_insert(lines, "</details>")
+    table_insert(lines, "")
     self:AppendLogDebugInfo(lines)
-
-    table_insert(lines, "")
-    table_insert(lines, "=== End Debug Info ===")
-
-    -- Append zone debug info
-    table_insert(lines, "")
-    local zoneSuccess, zoneInfo = pcall(function()
-        return self:GenerateZoneDebugInfo()
-    end)
-    if zoneSuccess and zoneInfo then
-        table_insert(lines, zoneInfo)
-    else
-        table_insert(lines, "ERROR generating zone debug: " .. tostring(zoneInfo))
-    end
 
     return table_concat(lines, "\n")
 end
@@ -1618,12 +1564,13 @@ function UI:CopyDebugToClipboard()
     self.copyFrame.editBox:SetFocus()
 end
 
---- Generate zone-specific debug info for pathfinding
+--- Generate zone-specific debug info for pathfinding (markdown-formatted)
 -- @return string Debug info text
 function UI:GenerateZoneDebugInfo()
     local lines = {}
-    table_insert(lines, "=== QuickRoute Zone/Path Debug ===")
-    table_insert(lines, "Date: " .. date("%Y-%m-%d %H:%M:%S"))
+    table_insert(lines, "## QuickRoute Zone/Path Debug")
+    table_insert(lines, "")
+    table_insert(lines, "*" .. date("%Y-%m-%d %H:%M:%S") .. "*")
     table_insert(lines, "")
 
     -- Get waypoint
@@ -1631,41 +1578,32 @@ function UI:GenerateZoneDebugInfo()
     local destMapID = waypoint and waypoint.mapID
 
     if not destMapID then
-        table_insert(lines, "No waypoint set - using current map")
+        table_insert(lines, "> No waypoint set — using current map")
+        table_insert(lines, "")
         destMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     end
 
     local mapInfo = destMapID and C_Map.GetMapInfo(destMapID)
-    table_insert(lines, string_format("Target MapID: %d (%s)", destMapID or 0, mapInfo and mapInfo.name or "unknown"))
+    table_insert(lines, string_format("**Target:** %s (MapID %d)", mapInfo and mapInfo.name or "unknown", destMapID or 0))
     table_insert(lines, "")
 
-    -- Zone Adjacency Data Check
-    table_insert(lines, "--- Zone Adjacency Data ---")
-    table_insert(lines, "QR.Continents loaded: " .. tostring(QR.Continents ~= nil))
-    table_insert(lines, "QR.ZoneToContinent loaded: " .. tostring(QR.ZoneToContinent ~= nil))
-    table_insert(lines, "QR.ZoneAdjacencies loaded: " .. tostring(QR.ZoneAdjacencies ~= nil))
-    table_insert(lines, "QR.GetContinentForZone: " .. tostring(type(QR.GetContinentForZone)))
-    table_insert(lines, "QR.GetAdjacentZones: " .. tostring(type(QR.GetAdjacentZones)))
+    -- Continent info
+    table_insert(lines, "### Continent & Adjacency")
     table_insert(lines, "")
-
-    -- Continent info for target
-    table_insert(lines, "--- Target Zone Continent ---")
     local continent = QR.GetContinentForZone and QR.GetContinentForZone(destMapID)
-    table_insert(lines, "Continent key: " .. tostring(continent))
 
     if continent and QR.Continents and QR.Continents[continent] then
         local contData = QR.Continents[continent]
-        table_insert(lines, "Continent name: " .. tostring(contData.name))
-        table_insert(lines, "Hub mapID: " .. tostring(contData.hub))
-        table_insert(lines, "Zone count: " .. (contData.zones and #contData.zones or 0))
+        table_insert(lines, string_format("Continent: **%s** (`%s`), hub MapID %s, %d zones",
+            tostring(contData.name), tostring(continent),
+            tostring(contData.hub), contData.zones and #contData.zones or 0))
     else
-        table_insert(lines, "ERROR: Continent data not found for this mapID!")
-        -- Try to find if mapID exists in any continent
+        table_insert(lines, "**ERROR:** Continent data not found for MapID " .. tostring(destMapID))
         if QR.Continents then
             for contKey, contData in pairs(QR.Continents) do
                 for _, zoneID in ipairs(contData.zones or {}) do
                     if zoneID == destMapID then
-                        table_insert(lines, "  Found in continent: " .. contKey .. " but lookup failed!")
+                        table_insert(lines, "> Found in `" .. contKey .. "` but lookup failed!")
                     end
                 end
             end
@@ -1674,61 +1612,66 @@ function UI:GenerateZoneDebugInfo()
     table_insert(lines, "")
 
     -- Adjacent zones
-    table_insert(lines, "--- Adjacent Zones ---")
     local adjacent = QR.GetAdjacentZones and QR.GetAdjacentZones(destMapID) or {}
-    table_insert(lines, "Count: " .. #adjacent)
-    for _, adj in ipairs(adjacent) do
-        local adjMapInfo = C_Map.GetMapInfo(adj.zone)
-        table_insert(lines, string_format("  MapID %d (%s) - %ds travel",
-            adj.zone, adjMapInfo and adjMapInfo.name or "?", adj.travelTime))
-    end
-    if #adjacent == 0 then
-        table_insert(lines, "  (none defined - check ZoneAdjacencies table)")
+    if #adjacent > 0 then
+        table_insert(lines, "**Adjacent zones:** " .. #adjacent)
+        table_insert(lines, "```")
+        for _, adj in ipairs(adjacent) do
+            local adjMapInfo = C_Map.GetMapInfo(adj.zone)
+            table_insert(lines, string_format("  %s (MapID %d) - %ds",
+                adjMapInfo and adjMapInfo.name or "?", adj.zone, adj.travelTime))
+        end
+        table_insert(lines, "```")
+    else
+        table_insert(lines, "**Adjacent zones:** none (check ZoneAdjacencies)")
     end
     table_insert(lines, "")
 
     -- Graph nodes on same continent
-    table_insert(lines, "--- Graph Nodes on Same Continent ---")
+    table_insert(lines, "### Graph Nodes on Continent")
+    table_insert(lines, "")
     if QR.PathCalculator then
         if not QR.PathCalculator.graph then
-            table_insert(lines, "Graph not built yet - run Refresh to build")
-        end
-
-        local sameContinent = {}
-        local adjacentNodeFound = false
-        for nodeName, nodeData in pairs(QR.PathCalculator.graph.nodes or {}) do
-            if nodeData.mapID then
-                local nodeContinent = QR.GetContinentForZone and QR.GetContinentForZone(nodeData.mapID)
-                if nodeContinent == continent then
-                    local adjInfo = ""
-                    -- Check if this node is in an adjacent zone
-                    for _, adj in ipairs(adjacent) do
-                        if nodeData.mapID == adj.zone then
-                            adjInfo = " [ADJACENT - should connect!]"
-                            adjacentNodeFound = true
+            table_insert(lines, "> Graph not built yet — click Refresh")
+        else
+            local sameContinent = {}
+            local adjacentNodeFound = false
+            for nodeName, nodeData in pairs(QR.PathCalculator.graph.nodes or {}) do
+                if nodeData.mapID then
+                    local nodeContinent = QR.GetContinentForZone and QR.GetContinentForZone(nodeData.mapID)
+                    if nodeContinent == continent then
+                        local adjInfo = ""
+                        for _, adj in ipairs(adjacent) do
+                            if nodeData.mapID == adj.zone then
+                                adjInfo = " **[ADJACENT]**"
+                                adjacentNodeFound = true
+                            end
                         end
+                        table_insert(sameContinent, string_format("- %s (MapID %d)%s", nodeName, nodeData.mapID, adjInfo))
                     end
-                    table_insert(sameContinent, string_format("%s (map %d)%s", nodeName, nodeData.mapID, adjInfo))
                 end
             end
-        end
-        table_insert(lines, "Total: " .. #sameContinent)
-        for _, name in ipairs(sameContinent) do
-            table_insert(lines, "  - " .. name)
-        end
+            table_insert(lines, "Nodes: **" .. #sameContinent .. "**")
+            if #sameContinent > 0 then
+                table_insert(lines, "")
+                for _, name in ipairs(sameContinent) do
+                    table_insert(lines, name)
+                end
+            end
 
-        if not adjacentNodeFound and #adjacent > 0 then
-            table_insert(lines, "")
-            table_insert(lines, "WARNING: No graph nodes in adjacent zones!")
-            table_insert(lines, "This means destination cannot be connected via adjacency.")
+            if not adjacentNodeFound and #adjacent > 0 then
+                table_insert(lines, "")
+                table_insert(lines, "> **WARNING:** No graph nodes in adjacent zones! Destination cannot be connected via adjacency.")
+            end
         end
     else
-        table_insert(lines, "PathCalculator not loaded")
+        table_insert(lines, "`PathCalculator` not loaded")
     end
     table_insert(lines, "")
 
     -- Test path calculation
-    table_insert(lines, "--- Path Calculation Test ---")
+    table_insert(lines, "### Path Calculation Test")
+    table_insert(lines, "")
     if waypoint and QR.PathCalculator then
         local oldDebug = QR.debugMode
         local oldGraphDirty = QR.PathCalculator.graphDirty
@@ -1743,28 +1686,23 @@ function UI:GenerateZoneDebugInfo()
         QR.PathCalculator.graphDirty = oldGraphDirty
 
         if not success then
-            table_insert(lines, "ERROR: " .. tostring(result))
+            table_insert(lines, "**ERROR:** `" .. tostring(result) .. "`")
         elseif result then
-            table_insert(lines, "SUCCESS! Path found.")
-            table_insert(lines, "Total time: " .. tostring(result.totalTime) .. "s")
-            table_insert(lines, "Steps:")
-            for i, step in ipairs(result.steps or {}) do
-                table_insert(lines, string_format("  %d. [%s] %s", i, step.type or "?", step.action or "?"))
-            end
-        else
-            table_insert(lines, "FAILED: No path found (result is nil)")
+            table_insert(lines, string_format("**Path found** — %ss total", tostring(result.totalTime)))
             table_insert(lines, "")
-            table_insert(lines, "Possible reasons:")
-            table_insert(lines, "  - No portal goes to this continent")
-            table_insert(lines, "  - No nodes in adjacent zones to connect to")
-            table_insert(lines, "  - ZoneAdjacency data missing for this zone")
+            table_insert(lines, "```")
+            for i, step in ipairs(result.steps or {}) do
+                table_insert(lines, string_format("%d. [%s] %s", i, step.type or "?", step.action or "?"))
+            end
+            table_insert(lines, "```")
+        else
+            table_insert(lines, "> **No path found**")
+            table_insert(lines, ">")
+            table_insert(lines, "> Possible reasons: no portal to this continent, no adjacent zone nodes, missing ZoneAdjacency data")
         end
     else
-        table_insert(lines, "Skipped - no waypoint or PathCalculator")
+        table_insert(lines, "> Skipped — no waypoint or PathCalculator")
     end
-
-    table_insert(lines, "")
-    table_insert(lines, "=== End Zone Debug ===")
 
     return table_concat(lines, "\n")
 end

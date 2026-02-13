@@ -701,8 +701,18 @@ end
 -------------------------------------------------------------------------------
 
 --- Debug command to show what waypoint sources are detected
+--- Use "copy" subcommand to open the copy-paste debug popup
 SLASH_QRDEBUG1 = "/qrdebug"
 SlashCmdList["QRDEBUG"] = function(msg)
+    -- /qrdebug copy → open the Copy Debug popup (markdown, ready for GitHub issues)
+    if msg and msg:lower():find("copy") then
+        if QR.UI and QR.UI.CopyDebugToClipboard then
+            QR.UI:CopyDebugToClipboard()
+        else
+            print("|cFFFF0000QuickRoute|r: UI not loaded yet")
+        end
+        return
+    end
     print("|cFF00FF00QuickRoute|r: Waypoint Detection Debug")
     print("----------------------------------------")
 
@@ -829,6 +839,8 @@ SlashCmdList["QRDEBUG"] = function(msg)
     else
         print("|cFFFF0000RESULT:|r No waypoint detected")
     end
+    print("")
+    print("|cFF888888Tip: Use |cFFFFFF00/qrdebug copy|r|cFF888888 or the Copy Debug button for full diagnostics (markdown, ready for bug reports)|r")
 end
 
 SLASH_QRWP1 = "/qrwp"

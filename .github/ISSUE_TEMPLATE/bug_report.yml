@@ -32,23 +32,21 @@ body:
     id: version
     attributes:
       label: QuickRoute version
-      description: "Check with /qr version or in AddOns list"
+      description: "If you can't paste debug info above, enter the version manually"
       placeholder: "1.0.0"
-    validations:
-      required: true
-  - type: dropdown
-    id: wow_version
+  - type: textarea
+    id: debug_info
     attributes:
-      label: WoW version
-      options:
-        - Retail (The War Within)
-    validations:
-      required: true
+      label: Debug info
+      description: |
+        Click **Copy Debug** in the QuickRoute window (or type `/qrdebug copy`), then paste here.
+        The output is pre-formatted markdown — just paste it as-is.
+      render: markdown
   - type: textarea
     id: lua_errors
     attributes:
       label: Lua errors (if any)
-      description: Paste any error messages from BugSack/BugGrabber or /qrdebug
+      description: Paste any error messages from BugSack/BugGrabber
       render: text
   - type: textarea
     id: extra

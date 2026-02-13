@@ -748,6 +748,11 @@ function MockWoW:Install()
         return cfg.locale
     end
 
+    -- GetBuildInfo: returns version, build, date, tocVersion
+    _G.GetBuildInfo = function()
+        return "12.0.1", "58238", "Feb 12 2026", 120001
+    end
+
     -- GetTime (monotonic seconds)
     _G.GetTime = function()
         return cfg.baseTime
