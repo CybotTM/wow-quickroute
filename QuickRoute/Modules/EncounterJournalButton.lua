@@ -114,9 +114,15 @@ function EJB:UpdateButton()
         return
     end
 
-    -- Check if there is a valid instance displayed
+    -- Check if there is a valid instance displayed (not a boss encounter view)
     local instanceID = EncounterJournal.instanceID
     if not instanceID then
+        self.button:Hide()
+        return
+    end
+
+    -- Hide when viewing a specific boss encounter (only show on instance overview)
+    if EncounterJournal.encounterID then
         self.button:Hide()
         return
     end

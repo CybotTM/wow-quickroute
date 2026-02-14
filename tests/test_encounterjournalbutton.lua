@@ -26,6 +26,7 @@ local function resetState()
         _G.EncounterJournal = CreateFrame("Frame", "EncounterJournal")
     end
     _G.EncounterJournal.instanceID = nil
+    _G.EncounterJournal.encounterID = nil
     _G.EncounterJournal._shown = false
 
     -- Ensure EncounterJournal_DisplayInstance exists
@@ -169,6 +170,26 @@ T:run("EJButton: UpdateButton hides button for unknown instanceID", function(t)
 
     EJB:UpdateButton()
     t:assertFalse(EJB.button:IsShown(), "Button hidden for unknown instanceID")
+end)
+
+T:run("EJButton: UpdateButton hides button when viewing boss encounter", function(t)
+    resetState()
+    local EJB = QR.EncounterJournalButton
+
+    EJB:CreateButton()
+
+    -- EJ shown with valid instanceID AND encounterID (boss view)
+    _G.EncounterJournal._shown = true
+    _G.EncounterJournal.instanceID = 226
+    _G.EncounterJournal.encounterID = 12345
+
+    EJB:UpdateButton()
+    t:assertFalse(EJB.button:IsShown(), "Button hidden when viewing boss encounter")
+
+    -- Clear encounterID (back to instance overview) - button should show
+    _G.EncounterJournal.encounterID = nil
+    EJB:UpdateButton()
+    t:assertTrue(EJB.button:IsShown(), "Button shown when back to instance overview")
 end)
 
 T:run("EJButton: UpdateButton does nothing without button", function(t)
