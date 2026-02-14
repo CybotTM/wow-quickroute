@@ -131,6 +131,9 @@ local CAPITAL_CITIES = {
     ["Dornogal"] = {mapID = 2339, x = 0.4850, y = 0.5520, faction = "both"},
 }
 
+-- Expose for DestinationSearch module
+QR.CAPITAL_CITIES = CAPITAL_CITIES
+
 -------------------------------------------------------------------------------
 -- Graph Building Methods
 -------------------------------------------------------------------------------

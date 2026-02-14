@@ -199,6 +199,14 @@ L["DUNGEON_RAID_TAG"] = "Raid"
 L["DUNGEON_ENTRANCE"] = "%s Entrance"
 L["EJ_ROUTE_BUTTON_TT"] = "Route to this instance entrance"
 
+-- Destination Search
+L["DEST_SEARCH_PLACEHOLDER"] = "Search destinations..."
+L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "Active Waypoint"
+L["DEST_SEARCH_CITIES"] = "Cities"
+L["DEST_SEARCH_DUNGEONS"] = "Dungeons & Raids"
+L["DEST_SEARCH_NO_RESULTS"] = "No matching destinations"
+L["DEST_SEARCH_ROUTE_TO_TT"] = "Click to calculate route"
+
 -- Errors / Hints
 L["UNKNOWN"] = "Unknown"
 L["UNKNOWN_VENDOR"] = "Unknown vendor"
@@ -466,6 +474,14 @@ if GetLocale() == "deDE" then
     L["DUNGEON_ENTRANCE"] = "%s Eingang"
     L["EJ_ROUTE_BUTTON_TT"] = "Route zum Eingang dieser Instanz"
 
+    -- Destination Search
+    L["DEST_SEARCH_PLACEHOLDER"] = "Ziele suchen..."
+    L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "Aktiver Wegpunkt"
+    L["DEST_SEARCH_CITIES"] = "Staedte"
+    L["DEST_SEARCH_DUNGEONS"] = "Dungeons & Schlachtzuege"
+    L["DEST_SEARCH_NO_RESULTS"] = "Keine passenden Ziele"
+    L["DEST_SEARCH_ROUTE_TO_TT"] = "Klicken um Route zu berechnen"
+
     -- Errors / Hints
     L["UNKNOWN"] = "Unbekannt"
     L["UNKNOWN_VENDOR"] = "Unbekannter Händler"
@@ -731,6 +747,14 @@ if GetLocale() == "frFR" then
     L["DUNGEON_RAID_TAG"] = "Raid"
     L["DUNGEON_ENTRANCE"] = "Entrée de %s"
     L["EJ_ROUTE_BUTTON_TT"] = "Itinéraire vers l'entrée de cette instance"
+
+    -- Destination Search
+    L["DEST_SEARCH_PLACEHOLDER"] = "Rechercher destinations..."
+    L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "Point de passage actif"
+    L["DEST_SEARCH_CITIES"] = "Villes"
+    L["DEST_SEARCH_DUNGEONS"] = "Donjons & Raids"
+    L["DEST_SEARCH_NO_RESULTS"] = "Aucune destination correspondante"
+    L["DEST_SEARCH_ROUTE_TO_TT"] = "Cliquer pour calculer l'itineraire"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Inconnu"
@@ -999,6 +1023,14 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["DUNGEON_ENTRANCE"] = "Entrada de %s"
     L["EJ_ROUTE_BUTTON_TT"] = "Ruta a la entrada de esta instancia"
 
+    -- Destination Search
+    L["DEST_SEARCH_PLACEHOLDER"] = "Buscar destinos..."
+    L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "Punto de ruta activo"
+    L["DEST_SEARCH_CITIES"] = "Ciudades"
+    L["DEST_SEARCH_DUNGEONS"] = "Mazmorras y bandas"
+    L["DEST_SEARCH_NO_RESULTS"] = "No se encontraron destinos"
+    L["DEST_SEARCH_ROUTE_TO_TT"] = "Clic para calcular la ruta"
+
     -- Errors / Hints
     L["UNKNOWN"] = "Desconocido"
     L["UNKNOWN_VENDOR"] = "Vendedor desconocido"
@@ -1264,6 +1296,14 @@ if GetLocale() == "ptBR" then
     L["DUNGEON_RAID_TAG"] = "Raide"
     L["DUNGEON_ENTRANCE"] = "Entrada de %s"
     L["EJ_ROUTE_BUTTON_TT"] = "Rota para a entrada desta instância"
+
+    -- Destination Search
+    L["DEST_SEARCH_PLACEHOLDER"] = "Pesquisar destinos..."
+    L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "Ponto de rota ativo"
+    L["DEST_SEARCH_CITIES"] = "Cidades"
+    L["DEST_SEARCH_DUNGEONS"] = "Masmorras e Raides"
+    L["DEST_SEARCH_NO_RESULTS"] = "Nenhum destino encontrado"
+    L["DEST_SEARCH_ROUTE_TO_TT"] = "Clique para calcular a rota"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Desconhecido"
@@ -1531,6 +1571,14 @@ if GetLocale() == "ruRU" then
     L["DUNGEON_ENTRANCE"] = "Вход в %s"
     L["EJ_ROUTE_BUTTON_TT"] = "Маршрут ко входу в эту инстанцию"
 
+    -- Destination Search
+    L["DEST_SEARCH_PLACEHOLDER"] = "Поиск направлений..."
+    L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "Активная точка маршрута"
+    L["DEST_SEARCH_CITIES"] = "Города"
+    L["DEST_SEARCH_DUNGEONS"] = "Подземелья и рейды"
+    L["DEST_SEARCH_NO_RESULTS"] = "Направления не найдены"
+    L["DEST_SEARCH_ROUTE_TO_TT"] = "Нажмите для расчета маршрута"
+
     -- Errors / Hints
     L["UNKNOWN"] = "Неизвестно"
     L["UNKNOWN_VENDOR"] = "Неизвестный торговец"
@@ -1796,6 +1844,14 @@ if GetLocale() == "koKR" then
     L["DUNGEON_RAID_TAG"] = "공격대"
     L["DUNGEON_ENTRANCE"] = "%s 입구"
     L["EJ_ROUTE_BUTTON_TT"] = "이 인스턴스 입구까지의 경로"
+
+    -- Destination Search
+    L["DEST_SEARCH_PLACEHOLDER"] = "목적지 검색..."
+    L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "활성 경유지"
+    L["DEST_SEARCH_CITIES"] = "도시"
+    L["DEST_SEARCH_DUNGEONS"] = "던전 및 공격대"
+    L["DEST_SEARCH_NO_RESULTS"] = "일치하는 목적지 없음"
+    L["DEST_SEARCH_ROUTE_TO_TT"] = "클릭하여 경로 계산"
 
     -- Errors / Hints
     L["UNKNOWN"] = "알 수 없음"
@@ -2063,6 +2119,14 @@ if GetLocale() == "zhCN" then
     L["DUNGEON_ENTRANCE"] = "%s 入口"
     L["EJ_ROUTE_BUTTON_TT"] = "前往此副本入口的路线"
 
+    -- Destination Search
+    L["DEST_SEARCH_PLACEHOLDER"] = "搜索目的地..."
+    L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "当前路径点"
+    L["DEST_SEARCH_CITIES"] = "城市"
+    L["DEST_SEARCH_DUNGEONS"] = "地下城与团队副本"
+    L["DEST_SEARCH_NO_RESULTS"] = "没有匹配的目的地"
+    L["DEST_SEARCH_ROUTE_TO_TT"] = "点击计算路线"
+
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
     L["UNKNOWN_VENDOR"] = "未知商人"
@@ -2329,6 +2393,14 @@ if GetLocale() == "zhTW" then
     L["DUNGEON_ENTRANCE"] = "%s 入口"
     L["EJ_ROUTE_BUTTON_TT"] = "前往此副本入口的路線"
 
+    -- Destination Search
+    L["DEST_SEARCH_PLACEHOLDER"] = "搜尋目的地..."
+    L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "目前路徑點"
+    L["DEST_SEARCH_CITIES"] = "城市"
+    L["DEST_SEARCH_DUNGEONS"] = "地城與團隊副本"
+    L["DEST_SEARCH_NO_RESULTS"] = "沒有匹配的目的地"
+    L["DEST_SEARCH_ROUTE_TO_TT"] = "點擊計算路線"
+
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
     L["UNKNOWN_VENDOR"] = "未知商人"
@@ -2594,6 +2666,14 @@ if GetLocale() == "itIT" then
     L["DUNGEON_RAID_TAG"] = "Incursione"
     L["DUNGEON_ENTRANCE"] = "Ingresso di %s"
     L["EJ_ROUTE_BUTTON_TT"] = "Percorso verso l'ingresso di questa istanza"
+
+    -- Destination Search
+    L["DEST_SEARCH_PLACEHOLDER"] = "Cerca destinazioni..."
+    L["DEST_SEARCH_ACTIVE_WAYPOINT"] = "Punto di passaggio attivo"
+    L["DEST_SEARCH_CITIES"] = "Citta"
+    L["DEST_SEARCH_DUNGEONS"] = "Dungeon e Raid"
+    L["DEST_SEARCH_NO_RESULTS"] = "Nessuna destinazione trovata"
+    L["DEST_SEARCH_ROUTE_TO_TT"] = "Clicca per calcolare il percorso"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Sconosciuto"
