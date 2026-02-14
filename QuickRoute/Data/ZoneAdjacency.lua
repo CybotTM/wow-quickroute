@@ -18,32 +18,32 @@ QR.Continents = {
             89,   -- Darnassus (portal from here)
             90,   -- Undercity
             110,  -- Silvermoon City
-            -- Zones (approximate map IDs)
+            -- Zones (uiMapIDs verified via warcraft.wiki.gg)
             14,   -- Arathi Highlands
-            17,   -- Badlands
-            19,   -- Blasted Lands
-            25,   -- Burning Steppes
-            27,   -- Dun Morogh
-            37,   -- Elwynn Forest
-            42,   -- Deadwind Pass
-            47,   -- Duskwood
-            49,   -- Eastern Plaguelands
-            51,   -- Swamp of Sorrows
-            52,   -- Westfall
-            56,   -- Wetlands
+            15,   -- Badlands
+            17,   -- Blasted Lands
             18,   -- Tirisfal Glades
             21,   -- Silverpine Forest
             22,   -- Western Plaguelands
-            23,   -- Hillsbrad Foothills
+            23,   -- Eastern Plaguelands
+            25,   -- Hillsbrad Foothills
             26,   -- Hinterlands
+            27,   -- Dun Morogh
             32,   -- Searing Gorge
-            36,   -- Loch Modan
-            48,   -- Redridge Mountains
+            35,   -- Blackrock Mountain
+            36,   -- Burning Steppes
+            37,   -- Elwynn Forest
+            42,   -- Deadwind Pass
+            47,   -- Duskwood
+            48,   -- Loch Modan
+            49,   -- Redridge Mountains
             50,   -- Northern Stranglethorn
+            51,   -- Swamp of Sorrows
+            52,   -- Westfall
+            56,   -- Wetlands
             210,  -- Cape of Stranglethorn
             224,  -- Stranglethorn Vale
-            35,   -- Twilight Highlands
-            241,  -- Twilight Highlands (alternate)
+            241,  -- Twilight Highlands
             700,  -- Twilight Highlands (Cataclysm)
             -- Midnight Expansion (12.0)
             2393, -- Silvermoon City (revamped)
@@ -70,11 +70,10 @@ QR.Continents = {
             88,   -- Thunder Bluff
             89,   -- Darnassus
             103,  -- Exodar
-            -- Zones
+            -- Zones (uiMapIDs verified via warcraft.wiki.gg)
             1,    -- Durotar
             7,    -- Mulgore
             10,   -- Northern Barrens
-            11,   -- Ashenvale
             57,   -- Teldrassil
             62,   -- Darkshore
             63,   -- Ashenvale
@@ -82,17 +81,15 @@ QR.Continents = {
             65,   -- Stonetalon Mountains
             66,   -- Desolace
             67,   -- Feralas
-            68,   -- Dustwallow Marsh
             69,   -- Tanaris
-            70,   -- Silithus
+            70,   -- Dustwallow Marsh
             71,   -- Tanaris (Caverns of Time area)
-            76,   -- Azuremyst Isle
-            77,   -- Bloodmyst Isle
+            76,   -- Azshara
+            77,   -- Felwood
             80,   -- Moonglade
             81,   -- Silithus
             83,   -- Winterspring
-            106,  -- Felwood
-            76,   -- Azshara
+            106,  -- Bloodmyst Isle
             199,  -- Southern Barrens
             198,  -- Mount Hyjal
             203,  -- Un'Goro Crater
@@ -109,12 +106,12 @@ QR.Continents = {
         hub = 111,  -- Shattrath City
         zones = {
             100,  -- Hellfire Peninsula
-            101,  -- Zangarmarsh
-            102,  -- Terokkar Forest
-            104,  -- Nagrand
+            101,  -- Outland (continent overview)
+            102,  -- Zangarmarsh
+            104,  -- Shadowmoon Valley (Outland)
             105,  -- Blade's Edge Mountains
-            107,  -- Netherstorm
-            108,  -- Shadowmoon Valley (Outland)
+            107,  -- Nagrand
+            108,  -- Terokkar Forest
             109,  -- Netherstorm
             111,  -- Shattrath City
         },
@@ -337,7 +334,7 @@ QR.ZoneAdjacencies = {
     [37] = {  -- Elwynn Forest
         {zone = 84, travelTime = 30},   -- Stormwind City
         {zone = 52, travelTime = 60},   -- Westfall
-        {zone = 48, travelTime = 60},   -- Redridge Mountains
+        {zone = 49, travelTime = 60},   -- Redridge Mountains
         {zone = 47, travelTime = 90},   -- Duskwood
     },
     [87] = {  -- Ironforge
@@ -345,7 +342,7 @@ QR.ZoneAdjacencies = {
     },
     [27] = {  -- Dun Morogh
         {zone = 87, travelTime = 30},   -- Ironforge
-        {zone = 36, travelTime = 60},   -- Loch Modan
+        {zone = 48, travelTime = 60},   -- Loch Modan
     },
     [90] = {  -- Undercity
         {zone = 18, travelTime = 30},   -- Tirisfal Glades
@@ -374,12 +371,12 @@ QR.ZoneAdjacencies = {
     },
     [10] = {  -- Northern Barrens
         {zone = 1, travelTime = 60},    -- Durotar
-        {zone = 11, travelTime = 60},   -- Ashenvale
+        {zone = 63, travelTime = 60},   -- Ashenvale
         {zone = 199, travelTime = 60},  -- Southern Barrens
-        {zone = 68, travelTime = 90},   -- Dustwallow Marsh
+        {zone = 70, travelTime = 90},   -- Dustwallow Marsh
     },
     [80] = {  -- Moonglade
-        {zone = 106, travelTime = 60},  -- Felwood
+        {zone = 77, travelTime = 60},   -- Felwood
         {zone = 83, travelTime = 60},   -- Winterspring
         {zone = 198, travelTime = 60},  -- Mount Hyjal (via world tree portal)
     },
@@ -442,19 +439,19 @@ QR.ZoneAdjacencies = {
     },
 
     -- Outland connections
-    [111] = {  -- Shattrath
-        {zone = 102, travelTime = 30},  -- Terokkar Forest
+    [111] = {  -- Shattrath City
+        {zone = 108, travelTime = 30},  -- Terokkar Forest
     },
     [100] = {  -- Hellfire Peninsula
-        {zone = 101, travelTime = 90},  -- Zangarmarsh
-        {zone = 102, travelTime = 90},  -- Terokkar Forest
+        {zone = 102, travelTime = 90},  -- Zangarmarsh
+        {zone = 108, travelTime = 90},  -- Terokkar Forest
     },
-    [102] = {  -- Terokkar Forest
-        {zone = 111, travelTime = 30},  -- Shattrath
+    [108] = {  -- Terokkar Forest
+        {zone = 111, travelTime = 30},  -- Shattrath City
         {zone = 100, travelTime = 90},  -- Hellfire Peninsula
-        {zone = 101, travelTime = 90},  -- Zangarmarsh
-        {zone = 104, travelTime = 90},  -- Nagrand
-        {zone = 108, travelTime = 90},  -- Shadowmoon Valley
+        {zone = 102, travelTime = 90},  -- Zangarmarsh
+        {zone = 107, travelTime = 90},  -- Nagrand
+        {zone = 104, travelTime = 90},  -- Shadowmoon Valley
     },
 
     -- Shadowlands connections
@@ -637,7 +634,8 @@ QR.ZoneAdjacencies = {
     },
 
     ---------------------------------------------------------------------------
-    -- Eastern Kingdoms - additional inter-zone connections (Tier 4.1)
+    -- Eastern Kingdoms - additional inter-zone connections
+    -- NOTE: uiMapIDs verified against warcraft.wiki.gg/wiki/UiMapID
     ---------------------------------------------------------------------------
     [47] = {  -- Duskwood
         {zone = 37, travelTime = 90},    -- Elwynn Forest
@@ -649,9 +647,9 @@ QR.ZoneAdjacencies = {
         {zone = 37, travelTime = 60},    -- Elwynn Forest
         {zone = 47, travelTime = 60},    -- Duskwood
     },
-    [48] = {  -- Redridge Mountains
+    [49] = {  -- Redridge Mountains (uiMapID 49)
         {zone = 37, travelTime = 60},    -- Elwynn Forest
-        {zone = 25, travelTime = 90},    -- Burning Steppes
+        {zone = 36, travelTime = 90},    -- Burning Steppes
         {zone = 51, travelTime = 90},    -- Swamp of Sorrows
     },
     [42] = {  -- Deadwind Pass
@@ -659,58 +657,63 @@ QR.ZoneAdjacencies = {
         {zone = 51, travelTime = 60},    -- Swamp of Sorrows
     },
     [51] = {  -- Swamp of Sorrows
-        {zone = 48, travelTime = 90},    -- Redridge Mountains
+        {zone = 49, travelTime = 90},    -- Redridge Mountains
         {zone = 42, travelTime = 60},    -- Deadwind Pass
-        {zone = 19, travelTime = 60},    -- Blasted Lands
+        {zone = 17, travelTime = 60},    -- Blasted Lands
     },
-    [19] = {  -- Blasted Lands
+    [17] = {  -- Blasted Lands (uiMapID 17)
         {zone = 51, travelTime = 60},    -- Swamp of Sorrows
     },
-    [25] = {  -- Burning Steppes
+    [36] = {  -- Burning Steppes (uiMapID 36)
         {zone = 32, travelTime = 60},    -- Searing Gorge
-        {zone = 48, travelTime = 90},    -- Redridge Mountains
-        {zone = 35, travelTime = 90},    -- Twilight Highlands (via Dragonmaw Pass)
+        {zone = 49, travelTime = 90},    -- Redridge Mountains
+        {zone = 35, travelTime = 30},    -- Blackrock Mountain
     },
     [32] = {  -- Searing Gorge
-        {zone = 25, travelTime = 60},    -- Burning Steppes
-        {zone = 17, travelTime = 60},    -- Badlands
-        {zone = 36, travelTime = 90},    -- Loch Modan
+        {zone = 36, travelTime = 60},    -- Burning Steppes
+        {zone = 15, travelTime = 60},    -- Badlands
+        {zone = 48, travelTime = 90},    -- Loch Modan
+        {zone = 35, travelTime = 30},    -- Blackrock Mountain
     },
-    [17] = {  -- Badlands
+    [35] = {  -- Blackrock Mountain (uiMapID 35)
+        {zone = 36, travelTime = 30},    -- Burning Steppes
+        {zone = 32, travelTime = 30},    -- Searing Gorge
+    },
+    [15] = {  -- Badlands (uiMapID 15)
         {zone = 32, travelTime = 60},    -- Searing Gorge
-        {zone = 36, travelTime = 60},    -- Loch Modan
-        {zone = 15, travelTime = 0.001}, -- Badlands sub-zone (Uldaman entrance)
+        {zone = 48, travelTime = 60},    -- Loch Modan
     },
-    [36] = {  -- Loch Modan
+    [48] = {  -- Loch Modan (uiMapID 48)
         {zone = 27, travelTime = 60},    -- Dun Morogh
         {zone = 56, travelTime = 60},    -- Wetlands
-        {zone = 17, travelTime = 60},    -- Badlands
+        {zone = 15, travelTime = 60},    -- Badlands
         {zone = 32, travelTime = 90},    -- Searing Gorge
     },
     [56] = {  -- Wetlands
-        {zone = 36, travelTime = 60},    -- Loch Modan
+        {zone = 48, travelTime = 60},    -- Loch Modan
         {zone = 14, travelTime = 60},    -- Arathi Highlands
+        {zone = 241, travelTime = 90},   -- Twilight Highlands (via Dragonmaw Pass)
     },
     [14] = {  -- Arathi Highlands
         {zone = 56, travelTime = 60},    -- Wetlands
-        {zone = 23, travelTime = 60},    -- Hillsbrad Foothills
+        {zone = 25, travelTime = 60},    -- Hillsbrad Foothills
         {zone = 26, travelTime = 60},    -- Hinterlands
     },
-    [23] = {  -- Hillsbrad Foothills
+    [25] = {  -- Hillsbrad Foothills (uiMapID 25)
         {zone = 21, travelTime = 60},    -- Silverpine Forest
         {zone = 14, travelTime = 60},    -- Arathi Highlands
         {zone = 22, travelTime = 90},    -- Western Plaguelands (via Alterac)
     },
     [21] = {  -- Silverpine Forest
         {zone = 18, travelTime = 60},    -- Tirisfal Glades
-        {zone = 23, travelTime = 60},    -- Hillsbrad Foothills
+        {zone = 25, travelTime = 60},    -- Hillsbrad Foothills
     },
     [22] = {  -- Western Plaguelands
         {zone = 18, travelTime = 90},    -- Tirisfal Glades
-        {zone = 49, travelTime = 60},    -- Eastern Plaguelands
-        {zone = 23, travelTime = 90},    -- Hillsbrad Foothills (via Alterac)
+        {zone = 23, travelTime = 60},    -- Eastern Plaguelands
+        {zone = 25, travelTime = 90},    -- Hillsbrad Foothills (via Alterac)
     },
-    [49] = {  -- Eastern Plaguelands
+    [23] = {  -- Eastern Plaguelands (uiMapID 23)
         {zone = 22, travelTime = 60},    -- Western Plaguelands
         {zone = 2395, travelTime = 60},  -- Eversong Woods (Thalassian Pass, seamless)
         {zone = 95, travelTime = 60},    -- Ghostlands (pre-Midnight Zul'Aman)
@@ -725,7 +728,7 @@ QR.ZoneAdjacencies = {
     },
     [2395] = {  -- Eversong Woods (includes old Ghostlands)
         {zone = 2393, travelTime = 30},  -- Silvermoon City
-        {zone = 49, travelTime = 60},    -- Eastern Plaguelands (Thalassian Pass)
+        {zone = 23, travelTime = 60},    -- Eastern Plaguelands (Thalassian Pass)
         {zone = 2424, travelTime = 60},  -- Isle of Quel'Danas
         {zone = 2437, travelTime = 60},  -- Zul'Aman
         {zone = 122, travelTime = 60},   -- Isle of Quel'Danas (TBC era)
@@ -760,18 +763,17 @@ QR.ZoneAdjacencies = {
     [26] = {  -- Hinterlands
         {zone = 14, travelTime = 60},    -- Arathi Highlands
     },
-    [35] = {  -- Twilight Highlands
-        {zone = 25, travelTime = 90},    -- Burning Steppes (via Dragonmaw Pass)
+    -- NOTE: [35] Blackrock Mountain defined in main EK section above
+    [241] = {  -- Twilight Highlands (uiMapID 241)
+        {zone = 56, travelTime = 90},    -- Wetlands (via Dragonmaw Pass)
     },
-    [15] = {  -- Badlands (sub-zone for Uldaman entrance)
-        {zone = 17, travelTime = 0.001}, -- Same zone as Badlands (17)
-    },
+    -- NOTE: [15] Badlands is defined in main EK section with correct adjacencies
     [95] = {  -- Ghostlands (pre-Midnight Zul'Aman entrance)
-        {zone = 49, travelTime = 60},    -- Eastern Plaguelands
+        {zone = 23, travelTime = 60},    -- Eastern Plaguelands
     },
     [122] = {  -- Isle of Quel'Danas (TBC era)
         {zone = 2395, travelTime = 60},  -- Eversong Woods (Midnight)
-        {zone = 49, travelTime = 120},   -- Eastern Plaguelands (via flight)
+        {zone = 23, travelTime = 120},   -- Eastern Plaguelands (via flight)
     },
     [244] = {  -- Tol Barad Peninsula (portal-accessed)
         -- Accessed via portal from Stormwind/Orgrimmar (see StandalonePortals)
@@ -782,21 +784,24 @@ QR.ZoneAdjacencies = {
 
     ---------------------------------------------------------------------------
     -- Kalimdor - additional inter-zone connections (Tier 4.2)
+    -- NOTE: uiMapIDs verified via warcraft.wiki.gg (Feb 2026)
+    -- 63=Ashenvale, 77=Felwood, 106=Bloodmyst Isle, 70=Dustwallow Marsh
+    -- Old IDs used in DungeonEntrances: 11(Ashenvale), 68(Dustwallow)
     ---------------------------------------------------------------------------
-    [11] = {  -- Ashenvale
+    [63] = {  -- Ashenvale (uiMapID 63)
         {zone = 10, travelTime = 60},    -- Northern Barrens
         {zone = 65, travelTime = 60},    -- Stonetalon Mountains
         {zone = 62, travelTime = 60},    -- Darkshore
-        {zone = 106, travelTime = 90},   -- Felwood
-        {zone = 63, travelTime = 0.001}, -- Ashenvale (alternate mapID)
-        {zone = 77, travelTime = 90},    -- Felwood (alternate mapID)
+        {zone = 77, travelTime = 90},    -- Felwood
+        {zone = 11, travelTime = 0.001}, -- Ashenvale (old mapID, used in DungeonEntrances)
     },
-    [63] = {  -- Ashenvale (alternate mapID, Blackfathom Deeps entrance)
-        {zone = 11, travelTime = 0.001}, -- Ashenvale (primary mapID)
+    [11] = {  -- Ashenvale (old mapID, used in DungeonEntrances for Blackfathom Deeps)
+        {zone = 63, travelTime = 0.001}, -- Ashenvale (correct mapID)
     },
-    [77] = {  -- Felwood (alternate mapID, Blackfathom Deeps entrance via EJ)
-        {zone = 106, travelTime = 0.001},-- Felwood (primary mapID)
-        {zone = 11, travelTime = 90},    -- Ashenvale
+    [77] = {  -- Felwood (uiMapID 77)
+        {zone = 63, travelTime = 90},    -- Ashenvale
+        {zone = 80, travelTime = 60},    -- Moonglade
+        {zone = 83, travelTime = 60},    -- Winterspring
     },
     [103] = { -- Exodar (Azuremyst Isle)
         {zone = 62, travelTime = 120},   -- Darkshore (boat/flight)
@@ -809,19 +814,19 @@ QR.ZoneAdjacencies = {
         {zone = 57, travelTime = 15},    -- Teldrassil (portal to Rut'theran)
     },
     [62] = {  -- Darkshore
-        {zone = 11, travelTime = 60},    -- Ashenvale
+        {zone = 63, travelTime = 60},    -- Ashenvale
         {zone = 57, travelTime = 120},   -- Teldrassil (ferry from Auberdine)
         {zone = 103, travelTime = 120},  -- Exodar (boat/flight)
     },
     [65] = {  -- Stonetalon Mountains
-        {zone = 11, travelTime = 60},    -- Ashenvale
+        {zone = 63, travelTime = 60},    -- Ashenvale
         {zone = 199, travelTime = 60},   -- Southern Barrens
         {zone = 66, travelTime = 90},    -- Desolace
     },
     [199] = {  -- Southern Barrens
         {zone = 10, travelTime = 60},    -- Northern Barrens
         {zone = 7, travelTime = 90},     -- Mulgore
-        {zone = 68, travelTime = 60},    -- Dustwallow Marsh
+        {zone = 70, travelTime = 60},    -- Dustwallow Marsh
         {zone = 65, travelTime = 60},    -- Stonetalon Mountains
         {zone = 64, travelTime = 60},    -- Thousand Needles
     },
@@ -838,9 +843,13 @@ QR.ZoneAdjacencies = {
         {zone = 67, travelTime = 60},    -- Feralas
         {zone = 69, travelTime = 60},    -- Tanaris
     },
-    [68] = {  -- Dustwallow Marsh
+    [70] = {  -- Dustwallow Marsh (uiMapID 70)
         {zone = 10, travelTime = 90},    -- Northern Barrens
         {zone = 199, travelTime = 60},   -- Southern Barrens
+        {zone = 68, travelTime = 0.001}, -- Dustwallow (old mapID, used in DungeonEntrances)
+    },
+    [68] = {  -- Dustwallow Marsh (old mapID, used in DungeonEntrances for Onyxia's Lair)
+        {zone = 70, travelTime = 0.001}, -- Dustwallow Marsh (correct mapID)
     },
     [69] = {  -- Tanaris
         {zone = 64, travelTime = 60},    -- Thousand Needles
@@ -858,15 +867,12 @@ QR.ZoneAdjacencies = {
     [81] = {  -- Silithus
         {zone = 203, travelTime = 60},   -- Un'Goro Crater
     },
-    [106] = {  -- Felwood
-        {zone = 11, travelTime = 90},    -- Ashenvale
-        {zone = 80, travelTime = 60},    -- Moonglade
-        {zone = 83, travelTime = 60},    -- Winterspring
-        {zone = 77, travelTime = 0.001}, -- Felwood (alternate mapID)
+    [106] = {  -- Bloodmyst Isle (uiMapID 106, NOT Felwood)
+        -- Accessed via Exodar/continent routing; no direct zone adjacency needed
     },
     [83] = {  -- Winterspring
         {zone = 80, travelTime = 60},    -- Moonglade
-        {zone = 106, travelTime = 60},   -- Felwood
+        {zone = 77, travelTime = 60},    -- Felwood
     },
     [261] = {  -- Uldum
         {zone = 69, travelTime = 90},    -- Tanaris
@@ -896,29 +902,32 @@ QR.ZoneAdjacencies = {
 
     ---------------------------------------------------------------------------
     -- Outland - additional inter-zone connections (Tier 4.6)
+    -- NOTE: uiMapIDs verified: 100=Hellfire, 102=Zangarmarsh, 104=Shadowmoon Valley,
+    -- 105=Blade's Edge, 107=Nagrand, 108=Terokkar, 109=Netherstorm, 111=Shattrath
+    -- Old ID: 101=Outland continent overview (used in DungeonEntrances for Coilfang)
     ---------------------------------------------------------------------------
-    [101] = {  -- Zangarmarsh
+    [102] = {  -- Zangarmarsh (uiMapID 102)
         {zone = 100, travelTime = 90},   -- Hellfire Peninsula
-        {zone = 102, travelTime = 90},   -- Terokkar Forest
-        {zone = 104, travelTime = 90},   -- Nagrand
+        {zone = 108, travelTime = 90},   -- Terokkar Forest
+        {zone = 107, travelTime = 90},   -- Nagrand
         {zone = 105, travelTime = 90},   -- Blade's Edge Mountains
+        {zone = 101, travelTime = 0.001},-- Zangarmarsh (old mapID, used in DungeonEntrances)
     },
-    [104] = {  -- Nagrand
-        {zone = 101, travelTime = 90},   -- Zangarmarsh
-        {zone = 102, travelTime = 90},   -- Terokkar Forest
+    [101] = {  -- Zangarmarsh (old mapID 101, used in DungeonEntrances for Coilfang)
+        {zone = 102, travelTime = 0.001},-- Zangarmarsh (correct mapID)
+    },
+    [107] = {  -- Nagrand (uiMapID 107)
+        {zone = 102, travelTime = 90},   -- Zangarmarsh
+        {zone = 108, travelTime = 90},   -- Terokkar Forest
     },
     [105] = {  -- Blade's Edge Mountains
-        {zone = 101, travelTime = 90},   -- Zangarmarsh
-        {zone = 107, travelTime = 90},   -- Netherstorm
-        {zone = 109, travelTime = 90},   -- Netherstorm (alternate mapID)
+        {zone = 102, travelTime = 90},   -- Zangarmarsh
+        {zone = 109, travelTime = 90},   -- Netherstorm
     },
-    [107] = {  -- Netherstorm
-        {zone = 105, travelTime = 90},   -- Blade's Edge Mountains
+    [104] = {  -- Shadowmoon Valley (uiMapID 104)
+        {zone = 108, travelTime = 90},   -- Terokkar Forest
     },
-    [108] = {  -- Shadowmoon Valley (Outland)
-        {zone = 102, travelTime = 90},   -- Terokkar Forest
-    },
-    [109] = {  -- Netherstorm (alternate mapID for 107)
+    [109] = {  -- Netherstorm (uiMapID 109)
         {zone = 105, travelTime = 90},   -- Blade's Edge Mountains
     },
 
