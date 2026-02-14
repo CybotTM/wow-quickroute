@@ -795,3 +795,31 @@ T:run("Initialize: calls RegisterDungeonPinHook", function(t)
     QR.POIRouting.RegisterDungeonPinHook = origDungeonHook
     WorldMapFrame.HookScript = nil
 end)
+
+-------------------------------------------------------------------------------
+-- Destination Persistence
+-------------------------------------------------------------------------------
+
+T:run("POIRouting: RouteToMapPosition saves lastDestination to QR.db", function(t)
+    resetState()
+    QR.db.lastDestination = nil
+
+    QR.POIRouting:RouteToMapPosition(84, 0.5, 0.5)
+
+    t:assertNotNil(QR.db.lastDestination, "lastDestination saved")
+    t:assertEqual(84, QR.db.lastDestination.mapID, "mapID saved")
+    t:assertEqual(0.5, QR.db.lastDestination.x, "x saved")
+    t:assertEqual(0.5, QR.db.lastDestination.y, "y saved")
+    t:assertNotNil(QR.db.lastDestination.title, "title saved")
+end)
+
+T:run("POIRouting: RouteToMapPosition overwrites previous lastDestination", function(t)
+    resetState()
+    QR.db.lastDestination = { mapID = 1, x = 0.1, y = 0.1, title = "Old" }
+
+    QR.POIRouting:RouteToMapPosition(85, 0.7, 0.3)
+
+    t:assertEqual(85, QR.db.lastDestination.mapID, "mapID updated")
+    t:assertEqual(0.7, QR.db.lastDestination.x, "x updated")
+    t:assertEqual(0.3, QR.db.lastDestination.y, "y updated")
+end)

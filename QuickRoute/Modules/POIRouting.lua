@@ -75,6 +75,11 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
         result = nil
     end
 
+    -- Save destination so it persists across close/reopen
+    if QR.db then
+        QR.db.lastDestination = { mapID = mapID, x = x, y = y, title = zoneName }
+    end
+
     -- Show in UI
     if QR.UI then
         QR.UI:Show()

@@ -1004,6 +1004,7 @@ end)
 T:run("RefreshRoute timeLabel contains hint text when no waypoint", function(t)
     resetState()
     ensureUIFrame()
+    QR.db.lastDestination = nil  -- No saved destination either
 
     -- No waypoint
     _G.C_Map.HasUserWaypoint = function() return false end
@@ -1017,4 +1018,50 @@ T:run("RefreshRoute timeLabel contains hint text when no waypoint", function(t)
     t:assertNotNil(timeText, "timeLabel has text")
     t:assertTrue(timeText:find(QR.L["SET_WAYPOINT_HINT"]) ~= nil,
         "timeLabel contains hint text when no waypoint")
+end)
+
+T:run("RefreshRoute uses saved destination when no active waypoint", function(t)
+    resetState()
+    ensureUIFrame()
+
+    -- No active waypoint
+    _G.C_Map.HasUserWaypoint = function() return false end
+    _G.C_Map.GetUserWaypoint = function() return nil end
+
+    -- But a saved destination exists (Stormwind area)
+    QR.db.lastDestination = { mapID = 84, x = 0.5, y = 0.5, title = "Stormwind City" }
+
+    QR.MainFrame:Show("route")
+    QR.UI.isCalculating = false
+    QR.UI:RefreshRoute()
+
+    -- Should NOT show hint text (route should be calculated from saved destination)
+    local timeText = QR.UI.frame.timeLabel:GetText()
+    t:assertNotNil(timeText, "timeLabel has text")
+    t:assertTrue(timeText:find(QR.L["SET_WAYPOINT_HINT"]) == nil,
+        "timeLabel should NOT show hint when saved destination exists")
+
+    -- Subtitle should show the saved destination name
+    local subtitle = QR.MainFrame.subtitle:GetText()
+    t:assertTrue(subtitle:find("Stormwind") ~= nil,
+        "Subtitle shows saved destination name")
+end)
+
+T:run("RefreshRoute clears route when no waypoint AND no saved destination", function(t)
+    resetState()
+    ensureUIFrame()
+
+    -- No active waypoint, no saved destination
+    _G.C_Map.HasUserWaypoint = function() return false end
+    _G.C_Map.GetUserWaypoint = function() return nil end
+    QR.db.lastDestination = nil
+
+    QR.MainFrame:Show("route")
+    QR.UI.isCalculating = false
+    QR.UI:RefreshRoute()
+
+    -- Should show hint text
+    local timeText = QR.UI.frame.timeLabel:GetText()
+    t:assertTrue(timeText:find(QR.L["SET_WAYPOINT_HINT"]) ~= nil,
+        "Shows hint when no waypoint and no saved destination")
 end)

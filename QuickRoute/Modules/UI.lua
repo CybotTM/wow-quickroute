@@ -462,6 +462,19 @@ function UI:RefreshRoute()
                 waypoint = questWP
             end
         end
+        -- Fallback: use saved destination (persists across close/reopen)
+        if not waypoint and QR.db and QR.db.lastDestination then
+            local dest = QR.db.lastDestination
+            if dest.mapID and dest.x and dest.y then
+                waypoint = {
+                    mapID = dest.mapID,
+                    x = dest.x,
+                    y = dest.y,
+                    title = dest.title or "?",
+                    source = "saved",
+                }
+            end
+        end
         if not waypoint then
             self:ClearRoute()
             self:ResetCalculatingState()
@@ -486,6 +499,17 @@ function UI:RefreshRoute()
 
     -- Now try to calculate path
     local success, errOrResult = pcall(function()
+        -- For saved destinations, calculate directly (no active waypoint to detect)
+        if waypoint.source == "saved" then
+            local calcResult = QR.PathCalculator:CalculatePath(
+                waypoint.mapID, waypoint.x, waypoint.y, waypoint.title
+            )
+            if calcResult then
+                calcResult.waypoint = waypoint
+                calcResult.waypointSource = "saved"
+            end
+            return calcResult
+        end
         return QR.WaypointIntegration:CalculatePathToWaypoint()
     end)
 
