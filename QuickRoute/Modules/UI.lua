@@ -79,18 +79,6 @@ local function CalculateButtonRowWidth(buttonTexts)
     return total + (PADDING * 2)  -- Add frame padding
 end
 
---- Set dropdown display text
--- @param dropdown Frame The dropdown frame (WowStyle1DropdownTemplate)
--- @param text string The display text to set
-local function SetDropdownText(dropdown, text)
-    if not dropdown then return end
-    if dropdown.OverrideText then
-        dropdown:OverrideText(text)
-    elseif dropdown.GenerateMenu then
-        dropdown:GenerateMenu()
-    end
-end
-
 -- Icon textures for different step types
 local STEP_ICONS = {
     teleport = "|TInterface\\Icons\\INV_Misc_Rune_01:16:16|t",
@@ -264,12 +252,38 @@ function UI:CreateContent(parentFrame)
 
     local frame = parentFrame
 
-    -- Toolbar row at top: sourceDropdown + buttons
-    -- Waypoint source dropdown (left side of toolbar)
-    local sourceDropdown = CreateFrame("DropdownButton", "QRWaypointSourceDropdown", frame, "WowStyle1DropdownTemplate")
-    sourceDropdown:SetPoint("TOPLEFT", PADDING + 5, -4)
-    sourceDropdown:SetDefaultText(L["WAYPOINT_AUTO"])
-    frame.sourceDropdown = sourceDropdown
+    -- Toolbar row at top: searchBox + buttons
+    -- Search box (replaces source dropdown + dungeon button)
+    local searchBox = CreateFrame("EditBox", "QRDestSearchBox", frame, "InputBoxTemplate")
+    searchBox:SetSize(180, BUTTON_HEIGHT)
+    searchBox:SetPoint("TOPLEFT", PADDING + 5, -4)
+    searchBox:SetAutoFocus(false)
+    searchBox:SetFontObject(GameFontHighlightSmall)
+    searchBox:SetScript("OnTextChanged", function(self)
+        if QR.DestinationSearch then
+            QR.DestinationSearch:OnSearchTextChanged(self:GetText() or "")
+        end
+    end)
+    searchBox:SetScript("OnEditFocusGained", function(self)
+        if QR.DestinationSearch then
+            QR.DestinationSearch:ShowDropdown(self)
+        end
+    end)
+    searchBox:SetScript("OnEscapePressed", function(self)
+        self:ClearFocus()
+        if QR.DestinationSearch then
+            QR.DestinationSearch:HideDropdown()
+        end
+    end)
+    searchBox:SetScript("OnEnterPressed", function(self)
+        self:ClearFocus()
+    end)
+    frame.searchBox = searchBox
+
+    -- Store reference for DestinationSearch
+    if QR.DestinationSearch then
+        QR.DestinationSearch.searchBox = searchBox
+    end
 
     -- Calculate button widths based on localized text
     local refreshText = L["REFRESH"]
@@ -282,7 +296,7 @@ function UI:CreateContent(parentFrame)
 
     -- Refresh button (right of dropdown in toolbar)
     local refreshButton = QR.CreateModernButton(frame, refreshWidth, BUTTON_HEIGHT)
-    refreshButton:SetPoint("LEFT", sourceDropdown, "RIGHT", BUTTON_PADDING, 0)
+    refreshButton:SetPoint("LEFT", searchBox, "RIGHT", BUTTON_PADDING, 0)
     ApplyButtonStyle(refreshButton, refreshText, "refresh")
     refreshButton:SetScript("OnClick", function()
         local now = GetTime()
@@ -334,27 +348,6 @@ function UI:CreateContent(parentFrame)
     zoneDebugButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.zoneDebugButton = zoneDebugButton
 
-    -- Dungeon Picker button (right of zone debug)
-    local dungeonText = L["DUNGEON_PICKER_TITLE"]
-    local dungeonWidth = CalculateButtonWidth(dungeonText)
-    local dungeonButton = QR.CreateModernButton(frame, dungeonWidth, BUTTON_HEIGHT)
-    dungeonButton:SetPoint("LEFT", zoneDebugButton, "RIGHT", BUTTON_PADDING, 0)
-    ApplyButtonStyle(dungeonButton, dungeonText, "dungeon")
-    dungeonButton:SetScript("OnClick", function()
-        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-        if QR.DungeonPicker then
-            QR.DungeonPicker:Toggle(dungeonButton)
-        end
-    end)
-    dungeonButton:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L["DUNGEON_ROUTE_TO_TT"])
-        QR.AddTooltipBranding(GameTooltip)
-        GameTooltip:Show()
-    end)
-    dungeonButton:SetScript("OnLeave", GameTooltip_Hide)
-    frame.dungeonButton = dungeonButton
-
     -- Separator line below toolbar
     local separator = frame:CreateTexture(nil, "ARTWORK")
     separator:SetColorTexture(0.5, 0.5, 0.5, 0.5)
@@ -384,9 +377,6 @@ function UI:CreateContent(parentFrame)
     frame.scrollChild = scrollChild
 
     self.frame = frame
-
-    -- Initialize the waypoint source dropdown
-    self:InitializeSourceDropdown()
 
     return frame
 end
@@ -551,42 +541,6 @@ function UI:ResetCalculatingState()
     end
 end
 
---- Initialize the waypoint source dropdown menu
-function UI:InitializeSourceDropdown()
-    if not self.frame or not self.frame.sourceDropdown then return end
-    local dropdown = self.frame.sourceDropdown
-
-    dropdown:SetupMenu(function(_, rootDescription)
-        rootDescription:CreateRadio(
-            L["WAYPOINT_AUTO"],
-            function() local c = QR.db and QR.db.selectedWaypointSource or "auto"; return c == "auto" or c == nil end,
-            function()
-                QR.db.selectedWaypointSource = "auto"
-                UI:RefreshRoute()
-            end,
-            "auto"
-        )
-
-        local available = QR.WaypointIntegration:GetAllAvailableWaypoints()
-        for _, entry in ipairs(available) do
-            rootDescription:CreateRadio(
-                entry.label,
-                function() return QR.db and QR.db.selectedWaypointSource == entry.key end,
-                function()
-                    QR.db.selectedWaypointSource = entry.key
-                    UI:RefreshRoute()
-                end,
-                entry.key
-            )
-        end
-
-        if #available == 0 then
-            local disabled = rootDescription:CreateButton(L["NO_WAYPOINTS_AVAILABLE"])
-            disabled:SetEnabled(false)
-        end
-    end)
-end
-
 --- Determine the current step index based on player's current map zone
 -- @param steps table The route steps
 -- @return number The 1-based index of the current step
@@ -677,22 +631,9 @@ function UI:UpdateRoute(result)
         end
     end
 
-    -- Update dropdown text with active source
-    if result.waypointSource and self.frame.sourceDropdown then
-        local selected = QR.db and QR.db.selectedWaypointSource or "auto"
-        if selected == "auto" or selected == nil then
-            -- Show which source auto-selected
-            local friendlySource = result.waypointSource
-            if friendlySource == "mappin" then
-                friendlySource = L["SOURCE_MAP_PIN"] or "Map Pin"
-            elseif friendlySource == "tomtom" then
-                friendlySource = "TomTom"
-            elseif friendlySource == "quest" then
-                friendlySource = L["SOURCE_QUEST"] or "Quest Objective"
-            end
-            SetDropdownText(self.frame.sourceDropdown,
-                L["WAYPOINT_AUTO"] .. " (" .. friendlySource .. ")")
-        end
+    -- Update search box with destination name
+    if result.waypoint and result.waypoint.title and QR.DestinationSearch then
+        QR.DestinationSearch:SetSearchText(result.waypoint.title)
     end
 end
 
@@ -1071,14 +1012,6 @@ function UI:ClearRoute()
     -- Subtitle shows generic "Route" when no target
     if QR.MainFrame and QR.MainFrame.subtitle and QR.MainFrame.activeTab == "route" then
         QR.MainFrame.subtitle:SetText(L["TAB_ROUTE"] or "Route")
-    end
-
-    -- Reset dropdown text
-    if self.frame.sourceDropdown then
-        local selected = QR.db and QR.db.selectedWaypointSource or "auto"
-        if selected == "auto" or selected == nil then
-            SetDropdownText(self.frame.sourceDropdown, L["WAYPOINT_AUTO"])
-        end
     end
 
     self:ClearStepLabels()
@@ -1904,9 +1837,6 @@ function UI:Initialize()
             self:CreateContent(contentFrame)
         end
     end
-
-    -- Re-initialize dropdown (QR.db may not have been available during CreateContent)
-    self:InitializeSourceDropdown()
 
     -- Combat callback: re-enable Use buttons when combat ends
     QR:RegisterCombatCallback(

@@ -374,3 +374,53 @@ T:run("DestSearch: section headers use gold color", function(t)
     -- Cities header should always exist
     t:assertTrue(headerFound, "Found at least one gold header")
 end)
+
+-------------------------------------------------------------------------------
+-- 5. Route Tab Integration
+-------------------------------------------------------------------------------
+
+T:run("DestSearch: search box exists on Route tab frame", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.searchBox = nil
+
+    local parentFrame = CreateFrame("Frame", nil, UIParent)
+    parentFrame:SetSize(500, 400)
+    QR.UI.frame = nil
+    QR.UI:CreateContent(parentFrame)
+
+    t:assertNotNil(parentFrame.searchBox, "searchBox exists on frame")
+end)
+
+T:run("DestSearch: no sourceDropdown on Route tab", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.searchBox = nil
+
+    local parentFrame = CreateFrame("Frame", nil, UIParent)
+    parentFrame:SetSize(500, 400)
+    QR.UI.frame = nil
+    QR.UI:CreateContent(parentFrame)
+
+    t:assertNil(parentFrame.sourceDropdown, "sourceDropdown removed")
+end)
+
+T:run("DestSearch: no dungeonButton on Route tab", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.searchBox = nil
+
+    local parentFrame = CreateFrame("Frame", nil, UIParent)
+    parentFrame:SetSize(500, 400)
+    QR.UI.frame = nil
+    QR.UI:CreateContent(parentFrame)
+
+    t:assertNil(parentFrame.dungeonButton, "dungeonButton removed")
+end)
+
+T:run("DestSearch: init sequence includes DestinationSearch", function(t)
+    resetState()
+    -- DestinationSearch should already be initialized via addon loader + init
+    t:assertNotNil(QR.DestinationSearch, "Module exists")
+    t:assertNotNil(QR.DestinationSearch.CollectResults, "Has CollectResults")
+end)

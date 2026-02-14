@@ -794,12 +794,14 @@ end)
 -- Route Layout Tests
 -------------------------------------------------------------------------------
 
-T:run("Route content: sourceDropdown at top of content", function(t)
+T:run("Route content: searchBox at top of content", function(t)
     resetState()
     ensureUIFrame()
 
     local frame = QR.UI.frame
-    t:assertNotNil(frame.sourceDropdown, "sourceDropdown exists")
+    t:assertNotNil(frame.searchBox, "searchBox exists")
+    t:assertNil(frame.sourceDropdown, "sourceDropdown removed")
+    t:assertNil(frame.dungeonButton, "dungeonButton removed")
     t:assertNotNil(frame.refreshButton, "refreshButton exists")
     t:assertNotNil(frame.copyDebugButton, "copyDebugButton exists")
     t:assertNotNil(frame.zoneDebugButton, "zoneDebugButton exists")

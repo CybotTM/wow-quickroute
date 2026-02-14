@@ -137,7 +137,6 @@ function QR:Initialize()
         showMinimap = true,
         considerCooldowns = true,
         waypointPriority = "mappin",  -- "mappin", "quest", "tomtom"
-        selectedWaypointSource = "auto",  -- "auto", "mappin", "tomtom", "quest"
         autoWaypoint = false,  -- Auto-set TomTom/native waypoint for first route step
         autoDestination = false,      -- Auto-show route on quest tracking change
         maxCooldownHours = 24,        -- Max cooldown filter (24 = no limit)
@@ -196,6 +195,7 @@ function QR:OnPlayerLogin()
             { "QuestTeleportBtns",  function() QR.QuestTeleportButtons:Initialize() end },
             { "POIRouting",         function() QR.POIRouting:Initialize() end },
             { "EJButton",           function() if QR.EncounterJournalButton then QR.EncounterJournalButton:Initialize() end end },
+            { "DestinationSearch",  function() QR.DestinationSearch:Initialize() end },
             { "SettingsPanel",      function() QR.SettingsPanel:Initialize() end },
         }
         for _, step in ipairs(steps) do
