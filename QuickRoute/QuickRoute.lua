@@ -195,6 +195,7 @@ function QR:OnPlayerLogin()
             { "MapTeleportButton",  function() QR.MapTeleportButton:Initialize() end },
             { "QuestTeleportBtns",  function() QR.QuestTeleportButtons:Initialize() end },
             { "POIRouting",         function() QR.POIRouting:Initialize() end },
+            { "EJButton",           function() if QR.EncounterJournalButton then QR.EncounterJournalButton:Initialize() end end },
             { "SettingsPanel",      function() QR.SettingsPanel:Initialize() end },
         }
         for _, step in ipairs(steps) do
