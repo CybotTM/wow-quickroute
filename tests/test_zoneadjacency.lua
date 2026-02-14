@@ -449,7 +449,7 @@ T:run("Edge cases: GetContinentHub with valid/invalid inputs", function(t)
     t:assertEqual(85, hub, "EK Horde hub is Orgrimmar (85)")
 
     hub = QR.GetContinentHub("KALIMDOR", "Alliance")
-    t:assertEqual(89, hub, "Kalimdor Alliance hub is Darnassus (89)")
+    t:assertEqual(103, hub, "Kalimdor Alliance hub is Exodar (103)")
 
     -- Default when no faction-specific hub
     hub = QR.GetContinentHub("OUTLAND")

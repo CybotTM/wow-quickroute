@@ -63,7 +63,7 @@ QR.Continents = {
     KALIMDOR = {
         name = "Kalimdor",
         hub = 85,   -- Orgrimmar
-        hubAlliance = 89,  -- Darnassus
+        hubAlliance = 103, -- Exodar (Darnassus destroyed in BFA)
         zones = {
             -- Major Cities
             85,   -- Orgrimmar
@@ -798,8 +798,20 @@ QR.ZoneAdjacencies = {
         {zone = 106, travelTime = 0.001},-- Felwood (primary mapID)
         {zone = 11, travelTime = 90},    -- Ashenvale
     },
+    [103] = { -- Exodar (Azuremyst Isle)
+        {zone = 62, travelTime = 120},   -- Darkshore (boat/flight)
+    },
+    [57] = {  -- Teldrassil (Rut'theran Village)
+        {zone = 89, travelTime = 15},    -- Darnassus (portal from Rut'theran)
+        {zone = 62, travelTime = 120},   -- Darkshore (ferry to Auberdine)
+    },
+    [89] = {  -- Darnassus
+        {zone = 57, travelTime = 15},    -- Teldrassil (portal to Rut'theran)
+    },
     [62] = {  -- Darkshore
         {zone = 11, travelTime = 60},    -- Ashenvale
+        {zone = 57, travelTime = 120},   -- Teldrassil (ferry from Auberdine)
+        {zone = 103, travelTime = 120},  -- Exodar (boat/flight)
     },
     [65] = {  -- Stonetalon Mountains
         {zone = 11, travelTime = 60},    -- Ashenvale
