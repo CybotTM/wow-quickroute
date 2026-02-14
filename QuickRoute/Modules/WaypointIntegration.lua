@@ -502,14 +502,6 @@ function WaypointIntegration:GetActiveWaypoint()
 
     local sources = activeWaypointSources
 
-    -- Honor explicit waypoint source selection
-    local selected = QR.db and QR.db.selectedWaypointSource
-    if selected and selected ~= "auto" and sources[selected] then
-        local wp = sources[selected]()
-        if wp then return wp, selected end
-        -- Fall through to auto if selected source unavailable
-    end
-
     -- Define order based on priority setting
     local order
     if priority == "quest" then

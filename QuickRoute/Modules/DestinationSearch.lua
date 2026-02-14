@@ -421,7 +421,7 @@ function DS:RefreshDropdown(query)
 
         if not self.collapsedSections["cities"] then
             for _, city in ipairs(results.cities) do
-                city.tag = "|cFF66FF66" .. (L and L["DEST_SEARCH_CITIES"] or "City") .. "|r"
+                city.tag = ""  -- Section header provides category context
                 local _, newY2 = self:CreateResultRow(city, yOffset)
                 yOffset = newY2
                 totalRows = totalRows + 1
@@ -523,9 +523,11 @@ function DS:SelectResult(entry)
         QR.POIRouting:RouteToMapPosition(mapID, entry.x, entry.y)
     end
 
-    -- Update search box text
+    -- Update search box text (suppress OnTextChanged to avoid re-entrancy)
     if self.searchBox and entry.name then
+        self._suppressTextChanged = true
         self.searchBox:SetText(entry.name)
+        self._suppressTextChanged = false
     end
 
     self:HideDropdown()
@@ -534,15 +536,18 @@ end
 --- Called when search text changes while dropdown is visible
 -- @param text string The current search text
 function DS:OnSearchTextChanged(text)
+    if self._suppressTextChanged then return end
     if self.isShowing then
         self:RefreshDropdown(text)
     end
 end
 
---- Set search box text programmatically
+--- Set search box text programmatically (suppresses OnTextChanged re-entrancy)
 -- @param text string The text to set
 function DS:SetSearchText(text)
     if self.searchBox then
+        self._suppressTextChanged = true
         self.searchBox:SetText(text or "")
+        self._suppressTextChanged = false
     end
 end

@@ -278,6 +278,10 @@ function UI:CreateContent(parentFrame)
     searchBox:SetScript("OnEnterPressed", function(self)
         self:ClearFocus()
     end)
+    -- Set placeholder text
+    if searchBox.Instructions then
+        searchBox.Instructions:SetText(L["DEST_SEARCH_PLACEHOLDER"])
+    end
     frame.searchBox = searchBox
 
     -- Store reference for DestinationSearch
