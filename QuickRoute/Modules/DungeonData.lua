@@ -110,11 +110,46 @@ function DungeonData:ScanInstances()
         end
     end
 
+    -- Filter out continent-level EJ overview entries (not actual instances)
+    -- These are expansion overview pages that EJ_GetInstanceByIndex returns
+    -- but have no dungeon entrance (e.g., "Pandaria", "Draenor", "Broken Isles")
+    local CONTINENT_OVERVIEWS = {
+        [322] = true,   -- Pandaria
+        [557] = true,   -- Draenor
+        [822] = true,   -- Broken Isles
+        [959] = true,   -- Invasion Points (Legion)
+        [1028] = true,  -- Azeroth (BfA)
+        [1192] = true,  -- Shadowlands
+        [1205] = true,  -- Dragon Isles
+        [1278] = true,  -- Khaz Algar
+        [1312] = true,  -- Midnight world bosses (no entrance)
+    }
+    local removedCount = 0
+    for id in pairs(CONTINENT_OVERVIEWS) do
+        if self.instances[id] then
+            self.instances[id] = nil
+            removedCount = removedCount + 1
+        end
+    end
+    -- Also remove from byTier lists
+    if removedCount > 0 then
+        for tier, ids in pairs(self.byTier) do
+            local filtered = {}
+            for _, id in ipairs(ids) do
+                if not CONTINENT_OVERVIEWS[id] then
+                    table_insert(filtered, id)
+                end
+            end
+            self.byTier[tier] = filtered
+        end
+    end
+
     self.scanned = true
 
     local instanceCount = 0
     for _ in pairs(self.instances) do instanceCount = instanceCount + 1 end
-    QR:Debug(string_format("DungeonData: Scanned %d tiers, %d instances", numTiers, instanceCount))
+    QR:Debug(string_format("DungeonData: Scanned %d tiers, %d instances (%d continent entries filtered)",
+        numTiers, instanceCount, removedCount))
 end
 
 -------------------------------------------------------------------------------

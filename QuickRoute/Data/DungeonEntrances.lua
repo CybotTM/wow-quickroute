@@ -685,11 +685,51 @@ QR.StaticDungeonEntrances = {
         { 1271, 0.5220, 0.4570, "Ara-Kara, City of Echoes", false },
     },
 
-    -- Undermine  (Patch 11.1) — journalInstanceIDs TBD; runtime API resolves current content
-    -- Liberation of Undermine raid entrance: ~0.4203, 0.5028
+    -- Undermine  (Patch 11.1)
+    [2346] = {
+        { 1296, 0.4203, 0.5028, "Liberation of Undermine", true },
+    },
 
     -- K'aresh  (Patch 11.2)
     -- Manaforge Omega raid entrance: ~0.4180, 0.2100
+
+    ---------------------------------------------------------------------------
+    -- MIDNIGHT  (Patch 12.0)
+    ---------------------------------------------------------------------------
+
+    -- Eversong Woods (Midnight)
+    [2395] = {
+        { 1299, 0.6440, 0.6180, "Windrunner Spire", false },
+    },
+
+    -- Silvermoon City (Midnight)
+    [2393] = {
+        { 1304, 0.5620, 0.6110, "Murder Row", false },
+    },
+
+    -- Isle of Quel'Danas (Midnight)
+    [2424] = {
+        { 1300, 0.6340, 0.1530, "Magisters' Terrace", false },
+        { 1308, 0.5270, 0.8490, "March on Quel'Danas", true },
+    },
+
+    -- Zul'Aman (Midnight)
+    [2437] = {
+        { 1315, 0.4440, 0.4030, "Maisara Caverns", false },
+    },
+
+    -- Harandar
+    [2576] = {
+        { 1309, 0.2780, 0.7790, "The Blinding Vale", false },
+        { 1314, 0.6100, 0.6420, "The Dreamrift", true },
+    },
+
+    -- Voidstorm
+    [2405] = {
+        { 1307, 0.4540, 0.6400, "The Voidspire", true },
+        { 1313, 0.5370, 0.3480, "Voidscar Arena", false },
+        { 1316, 0.6440, 0.6180, "Nexus Point Xenas", false },
+    },
 }
 
 -------------------------------------------------------------------------------
@@ -702,4 +742,27 @@ for _, mapID in ipairs({15, 17}) do
     if zone then
         zone[#zone + 1] = { 1197, 0.4140, 0.1080, "Uldaman: Legacy of Tyr", false }
     end
+end
+
+-------------------------------------------------------------------------------
+-- Classic wing-split addendum (EJ lists wings as separate instances)
+-------------------------------------------------------------------------------
+
+-- Dire Maul wings (same entrance as classic Dire Maul, Feralas mapID 69)
+local direMaulZone = QR.StaticDungeonEntrances[69]
+if direMaulZone then
+    direMaulZone[#direMaulZone + 1] = { 1276, 0.6147, 0.3093, "Dire Maul - Warpwood Quarter", false }
+    direMaulZone[#direMaulZone + 1] = { 1277, 0.6147, 0.3093, "Dire Maul - Gordok Commons", false }
+end
+
+-- Stratholme - Service Entrance (Eastern Plaguelands, same area as main entrance)
+local stratZone = QR.StaticDungeonEntrances[23]
+if stratZone then
+    stratZone[#stratZone + 1] = { 1292, 0.2720, 0.1160, "Stratholme - Service Entrance", false }
+end
+
+-- Blackrock Depths (revamp, same entrance in Searing Gorge)
+local brdZone = QR.StaticDungeonEntrances[36]
+if brdZone then
+    brdZone[#brdZone + 1] = { 1301, 0.2049, 0.3534, "Blackrock Depths", false }
 end
