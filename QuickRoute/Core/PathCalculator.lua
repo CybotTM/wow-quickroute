@@ -677,12 +677,10 @@ function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
     -- Only assume flying for the player's current map; remote maps use ground speed
     local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     local canFly = (mapID == playerMapID) and GetCachedIsFlyable() or false
-    local foundSameMap = false
 
     -- First pass: connect to nodes on the same map
     for otherName, otherData in pairs(self.graph.nodes) do
         if otherName ~= nodeName and otherData.mapID == mapID then
-            foundSameMap = true
             -- Calculate walking time between nodes
             local walkTime = SafeEstimateWalkingTime(
                 x, y,
