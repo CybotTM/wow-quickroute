@@ -1616,10 +1616,29 @@ function MockWoW:Install()
     end
 
     ---------------------------------------------------------------------------
+    -- DungeonEntrancePinMixin stub (dungeon entrance pins on world map)
+    ---------------------------------------------------------------------------
+
+    _G.DungeonEntrancePinMixin = {
+        OnMouseClickAction = function() end,
+    }
+
+    ---------------------------------------------------------------------------
     -- QuestMapFrame stub (sidebar in the world map)
     ---------------------------------------------------------------------------
 
     _G.QuestMapFrame = CreateMockFrame("Frame", nil, nil, nil)
+
+    ---------------------------------------------------------------------------
+    -- EncounterJournal stub (Blizzard Encounter Journal UI frame)
+    ---------------------------------------------------------------------------
+
+    _G.EncounterJournal = CreateMockFrame("Frame", "EncounterJournal", nil, nil)
+    _G.EncounterJournal.instanceID = nil
+
+    _G.EncounterJournal_DisplayInstance = function(instanceID)
+        _G.EncounterJournal.instanceID = instanceID
+    end
 
     ---------------------------------------------------------------------------
     -- SlashCmdList

@@ -178,6 +178,41 @@ function POIRouting:OnMapClick(frame, button)
 end
 
 -------------------------------------------------------------------------------
+-- Dungeon Entrance Pin Hook
+-------------------------------------------------------------------------------
+
+--- Hook dungeon entrance map pins for Ctrl+Right-click routing
+-- DungeonEntrancePinMixin is Blizzard's pin template for dungeon entrances
+-- on the world map. We post-hook OnMouseClickAction to intercept Ctrl+Right-click.
+function POIRouting:RegisterDungeonPinHook()
+    if not WorldMapFrame then return end
+
+    local ok, err = pcall(function()
+        if DungeonEntrancePinMixin and DungeonEntrancePinMixin.OnMouseClickAction then
+            hooksecurefunc(DungeonEntrancePinMixin, "OnMouseClickAction", function(pin, button)
+                if button ~= "RightButton" then return end
+                if not (IsControlKeyDown and IsControlKeyDown()) then return end
+                if not pin.journalInstanceID then return end
+
+                if QR.DungeonData then
+                    local inst = QR.DungeonData:GetInstance(pin.journalInstanceID)
+                    if inst and inst.zoneMapID and inst.x and inst.y then
+                        POIRouting:RouteToMapPosition(inst.zoneMapID, inst.x, inst.y)
+                    end
+                end
+            end)
+            QR:Debug("POIRouting: Dungeon pin hook registered")
+        else
+            QR:Debug("POIRouting: DungeonEntrancePinMixin not available, pin hook skipped")
+        end
+    end)
+
+    if not ok then
+        QR:Debug("POIRouting: Failed to hook dungeon pins: " .. tostring(err))
+    end
+end
+
+-------------------------------------------------------------------------------
 -- Initialization
 -------------------------------------------------------------------------------
 
@@ -190,5 +225,6 @@ function POIRouting:Initialize()
     self.initialized = true
 
     self:RegisterMapHook()
+    self:RegisterDungeonPinHook()
     QR:Debug("POIRouting initialized")
 end

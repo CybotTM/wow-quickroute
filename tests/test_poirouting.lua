@@ -470,3 +470,328 @@ T:run("RouteToMapPosition: handles PathCalculator error gracefully", function(t)
     QR.PathCalculator.CalculatePath = origCalc
     QR.UI.Show = origShow
 end)
+
+-------------------------------------------------------------------------------
+-- 7. RegisterDungeonPinHook
+-------------------------------------------------------------------------------
+
+T:run("POIRouting: has RegisterDungeonPinHook method", function(t)
+    t:assertNotNil(QR.POIRouting.RegisterDungeonPinHook, "RegisterDungeonPinHook method exists")
+    t:assertEqual("function", type(QR.POIRouting.RegisterDungeonPinHook), "RegisterDungeonPinHook is a function")
+end)
+
+T:run("RegisterDungeonPinHook: registers hook when DungeonEntrancePinMixin exists", function(t)
+    resetState()
+    -- Track whether hooksecurefunc was called for DungeonEntrancePinMixin
+    local hookTarget = nil
+    local hookMethod = nil
+    local origHooksecurefunc = _G.hooksecurefunc
+    _G.hooksecurefunc = function(tbl, key, hook)
+        if tbl == DungeonEntrancePinMixin and key == "OnMouseClickAction" then
+            hookTarget = tbl
+            hookMethod = key
+        end
+        origHooksecurefunc(tbl, key, hook)
+    end
+
+    QR.POIRouting:RegisterDungeonPinHook()
+
+    t:assertEqual(DungeonEntrancePinMixin, hookTarget, "hooksecurefunc called on DungeonEntrancePinMixin")
+    t:assertEqual("OnMouseClickAction", hookMethod, "Hooked OnMouseClickAction method")
+
+    _G.hooksecurefunc = origHooksecurefunc
+end)
+
+T:run("RegisterDungeonPinHook: Ctrl+RightClick triggers routing", function(t)
+    resetState()
+
+    -- Set up DungeonData with a test instance
+    local origDungeonData = QR.DungeonData
+    QR.DungeonData = {
+        GetInstance = function(self, instanceID)
+            if instanceID == 1267 then
+                return { name = "The Stonevault", zoneMapID = 2248, x = 0.62, y = 0.31, isRaid = false }
+            end
+            return nil
+        end,
+    }
+
+    -- Track RouteToMapPosition calls
+    local routeMapID, routeX, routeY = nil, nil, nil
+    local origRoute = QR.POIRouting.RouteToMapPosition
+    QR.POIRouting.RouteToMapPosition = function(self, mapID, x, y)
+        routeMapID = mapID
+        routeX = x
+        routeY = y
+    end
+
+    -- Mock Ctrl key down
+    local origIsCtrl = _G.IsControlKeyDown
+    _G.IsControlKeyDown = function() return true end
+
+    -- Reset DungeonEntrancePinMixin to a fresh unhooked state
+    local origMixin = _G.DungeonEntrancePinMixin
+    _G.DungeonEntrancePinMixin = {
+        OnMouseClickAction = function() end,
+    }
+
+    -- Register the hook
+    QR.POIRouting:RegisterDungeonPinHook()
+
+    -- Simulate a pin Ctrl+Right-click
+    local pin = { journalInstanceID = 1267 }
+    DungeonEntrancePinMixin.OnMouseClickAction(pin, "RightButton")
+
+    t:assertEqual(2248, routeMapID, "Routed to correct zoneMapID")
+    t:assertEqual(0.62, routeX, "Correct X coordinate")
+    t:assertEqual(0.31, routeY, "Correct Y coordinate")
+
+    -- Cleanup
+    _G.IsControlKeyDown = origIsCtrl
+    _G.DungeonEntrancePinMixin = origMixin
+    QR.POIRouting.RouteToMapPosition = origRoute
+    QR.DungeonData = origDungeonData
+end)
+
+T:run("RegisterDungeonPinHook: ignores non-RightButton clicks", function(t)
+    resetState()
+
+    local origDungeonData = QR.DungeonData
+    QR.DungeonData = {
+        GetInstance = function(self, instanceID)
+            return { name = "Test", zoneMapID = 100, x = 0.5, y = 0.5 }
+        end,
+    }
+
+    local routeCalled = false
+    local origRoute = QR.POIRouting.RouteToMapPosition
+    QR.POIRouting.RouteToMapPosition = function(self, ...)
+        routeCalled = true
+    end
+
+    local origIsCtrl = _G.IsControlKeyDown
+    _G.IsControlKeyDown = function() return true end
+
+    -- Reset mixin
+    local origMixin = _G.DungeonEntrancePinMixin
+    _G.DungeonEntrancePinMixin = {
+        OnMouseClickAction = function() end,
+    }
+
+    QR.POIRouting:RegisterDungeonPinHook()
+
+    -- Simulate a LeftButton click (should be ignored)
+    local pin = { journalInstanceID = 1267 }
+    DungeonEntrancePinMixin.OnMouseClickAction(pin, "LeftButton")
+
+    t:assertFalse(routeCalled, "RouteToMapPosition not called for LeftButton")
+
+    _G.IsControlKeyDown = origIsCtrl
+    _G.DungeonEntrancePinMixin = origMixin
+    QR.POIRouting.RouteToMapPosition = origRoute
+    QR.DungeonData = origDungeonData
+end)
+
+T:run("RegisterDungeonPinHook: ignores RightButton without Ctrl", function(t)
+    resetState()
+
+    local origDungeonData = QR.DungeonData
+    QR.DungeonData = {
+        GetInstance = function(self, instanceID)
+            return { name = "Test", zoneMapID = 100, x = 0.5, y = 0.5 }
+        end,
+    }
+
+    local routeCalled = false
+    local origRoute = QR.POIRouting.RouteToMapPosition
+    QR.POIRouting.RouteToMapPosition = function(self, ...)
+        routeCalled = true
+    end
+
+    -- Ctrl NOT pressed
+    local origIsCtrl = _G.IsControlKeyDown
+    _G.IsControlKeyDown = function() return false end
+
+    local origMixin = _G.DungeonEntrancePinMixin
+    _G.DungeonEntrancePinMixin = {
+        OnMouseClickAction = function() end,
+    }
+
+    QR.POIRouting:RegisterDungeonPinHook()
+
+    local pin = { journalInstanceID = 1267 }
+    DungeonEntrancePinMixin.OnMouseClickAction(pin, "RightButton")
+
+    t:assertFalse(routeCalled, "RouteToMapPosition not called without Ctrl")
+
+    _G.IsControlKeyDown = origIsCtrl
+    _G.DungeonEntrancePinMixin = origMixin
+    QR.POIRouting.RouteToMapPosition = origRoute
+    QR.DungeonData = origDungeonData
+end)
+
+T:run("RegisterDungeonPinHook: ignores pin without journalInstanceID", function(t)
+    resetState()
+
+    local origDungeonData = QR.DungeonData
+    QR.DungeonData = {
+        GetInstance = function(self, instanceID)
+            return { name = "Test", zoneMapID = 100, x = 0.5, y = 0.5 }
+        end,
+    }
+
+    local routeCalled = false
+    local origRoute = QR.POIRouting.RouteToMapPosition
+    QR.POIRouting.RouteToMapPosition = function(self, ...)
+        routeCalled = true
+    end
+
+    local origIsCtrl = _G.IsControlKeyDown
+    _G.IsControlKeyDown = function() return true end
+
+    local origMixin = _G.DungeonEntrancePinMixin
+    _G.DungeonEntrancePinMixin = {
+        OnMouseClickAction = function() end,
+    }
+
+    QR.POIRouting:RegisterDungeonPinHook()
+
+    -- Pin has no journalInstanceID
+    local pin = {}
+    DungeonEntrancePinMixin.OnMouseClickAction(pin, "RightButton")
+
+    t:assertFalse(routeCalled, "RouteToMapPosition not called for pin without journalInstanceID")
+
+    _G.IsControlKeyDown = origIsCtrl
+    _G.DungeonEntrancePinMixin = origMixin
+    QR.POIRouting.RouteToMapPosition = origRoute
+    QR.DungeonData = origDungeonData
+end)
+
+T:run("RegisterDungeonPinHook: graceful when DungeonData has no entry", function(t)
+    resetState()
+
+    local origDungeonData = QR.DungeonData
+    QR.DungeonData = {
+        GetInstance = function(self, instanceID)
+            return nil  -- No entry for this instance
+        end,
+    }
+
+    local routeCalled = false
+    local origRoute = QR.POIRouting.RouteToMapPosition
+    QR.POIRouting.RouteToMapPosition = function(self, ...)
+        routeCalled = true
+    end
+
+    local origIsCtrl = _G.IsControlKeyDown
+    _G.IsControlKeyDown = function() return true end
+
+    local origMixin = _G.DungeonEntrancePinMixin
+    _G.DungeonEntrancePinMixin = {
+        OnMouseClickAction = function() end,
+    }
+
+    QR.POIRouting:RegisterDungeonPinHook()
+
+    local pin = { journalInstanceID = 9999 }
+    local ok, err = pcall(function()
+        DungeonEntrancePinMixin.OnMouseClickAction(pin, "RightButton")
+    end)
+
+    t:assertTrue(ok, "Does not error when DungeonData returns nil: " .. tostring(err))
+    t:assertFalse(routeCalled, "RouteToMapPosition not called when no instance data")
+
+    _G.IsControlKeyDown = origIsCtrl
+    _G.DungeonEntrancePinMixin = origMixin
+    QR.POIRouting.RouteToMapPosition = origRoute
+    QR.DungeonData = origDungeonData
+end)
+
+T:run("RegisterDungeonPinHook: graceful when DungeonEntrancePinMixin missing", function(t)
+    resetState()
+    local origMixin = _G.DungeonEntrancePinMixin
+    _G.DungeonEntrancePinMixin = nil
+
+    local ok, err = pcall(function()
+        QR.POIRouting:RegisterDungeonPinHook()
+    end)
+
+    t:assertTrue(ok, "Does not error when DungeonEntrancePinMixin is nil: " .. tostring(err))
+
+    _G.DungeonEntrancePinMixin = origMixin
+end)
+
+T:run("RegisterDungeonPinHook: graceful when WorldMapFrame missing", function(t)
+    resetState()
+    local origWMF = _G.WorldMapFrame
+    _G.WorldMapFrame = nil
+
+    local ok, err = pcall(function()
+        QR.POIRouting:RegisterDungeonPinHook()
+    end)
+
+    t:assertTrue(ok, "Does not error when WorldMapFrame is nil: " .. tostring(err))
+
+    _G.WorldMapFrame = origWMF
+end)
+
+T:run("RegisterDungeonPinHook: ignores instance missing coordinates", function(t)
+    resetState()
+
+    local origDungeonData = QR.DungeonData
+    QR.DungeonData = {
+        GetInstance = function(self, instanceID)
+            -- Instance exists but has no coordinates
+            return { name = "Test Dungeon", zoneMapID = 100 }
+        end,
+    }
+
+    local routeCalled = false
+    local origRoute = QR.POIRouting.RouteToMapPosition
+    QR.POIRouting.RouteToMapPosition = function(self, ...)
+        routeCalled = true
+    end
+
+    local origIsCtrl = _G.IsControlKeyDown
+    _G.IsControlKeyDown = function() return true end
+
+    local origMixin = _G.DungeonEntrancePinMixin
+    _G.DungeonEntrancePinMixin = {
+        OnMouseClickAction = function() end,
+    }
+
+    QR.POIRouting:RegisterDungeonPinHook()
+
+    local pin = { journalInstanceID = 1267 }
+    DungeonEntrancePinMixin.OnMouseClickAction(pin, "RightButton")
+
+    t:assertFalse(routeCalled, "RouteToMapPosition not called for instance without coordinates")
+
+    _G.IsControlKeyDown = origIsCtrl
+    _G.DungeonEntrancePinMixin = origMixin
+    QR.POIRouting.RouteToMapPosition = origRoute
+    QR.DungeonData = origDungeonData
+end)
+
+T:run("Initialize: calls RegisterDungeonPinHook", function(t)
+    resetState()
+    QR.POIRouting.initialized = false
+
+    -- Track whether RegisterDungeonPinHook was called
+    local dungeonHookCalled = false
+    local origDungeonHook = QR.POIRouting.RegisterDungeonPinHook
+    QR.POIRouting.RegisterDungeonPinHook = function(self)
+        dungeonHookCalled = true
+    end
+
+    -- Mock HookScript to avoid side effects from RegisterMapHook
+    WorldMapFrame.HookScript = function() end
+
+    QR.POIRouting:Initialize()
+
+    t:assertTrue(dungeonHookCalled, "RegisterDungeonPinHook was called during Initialize")
+
+    QR.POIRouting.RegisterDungeonPinHook = origDungeonHook
+    WorldMapFrame.HookScript = nil
+end)
