@@ -1139,6 +1139,159 @@ function MockWoW:Install()
     end
 
     ---------------------------------------------------------------------------
+    -- Encounter Journal API
+    ---------------------------------------------------------------------------
+
+    -- Tier/instance data for EJ mocks
+    local ejTiers = {
+        [1] = {
+            name = "Classic",
+            dungeons = {
+                { instanceID = 226, name = "Ragefire Chasm", mapID = 389, dungeonAreaMapID = 389, isRaid = false },
+            },
+            raids = {
+                { instanceID = 741, name = "Molten Core", mapID = 232, dungeonAreaMapID = 232, isRaid = true },
+            },
+        },
+        [2] = {
+            name = "The War Within",
+            dungeons = {
+                { instanceID = 1267, name = "The Stonevault", mapID = 2341, dungeonAreaMapID = 2341, isRaid = false },
+                { instanceID = 1268, name = "City of Threads", mapID = 2343, dungeonAreaMapID = 2343, isRaid = false },
+            },
+            raids = {
+                { instanceID = 1273, name = "Nerub-ar Palace", mapID = 2345, dungeonAreaMapID = 2345, isRaid = true },
+            },
+        },
+    }
+
+    -- Build reverse lookup: instanceID -> instance data
+    local ejInstanceByID = {}
+    for _, tier in pairs(ejTiers) do
+        for _, inst in ipairs(tier.dungeons) do
+            ejInstanceByID[inst.instanceID] = inst
+        end
+        for _, inst in ipairs(tier.raids) do
+            ejInstanceByID[inst.instanceID] = inst
+        end
+    end
+
+    -- Build reverse lookup: mapID -> instanceID
+    local ejMapToInstance = {}
+    for id, inst in pairs(ejInstanceByID) do
+        ejMapToInstance[inst.mapID] = id
+    end
+
+    local ejSelectedTier = 1
+
+    _G.EJ_GetNumTiers = function()
+        local count = 0
+        for _ in pairs(ejTiers) do count = count + 1 end
+        return count
+    end
+
+    _G.EJ_SelectTier = function(tier)
+        ejSelectedTier = tier
+    end
+
+    _G.EJ_GetTierInfo = function(tier)
+        local t = ejTiers[tier]
+        if t then return t.name end
+        return nil
+    end
+
+    _G.EJ_GetInstanceByIndex = function(index, isRaid)
+        local tier = ejTiers[ejSelectedTier]
+        if not tier then return nil, nil end
+        local list = isRaid and tier.raids or tier.dungeons
+        local inst = list[index]
+        if inst then
+            return inst.instanceID, inst.name
+        end
+        return nil, nil
+    end
+
+    _G.EJ_GetInstanceInfo = function(instanceID)
+        local inst = ejInstanceByID[instanceID]
+        if not inst then return nil end
+        -- Returns: name, description, bgImage, buttonImage1, loreImage,
+        --          buttonImage2, dungeonAreaMapID, link, shouldDisplayDifficulty,
+        --          mapID, journalMediaID, isRaid
+        return inst.name,
+               inst.name .. " description",
+               nil, nil, nil, nil,
+               inst.dungeonAreaMapID,
+               "|cff66bbff|Hjournal:1:" .. instanceID .. "|h[" .. inst.name .. "]|h|r",
+               true,
+               inst.mapID,
+               0,
+               inst.isRaid
+    end
+
+    ---------------------------------------------------------------------------
+    -- C_EncounterJournal Namespace
+    ---------------------------------------------------------------------------
+
+    if not _G.C_EncounterJournal then _G.C_EncounterJournal = {} end
+
+    -- Dungeon entrance data keyed by zone mapID
+    local ejEntranceData = {
+        [85] = {  -- Orgrimmar
+            {
+                areaPoiID = 226,
+                position = { x = 0.39, y = 0.50, GetXY = function() return 0.39, 0.50 end },
+                name = "Ragefire Chasm",
+                description = "A dungeon beneath Orgrimmar",
+                atlasName = "DungeonEntrance",
+                journalInstanceID = 226,
+            },
+        },
+        [2248] = {  -- Isle of Dorn
+            {
+                areaPoiID = 1267,
+                position = { x = 0.62, y = 0.31, GetXY = function() return 0.62, 0.31 end },
+                name = "The Stonevault",
+                description = "A dungeon in Isle of Dorn",
+                atlasName = "DungeonEntrance",
+                journalInstanceID = 1267,
+            },
+            {
+                areaPoiID = 1268,
+                position = { x = 0.35, y = 0.55, GetXY = function() return 0.35, 0.55 end },
+                name = "City of Threads",
+                description = "A dungeon in Isle of Dorn",
+                atlasName = "DungeonEntrance",
+                journalInstanceID = 1268,
+            },
+        },
+    }
+
+    _G.C_EncounterJournal.GetDungeonEntrancesForMap = function(mapID)
+        return ejEntranceData[mapID] or {}
+    end
+
+    _G.C_EncounterJournal.GetInstanceForGameMap = function(mapID)
+        return ejMapToInstance[mapID] or nil
+    end
+
+    ---------------------------------------------------------------------------
+    -- Enum.UIMapType
+    ---------------------------------------------------------------------------
+
+    if not _G.Enum then _G.Enum = {} end
+    if not _G.Enum.UIMapType then
+        _G.Enum.UIMapType = {
+            Cosmic    = 0,
+            World     = 1,
+            Continent = 2,
+            Zone      = 3,
+            Dungeon   = 4,
+            Micro     = 5,
+            Orphan    = 6,
+        }
+    end
+
+    ---------------------------------------------------------------------------
     -- C_SuperTrack Namespace
     ---------------------------------------------------------------------------
 
