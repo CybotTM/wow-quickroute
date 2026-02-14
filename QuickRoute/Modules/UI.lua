@@ -1304,6 +1304,51 @@ function UI:AppendCooldownDebugInfo(lines)
     table_insert(lines, "")
 end
 
+--- Append DungeonData status to debug lines
+-- @param lines table The lines table to append to
+function UI:AppendDungeonDataDebugInfo(lines)
+    local DD = QR.DungeonData
+    if not DD then return end
+
+    table_insert(lines, "### Dungeon Data")
+    table_insert(lines, "")
+
+    local total, withCoords, dungeons, raids = 0, 0, 0, 0
+    local missingList = {}
+    for id, inst in pairs(DD.instances) do
+        total = total + 1
+        if inst.x and inst.y and inst.zoneMapID then
+            withCoords = withCoords + 1
+        else
+            table_insert(missingList, { id = id, name = inst.name or "?", tier = inst.tier })
+        end
+        if inst.isRaid then raids = raids + 1 else dungeons = dungeons + 1 end
+    end
+
+    table_insert(lines, string_format("**%d** instances (%d dungeons, %d raids), **%d** with coordinates, **%d** missing",
+        total, dungeons, raids, withCoords, #missingList))
+    table_insert(lines, "")
+
+    if #missingList > 0 then
+        table_sort(missingList, function(a, b)
+            if (a.tier or 0) ~= (b.tier or 0) then return (a.tier or 0) > (b.tier or 0) end
+            return (a.name or "") < (b.name or "")
+        end)
+        table_insert(lines, "<details>")
+        table_insert(lines, "<summary>Instances missing coordinates (" .. #missingList .. ")</summary>")
+        table_insert(lines, "")
+        table_insert(lines, "| ID | Name | Tier |")
+        table_insert(lines, "|---|---|---|")
+        for _, m in ipairs(missingList) do
+            local tierName = DD.tierNames and DD.tierNames[m.tier] or tostring(m.tier or "?")
+            table_insert(lines, string_format("| %d | %s | %s |", m.id, m.name, tierName))
+        end
+        table_insert(lines, "")
+        table_insert(lines, "</details>")
+    end
+    table_insert(lines, "")
+end
+
 --- Append zone adjacency info to debug lines
 -- @param lines table The lines table to append to
 -- @param waypoint table|nil The active waypoint
@@ -1503,6 +1548,7 @@ function UI:GenerateDebugInfo()
     self:AppendPortalDebugInfo(lines)
     self:AppendPathDebugInfo(lines, waypoint)
     self:AppendCooldownDebugInfo(lines)
+    self:AppendDungeonDataDebugInfo(lines)
     self:AppendZoneDebugInfo(lines, waypoint)
     self:AppendModuleDebugInfo(lines)
     self:AppendAPIDebugInfo(lines)
