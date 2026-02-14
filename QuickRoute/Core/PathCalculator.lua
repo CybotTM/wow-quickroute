@@ -684,10 +684,10 @@ function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
         end
     end
 
-    -- If no nodes on same map, use zone adjacency data for intelligent routing
-    if not foundSameMap then
-        self:ConnectViaContinentRouting(nodeName, mapID, x, y)
-    end
+    -- Always use continent routing for robust connectivity.
+    -- Same-map nodes (e.g. dungeon entrances) may be isolated from the graph,
+    -- so we need hub/continent edges regardless.
+    self:ConnectViaContinentRouting(nodeName, mapID, x, y)
 end
 
 --- Connect a node using continent-aware routing
