@@ -440,4 +440,20 @@ function DungeonData:Initialize()
         "DungeonData: Initialized — %d instances total, %d with coordinates, %d tiers",
         instanceCount, withCoords, self.numTiers
     ))
+
+    -- Log instances missing coordinates so gaps can be identified
+    if withCoords < instanceCount then
+        local missing = {}
+        for id, inst in pairs(self.instances) do
+            if not inst.x or not inst.y then
+                table_insert(missing, string_format("  [%d] %s (tier %s)",
+                    id, inst.name or "?", tostring(inst.tier or "?")))
+            end
+        end
+        table_sort(missing)
+        QR:Debug("DungeonData: Instances missing coordinates:")
+        for _, line in ipairs(missing) do
+            QR:Debug(line)
+        end
+    end
 end
