@@ -868,3 +868,56 @@ T:run("DungeonData Graph: skips instances without coordinates", function(t)
     end
     t:assertEqual(0, dungeonCount, "No dungeon nodes when instances lack coordinates")
 end)
+
+-------------------------------------------------------------------------------
+-- Routing Regression: every dungeon must be reachable for both factions
+-- 0 failures allowed — catches hub isolation, island nodes, missing adjacencies
+-------------------------------------------------------------------------------
+
+local function routingRegressionForFaction(t, faction, playerMapID)
+    local savedFaction = MockWoW.config.playerFaction
+    local savedMap = MockWoW.config.currentMapID
+
+    MockWoW.config.playerFaction = faction
+    MockWoW.config.currentMapID = playerMapID
+    QR.PlayerInfo:InvalidateCache()
+
+    resetDungeonData()
+    QR.DungeonData:Initialize()
+    QR.PathCalculator.graphDirty = true
+
+    local total = 0
+    local failed = {}
+
+    for instanceID, inst in pairs(QR.DungeonData.instances) do
+        if inst.zoneMapID and inst.x and inst.y and inst.name then
+            total = total + 1
+            local result = QR.PathCalculator:CalculatePath(inst.zoneMapID, inst.x, inst.y, inst.name)
+            if not result or not result.totalTime then
+                table.insert(failed, string.format("[%d] %s (map %d)", instanceID, inst.name, inst.zoneMapID))
+            end
+        end
+    end
+
+    t:assertTrue(total > 100, faction .. " has >100 routable dungeons (got " .. total .. ")")
+    if #failed > 0 then
+        table.sort(failed)
+        local msg = faction .. ": " .. #failed .. "/" .. total .. " routes failed:\n  " .. table.concat(failed, "\n  ")
+        t:assertEqual(0, #failed, msg)
+    else
+        t:assertEqual(0, #failed, faction .. ": all " .. total .. " routes OK")
+    end
+
+    -- Restore
+    MockWoW.config.playerFaction = savedFaction
+    MockWoW.config.currentMapID = savedMap
+    QR.PlayerInfo:InvalidateCache()
+end
+
+T:run("Routing Regression: all dungeons reachable for Alliance", function(t)
+    routingRegressionForFaction(t, "Alliance", 84)
+end)
+
+T:run("Routing Regression: all dungeons reachable for Horde", function(t)
+    routingRegressionForFaction(t, "Horde", 85)
+end)

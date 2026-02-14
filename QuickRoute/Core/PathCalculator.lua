@@ -202,6 +202,19 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
+    -- Connect island nodes to the continent graph.
+    -- Portal destinations and dungeon entrances may be the only node on their
+    -- map, leaving them isolated. Give each one a hub/continent edge so
+    -- Dijkstra can traverse across maps.
+    success, err = pcall(function()
+        self:ConnectIslandNodes()
+    end)
+    if not success then
+        QR:Error("ConnectIslandNodes failed: " .. tostring(err))
+        buildSuccess = false
+        buildError = buildError or err
+    end
+
     -- Only mark clean if all steps succeeded
     self.graphDirty = not buildSuccess
 
@@ -846,6 +859,55 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
             QR:Debug(string_format("  -> Cross-continent: connected to %d hub/city nodes", connectCount))
         end
     end
+end
+
+--- Connect island nodes that lack cross-map edges
+-- Portal destinations and dungeon entrances may be the only node on their
+-- map after ConnectSameMapNodes, leaving them isolated. This gives each
+-- one continent routing edges so Dijkstra can traverse across maps.
+function PathCalculator:ConnectIslandNodes()
+    local connectedCount = 0
+
+    for nodeName, nodeData in pairs(self.graph.nodes) do
+        -- Skip player node and well-connected city/hub nodes
+        if nodeName ~= PLAYER_NODE
+            and nodeData.mapID
+            and nodeData.nodeType ~= "city"
+            and nodeData.nodeType ~= "hub"
+        then
+            -- Check if this node is connected to the broader graph:
+            -- either has an edge to a different map, or to a city/hub node
+            -- (which have portal edges to other maps)
+            local isConnected = false
+            local edges = self.graph.edges[nodeName]
+            if edges then
+                for destName, _ in pairs(edges) do
+                    local destData = self.graph.nodes[destName]
+                    if destData then
+                        if destData.mapID ~= nodeData.mapID then
+                            isConnected = true
+                            break
+                        end
+                        if destData.nodeType == "city" or destData.nodeType == "hub" then
+                            isConnected = true
+                            break
+                        end
+                    end
+                end
+            end
+
+            if not isConnected then
+                self:ConnectViaContinentRouting(
+                    nodeName, nodeData.mapID,
+                    nodeData.x or DEFAULT_COORDINATE,
+                    nodeData.y or DEFAULT_COORDINATE
+                )
+                connectedCount = connectedCount + 1
+            end
+        end
+    end
+
+    QR:Debug(string_format("ConnectIslandNodes: connected %d isolated nodes", connectedCount))
 end
 
 --- Build human-readable steps from path and edges
