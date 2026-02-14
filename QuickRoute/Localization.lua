@@ -188,6 +188,17 @@ L["MINI_PANEL_NO_TELEPORTS"] = "No teleports available"
 L["MINI_PANEL_SUMMON_MOUNT"] = "Summon Mount"
 L["MINI_PANEL_RANDOM_FAVORITE"] = "Random favorite"
 
+-- Dungeon/Raid routing
+L["DUNGEON_PICKER_TITLE"] = "Dungeons & Raids"
+L["DUNGEON_PICKER_SEARCH"] = "Search..."
+L["DUNGEON_PICKER_NO_RESULTS"] = "No matching instances"
+L["DUNGEON_ROUTE_TO"] = "Route to entrance"
+L["DUNGEON_ROUTE_TO_TT"] = "Calculate the fastest route to this dungeon entrance"
+L["DUNGEON_TAG"] = "Dungeon"
+L["DUNGEON_RAID_TAG"] = "Raid"
+L["DUNGEON_ENTRANCE"] = "%s Entrance"
+L["EJ_ROUTE_BUTTON_TT"] = "Route to this instance entrance"
+
 -- Errors / Hints
 L["UNKNOWN"] = "Unknown"
 L["UNKNOWN_VENDOR"] = "Unknown vendor"
@@ -444,6 +455,17 @@ if GetLocale() == "deDE" then
     L["MINI_PANEL_SUMMON_MOUNT"] = "Reittier rufen"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Zufälliger Favorit"
 
+    -- Dungeon/Raid routing
+    L["DUNGEON_PICKER_TITLE"] = "Dungeons & Schlachtzüge"
+    L["DUNGEON_PICKER_SEARCH"] = "Suchen..."
+    L["DUNGEON_PICKER_NO_RESULTS"] = "Keine passenden Instanzen"
+    L["DUNGEON_ROUTE_TO"] = "Route zum Eingang"
+    L["DUNGEON_ROUTE_TO_TT"] = "Berechne die schnellste Route zum Eingang dieser Instanz"
+    L["DUNGEON_TAG"] = "Dungeon"
+    L["DUNGEON_RAID_TAG"] = "Schlachtzug"
+    L["DUNGEON_ENTRANCE"] = "%s Eingang"
+    L["EJ_ROUTE_BUTTON_TT"] = "Route zum Eingang dieser Instanz"
+
     -- Errors / Hints
     L["UNKNOWN"] = "Unbekannt"
     L["UNKNOWN_VENDOR"] = "Unbekannter Händler"
@@ -698,6 +720,17 @@ if GetLocale() == "frFR" then
     L["MINI_PANEL_NO_TELEPORTS"] = "Aucune téléportation disponible"
     L["MINI_PANEL_SUMMON_MOUNT"] = "Invoquer la monture"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Favori aléatoire"
+
+    -- Dungeon/Raid routing
+    L["DUNGEON_PICKER_TITLE"] = "Donjons & Raids"
+    L["DUNGEON_PICKER_SEARCH"] = "Rechercher..."
+    L["DUNGEON_PICKER_NO_RESULTS"] = "Aucune instance correspondante"
+    L["DUNGEON_ROUTE_TO"] = "Itinéraire vers l'entrée"
+    L["DUNGEON_ROUTE_TO_TT"] = "Calculer l'itinéraire le plus rapide vers l'entrée de ce donjon"
+    L["DUNGEON_TAG"] = "Donjon"
+    L["DUNGEON_RAID_TAG"] = "Raid"
+    L["DUNGEON_ENTRANCE"] = "Entrée de %s"
+    L["EJ_ROUTE_BUTTON_TT"] = "Itinéraire vers l'entrée de cette instance"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Inconnu"
@@ -955,6 +988,17 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["MINI_PANEL_SUMMON_MOUNT"] = "Invocar montura"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Favorito aleatorio"
 
+    -- Dungeon/Raid routing
+    L["DUNGEON_PICKER_TITLE"] = "Mazmorras y bandas"
+    L["DUNGEON_PICKER_SEARCH"] = "Buscar..."
+    L["DUNGEON_PICKER_NO_RESULTS"] = "No se encontraron instancias"
+    L["DUNGEON_ROUTE_TO"] = "Ruta a la entrada"
+    L["DUNGEON_ROUTE_TO_TT"] = "Calcular la ruta más rápida a la entrada de esta mazmorra"
+    L["DUNGEON_TAG"] = "Mazmorra"
+    L["DUNGEON_RAID_TAG"] = "Banda"
+    L["DUNGEON_ENTRANCE"] = "Entrada de %s"
+    L["EJ_ROUTE_BUTTON_TT"] = "Ruta a la entrada de esta instancia"
+
     -- Errors / Hints
     L["UNKNOWN"] = "Desconocido"
     L["UNKNOWN_VENDOR"] = "Vendedor desconocido"
@@ -1209,6 +1253,17 @@ if GetLocale() == "ptBR" then
     L["MINI_PANEL_NO_TELEPORTS"] = "Nenhum teletransporte disponível"
     L["MINI_PANEL_SUMMON_MOUNT"] = "Invocar montaria"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Favorito aleatório"
+
+    -- Dungeon/Raid routing
+    L["DUNGEON_PICKER_TITLE"] = "Masmorras e Raides"
+    L["DUNGEON_PICKER_SEARCH"] = "Pesquisar..."
+    L["DUNGEON_PICKER_NO_RESULTS"] = "Nenhuma instância encontrada"
+    L["DUNGEON_ROUTE_TO"] = "Rota para a entrada"
+    L["DUNGEON_ROUTE_TO_TT"] = "Calcular a rota mais rápida para a entrada desta masmorra"
+    L["DUNGEON_TAG"] = "Masmorra"
+    L["DUNGEON_RAID_TAG"] = "Raide"
+    L["DUNGEON_ENTRANCE"] = "Entrada de %s"
+    L["EJ_ROUTE_BUTTON_TT"] = "Rota para a entrada desta instância"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Desconhecido"
@@ -1465,6 +1520,17 @@ if GetLocale() == "ruRU" then
     L["MINI_PANEL_SUMMON_MOUNT"] = "Призвать ездовое"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Случайное избранное"
 
+    -- Dungeon/Raid routing
+    L["DUNGEON_PICKER_TITLE"] = "Подземелья и рейды"
+    L["DUNGEON_PICKER_SEARCH"] = "Поиск..."
+    L["DUNGEON_PICKER_NO_RESULTS"] = "Подземелья не найдены"
+    L["DUNGEON_ROUTE_TO"] = "Маршрут ко входу"
+    L["DUNGEON_ROUTE_TO_TT"] = "Рассчитать быстрейший маршрут ко входу в подземелье"
+    L["DUNGEON_TAG"] = "Подземелье"
+    L["DUNGEON_RAID_TAG"] = "Рейд"
+    L["DUNGEON_ENTRANCE"] = "Вход в %s"
+    L["EJ_ROUTE_BUTTON_TT"] = "Маршрут ко входу в эту инстанцию"
+
     -- Errors / Hints
     L["UNKNOWN"] = "Неизвестно"
     L["UNKNOWN_VENDOR"] = "Неизвестный торговец"
@@ -1719,6 +1785,17 @@ if GetLocale() == "koKR" then
     L["MINI_PANEL_NO_TELEPORTS"] = "사용 가능한 순간이동이 없습니다"
     L["MINI_PANEL_SUMMON_MOUNT"] = "탈것 소환"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "무작위 즐겨찾기"
+
+    -- Dungeon/Raid routing
+    L["DUNGEON_PICKER_TITLE"] = "던전 및 공격대"
+    L["DUNGEON_PICKER_SEARCH"] = "검색..."
+    L["DUNGEON_PICKER_NO_RESULTS"] = "일치하는 인스턴스 없음"
+    L["DUNGEON_ROUTE_TO"] = "입구까지 경로"
+    L["DUNGEON_ROUTE_TO_TT"] = "이 던전 입구까지의 최적 경로를 계산합니다"
+    L["DUNGEON_TAG"] = "던전"
+    L["DUNGEON_RAID_TAG"] = "공격대"
+    L["DUNGEON_ENTRANCE"] = "%s 입구"
+    L["EJ_ROUTE_BUTTON_TT"] = "이 인스턴스 입구까지의 경로"
 
     -- Errors / Hints
     L["UNKNOWN"] = "알 수 없음"
@@ -1975,6 +2052,17 @@ if GetLocale() == "zhCN" then
     L["MINI_PANEL_SUMMON_MOUNT"] = "召唤坐骑"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "随机最爱"
 
+    -- Dungeon/Raid routing
+    L["DUNGEON_PICKER_TITLE"] = "地下城与团队副本"
+    L["DUNGEON_PICKER_SEARCH"] = "搜索..."
+    L["DUNGEON_PICKER_NO_RESULTS"] = "没有匹配的副本"
+    L["DUNGEON_ROUTE_TO"] = "前往入口的路线"
+    L["DUNGEON_ROUTE_TO_TT"] = "计算前往此地下城入口的最快路线"
+    L["DUNGEON_TAG"] = "地下城"
+    L["DUNGEON_RAID_TAG"] = "团队副本"
+    L["DUNGEON_ENTRANCE"] = "%s 入口"
+    L["EJ_ROUTE_BUTTON_TT"] = "前往此副本入口的路线"
+
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
     L["UNKNOWN_VENDOR"] = "未知商人"
@@ -2230,6 +2318,17 @@ if GetLocale() == "zhTW" then
     L["MINI_PANEL_SUMMON_MOUNT"] = "召喚坐騎"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "隨機最愛"
 
+    -- Dungeon/Raid routing
+    L["DUNGEON_PICKER_TITLE"] = "地城與團隊副本"
+    L["DUNGEON_PICKER_SEARCH"] = "搜尋..."
+    L["DUNGEON_PICKER_NO_RESULTS"] = "沒有符合的副本"
+    L["DUNGEON_ROUTE_TO"] = "前往入口的路線"
+    L["DUNGEON_ROUTE_TO_TT"] = "計算前往此地城入口的最快路線"
+    L["DUNGEON_TAG"] = "地城"
+    L["DUNGEON_RAID_TAG"] = "團隊副本"
+    L["DUNGEON_ENTRANCE"] = "%s 入口"
+    L["EJ_ROUTE_BUTTON_TT"] = "前往此副本入口的路線"
+
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
     L["UNKNOWN_VENDOR"] = "未知商人"
@@ -2484,6 +2583,17 @@ if GetLocale() == "itIT" then
     L["MINI_PANEL_NO_TELEPORTS"] = "Nessun teletrasporto disponibile"
     L["MINI_PANEL_SUMMON_MOUNT"] = "Evoca cavalcatura"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Preferito casuale"
+
+    -- Dungeon/Raid routing
+    L["DUNGEON_PICKER_TITLE"] = "Spedizioni e incursioni"
+    L["DUNGEON_PICKER_SEARCH"] = "Cerca..."
+    L["DUNGEON_PICKER_NO_RESULTS"] = "Nessuna istanza trovata"
+    L["DUNGEON_ROUTE_TO"] = "Percorso verso l'ingresso"
+    L["DUNGEON_ROUTE_TO_TT"] = "Calcola il percorso più veloce verso l'ingresso di questa spedizione"
+    L["DUNGEON_TAG"] = "Spedizione"
+    L["DUNGEON_RAID_TAG"] = "Incursione"
+    L["DUNGEON_ENTRANCE"] = "Ingresso di %s"
+    L["EJ_ROUTE_BUTTON_TT"] = "Percorso verso l'ingresso di questa istanza"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Sconosciuto"
