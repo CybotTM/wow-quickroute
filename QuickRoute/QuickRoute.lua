@@ -173,6 +173,14 @@ function QR:OnPlayerLogin()
             self:Error("SavedVariables not initialized")
             return
         end
+        -- Initialize dungeon data before graph build so nodes are available
+        if QR.DungeonData then
+            local ddOk, ddErr = pcall(function() QR.DungeonData:Initialize() end)
+            if not ddOk then
+                QR:Error("DungeonData init failed: " .. tostring(ddErr))
+            end
+        end
+
         local steps = {
             { "Graph",              function() QR:InitializeGraph() end },
             { "PlayerTeleports",    function() QR:ScanPlayerTeleports() end },

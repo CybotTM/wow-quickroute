@@ -710,3 +710,161 @@ T:run("DungeonData: Static data instances have coordinates", function(t)
         t:assertNotNil(stock.y, "Stockade has y")
     end
 end)
+
+-------------------------------------------------------------------------------
+-- 12. Graph Integration — Dungeon Entrance Nodes
+-------------------------------------------------------------------------------
+
+T:run("DungeonData Graph: Ragefire Chasm node exists after BuildGraph", function(t)
+    resetDungeonData()
+    local DD = QR.DungeonData
+    DD:Initialize()
+
+    -- Force graph rebuild with dungeon data available
+    QR.PathCalculator.graphDirty = true
+    local graph = QR.PathCalculator:BuildGraph()
+    t:assertNotNil(graph, "Graph was built")
+
+    local node = graph.nodes["Dungeon: Ragefire Chasm"]
+    t:assertNotNil(node, "Dungeon: Ragefire Chasm node exists in graph")
+end)
+
+T:run("DungeonData Graph: RFC node has correct mapID and isDungeon", function(t)
+    resetDungeonData()
+    local DD = QR.DungeonData
+    DD:Initialize()
+
+    QR.PathCalculator.graphDirty = true
+    local graph = QR.PathCalculator:BuildGraph()
+
+    local node = graph.nodes["Dungeon: Ragefire Chasm"]
+    t:assertNotNil(node, "RFC node exists")
+    t:assertEqual(85, node.mapID, "RFC node mapID = 85 (Orgrimmar)")
+    t:assertTrue(node.isDungeon, "RFC node isDungeon = true")
+end)
+
+T:run("DungeonData Graph: RFC node has walking edges to other mapID 85 nodes", function(t)
+    resetDungeonData()
+    local DD = QR.DungeonData
+    DD:Initialize()
+
+    -- Switch to Horde so Orgrimmar (mapID 85) is in the graph as a city node
+    local savedFaction = MockWoW.config.playerFaction
+    MockWoW.config.playerFaction = "Horde"
+    QR.PlayerInfo:InvalidateCache()
+
+    QR.PathCalculator.graphDirty = true
+    local graph = QR.PathCalculator:BuildGraph()
+
+    -- Orgrimmar (mapID 85) should have a city node and the dungeon node
+    -- ConnectSameMapNodes should have connected them
+    local rfcNodeName = "Dungeon: Ragefire Chasm"
+    local node = graph.nodes[rfcNodeName]
+    t:assertNotNil(node, "RFC node exists")
+
+    -- Look for any walking edge from or to the RFC node on mapID 85
+    local hasWalkEdge = false
+    -- Check outgoing edges from RFC
+    if graph.edges[rfcNodeName] then
+        for toNode, edge in pairs(graph.edges[rfcNodeName]) do
+            local toData = graph.nodes[toNode]
+            if toData and toData.mapID == 85 and edge.edgeType == "walk" then
+                hasWalkEdge = true
+                break
+            end
+        end
+    end
+    -- Also check incoming edges (bidirectional walk edges)
+    if not hasWalkEdge then
+        for fromNode, edges in pairs(graph.edges) do
+            if edges[rfcNodeName] then
+                local edge = edges[rfcNodeName]
+                local fromData = graph.nodes[fromNode]
+                if fromData and fromData.mapID == 85 and edge.edgeType == "walk" then
+                    hasWalkEdge = true
+                    break
+                end
+            end
+        end
+    end
+
+    t:assertTrue(hasWalkEdge, "RFC node has walking edge to another node on mapID 85")
+
+    -- Restore faction
+    MockWoW.config.playerFaction = savedFaction
+    QR.PlayerInfo:InvalidateCache()
+end)
+
+T:run("DungeonData Graph: dungeon nodes added BEFORE ConnectSameMapNodes", function(t)
+    -- Verify that dungeon nodes get connected via walking edges,
+    -- which only happens if they are added before ConnectSameMapNodes runs.
+    resetDungeonData()
+    local DD = QR.DungeonData
+    DD:Initialize()
+
+    QR.PathCalculator.graphDirty = true
+    local graph = QR.PathCalculator:BuildGraph()
+
+    -- Count dungeon nodes with walking edges
+    local dungeonNodesWithEdges = 0
+    for nodeName, nodeData in pairs(graph.nodes) do
+        if nodeData.isDungeon then
+            -- Check if this node has any walk edges
+            if graph.edges[nodeName] then
+                for _, edge in pairs(graph.edges[nodeName]) do
+                    if edge.edgeType == "walk" then
+                        dungeonNodesWithEdges = dungeonNodesWithEdges + 1
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    t:assertGreaterThan(dungeonNodesWithEdges, 0,
+        "At least one dungeon node has walking edges (meaning it was connected by ConnectSameMapNodes)")
+end)
+
+T:run("DungeonData Graph: no dungeon nodes without DungeonData", function(t)
+    -- Temporarily remove DungeonData to verify graceful handling
+    local origDD = QR.DungeonData
+    QR.DungeonData = nil
+
+    QR.PathCalculator.graphDirty = true
+    local graph = QR.PathCalculator:BuildGraph()
+    t:assertNotNil(graph, "Graph was built without DungeonData")
+
+    -- Count dungeon nodes — should be zero
+    local dungeonCount = 0
+    for _, nodeData in pairs(graph.nodes) do
+        if nodeData.isDungeon then
+            dungeonCount = dungeonCount + 1
+        end
+    end
+    t:assertEqual(0, dungeonCount, "No dungeon nodes without DungeonData")
+
+    -- Restore
+    QR.DungeonData = origDD
+end)
+
+T:run("DungeonData Graph: skips instances without coordinates", function(t)
+    resetDungeonData()
+    local DD = QR.DungeonData
+
+    -- Only scan instances (no entrance scan, no static merge) — no coordinates
+    DD:ScanInstances()
+    -- Mark scanned so AddDungeonNodes will run
+    -- instances exist but have no zoneMapID/x/y
+
+    QR.PathCalculator.graphDirty = true
+    local graph = QR.PathCalculator:BuildGraph()
+
+    -- Instances without coords should NOT become graph nodes
+    local dungeonCount = 0
+    for _, nodeData in pairs(graph.nodes) do
+        if nodeData.isDungeon then
+            dungeonCount = dungeonCount + 1
+        end
+    end
+    t:assertEqual(0, dungeonCount, "No dungeon nodes when instances lack coordinates")
+end)

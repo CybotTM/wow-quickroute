@@ -181,6 +181,16 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
+    -- Add dungeon/raid entrance nodes
+    success, err = pcall(function()
+        self:AddDungeonNodes()
+    end)
+    if not success then
+        QR:Error("AddDungeonNodes failed: " .. tostring(err))
+        buildSuccess = false
+        buildError = buildError or err
+    end
+
     -- IMPORTANT: Connect all nodes on the same map with walking edges
     -- This ensures teleport destinations connect to portal hubs on the same map
     success, err = pcall(function()
@@ -439,6 +449,33 @@ function PathCalculator:AddPlayerTeleportEdges()
             end
         end
     end
+end
+
+--- Add dungeon/raid entrance nodes to the graph
+-- Each entrance becomes a node connected to its parent zone via walking edge
+function PathCalculator:AddDungeonNodes()
+    if not QR.DungeonData or not QR.DungeonData.scanned then
+        QR:Debug("PathCalculator: DungeonData not available, skipping dungeon nodes")
+        return
+    end
+
+    local addedCount = 0
+    for instanceID, inst in pairs(QR.DungeonData.instances) do
+        if inst.zoneMapID and inst.x and inst.y and inst.name then
+            local nodeName = "Dungeon: " .. inst.name
+            self.graph:AddNode(nodeName, {
+                mapID = inst.zoneMapID,
+                x = inst.x,
+                y = inst.y,
+                journalInstanceID = instanceID,
+                isRaid = inst.isRaid,
+                isDungeon = true,
+            })
+            addedCount = addedCount + 1
+        end
+    end
+
+    QR:Debug(string_format("PathCalculator: added %d dungeon/raid entrance nodes", addedCount))
 end
 
 -------------------------------------------------------------------------------
