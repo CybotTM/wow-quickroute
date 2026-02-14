@@ -36,6 +36,7 @@ globals = {
     "C_ToyBox",
     "C_Timer",
     "C_TaskQuest",
+    "C_EncounterJournal",
 
     -- WoW API functions
     "GetItemInfo",
@@ -84,6 +85,15 @@ globals = {
     "ShoppingTooltip2",
     "MinimalSliderWithSteppersMixin",
     "CLOSE",
+
+    -- Encounter Journal globals
+    "EncounterJournal",
+    "EncounterJournal_DisplayInstance",
+    "EJ_GetNumTiers",
+    "EJ_SelectTier",
+    "EJ_GetInstanceByIndex",
+    "EJ_GetTierInfo",
+    "DungeonEntrancePinMixin",
 
     -- WoW API functions (equipment/achievement)
     "EquipItemByName",
