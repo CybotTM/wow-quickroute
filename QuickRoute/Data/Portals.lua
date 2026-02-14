@@ -506,6 +506,90 @@ QR.StandalonePortals = {
         type = "portal",
         bidirectional = true,
     },
+
+    -- =========================================================================
+    -- CATACLYSM: PORTAL-ACCESSED ZONES
+    -- =========================================================================
+    {
+        name = "Stormwind to Deepholm",
+        from = {mapID = 84, x = 0.50, y = 0.30},     -- Stormwind portal
+        to = {mapID = 207, x = 0.50, y = 0.50},       -- Deepholm arrival (Temple of Earth)
+        travelTime = 30,
+        faction = "Alliance",
+        type = "portal",
+        bidirectional = true,
+    },
+    {
+        name = "Orgrimmar to Deepholm",
+        from = {mapID = 85, x = 0.50, y = 0.40},     -- Orgrimmar portal
+        to = {mapID = 207, x = 0.50, y = 0.50},       -- Deepholm arrival
+        travelTime = 30,
+        faction = "Horde",
+        type = "portal",
+        bidirectional = true,
+    },
+    {
+        name = "Stormwind to Tol Barad",
+        from = {mapID = 84, x = 0.50, y = 0.30},     -- Stormwind portal
+        to = {mapID = 244, x = 0.50, y = 0.50},       -- Tol Barad Peninsula
+        travelTime = 30,
+        faction = "Alliance",
+        type = "portal",
+        bidirectional = true,
+    },
+    {
+        name = "Orgrimmar to Tol Barad",
+        from = {mapID = 85, x = 0.50, y = 0.40},     -- Orgrimmar portal
+        to = {mapID = 244, x = 0.50, y = 0.50},       -- Tol Barad Peninsula
+        travelTime = 30,
+        faction = "Horde",
+        type = "portal",
+        bidirectional = true,
+    },
+    {
+        name = "Stormwind to Vashj'ir",
+        from = {mapID = 84, x = 0.22, y = 0.57},     -- Stormwind Harbor
+        to = {mapID = 204, x = 0.50, y = 0.50},       -- Vashj'ir arrival
+        travelTime = 90,
+        faction = "Alliance",
+        type = "boat",
+        bidirectional = true,
+    },
+    {
+        name = "Orgrimmar to Vashj'ir",
+        from = {mapID = 85, x = 0.50, y = 0.55},     -- Orgrimmar
+        to = {mapID = 204, x = 0.50, y = 0.50},       -- Vashj'ir arrival
+        travelTime = 90,
+        faction = "Horde",
+        type = "boat",
+        bidirectional = true,
+    },
+
+    -- =========================================================================
+    -- LEGION: ARGUS PORTALS (via Vindicaar from Dalaran)
+    -- =========================================================================
+    {
+        name = "Dalaran (Broken Isles) to Antoran Wastes",
+        from = {mapID = 627, x = 0.74, y = 0.49},     -- Dalaran Vindicaar beacon
+        to = {mapID = 885, x = 0.50, y = 0.50},        -- Antoran Wastes
+        travelTime = 30,
+        faction = "both",
+        type = "portal",
+        bidirectional = true,
+    },
+
+    -- =========================================================================
+    -- SHADOWLANDS: ZERETH MORTIS PORTAL
+    -- =========================================================================
+    {
+        name = "Oribos to Zereth Mortis",
+        from = {mapID = 1670, x = 0.50, y = 0.50},    -- Oribos
+        to = {mapID = 1970, x = 0.50, y = 0.50},      -- Zereth Mortis
+        travelTime = 30,
+        faction = "both",
+        type = "portal",
+        bidirectional = true,
+    },
 }
 
 --- Get all available portals for the current player

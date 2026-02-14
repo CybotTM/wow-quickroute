@@ -52,6 +52,12 @@ QR.Continents = {
             2437, -- Zul'Aman
             2576, -- Harandar
             2405, -- Voidstorm
+            -- Pre-Midnight legacy zones (classic/TBC dungeon entrances)
+            15,   -- Badlands (sub-zone for Uldaman entrance)
+            95,   -- Ghostlands (Zul'Aman entrance, pre-Midnight)
+            122,  -- Isle of Quel'Danas (TBC, Magisters' Terrace/Sunwell)
+            244,  -- Tol Barad Peninsula (Baradin Hold)
+            207,  -- Deepholm (portal from SW/Org, The Stonecore)
         },
     },
     KALIMDOR = {
@@ -90,8 +96,12 @@ QR.Continents = {
             199,  -- Southern Barrens
             198,  -- Mount Hyjal
             203,  -- Un'Goro Crater
-            204,  -- Silithus
+            204,  -- Vashj'ir / Abyssal Depths
             261,  -- Uldum
+            -- Dungeon entrance zones
+            75,   -- Caverns of Time (Tanaris sub-zone)
+            249,  -- Uldum (Cataclysm-era map)
+            1527, -- Uldum (N'Zoth Assault version, BFA)
         },
     },
     OUTLAND = {
@@ -142,6 +152,7 @@ QR.Continents = {
             504,  -- Isle of Giants
             507,  -- Isle of Thunder (alternate)
             554,  -- Timeless Isle
+            1530, -- Vale of Eternal Blossoms (N'Zoth Assault version)
         },
     },
     DRAENOR = {
@@ -199,6 +210,7 @@ QR.Continents = {
             863,  -- Nazmir
             864,  -- Vol'dun
             1165, -- Dazar'alor
+            876,  -- Zandalar (continent-level map, Crucible of Storms)
         },
     },
     BFA_NEUTRAL = {
@@ -207,6 +219,7 @@ QR.Continents = {
         zones = {
             1355, -- Nazjatar
             1462, -- Mechagon
+            1169, -- Tol Dagor (off Kul Tiras)
         },
     },
     SHADOWLANDS = {
@@ -400,6 +413,8 @@ QR.ZoneAdjacencies = {
         {zone = 376, travelTime = 90},  -- Valley of Four Winds
         {zone = 388, travelTime = 90},  -- Townlong Steppes
         {zone = 390, travelTime = 60},  -- Vale of Eternal Blossoms
+        {zone = 504, travelTime = 120}, -- Isle of Giants (boat)
+        {zone = 1530, travelTime = 60}, -- Vale N'Zoth Assault (same as Vale)
     },
     [379] = {  -- Kun-Lai Summit (alternate ID)
         {zone = 371, travelTime = 90},
@@ -459,6 +474,7 @@ QR.ZoneAdjacencies = {
         {zone = 2112, travelTime = 30},  -- Valdrakken
         {zone = 2024, travelTime = 60},  -- Azure Span
         {zone = 2023, travelTime = 60},  -- Ohn'ahran Plains
+        {zone = 2133, travelTime = 60},  -- Zaralek Cavern (entrance nearby)
     },
     [2022] = {  -- Waking Shores
         {zone = 2023, travelTime = 60},  -- Ohn'ahran Plains
@@ -468,6 +484,7 @@ QR.ZoneAdjacencies = {
         {zone = 2024, travelTime = 60},  -- Azure Span
         {zone = 2025, travelTime = 60},  -- Thaldraszus
         {zone = 2239, travelTime = 60},  -- Bel'ameth (Amirdrassil, west coast)
+        {zone = 2200, travelTime = 60},  -- Emerald Dream (Ancient Bough portal)
     },
     [2239] = {  -- Bel'ameth (Night Elf capital, Patch 10.2.5)
         {zone = 2023, travelTime = 60},  -- Ohn'ahran Plains (dragonriding)
@@ -528,6 +545,7 @@ QR.ZoneAdjacencies = {
         {zone = 1161, travelTime = 30},  -- Boralus
         {zone = 896, travelTime = 60},   -- Drustvar
         {zone = 942, travelTime = 60},   -- Stormsong Valley
+        {zone = 1169, travelTime = 60},  -- Tol Dagor
     },
     [896] = {  -- Drustvar
         {zone = 895, travelTime = 60},   -- Tiragarde Sound
@@ -536,6 +554,7 @@ QR.ZoneAdjacencies = {
     [942] = {  -- Stormsong Valley
         {zone = 895, travelTime = 60},   -- Tiragarde Sound
         {zone = 896, travelTime = 90},   -- Drustvar
+        {zone = 876, travelTime = 60},   -- Zandalar continent (Crucible of Storms)
     },
 
     -- Zandalar connections (BFA Horde)
@@ -650,6 +669,7 @@ QR.ZoneAdjacencies = {
     [25] = {  -- Burning Steppes
         {zone = 32, travelTime = 60},    -- Searing Gorge
         {zone = 48, travelTime = 90},    -- Redridge Mountains
+        {zone = 35, travelTime = 90},    -- Twilight Highlands (via Dragonmaw Pass)
     },
     [32] = {  -- Searing Gorge
         {zone = 25, travelTime = 60},    -- Burning Steppes
@@ -659,6 +679,7 @@ QR.ZoneAdjacencies = {
     [17] = {  -- Badlands
         {zone = 32, travelTime = 60},    -- Searing Gorge
         {zone = 36, travelTime = 60},    -- Loch Modan
+        {zone = 15, travelTime = 0.001}, -- Badlands sub-zone (Uldaman entrance)
     },
     [36] = {  -- Loch Modan
         {zone = 27, travelTime = 60},    -- Dun Morogh
@@ -692,6 +713,8 @@ QR.ZoneAdjacencies = {
     [49] = {  -- Eastern Plaguelands
         {zone = 22, travelTime = 60},    -- Western Plaguelands
         {zone = 2395, travelTime = 60},  -- Eversong Woods (Thalassian Pass, seamless)
+        {zone = 95, travelTime = 60},    -- Ghostlands (pre-Midnight Zul'Aman)
+        {zone = 122, travelTime = 120},  -- Isle of Quel'Danas (TBC, via flight)
     },
 
     ---------------------------------------------------------------------------
@@ -705,6 +728,7 @@ QR.ZoneAdjacencies = {
         {zone = 49, travelTime = 60},    -- Eastern Plaguelands (Thalassian Pass)
         {zone = 2424, travelTime = 60},  -- Isle of Quel'Danas
         {zone = 2437, travelTime = 60},  -- Zul'Aman
+        {zone = 122, travelTime = 60},   -- Isle of Quel'Danas (TBC era)
     },
     [2424] = {  -- Isle of Quel'Danas
         {zone = 2395, travelTime = 60},  -- Eversong Woods
@@ -730,6 +754,25 @@ QR.ZoneAdjacencies = {
     [26] = {  -- Hinterlands
         {zone = 14, travelTime = 60},    -- Arathi Highlands
     },
+    [35] = {  -- Twilight Highlands
+        {zone = 25, travelTime = 90},    -- Burning Steppes (via Dragonmaw Pass)
+    },
+    [15] = {  -- Badlands (sub-zone for Uldaman entrance)
+        {zone = 17, travelTime = 0.001}, -- Same zone as Badlands (17)
+    },
+    [95] = {  -- Ghostlands (pre-Midnight Zul'Aman entrance)
+        {zone = 49, travelTime = 60},    -- Eastern Plaguelands
+    },
+    [122] = {  -- Isle of Quel'Danas (TBC era)
+        {zone = 2395, travelTime = 60},  -- Eversong Woods (Midnight)
+        {zone = 49, travelTime = 120},   -- Eastern Plaguelands (via flight)
+    },
+    [244] = {  -- Tol Barad Peninsula (portal-accessed)
+        -- Accessed via portal from Stormwind/Orgrimmar (see StandalonePortals)
+    },
+    [207] = {  -- Deepholm (portal-accessed)
+        -- Accessed via portal from Stormwind/Orgrimmar (see StandalonePortals)
+    },
 
     ---------------------------------------------------------------------------
     -- Kalimdor - additional inter-zone connections (Tier 4.2)
@@ -739,6 +782,10 @@ QR.ZoneAdjacencies = {
         {zone = 65, travelTime = 60},    -- Stonetalon Mountains
         {zone = 62, travelTime = 60},    -- Darkshore
         {zone = 106, travelTime = 90},   -- Felwood
+        {zone = 63, travelTime = 0.001}, -- Ashenvale (alternate mapID)
+    },
+    [63] = {  -- Ashenvale (alternate mapID, Blackfathom Deeps entrance)
+        {zone = 11, travelTime = 0.001}, -- Ashenvale (primary mapID)
     },
     [62] = {  -- Darkshore
         {zone = 11, travelTime = 60},    -- Ashenvale
@@ -776,6 +823,9 @@ QR.ZoneAdjacencies = {
         {zone = 64, travelTime = 60},    -- Thousand Needles
         {zone = 203, travelTime = 60},   -- Un'Goro Crater
         {zone = 261, travelTime = 90},   -- Uldum
+        {zone = 75, travelTime = 30},    -- Caverns of Time (sub-zone)
+        {zone = 249, travelTime = 90},   -- Uldum (Cataclysm-era map)
+        {zone = 1527, travelTime = 90},  -- Uldum (N'Zoth Assault version)
     },
     [203] = {  -- Un'Goro Crater
         {zone = 69, travelTime = 60},    -- Tanaris
@@ -795,9 +845,25 @@ QR.ZoneAdjacencies = {
     },
     [261] = {  -- Uldum
         {zone = 69, travelTime = 90},    -- Tanaris
+        {zone = 249, travelTime = 0.001},-- Uldum (Cataclysm-era, same zone)
+        {zone = 1527, travelTime = 0.001},-- Uldum (N'Zoth version, same zone)
     },
     [198] = {  -- Mount Hyjal
         {zone = 80, travelTime = 60},    -- Moonglade (via world tree portal)
+    },
+    [75] = {  -- Caverns of Time (Tanaris sub-zone)
+        {zone = 69, travelTime = 30},    -- Tanaris (entrance portal in Tanaris)
+    },
+    [249] = {  -- Uldum (Cataclysm-era map, same physical zone as 261)
+        {zone = 69, travelTime = 90},    -- Tanaris
+        {zone = 261, travelTime = 0.001},-- Uldum (parent zone map)
+    },
+    [1527] = {  -- Uldum (N'Zoth Assault version, same physical zone)
+        {zone = 69, travelTime = 90},    -- Tanaris
+        {zone = 261, travelTime = 0.001},-- Uldum (parent zone map)
+    },
+    [204] = {  -- Vashj'ir / Abyssal Depths (boat from Stormwind/Orgrimmar)
+        -- Accessed via boat from Eastern Kingdoms (see StandalonePortals)
     },
 
     ---------------------------------------------------------------------------
@@ -816,12 +882,16 @@ QR.ZoneAdjacencies = {
     [105] = {  -- Blade's Edge Mountains
         {zone = 101, travelTime = 90},   -- Zangarmarsh
         {zone = 107, travelTime = 90},   -- Netherstorm
+        {zone = 109, travelTime = 90},   -- Netherstorm (alternate mapID)
     },
     [107] = {  -- Netherstorm
         {zone = 105, travelTime = 90},   -- Blade's Edge Mountains
     },
     [108] = {  -- Shadowmoon Valley (Outland)
         {zone = 102, travelTime = 90},   -- Terokkar Forest
+    },
+    [109] = {  -- Netherstorm (alternate mapID for 107)
+        {zone = 105, travelTime = 90},   -- Blade's Edge Mountains
     },
 
     ---------------------------------------------------------------------------
@@ -833,6 +903,7 @@ QR.ZoneAdjacencies = {
         {zone = 127, travelTime = 60},   -- Crystalsong Forest
         {zone = 116, travelTime = 90},   -- Grizzly Hills
         {zone = 121, travelTime = 90},   -- Zul'Drak
+        {zone = 123, travelTime = 90},   -- Wintergrasp
     },
     [119] = {  -- Sholazar Basin
         {zone = 114, travelTime = 90},   -- Borean Tundra
@@ -845,10 +916,15 @@ QR.ZoneAdjacencies = {
     [120] = {  -- Storm Peaks
         {zone = 127, travelTime = 60},   -- Crystalsong Forest
         {zone = 118, travelTime = 90},   -- Icecrown
+        {zone = 123, travelTime = 90},   -- Wintergrasp
     },
     [118] = {  -- Icecrown
         {zone = 120, travelTime = 90},   -- Storm Peaks
         {zone = 115, travelTime = 90},   -- Dragonblight (via Icecrown border)
+    },
+    [123] = {  -- Wintergrasp
+        {zone = 115, travelTime = 90},   -- Dragonblight
+        {zone = 120, travelTime = 90},   -- Storm Peaks
     },
 
     ---------------------------------------------------------------------------
@@ -861,12 +937,14 @@ QR.ZoneAdjacencies = {
         {zone = 525, travelTime = 90},   -- Frostfire Ridge
         {zone = 535, travelTime = 90},   -- Talador
         {zone = 542, travelTime = 90},   -- Spires of Arak
+        {zone = 534, travelTime = 90},   -- Tanaan Jungle
     },
     [535] = {  -- Talador
         {zone = 543, travelTime = 90},   -- Gorgrond
         {zone = 539, travelTime = 60},   -- Shadowmoon Valley (Draenor)
         {zone = 542, travelTime = 60},   -- Spires of Arak
         {zone = 550, travelTime = 90},   -- Nagrand (Draenor)
+        {zone = 534, travelTime = 90},   -- Tanaan Jungle
     },
     [539] = {  -- Shadowmoon Valley (Draenor)
         {zone = 535, travelTime = 60},   -- Talador
@@ -878,6 +956,10 @@ QR.ZoneAdjacencies = {
     [550] = {  -- Nagrand (Draenor)
         {zone = 535, travelTime = 90},   -- Talador
     },
+    [534] = {  -- Tanaan Jungle
+        {zone = 543, travelTime = 90},   -- Gorgrond
+        {zone = 535, travelTime = 90},   -- Talador
+    },
 
     ---------------------------------------------------------------------------
     -- Pandaria - additional inter-zone connections (Tier 4.6)
@@ -887,6 +969,8 @@ QR.ZoneAdjacencies = {
         {zone = 379, travelTime = 90},   -- Kun-Lai Summit (alternate ID)
         {zone = 390, travelTime = 60},   -- Vale of Eternal Blossoms
         {zone = 422, travelTime = 60},   -- Dread Wastes
+        {zone = 433, travelTime = 120},  -- Isle of Thunder (portal/boat)
+        {zone = 1530, travelTime = 60},  -- Vale N'Zoth Assault (same as Vale)
     },
     [422] = {  -- Dread Wastes
         {zone = 390, travelTime = 60},   -- Vale of Eternal Blossoms
@@ -895,6 +979,54 @@ QR.ZoneAdjacencies = {
     [418] = {  -- Krasarang Wilds
         {zone = 371, travelTime = 60},   -- Jade Forest
         {zone = 376, travelTime = 60},   -- Valley of the Four Winds
+    },
+    [433] = {  -- Isle of Thunder
+        {zone = 388, travelTime = 120},  -- Townlong Steppes (portal/boat)
+    },
+    [504] = {  -- Isle of Giants
+        {zone = 378, travelTime = 120},  -- Kun-Lai Summit (boat)
+    },
+    [1530] = {  -- Vale of Eternal Blossoms (N'Zoth Assault version)
+        {zone = 378, travelTime = 60},   -- Kun-Lai Summit
+        {zone = 388, travelTime = 60},   -- Townlong Steppes
+    },
+
+    ---------------------------------------------------------------------------
+    -- Broken Isles - Argus zones (portal-accessed via Vindicaar)
+    ---------------------------------------------------------------------------
+    [882] = {  -- Mac'Aree (Argus)
+        {zone = 885, travelTime = 30},   -- Antoran Wastes (Vindicaar network)
+    },
+    [885] = {  -- Antoran Wastes (Argus)
+        {zone = 882, travelTime = 30},   -- Mac'Aree (Vindicaar network)
+        -- Return portal to Dalaran (see StandalonePortals)
+    },
+
+    ---------------------------------------------------------------------------
+    -- BFA - additional zones
+    ---------------------------------------------------------------------------
+    [876] = {  -- Zandalar (continent-level map, Crucible of Storms)
+        {zone = 942, travelTime = 60},   -- Stormsong Valley (nearest zone)
+    },
+    [1169] = {  -- Tol Dagor (off Kul Tiras)
+        {zone = 895, travelTime = 60},   -- Tiragarde Sound (nearest Kul Tiras zone)
+    },
+
+    ---------------------------------------------------------------------------
+    -- Shadowlands - patch zones
+    ---------------------------------------------------------------------------
+    [1970] = {  -- Zereth Mortis
+        -- Portal-accessed from Oribos (see StandalonePortals)
+    },
+
+    ---------------------------------------------------------------------------
+    -- Dragon Isles - patch zones
+    ---------------------------------------------------------------------------
+    [2133] = {  -- Zaralek Cavern
+        {zone = 2025, travelTime = 60},  -- Thaldraszus (entrance near Valdrakken)
+    },
+    [2200] = {  -- Emerald Dream
+        {zone = 2023, travelTime = 60},  -- Ohn'ahran Plains (Ancient Bough portal)
     },
 }
 

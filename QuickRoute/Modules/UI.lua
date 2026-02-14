@@ -1313,21 +1313,68 @@ function UI:AppendDungeonDataDebugInfo(lines)
     table_insert(lines, "### Dungeon Data")
     table_insert(lines, "")
 
-    local total, withCoords, dungeons, raids = 0, 0, 0, 0
+    -- Check which zones are reachable in the pathfinding graph
+    local reachableZones = {}
+    if QR.ZoneAdjacencies then
+        for zoneID, adjs in pairs(QR.ZoneAdjacencies) do
+            reachableZones[zoneID] = true
+            for _, adj in ipairs(adjs) do
+                reachableZones[adj.zone] = true
+            end
+        end
+    end
+    if QR.StandalonePortals then
+        for _, p in ipairs(QR.StandalonePortals) do
+            if p.from and p.from.mapID then reachableZones[p.from.mapID] = true end
+            if p.to and p.to.mapID then reachableZones[p.to.mapID] = true end
+        end
+    end
+
+    local total, withCoords, routable, dungeons, raids = 0, 0, 0, 0, 0
     local missingList = {}
+    local unreachableList = {}
     for id, inst in pairs(DD.instances) do
         total = total + 1
-        if inst.x and inst.y and inst.zoneMapID then
+        local hasCoords = inst.x and inst.y and inst.zoneMapID
+        if hasCoords then
             withCoords = withCoords + 1
+            if reachableZones[inst.zoneMapID] then
+                routable = routable + 1
+            else
+                table_insert(unreachableList, { id = id, name = inst.name or "?", tier = inst.tier, zoneMapID = inst.zoneMapID })
+            end
         else
             table_insert(missingList, { id = id, name = inst.name or "?", tier = inst.tier })
         end
         if inst.isRaid then raids = raids + 1 else dungeons = dungeons + 1 end
     end
 
-    table_insert(lines, string_format("**%d** instances (%d dungeons, %d raids), **%d** with coordinates, **%d** missing",
-        total, dungeons, raids, withCoords, #missingList))
+    table_insert(lines, string_format("**%d** instances (%d dungeons, %d raids), **%d** with coordinates, **%d** routable",
+        total, dungeons, raids, withCoords, routable))
+    if #missingList > 0 then
+        table_insert(lines, string_format("Missing coords: **%d**, unreachable zones: **%d**", #missingList, #unreachableList))
+    elseif #unreachableList > 0 then
+        table_insert(lines, string_format("Unreachable zones: **%d**", #unreachableList))
+    end
     table_insert(lines, "")
+
+    if #unreachableList > 0 then
+        table_sort(unreachableList, function(a, b)
+            if (a.tier or 0) ~= (b.tier or 0) then return (a.tier or 0) > (b.tier or 0) end
+            return (a.name or "") < (b.name or "")
+        end)
+        table_insert(lines, "<details>")
+        table_insert(lines, "<summary>Unreachable instances (" .. #unreachableList .. ") — zone not in pathfinding graph</summary>")
+        table_insert(lines, "")
+        table_insert(lines, "| ID | Name | Zone MapID | Tier |")
+        table_insert(lines, "|---|---|---|---|")
+        for _, m in ipairs(unreachableList) do
+            local tierName = DD.tierNames and DD.tierNames[m.tier] or tostring(m.tier or "?")
+            table_insert(lines, string_format("| %d | %s | %d | %s |", m.id, m.name, m.zoneMapID or 0, tierName))
+        end
+        table_insert(lines, "")
+        table_insert(lines, "</details>")
+    end
 
     if #missingList > 0 then
         table_sort(missingList, function(a, b)
