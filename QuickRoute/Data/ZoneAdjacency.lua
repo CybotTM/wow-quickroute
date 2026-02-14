@@ -747,9 +747,15 @@ QR.ZoneAdjacencies = {
     [50] = {  -- Northern Stranglethorn
         {zone = 47, travelTime = 60},    -- Duskwood
         {zone = 210, travelTime = 60},   -- Cape of Stranglethorn
+        {zone = 224, travelTime = 0.001},-- Stranglethorn Vale (parent zone map)
     },
     [210] = {  -- Cape of Stranglethorn
         {zone = 50, travelTime = 60},    -- Northern Stranglethorn
+        {zone = 224, travelTime = 0.001},-- Stranglethorn Vale (parent zone map)
+    },
+    [224] = {  -- Stranglethorn Vale (parent zone map, covers 50 + 210)
+        {zone = 50, travelTime = 0.001}, -- Northern Stranglethorn
+        {zone = 210, travelTime = 0.001},-- Cape of Stranglethorn
     },
     [26] = {  -- Hinterlands
         {zone = 14, travelTime = 60},    -- Arathi Highlands
@@ -783,9 +789,14 @@ QR.ZoneAdjacencies = {
         {zone = 62, travelTime = 60},    -- Darkshore
         {zone = 106, travelTime = 90},   -- Felwood
         {zone = 63, travelTime = 0.001}, -- Ashenvale (alternate mapID)
+        {zone = 77, travelTime = 90},    -- Felwood (alternate mapID)
     },
     [63] = {  -- Ashenvale (alternate mapID, Blackfathom Deeps entrance)
         {zone = 11, travelTime = 0.001}, -- Ashenvale (primary mapID)
+    },
+    [77] = {  -- Felwood (alternate mapID, Blackfathom Deeps entrance via EJ)
+        {zone = 106, travelTime = 0.001},-- Felwood (primary mapID)
+        {zone = 11, travelTime = 90},    -- Ashenvale
     },
     [62] = {  -- Darkshore
         {zone = 11, travelTime = 60},    -- Ashenvale
@@ -823,6 +834,7 @@ QR.ZoneAdjacencies = {
         {zone = 64, travelTime = 60},    -- Thousand Needles
         {zone = 203, travelTime = 60},   -- Un'Goro Crater
         {zone = 261, travelTime = 90},   -- Uldum
+        {zone = 71, travelTime = 0.001}, -- Tanaris (Caverns of Time area, alternate)
         {zone = 75, travelTime = 30},    -- Caverns of Time (sub-zone)
         {zone = 249, travelTime = 90},   -- Uldum (Cataclysm-era map)
         {zone = 1527, travelTime = 90},  -- Uldum (N'Zoth Assault version)
@@ -838,6 +850,7 @@ QR.ZoneAdjacencies = {
         {zone = 11, travelTime = 90},    -- Ashenvale
         {zone = 80, travelTime = 60},    -- Moonglade
         {zone = 83, travelTime = 60},    -- Winterspring
+        {zone = 77, travelTime = 0.001}, -- Felwood (alternate mapID)
     },
     [83] = {  -- Winterspring
         {zone = 80, travelTime = 60},    -- Moonglade
@@ -850,6 +863,9 @@ QR.ZoneAdjacencies = {
     },
     [198] = {  -- Mount Hyjal
         {zone = 80, travelTime = 60},    -- Moonglade (via world tree portal)
+    },
+    [71] = {  -- Tanaris (Caverns of Time area, alternate mapID for 69)
+        {zone = 69, travelTime = 0.001}, -- Tanaris (primary mapID)
     },
     [75] = {  -- Caverns of Time (Tanaris sub-zone)
         {zone = 69, travelTime = 30},    -- Tanaris (entrance portal in Tanaris)
