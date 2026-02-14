@@ -168,3 +168,209 @@ T:run("DestSearch: dungeons grouped by tier", function(t)
         end
     end
 end)
+
+-------------------------------------------------------------------------------
+-- 4. Dropdown Popup Frame
+-------------------------------------------------------------------------------
+
+T:run("DestSearch: CreateDropdown creates frame", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.isShowing = false
+
+    local DS = QR.DestinationSearch
+    local frame = DS:CreateDropdown()
+    t:assertNotNil(frame, "Dropdown frame created")
+    t:assertNotNil(DS.frame, "Stored on module")
+end)
+
+T:run("DestSearch: dropdown initially hidden", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+
+    local DS = QR.DestinationSearch
+    DS:CreateDropdown()
+    t:assertFalse(DS.frame:IsShown(), "Hidden after creation")
+    t:assertFalse(DS.isShowing, "isShowing false")
+end)
+
+T:run("DestSearch: ShowDropdown shows frame", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local DS = QR.DestinationSearch
+    DS:ShowDropdown()
+    t:assertTrue(DS.isShowing, "isShowing true after show")
+    t:assertNotNil(DS.frame, "Frame exists after show")
+end)
+
+T:run("DestSearch: HideDropdown hides frame", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local DS = QR.DestinationSearch
+    DS:ShowDropdown()
+    DS:HideDropdown()
+    t:assertFalse(DS.isShowing, "Hidden after hide")
+end)
+
+T:run("DestSearch: OnHide syncs isShowing", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local DS = QR.DestinationSearch
+    DS:ShowDropdown()
+    DS.frame:Hide()  -- Simulate ESC
+    t:assertFalse(DS.isShowing, "isShowing synced on hide")
+end)
+
+T:run("DestSearch: combat hides dropdown", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local DS = QR.DestinationSearch
+    DS:RegisterCombat()
+    DS:ShowDropdown()
+    t:assertTrue(DS.isShowing, "Showing before combat")
+
+    -- MockWoW:Reset clears eventFrames, so invoke the combat handler directly
+    MockWoW.config.inCombatLockdown = true
+    local handler = QR.combatFrame and QR.combatFrame:GetScript("OnEvent")
+    if handler then
+        handler(QR.combatFrame, "PLAYER_REGEN_DISABLED")
+    end
+    t:assertFalse(DS.isShowing, "Hidden after combat enter")
+end)
+
+T:run("DestSearch: selecting city routes via POIRouting", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+
+    local routedTo = nil
+    local origRoute = QR.POIRouting.RouteToMapPosition
+    QR.POIRouting.RouteToMapPosition = function(self, mapID, x, y)
+        routedTo = { mapID = mapID, x = x, y = y }
+    end
+
+    local DS = QR.DestinationSearch
+    DS:SelectResult({
+        name = "Stormwind City",
+        mapID = 84,
+        x = 0.4965,
+        y = 0.8725,
+    })
+
+    t:assertNotNil(routedTo, "POIRouting called")
+    t:assertEqual(routedTo.mapID, 84, "Correct mapID")
+
+    QR.POIRouting.RouteToMapPosition = origRoute
+end)
+
+T:run("DestSearch: selecting plays sound", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+    MockWoW.config.playedSounds = {}
+
+    local origRoute = QR.POIRouting.RouteToMapPosition
+    QR.POIRouting.RouteToMapPosition = function() end
+
+    local DS = QR.DestinationSearch
+    DS:SelectResult({
+        name = "Stormwind City",
+        mapID = 84,
+        x = 0.4965,
+        y = 0.8725,
+    })
+
+    t:assertTrue(#MockWoW.config.playedSounds > 0, "Sound played on selection")
+    QR.POIRouting.RouteToMapPosition = origRoute
+end)
+
+T:run("DestSearch: OnSearchTextChanged filters dropdown", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local DS = QR.DestinationSearch
+    DS:ShowDropdown()
+    local initialRowCount = #DS.rows
+
+    DS:OnSearchTextChanged("storm")
+    local filteredRowCount = #DS.rows
+
+    t:assertTrue(filteredRowCount < initialRowCount,
+        "Filtered rows (" .. filteredRowCount .. ") < initial (" .. initialRowCount .. ")")
+end)
+
+T:run("DestSearch: SetSearchText updates editbox", function(t)
+    resetState()
+
+    local mockBox = CreateFrame("EditBox", nil, UIParent, "InputBoxTemplate")
+    QR.DestinationSearch.searchBox = mockBox
+
+    QR.DestinationSearch:SetSearchText("Valdrakken")
+    t:assertEqual(mockBox:GetText(), "Valdrakken", "Text set correctly")
+end)
+
+T:run("DestSearch: section headers use gold color", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.collapsedSections = {}
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local DS = QR.DestinationSearch
+    DS:ShowDropdown()
+
+    local headerFound = false
+    for _, row in ipairs(DS.rows) do
+        if row._isHeader and row.nameLabel then
+            local r = row.nameLabel._textColorR
+            local g = row.nameLabel._textColorG
+            if r and g then
+                t:assertTrue(r > 0.9, "Header red > 0.9, got " .. r)
+                t:assertTrue(g > 0.7 and g < 0.9, "Header green ~0.82, got " .. g)
+                headerFound = true
+                break
+            end
+        end
+    end
+    -- Cities header should always exist
+    t:assertTrue(headerFound, "Found at least one gold header")
+end)
