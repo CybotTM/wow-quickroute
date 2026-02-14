@@ -462,6 +462,50 @@ QR.StandalonePortals = {
         type = "portal",
         bidirectional = true,
     },
+
+    -- =========================================================================
+    -- MIDNIGHT: SILVERMOON PORTALS
+    -- =========================================================================
+    {
+        name = "Silvermoon City to Stormwind",
+        from = {mapID = 2393, x = 0.58, y = 0.19},    -- Silvermoon Portal Room
+        to = {mapID = 84, x = 0.49, y = 0.87},        -- Stormwind Portal Room
+        travelTime = 30,
+        faction = "Alliance",
+        type = "portal",
+        bidirectional = true,
+    },
+    {
+        name = "Silvermoon City to Orgrimmar",
+        from = {mapID = 2393, x = 0.58, y = 0.19},    -- Silvermoon Portal Room
+        to = {mapID = 85, x = 0.55, y = 0.38},        -- Orgrimmar Portal Room
+        travelTime = 30,
+        faction = "Horde",
+        type = "portal",
+        bidirectional = true,
+    },
+
+    -- =========================================================================
+    -- MIDNIGHT: PORTAL-ACCESSED ZONES
+    -- =========================================================================
+    {
+        name = "Eversong Woods to Harandar",
+        from = {mapID = 2395, x = 0.50, y = 0.50},    -- Portal in Eversong
+        to = {mapID = 2576, x = 0.50, y = 0.50},      -- Harandar arrival
+        travelTime = 30,
+        faction = "both",
+        type = "portal",
+        bidirectional = true,
+    },
+    {
+        name = "Eversong Woods to Voidstorm",
+        from = {mapID = 2395, x = 0.50, y = 0.50},    -- Portal in Eversong
+        to = {mapID = 2405, x = 0.50, y = 0.50},      -- Voidstorm arrival
+        travelTime = 30,
+        faction = "both",
+        type = "portal",
+        bidirectional = true,
+    },
 }
 
 --- Get all available portals for the current player

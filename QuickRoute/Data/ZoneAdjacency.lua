@@ -45,6 +45,13 @@ QR.Continents = {
             35,   -- Twilight Highlands
             241,  -- Twilight Highlands (alternate)
             700,  -- Twilight Highlands (Cataclysm)
+            -- Midnight Expansion (12.0)
+            2393, -- Silvermoon City (revamped)
+            2395, -- Eversong Woods (includes old Ghostlands)
+            2424, -- Isle of Quel'Danas
+            2437, -- Zul'Aman
+            2576, -- Harandar
+            2405, -- Voidstorm
         },
     },
     KALIMDOR = {
@@ -684,7 +691,35 @@ QR.ZoneAdjacencies = {
     },
     [49] = {  -- Eastern Plaguelands
         {zone = 22, travelTime = 60},    -- Western Plaguelands
+        {zone = 2395, travelTime = 60},  -- Eversong Woods (Thalassian Pass, seamless)
     },
+
+    ---------------------------------------------------------------------------
+    -- Midnight Expansion (12.0) - revamped Quel'Thalas
+    ---------------------------------------------------------------------------
+    [2393] = {  -- Silvermoon City (revamped)
+        {zone = 2395, travelTime = 30},  -- Eversong Woods
+    },
+    [2395] = {  -- Eversong Woods (includes old Ghostlands)
+        {zone = 2393, travelTime = 30},  -- Silvermoon City
+        {zone = 49, travelTime = 60},    -- Eastern Plaguelands (Thalassian Pass)
+        {zone = 2424, travelTime = 60},  -- Isle of Quel'Danas
+        {zone = 2437, travelTime = 60},  -- Zul'Aman
+    },
+    [2424] = {  -- Isle of Quel'Danas
+        {zone = 2395, travelTime = 60},  -- Eversong Woods
+    },
+    [2437] = {  -- Zul'Aman
+        {zone = 2395, travelTime = 60},  -- Eversong Woods
+        -- Harandar accessed via portal (see StandalonePortals in Portals.lua)
+    },
+    [2576] = {  -- Harandar
+        -- Portal-accessed from Eversong/Zul'Aman (see StandalonePortals in Portals.lua)
+    },
+    [2405] = {  -- Voidstorm
+        -- Portal-accessed, final campaign zone (see StandalonePortals in Portals.lua)
+    },
+
     [50] = {  -- Northern Stranglethorn
         {zone = 47, travelTime = 60},    -- Duskwood
         {zone = 210, travelTime = 60},   -- Cape of Stranglethorn
