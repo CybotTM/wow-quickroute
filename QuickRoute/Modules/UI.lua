@@ -109,6 +109,7 @@ local BUTTON_ICONS = {
     nav = "Interface\\Icons\\Ability_Spy",
     use = "Interface\\Icons\\Spell_Nature_Astralrecalgroup",
     close = "Interface\\Icons\\Spell_ChargeNegative",
+    dungeon = "Interface\\Icons\\INV_Misc_Gear_02",
 }
 
 -- Registry of styled buttons for live style updates
@@ -332,6 +333,27 @@ function UI:CreateContent(parentFrame)
     end)
     zoneDebugButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.zoneDebugButton = zoneDebugButton
+
+    -- Dungeon Picker button (right of zone debug)
+    local dungeonText = L["DUNGEON_PICKER_TITLE"]
+    local dungeonWidth = CalculateButtonWidth(dungeonText)
+    local dungeonButton = QR.CreateModernButton(frame, dungeonWidth, BUTTON_HEIGHT)
+    dungeonButton:SetPoint("LEFT", zoneDebugButton, "RIGHT", BUTTON_PADDING, 0)
+    ApplyButtonStyle(dungeonButton, dungeonText, "dungeon")
+    dungeonButton:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.DungeonPicker then
+            QR.DungeonPicker:Toggle(dungeonButton)
+        end
+    end)
+    dungeonButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["DUNGEON_ROUTE_TO_TT"])
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    dungeonButton:SetScript("OnLeave", GameTooltip_Hide)
+    frame.dungeonButton = dungeonButton
 
     -- Separator line below toolbar
     local separator = frame:CreateTexture(nil, "ARTWORK")

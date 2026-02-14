@@ -52,6 +52,7 @@ Modules\MapTeleportButton.lua
 Modules\QuestTeleportButtons.lua
 Modules\POIRouting.lua
 Modules\DungeonData.lua
+Modules\DungeonPicker.lua
 Modules\SettingsPanel.lua
 
 # Main

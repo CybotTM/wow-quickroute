@@ -57,6 +57,7 @@ function AddonLoader:Load(MockWoW, options)
         "Modules/MapTeleportButton.lua",
         "Modules/POIRouting.lua",
         "Modules/DungeonData.lua",
+        "Modules/DungeonPicker.lua",
         "Modules/QuestTeleportButtons.lua",
         "Modules/SettingsPanel.lua",
         "QuickRoute.lua",
