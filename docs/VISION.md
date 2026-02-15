@@ -25,8 +25,8 @@
 - [x] **Slash command coordinates** — `/qrpath <mapID> <x> <y>`
 
 ### Planned / Missing
-- [ ] **Dungeons & Raids** — Route to dungeon/raid entrances from Dungeon Journal or LFG
-- [ ] **Cities & Towns** — Quick-pick list of major cities (Stormwind, Orgrimmar, Dalaran, etc.)
+- [x] **Dungeons & Raids** — Route to dungeon/raid entrances from Dungeon Journal or LFG (v1.2.0)
+- [x] **Cities & Towns** — Unified destination search with cities, dungeons, waypoints (v1.3.0)
 - [ ] **NPCs & Vendors** — Route to specific NPCs (repair, transmog, auction house, trainers)
 - [ ] **World Events** — Darkmoon Faire, holiday events, world boss locations
 - [ ] **Flight Masters** — Nearest flight master for manual flight path usage
