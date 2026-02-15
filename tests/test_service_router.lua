@@ -261,3 +261,197 @@ T:run("ServiceRouter: Initialize sets up module", function(t)
     QR.ServiceRouter:Initialize()
     t:assertNotNil(QR.ServiceRouter, "ServiceRouter still exists after init")
 end)
+
+-------------------------------------------------------------------------------
+-- 3. RouteToNearest end-to-end
+-------------------------------------------------------------------------------
+
+T:run("ServiceRouter: RouteToNearest calls POIRouting and sets search text", function(t)
+    resetState()
+    -- Mock POIRouting to track calls
+    local routedMapID, routedX, routedY
+    local origPOI = QR.POIRouting
+    QR.POIRouting = {
+        RouteToMapPosition = function(_, mapID, x, y)
+            routedMapID = mapID
+            routedX = x
+            routedY = y
+        end,
+    }
+
+    -- Mock PathCalculator to return a result for the first location
+    local origPC = QR.PathCalculator
+    QR.PathCalculator = {
+        CalculatePath = function(_, mapID, x, y)
+            return { totalTime = 100 }
+        end,
+    }
+
+    -- Mock DestinationSearch to track SetSearchText
+    local searchText
+    local origDS = QR.DestinationSearch.SetSearchText
+    QR.DestinationSearch.SetSearchText = function(_, text)
+        searchText = text
+    end
+
+    QR.ServiceRouter:RouteToNearest("AUCTION_HOUSE")
+
+    t:assertNotNil(routedMapID, "POIRouting was called with mapID")
+    t:assertNotNil(routedX, "POIRouting was called with x")
+    t:assertNotNil(routedY, "POIRouting was called with y")
+    t:assertNotNil(searchText, "Search text was set")
+    t:assertTrue(searchText:find("Auction House") ~= nil, "Search text contains service name")
+
+    -- Restore
+    QR.POIRouting = origPOI
+    QR.PathCalculator = origPC
+    QR.DestinationSearch.SetSearchText = origDS
+end)
+
+T:run("ServiceRouter: RouteToNearest prints message when no locations found", function(t)
+    resetState()
+    -- RouteToNearest for nonexistent type should print, not error
+    local origPrint = QR.Print
+    local printCalled = false
+    QR.Print = function() printCalled = true end
+
+    QR.ServiceRouter:RouteToNearest("NONEXISTENT")
+    t:assertTrue(printCalled, "Print was called for no results")
+
+    QR.Print = origPrint
+end)
+
+T:run("ServiceRouter: FindNearest survives CalculatePath errors via pcall", function(t)
+    resetState()
+    -- Mock PathCalculator that throws an error
+    local origPC = QR.PathCalculator
+    QR.PathCalculator = {
+        CalculatePath = function()
+            error("Simulated path calculation failure")
+        end,
+    }
+
+    -- Should not propagate the error, just return nil
+    local loc, cost, result = QR.ServiceRouter:FindNearest("AUCTION_HOUSE")
+    t:assertNil(loc, "Returns nil location when all paths error")
+    t:assertNil(result, "Returns nil result when all paths error")
+
+    QR.PathCalculator = origPC
+end)
+
+T:run("ServiceRouter: FindNearest picks lowest cost location", function(t)
+    resetState()
+    -- Mock PathCalculator with different costs per mapID
+    local origPC = QR.PathCalculator
+    local costs = {}
+    -- Assign increasing costs by iteration; the first location should "win"
+    local callCount = 0
+    QR.PathCalculator = {
+        CalculatePath = function(_, mapID, x, y)
+            callCount = callCount + 1
+            return { totalTime = callCount * 50 }
+        end,
+    }
+
+    local loc, cost = QR.ServiceRouter:FindNearest("AUCTION_HOUSE")
+    t:assertNotNil(loc, "Found a best location")
+    t:assertEqual(50, cost, "Picked the lowest cost (first call)")
+
+    QR.PathCalculator = origPC
+end)
+
+-------------------------------------------------------------------------------
+-- 4. Edge cases and nil safety
+-------------------------------------------------------------------------------
+
+T:run("ServiceRouter: GetServiceName falls back to serviceType when L is nil", function(t)
+    resetState()
+    local origL = QR.L
+    QR.L = nil
+    local name = QR.ServiceRouter:GetServiceName("AUCTION_HOUSE")
+    t:assertEqual("AUCTION_HOUSE", name, "Falls back to raw key when L is nil")
+    QR.L = origL
+end)
+
+T:run("ServiceRouter: GetCityName when C_Map is nil", function(t)
+    resetState()
+    local origCMap = C_Map
+    C_Map = nil
+    local name = QR.ServiceRouter:GetCityName({ mapID = 84 })
+    t:assertEqual("Map 84", name, "Fallback when C_Map is nil")
+    C_Map = origCMap
+end)
+
+T:run("ServiceRouter: FindNearest handles CalculatePath returning nil", function(t)
+    resetState()
+    local origPC = QR.PathCalculator
+    QR.PathCalculator = {
+        CalculatePath = function() return nil end,
+    }
+    local loc = QR.ServiceRouter:FindNearest("AUCTION_HOUSE")
+    t:assertNil(loc, "Returns nil when all CalculatePath return nil")
+    QR.PathCalculator = origPC
+end)
+
+T:run("ServiceRouter: FindNearest handles result with nil totalTime", function(t)
+    resetState()
+    local origPC = QR.PathCalculator
+    QR.PathCalculator = {
+        CalculatePath = function() return { totalTime = nil } end,
+    }
+    local loc = QR.ServiceRouter:FindNearest("AUCTION_HOUSE")
+    t:assertNil(loc, "Returns nil when all results have nil totalTime")
+    QR.PathCalculator = origPC
+end)
+
+T:run("ServiceRouter: GetLocations falls back to Alliance when PlayerInfo nil", function(t)
+    resetState()
+    local origPI = QR.PlayerInfo
+    QR.PlayerInfo = nil
+    local locs = QR.ServiceRouter:GetLocations("AUCTION_HOUSE")
+    -- Should default to Alliance and get Alliance + both entries
+    t:assertTrue(#locs > 0, "Still returns locations with nil PlayerInfo")
+    for _, loc in ipairs(locs) do
+        t:assertTrue(loc.faction == "Alliance" or loc.faction == "both",
+            "Only Alliance/both when PlayerInfo is nil")
+    end
+    QR.PlayerInfo = origPI
+end)
+
+T:run("ServiceRouter: RouteToNearest with nil POIRouting does not error", function(t)
+    resetState()
+    local origPC = QR.PathCalculator
+    QR.PathCalculator = {
+        CalculatePath = function() return { totalTime = 100 } end,
+    }
+    local origPOI = QR.POIRouting
+    QR.POIRouting = nil
+
+    -- Should not error even with nil POIRouting
+    QR.ServiceRouter:RouteToNearest("AUCTION_HOUSE")
+    t:assertTrue(true, "No error with nil POIRouting")
+
+    QR.POIRouting = origPOI
+    QR.PathCalculator = origPC
+end)
+
+T:run("ServiceRouter: RouteToNearest with nil DestinationSearch does not error", function(t)
+    resetState()
+    local origPC = QR.PathCalculator
+    QR.PathCalculator = {
+        CalculatePath = function() return { totalTime = 100 } end,
+    }
+    local origPOI = QR.POIRouting
+    QR.POIRouting = {
+        RouteToMapPosition = function() end,
+    }
+    local origDS = QR.DestinationSearch
+    QR.DestinationSearch = nil
+
+    QR.ServiceRouter:RouteToNearest("AUCTION_HOUSE")
+    t:assertTrue(true, "No error with nil DestinationSearch")
+
+    QR.DestinationSearch = origDS
+    QR.POIRouting = origPOI
+    QR.PathCalculator = origPC
+end)

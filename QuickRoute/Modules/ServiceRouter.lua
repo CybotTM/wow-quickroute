@@ -2,7 +2,7 @@
 -- Routes player to nearest service POI (AH, Bank, Void Storage, Crafting Table) using Dijkstra.
 local ADDON_NAME, QR = ...
 
-local pairs, ipairs = pairs, ipairs
+local pairs, ipairs, pcall = pairs, ipairs, pcall
 local string_format = string.format
 local string_lower = string.lower
 local table_insert, table_sort = table.insert, table.sort
@@ -75,8 +75,8 @@ function SR:FindNearest(serviceType)
 
     for _, loc in ipairs(locations) do
         if QR.PathCalculator and loc.mapID and loc.x and loc.y then
-            local result = QR.PathCalculator:CalculatePath(loc.mapID, loc.x, loc.y)
-            if result and result.totalTime and result.totalTime < bestCost then
+            local ok, result = pcall(QR.PathCalculator.CalculatePath, QR.PathCalculator, loc.mapID, loc.x, loc.y)
+            if ok and result and result.totalTime and result.totalTime < bestCost then
                 bestCost = result.totalTime
                 bestLoc = loc
                 bestResult = result

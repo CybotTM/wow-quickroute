@@ -87,7 +87,9 @@ end
 -- @param msg string Debug message
 function QR:Debug(msg)
     if self.debugMode then
-        print("|cFF00FF00QuickRoute|r: " .. msg)
+        local L = self.L
+        local prefix = L and L["DEBUG_PREFIX"] or "|cFF00FF00QuickRoute|r: "
+        print(prefix .. msg)
     end
     self:Log("DEBUG", msg)
 end
@@ -95,14 +97,18 @@ end
 --- Print and log a warning message
 -- @param msg string Warning message
 function QR:Warn(msg)
-    print("|cFFFF6600QuickRoute WARN:|r " .. msg)
+    local L = self.L
+    local prefix = L and L["WARNING_PREFIX"] or "|cFFFF6600QuickRoute WARNING|r: "
+    print(prefix .. msg)
     self:Log("WARN", msg)
 end
 
 --- Print and log an error message
 -- @param msg string Error message
 function QR:Error(msg)
-    print("|cFFFF0000QuickRoute ERROR:|r " .. msg)
+    local L = self.L
+    local prefix = L and L["ERROR_PREFIX"] or "|cFFFF0000QuickRoute ERROR:|r "
+    print(prefix .. msg)
     self:Log("ERROR", msg)
 end
 
@@ -158,10 +164,15 @@ function QR:Initialize()
 
     -- First-run welcome message
     if not self.db.firstRunShown then
-        print("|cFF00FF00QuickRoute|r v" .. self.version .. " loaded. Type |cFFFFFF00/qr|r to open or |cFFFFFF00/qrhelp|r for commands.")
+        local L = self.L
+        local loadedMsg = L and L["ADDON_LOADED"] or "|cFF00FF00QuickRoute|r v%s loaded"
+        local firstRunMsg = L and L["ADDON_FIRST_RUN"] or "Type |cFFFFFF00/qr|r to open or |cFFFFFF00/qrhelp|r for commands."
+        print(string.format(loadedMsg, self.version) .. " " .. firstRunMsg)
         self.db.firstRunShown = true
     elseif self.debugMode then
-        print("|cFF00FF00QuickRoute|r v" .. self.version .. " loaded")
+        local L = self.L
+        local loadedMsg = L and L["ADDON_LOADED"] or "|cFF00FF00QuickRoute|r v%s loaded"
+        print(string.format(loadedMsg, self.version))
     end
 end
 
@@ -211,7 +222,8 @@ end
 function QR:InitializeGraph()
     QR.PathCalculator:BuildGraph()
     if self.debugMode then
-        print("|cFF00FF00QuickRoute|r: Travel graph built")
+        local L = self.L
+        QR:Debug(L and L["TRAVEL_GRAPH_BUILT"] or "Travel graph built")
     end
 end
 
@@ -219,7 +231,8 @@ function QR:ScanPlayerTeleports()
     QR.PlayerInventory:ScanAll()
     local count = QR.PlayerInventory:GetTeleportCount()
     if self.debugMode then
-        print(string.format("|cFF00FF00QuickRoute|r: Found %d teleport methods", count))
+        local L = self.L
+        QR:Debug(string.format(L and L["FOUND_TELEPORTS"] or "Found %d teleport methods", count))
     end
 end
 

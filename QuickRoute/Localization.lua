@@ -17,8 +17,15 @@ local L = QR.L
 -- General
 L["ADDON_TITLE"] = "QuickRoute"
 L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s loaded"
+L["ADDON_FIRST_RUN"] = "Type |cFFFFFF00/qr|r to open or |cFFFFFF00/qrhelp|r for commands."
+L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r: "
 L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute ERROR:|r "
 L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute WARNING|r: "
+L["MINIMAP_SHOWN"] = "Minimap button shown"
+L["MINIMAP_HIDDEN"] = "Minimap button hidden"
+L["PRIORITY_SET_TO"] = "Waypoint priority set to '%s'"
+L["PRIORITY_USAGE"] = "Usage: /qr priority mappin|quest|tomtom"
+L["PRIORITY_CURRENT"] = "Current priority"
 
 -- UI Elements
 L["DESTINATION"] = "Destination:"
@@ -92,27 +99,6 @@ L["NO_WAYPOINTS_AVAILABLE"] = "No waypoints available"
 L["NAME"] = "Name"
 L["DESTINATION_HEADER"] = "Destination"
 L["STATUS"] = "Status"
-
--- Debug Output
-L["DEBUG_INFO_HEADER"] = "=== QuickRoute Debug Info ==="
-L["DEBUG_INFO_FOOTER"] = "=== End Debug Info ==="
-L["DEBUG_PLAYER_INFO"] = "--- Player Info ---"
-L["DEBUG_WAYPOINT_DETECTION"] = "--- Waypoint Detection ---"
-L["DEBUG_ACTIVE_WAYPOINT"] = "--- Active Waypoint ---"
-L["DEBUG_AVAILABLE_TELEPORTS"] = "--- Available Teleports (Detailed) ---"
-L["DEBUG_AVAILABLE_PORTALS"] = "--- Available Portals ---"
-L["DEBUG_PATH_CALCULATION"] = "--- Path Calculation ---"
-L["DEBUG_COOLDOWN_STATUS"] = "--- Cooldown Status ---"
-L["DEBUG_ZONE_ADJACENCY"] = "--- Zone Adjacency Info ---"
-L["DEBUG_MODULE_STATUS"] = "--- Module Status ---"
-L["DEBUG_API_CHECKS"] = "--- API Availability ---"
-L["DEBUG_GRAPH_INFO"] = "--- Graph Information ---"
-L["DEBUG_NO_WAYPOINT"] = "No waypoint detected"
-L["DEBUG_PATH_FOUND"] = "Path found!"
-L["DEBUG_NO_PATH"] = "No path found (result is nil)"
-L["DEBUG_ERROR_GRAPH"] = "ERROR building graph: %s"
-L["DEBUG_ERROR_PATH"] = "ERROR calculating path: %s"
-L["DEBUG_SKIPPED_NO_WAYPOINT"] = "Skipped - no waypoint to calculate path to"
 
 -- Tooltips
 L["TOOLTIP_REFRESH"] = "Recalculate the route to your waypoint"
@@ -323,6 +309,13 @@ if GetLocale() == "deDE" then
     L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s geladen"
     L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute FEHLER:|r "
     L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute WARNUNG|r: "
+    L["ADDON_FIRST_RUN"] = "Tippe |cFFFFFF00/qr|r zum Öffnen oder |cFFFFFF00/qrhelp|r für Befehle."
+    L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r: "
+    L["MINIMAP_SHOWN"] = "Minimap-Button angezeigt"
+    L["MINIMAP_HIDDEN"] = "Minimap-Button versteckt"
+    L["PRIORITY_SET_TO"] = "Wegpunkt-Priorität auf '%s' gesetzt"
+    L["PRIORITY_USAGE"] = "Verwendung: /qr priority mappin|quest|tomtom"
+    L["PRIORITY_CURRENT"] = "Aktuelle Priorität"
 
     -- UI Elements
     L["DESTINATION"] = "Ziel:"
@@ -495,7 +488,7 @@ if GetLocale() == "deDE" then
     L["SERVICE_BANK"] = "Bank"
     L["SERVICE_VOID_STORAGE"] = "Leerenlager"
     L["SERVICE_CRAFTING_TABLE"] = "Handwerkstisch"
-    L["SERVICE_NEAREST"] = "Naechste/r %s"
+    L["SERVICE_NEAREST"] = "Nächste(r) %s"
     L["DEST_SEARCH_SERVICES"] = "Dienste"
 
     -- Errors / Hints
@@ -605,6 +598,13 @@ if GetLocale() == "frFR" then
     L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s chargé"
     L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute ERREUR :|r "
     L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute ATTENTION|r : "
+    L["ADDON_FIRST_RUN"] = "Tapez |cFFFFFF00/qr|r pour ouvrir ou |cFFFFFF00/qrhelp|r pour les commandes."
+    L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r : "
+    L["MINIMAP_SHOWN"] = "Bouton minimap affiché"
+    L["MINIMAP_HIDDEN"] = "Bouton minimap masqué"
+    L["PRIORITY_SET_TO"] = "Priorité du waypoint définie sur '%s'"
+    L["PRIORITY_USAGE"] = "Usage : /qr priority mappin|quest|tomtom"
+    L["PRIORITY_CURRENT"] = "Priorité actuelle"
 
     -- UI Elements
     L["DESTINATION"] = "Destination :"
@@ -888,6 +888,13 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s cargado"
     L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute ERROR:|r "
     L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute AVISO|r: "
+    L["ADDON_FIRST_RUN"] = "Escribe |cFFFFFF00/qr|r para abrir o |cFFFFFF00/qrhelp|r para comandos."
+    L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r: "
+    L["MINIMAP_SHOWN"] = "Botón del minimapa visible"
+    L["MINIMAP_HIDDEN"] = "Botón del minimapa oculto"
+    L["PRIORITY_SET_TO"] = "Prioridad del waypoint establecida en '%s'"
+    L["PRIORITY_USAGE"] = "Uso: /qr priority mappin|quest|tomtom"
+    L["PRIORITY_CURRENT"] = "Prioridad actual"
 
     -- UI Elements
     L["DESTINATION"] = "Destino:"
@@ -1058,9 +1065,9 @@ if esLocale == "esES" or esLocale == "esMX" then
     -- Service POI routing
     L["SERVICE_AUCTION_HOUSE"] = "Casa de subastas"
     L["SERVICE_BANK"] = "Banco"
-    L["SERVICE_VOID_STORAGE"] = "Deposito del Vacio"
-    L["SERVICE_CRAFTING_TABLE"] = "Mesa de artesania"
-    L["SERVICE_NEAREST"] = "%s mas cercano/a"
+    L["SERVICE_VOID_STORAGE"] = "Depósito del Vacío"
+    L["SERVICE_CRAFTING_TABLE"] = "Mesa de artesanía"
+    L["SERVICE_NEAREST"] = "%s más cercano/a"
     L["DEST_SEARCH_SERVICES"] = "Servicios"
 
     -- Errors / Hints
@@ -1170,6 +1177,13 @@ if GetLocale() == "ptBR" then
     L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s carregado"
     L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute ERRO:|r "
     L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute AVISO|r: "
+    L["ADDON_FIRST_RUN"] = "Digite |cFFFFFF00/qr|r para abrir ou |cFFFFFF00/qrhelp|r para comandos."
+    L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r: "
+    L["MINIMAP_SHOWN"] = "Botão do minimapa exibido"
+    L["MINIMAP_HIDDEN"] = "Botão do minimapa oculto"
+    L["PRIORITY_SET_TO"] = "Prioridade do waypoint definida para '%s'"
+    L["PRIORITY_USAGE"] = "Uso: /qr priority mappin|quest|tomtom"
+    L["PRIORITY_CURRENT"] = "Prioridade atual"
 
     -- UI Elements
     L["DESTINATION"] = "Destino:"
@@ -1338,12 +1352,12 @@ if GetLocale() == "ptBR" then
     L["DEST_SEARCH_ROUTE_TO_TT"] = "Clique para calcular a rota"
 
     -- Service POI routing
-    L["SERVICE_AUCTION_HOUSE"] = "Casa de Leiloes"
+    L["SERVICE_AUCTION_HOUSE"] = "Casa de Leilões"
     L["SERVICE_BANK"] = "Banco"
-    L["SERVICE_VOID_STORAGE"] = "Armazem do Vazio"
+    L["SERVICE_VOID_STORAGE"] = "Armazém do Vazio"
     L["SERVICE_CRAFTING_TABLE"] = "Mesa de Artesanato"
-    L["SERVICE_NEAREST"] = "%s mais proximo/a"
-    L["DEST_SEARCH_SERVICES"] = "Servicos"
+    L["SERVICE_NEAREST"] = "%s mais próximo/a"
+    L["DEST_SEARCH_SERVICES"] = "Serviços"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Desconhecido"
@@ -1452,6 +1466,13 @@ if GetLocale() == "ruRU" then
     L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s загружен"
     L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute ОШИБКА:|r "
     L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute ВНИМАНИЕ|r: "
+    L["ADDON_FIRST_RUN"] = "Введите |cFFFFFF00/qr|r для открытия или |cFFFFFF00/qrhelp|r для списка команд."
+    L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r: "
+    L["MINIMAP_SHOWN"] = "Кнопка миникарты показана"
+    L["MINIMAP_HIDDEN"] = "Кнопка миникарты скрыта"
+    L["PRIORITY_SET_TO"] = "Приоритет путевой точки установлен на '%s'"
+    L["PRIORITY_USAGE"] = "Использование: /qr priority mappin|quest|tomtom"
+    L["PRIORITY_CURRENT"] = "Текущий приоритет"
 
     -- UI Elements
     L["DESTINATION"] = "Назначение:"
@@ -1734,6 +1755,13 @@ if GetLocale() == "koKR" then
     L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s 로드됨"
     L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute 오류:|r "
     L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute 경고|r: "
+    L["ADDON_FIRST_RUN"] = "|cFFFFFF00/qr|r로 열기 또는 |cFFFFFF00/qrhelp|r로 명령어 확인."
+    L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r: "
+    L["MINIMAP_SHOWN"] = "미니맵 버튼 표시"
+    L["MINIMAP_HIDDEN"] = "미니맵 버튼 숨김"
+    L["PRIORITY_SET_TO"] = "경유지 우선순위가 '%s'(으)로 설정됨"
+    L["PRIORITY_USAGE"] = "사용법: /qr priority mappin|quest|tomtom"
+    L["PRIORITY_CURRENT"] = "현재 우선순위"
 
     -- UI Elements
     L["DESTINATION"] = "목적지:"
@@ -2016,6 +2044,13 @@ if GetLocale() == "zhCN" then
     L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s 已加载"
     L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute 错误:|r "
     L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute 警告|r: "
+    L["ADDON_FIRST_RUN"] = "输入 |cFFFFFF00/qr|r 打开，或 |cFFFFFF00/qrhelp|r 查看命令。"
+    L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r: "
+    L["MINIMAP_SHOWN"] = "小地图按钮已显示"
+    L["MINIMAP_HIDDEN"] = "小地图按钮已隐藏"
+    L["PRIORITY_SET_TO"] = "路径点优先级已设为 '%s'"
+    L["PRIORITY_USAGE"] = "用法：/qr priority mappin|quest|tomtom"
+    L["PRIORITY_CURRENT"] = "当前优先级"
 
     -- UI Elements
     L["DESTINATION"] = "目的地："
@@ -2298,6 +2333,13 @@ if GetLocale() == "zhTW" then
     L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s 已載入"
     L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute 錯誤:|r "
     L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute 警告|r: "
+    L["ADDON_FIRST_RUN"] = "輸入 |cFFFFFF00/qr|r 開啟，或 |cFFFFFF00/qrhelp|r 查看指令。"
+    L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r: "
+    L["MINIMAP_SHOWN"] = "小地圖按鈕已顯示"
+    L["MINIMAP_HIDDEN"] = "小地圖按鈕已隱藏"
+    L["PRIORITY_SET_TO"] = "路徑點優先級已設為 '%s'"
+    L["PRIORITY_USAGE"] = "用法：/qr priority mappin|quest|tomtom"
+    L["PRIORITY_CURRENT"] = "目前優先級"
 
     -- UI Elements
     L["DESTINATION"] = "目的地："
@@ -2580,6 +2622,13 @@ if GetLocale() == "itIT" then
     L["ADDON_LOADED"] = "|cFF00FF00QuickRoute|r v%s caricato"
     L["ERROR_PREFIX"] = "|cFFFF0000QuickRoute ERRORE:|r "
     L["WARNING_PREFIX"] = "|cFFFF6600QuickRoute ATTENZIONE|r: "
+    L["ADDON_FIRST_RUN"] = "Digita |cFFFFFF00/qr|r per aprire o |cFFFFFF00/qrhelp|r per i comandi."
+    L["DEBUG_PREFIX"] = "|cFF00FF00QuickRoute|r: "
+    L["MINIMAP_SHOWN"] = "Pulsante minimappa mostrato"
+    L["MINIMAP_HIDDEN"] = "Pulsante minimappa nascosto"
+    L["PRIORITY_SET_TO"] = "Priorità waypoint impostata su '%s'"
+    L["PRIORITY_USAGE"] = "Utilizzo: /qr priority mappin|quest|tomtom"
+    L["PRIORITY_CURRENT"] = "Priorità attuale"
 
     -- UI Elements
     L["DESTINATION"] = "Destinazione:"
@@ -2752,7 +2801,7 @@ if GetLocale() == "itIT" then
     L["SERVICE_BANK"] = "Banca"
     L["SERVICE_VOID_STORAGE"] = "Deposito del Vuoto"
     L["SERVICE_CRAFTING_TABLE"] = "Tavolo da lavoro"
-    L["SERVICE_NEAREST"] = "%s piu vicino/a"
+    L["SERVICE_NEAREST"] = "%s più vicino/a"
     L["DEST_SEARCH_SERVICES"] = "Servizi"
 
     -- Errors / Hints

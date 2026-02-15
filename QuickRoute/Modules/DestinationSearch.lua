@@ -139,7 +139,15 @@ function DS:CollectResults(query)
         local serviceTypes = SR:GetServiceTypes()
         for _, serviceType in ipairs(serviceTypes) do
             local serviceName = SR:GetServiceName(serviceType)
-            if not isSearching or string_find(string_lower(serviceName), queryLower, 1, true) then
+            -- Match by localized name or slash alias (e.g. "ah" matches "Auction House")
+            local aliasMatch = false
+            if isSearching and QR.ServiceTypes and QR.ServiceTypes[serviceType] then
+                local alias = QR.ServiceTypes[serviceType].slashAlias
+                if alias and string_find(alias, queryLower, 1, true) then
+                    aliasMatch = true
+                end
+            end
+            if not isSearching or aliasMatch or string_find(string_lower(serviceName), queryLower, 1, true) then
                 local locations = SR:GetLocations(serviceType)
                 if #locations > 0 then
                     local locs = {}
@@ -333,7 +341,7 @@ function DS:CreateSectionHeader(sectionKey, title, yOffset)
     row:SetScript("OnEnter", function(btn)
         GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
         GameTooltip:AddLine(title, 1, 0.82, 0)
-        local tipText = collapsed and "Click to expand" or "Click to collapse"
+        local tipText = L and L["SIDEBAR_COLLAPSE_TT"] or "Click to collapse/expand"
         GameTooltip:AddLine(tipText, 1, 1, 1)
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()

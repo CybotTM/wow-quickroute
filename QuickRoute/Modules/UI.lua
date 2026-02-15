@@ -1902,19 +1902,19 @@ SlashCmdList["QR"] = function(msg)
         if QR.MainFrame then QR.MainFrame:Hide() end
     elseif cmd == "debug" then
         QR.debugMode = not QR.debugMode
-        print("|cFF00FF00QuickRoute|r: Debug mode " .. (QR.debugMode and "enabled" or "disabled"))
+        QR:Print(QR.debugMode and L["DEBUG_MODE_ENABLED"] or L["DEBUG_MODE_DISABLED"])
     elseif cmd:match("^priority") then
         local newPriority = msg:lower():match("priority%s+(%S+)")
         if newPriority and (newPriority == "mappin" or newPriority == "quest" or newPriority == "tomtom") then
             QR.db.waypointPriority = newPriority
-            print("|cFF00FF00QuickRoute|r: Waypoint priority set to '" .. newPriority .. "'")
+            QR:Print(string_format(L["PRIORITY_SET_TO"] or "Waypoint priority set to '%s'", newPriority))
             -- Refresh the UI if showing
             if QR.MainFrame and QR.MainFrame.isShowing and QR.MainFrame.activeTab == "route" then
                 UI:RefreshRoute()
             end
         else
-            print("|cFF00FF00QuickRoute|r: Usage: /qr priority mappin|quest|tomtom")
-            print("  Current priority: " .. (QR.db and QR.db.waypointPriority or "mappin"))
+            QR:Print(L["PRIORITY_USAGE"] or "Usage: /qr priority mappin|quest|tomtom")
+            QR:Print(string_format("  %s: %s", L["PRIORITY_CURRENT"] or "Current priority", QR.db and QR.db.waypointPriority or "mappin"))
         end
     elseif cmd == "autowaypoint" or cmd == "autowp" then
         QR.db.autoWaypoint = not QR.db.autoWaypoint
@@ -1929,7 +1929,7 @@ SlashCmdList["QR"] = function(msg)
         if QR.MinimapButton then
             QR.MinimapButton:ApplyVisibility()
         end
-        print("|cFF00FF00QuickRoute|r: Minimap button " .. (QR.db.showMinimap and "shown" or "hidden"))
+        QR:Print(QR.db.showMinimap and (L["MINIMAP_SHOWN"] or "Minimap button shown") or (L["MINIMAP_HIDDEN"] or "Minimap button hidden"))
     elseif cmd == "ah" or cmd == "bank" or cmd == "void" or cmd == "craft" then
         if QR.ServiceRouter then
             local serviceType = QR.ServiceRouter:FindByAlias(cmd)

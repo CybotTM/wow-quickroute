@@ -630,3 +630,61 @@ T:run("DestSearch: service nearest row has blue text color", function(t)
     end
     t:assertTrue(nearestRowFound, "Found nearest row with blue text color")
 end)
+
+T:run("DestSearch: slash alias matches service in search", function(t)
+    resetState()
+    -- Searching "ah" should match Auction House via slash alias
+    local results = QR.DestinationSearch:CollectResults("ah")
+    t:assertTrue(#results.services > 0, "Alias 'ah' matches services")
+    local foundAH = false
+    for _, svc in ipairs(results.services) do
+        if svc.serviceType == "AUCTION_HOUSE" then foundAH = true end
+    end
+    t:assertTrue(foundAH, "AUCTION_HOUSE found via 'ah' alias search")
+
+    -- "void" should match Void Storage
+    local results2 = QR.DestinationSearch:CollectResults("void")
+    local foundVS = false
+    for _, svc in ipairs(results2.services) do
+        if svc.serviceType == "VOID_STORAGE" then foundVS = true end
+    end
+    t:assertTrue(foundVS, "VOID_STORAGE found via 'void' alias search")
+
+    -- "craft" should match Crafting Table
+    local results3 = QR.DestinationSearch:CollectResults("craft")
+    local foundCT = false
+    for _, svc in ipairs(results3.services) do
+        if svc.serviceType == "CRAFTING_TABLE" then foundCT = true end
+    end
+    t:assertTrue(foundCT, "CRAFTING_TABLE found via 'craft' alias search")
+end)
+
+T:run("DestSearch: CollectResults handles nil ServiceRouter gracefully", function(t)
+    resetState()
+    local origSR = QR.ServiceRouter
+    QR.ServiceRouter = nil
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertNotNil(results.services, "services field exists")
+    t:assertEqual(0, #results.services, "No services when ServiceRouter is nil")
+    QR.ServiceRouter = origSR
+end)
+
+T:run("DestSearch: empty query does not alias-match services", function(t)
+    resetState()
+    -- Empty query should return ALL services (not filtered by alias)
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertTrue(#results.services >= 4, "All services returned for empty query")
+end)
+
+T:run("DestSearch: new localization keys exist for all service messages", function(t)
+    local L = QR.L
+    -- New keys added in this iteration
+    t:assertNotNil(L["ADDON_FIRST_RUN"], "ADDON_FIRST_RUN key exists")
+    t:assertNotNil(L["DEBUG_PREFIX"], "DEBUG_PREFIX key exists")
+    t:assertNotNil(L["MINIMAP_SHOWN"], "MINIMAP_SHOWN key exists")
+    t:assertNotNil(L["MINIMAP_HIDDEN"], "MINIMAP_HIDDEN key exists")
+    t:assertNotNil(L["PRIORITY_SET_TO"], "PRIORITY_SET_TO key exists")
+    t:assertNotNil(L["PRIORITY_USAGE"], "PRIORITY_USAGE key exists")
+    t:assertNotNil(L["PRIORITY_CURRENT"], "PRIORITY_CURRENT key exists")
+    t:assertNotNil(L["SIDEBAR_COLLAPSE_TT"], "SIDEBAR_COLLAPSE_TT key exists")
+end)

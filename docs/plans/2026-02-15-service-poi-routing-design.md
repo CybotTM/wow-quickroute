@@ -25,6 +25,7 @@ QR.ServicePOIs = {
     },
     BANK = { ... },
     VOID_STORAGE = { ... },
+    CRAFTING_TABLE = { ... },
 }
 ```
 
@@ -54,6 +55,7 @@ Added to `QuickRoute.lua`:
 - `/qr ah` → `ServiceRouter:RouteToNearest("AUCTION_HOUSE")`
 - `/qr bank` → `ServiceRouter:RouteToNearest("BANK")`
 - `/qr void` → `ServiceRouter:RouteToNearest("VOID_STORAGE")`
+- `/qr craft` → `ServiceRouter:RouteToNearest("CRAFTING_TABLE")`
 
 ### Localization
 
@@ -61,6 +63,7 @@ New keys in all 10 languages (enUS, deDE, frFR, esES, ptBR, ruRU, koKR, zhCN, zh
 - `SERVICE_AUCTION_HOUSE` — "Auction House"
 - `SERVICE_BANK` — "Bank"
 - `SERVICE_VOID_STORAGE` — "Void Storage"
+- `SERVICE_CRAFTING_TABLE` — "Crafting Table"
 - `SERVICE_NEAREST` — "Nearest %s"
 - `DEST_SEARCH_SERVICES` — "Services"
 
