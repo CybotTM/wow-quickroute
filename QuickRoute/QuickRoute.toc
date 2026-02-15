@@ -2,7 +2,7 @@
 ## Title: QuickRoute
 ## Notes: Shows the shortest path to your destination using teleports and portals
 ## Author: Sebastian Mendel
-## Version: 1.3.0
+## Version: 1.4.0
 ## SavedVariables: QuickRouteDB
 ## OptionalDeps: TomTom
 ## X-Category: Map

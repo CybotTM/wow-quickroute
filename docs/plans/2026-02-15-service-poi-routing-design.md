@@ -2,7 +2,7 @@
 
 ## Goal
 
-Route the player to the nearest Auction House, Bank, or Void Storage across all capital cities, using Dijkstra-optimal travel time (not geographic distance).
+Route the player to the nearest Auction House, Bank, Void Storage, or Crafting Table across all capital cities, using Dijkstra-optimal travel time (not geographic distance).
 
 ## User Stories
 

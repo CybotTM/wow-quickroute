@@ -27,10 +27,10 @@
 ### Planned / Missing
 - [x] **Dungeons & Raids** — Route to dungeon/raid entrances from Dungeon Journal or LFG (v1.2.0)
 - [x] **Cities & Towns** — Unified destination search with cities, dungeons, waypoints (v1.3.0)
-- [ ] **NPCs & Vendors** — Route to specific NPCs (repair, transmog, auction house, trainers)
+- [x] **Service POIs** — Route to nearest AH, Bank, Void Storage, Crafting Table (v1.4.0)
+- [ ] **NPCs & Vendors** — Route to specific NPCs (repair, transmog, quartermasters, trainers)
 - [ ] **World Events** — Darkmoon Faire, holiday events, world boss locations
 - [ ] **Flight Masters** — Nearest flight master for manual flight path usage
-- [ ] **Mailboxes / Banks / AH** — Common service locations
 - [ ] **Group members** — Route to where your party/raid member is
 - [ ] **Death run-back** — Optimal route from graveyard to corpse
 - [ ] **Favorite locations** — User-saved destinations for quick access
