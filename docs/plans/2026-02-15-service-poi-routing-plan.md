@@ -99,11 +99,19 @@ QR.ServicePOIs = {
     },
 }
 
+    CRAFTING_TABLE = {
+        -- Crafting tables (The War Within profession stations) - current expansion hubs
+        { mapID = 2339, x = 0.4780, y = 0.5280, faction = "both" },      -- Dornogal
+        { mapID = 2112, x = 0.3580, y = 0.6240, faction = "both" },      -- Valdrakken
+    },
+}
+
 -- Service type metadata for display and slash commands
 QR.ServiceTypes = {
-    AUCTION_HOUSE = { icon = "Interface\\Icons\\INV_Misc_Coin_01", slashAlias = "ah" },
-    BANK          = { icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue", slashAlias = "bank" },
-    VOID_STORAGE  = { icon = "Interface\\Icons\\Spell_Nature_AstralRecalGroup", slashAlias = "void" },
+    AUCTION_HOUSE  = { icon = "Interface\\Icons\\INV_Misc_Coin_01", slashAlias = "ah" },
+    BANK           = { icon = "Interface\\Icons\\INV_Misc_Bag_10_Blue", slashAlias = "bank" },
+    VOID_STORAGE   = { icon = "Interface\\Icons\\Spell_Nature_AstralRecalGroup", slashAlias = "void" },
+    CRAFTING_TABLE = { icon = "Interface\\Icons\\Trade_Blacksmithing", slashAlias = "craft" },
 }
 ```
 
@@ -180,6 +188,7 @@ Add to the enUS section (after `DEST_SEARCH_NO_RESULTS`):
 L["SERVICE_AUCTION_HOUSE"] = "Auction House"
 L["SERVICE_BANK"] = "Bank"
 L["SERVICE_VOID_STORAGE"] = "Void Storage"
+L["SERVICE_CRAFTING_TABLE"] = "Crafting Table"
 L["SERVICE_NEAREST"] = "Nearest %s"
 L["DEST_SEARCH_SERVICES"] = "Services"
 ```
@@ -191,6 +200,7 @@ Add translations for all 9 other locales:
 | SERVICE_AUCTION_HOUSE | Auktionshaus | Hotel des ventes | Casa de subastas | Casa de Leiloes | Аукцион | 경매장 | 拍卖行 | 拍賣場 | Casa d'aste |
 | SERVICE_BANK | Bank | Banque | Banco | Banco | Банк | 은행 | 银行 | 銀行 | Banca |
 | SERVICE_VOID_STORAGE | Leerenlager | Coffre du Vide | Deposito del Vacio | Armazem do Vazio | Хранилище Бездны | 공허 보관함 | 虚空仓库 | 虛空倉庫 | Deposito del Vuoto |
+| SERVICE_CRAFTING_TABLE | Handwerkstisch | Table d'artisanat | Mesa de artesania | Mesa de Artesanato | Стол ремёсел | 제작대 | 制作台 | 製作檯 | Tavolo da lavoro |
 | SERVICE_NEAREST | Naechste/r %s | %s le/la plus proche | %s mas cercano/a | %s mais proximo/a | Ближайший %s | 가장 가까운 %s | 最近的%s | 最近的%s | %s piu vicino/a |
 | DEST_SEARCH_SERVICES | Dienste | Services | Servicios | Servicos | Сервисы | 서비스 | 服务 | 服務 | Servizi |
 
@@ -613,7 +623,7 @@ Add `/qr ah|bank|void` commands and ServiceRouter to the init sequence.
 In `UI.lua`, add to the `/qr` slash handler (after `elseif cmd == "minimap"` block, before `elseif cmd == "" then`):
 
 ```lua
-elseif cmd == "ah" or cmd == "bank" or cmd == "void" then
+elseif cmd == "ah" or cmd == "bank" or cmd == "void" or cmd == "craft" then
     if QR.ServiceRouter then
         local serviceType = QR.ServiceRouter:FindByAlias(cmd)
         if serviceType then
@@ -634,6 +644,7 @@ In `QuickRoute.lua`, add to `PrintHelp()`:
 print("  /qr ah - Route to nearest Auction House")
 print("  /qr bank - Route to nearest Bank")
 print("  /qr void - Route to nearest Void Storage")
+print("  /qr craft - Route to nearest Crafting Table")
 ```
 
 Also add to the inline help block in the `/qr` slash handler (the `else` branch at end):
