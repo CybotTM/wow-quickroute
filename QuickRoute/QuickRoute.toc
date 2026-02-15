@@ -31,6 +31,7 @@ Data\TeleportItems.lua
 Data\Portals.lua
 Data\ZoneAdjacency.lua
 Data\DungeonEntrances.lua
+Data\ServicePOIs.lua
 
 # Core
 Core\Graph.lua

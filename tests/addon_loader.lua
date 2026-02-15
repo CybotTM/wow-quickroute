@@ -41,6 +41,7 @@ function AddonLoader:Load(MockWoW, options)
         "Data/Portals.lua",
         "Data/ZoneAdjacency.lua",
         "Data/DungeonEntrances.lua",
+        "Data/ServicePOIs.lua",
         "Core/Graph.lua",
         "Core/TravelTime.lua",
         "Core/PathCalculator.lua",
