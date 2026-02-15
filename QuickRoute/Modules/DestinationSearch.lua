@@ -514,7 +514,8 @@ function DS:RefreshDropdown(query)
         if not self.collapsedSections["services"] then
             for _, svc in ipairs(results.services) do
                 -- "Nearest X" auto-pick row
-                local nearestLabel = string_format(L and L["SERVICE_NEAREST"] or "Nearest %s", svc.serviceName)
+                local nearestKey = "SERVICE_NEAREST_" .. svc.serviceType
+                local nearestLabel = L and L[nearestKey] or ("Nearest " .. svc.serviceName)
                 local nearestRow = self:GetRow()
                 nearestRow:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 0, -yOffset)
                 nearestRow:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", 0, 0)

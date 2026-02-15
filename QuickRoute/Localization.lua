@@ -198,7 +198,10 @@ L["SERVICE_AUCTION_HOUSE"] = "Auction House"
 L["SERVICE_BANK"] = "Bank"
 L["SERVICE_VOID_STORAGE"] = "Void Storage"
 L["SERVICE_CRAFTING_TABLE"] = "Crafting Table"
-L["SERVICE_NEAREST"] = "Nearest %s"
+L["SERVICE_NEAREST_AUCTION_HOUSE"] = "Nearest Auction House"
+L["SERVICE_NEAREST_BANK"] = "Nearest Bank"
+L["SERVICE_NEAREST_VOID_STORAGE"] = "Nearest Void Storage"
+L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Nearest Crafting Table"
 L["DEST_SEARCH_SERVICES"] = "Services"
 
 -- Errors / Hints
@@ -488,7 +491,10 @@ if GetLocale() == "deDE" then
     L["SERVICE_BANK"] = "Bank"
     L["SERVICE_VOID_STORAGE"] = "Leerenlager"
     L["SERVICE_CRAFTING_TABLE"] = "Handwerkstisch"
-    L["SERVICE_NEAREST"] = "Nächste %s"
+    L["SERVICE_NEAREST_AUCTION_HOUSE"] = "Nächstes Auktionshaus"
+    L["SERVICE_NEAREST_BANK"] = "Nächste Bank"
+    L["SERVICE_NEAREST_VOID_STORAGE"] = "Nächstes Leerenlager"
+    L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Nächster Handwerkstisch"
     L["DEST_SEARCH_SERVICES"] = "Dienste"
 
     -- Errors / Hints
@@ -777,7 +783,10 @@ if GetLocale() == "frFR" then
     L["SERVICE_BANK"] = "Banque"
     L["SERVICE_VOID_STORAGE"] = "Coffre du Vide"
     L["SERVICE_CRAFTING_TABLE"] = "Table d'artisanat"
-    L["SERVICE_NEAREST"] = "%s le plus proche"
+    L["SERVICE_NEAREST_AUCTION_HOUSE"] = "Hôtel des ventes le plus proche"
+    L["SERVICE_NEAREST_BANK"] = "Banque la plus proche"
+    L["SERVICE_NEAREST_VOID_STORAGE"] = "Stockage du Vide le plus proche"
+    L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Table d'artisanat la plus proche"
     L["DEST_SEARCH_SERVICES"] = "Services"
 
     -- Errors / Hints
@@ -1067,7 +1076,10 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["SERVICE_BANK"] = "Banco"
     L["SERVICE_VOID_STORAGE"] = "Depósito del Vacío"
     L["SERVICE_CRAFTING_TABLE"] = "Mesa de artesanía"
-    L["SERVICE_NEAREST"] = "%s más cercano"
+    L["SERVICE_NEAREST_AUCTION_HOUSE"] = "Casa de subastas más cercana"
+    L["SERVICE_NEAREST_BANK"] = "Banco más cercano"
+    L["SERVICE_NEAREST_VOID_STORAGE"] = "Depósito del Vacío más cercano"
+    L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Mesa de artesanía más cercana"
     L["DEST_SEARCH_SERVICES"] = "Servicios"
 
     -- Errors / Hints
@@ -1356,7 +1368,10 @@ if GetLocale() == "ptBR" then
     L["SERVICE_BANK"] = "Banco"
     L["SERVICE_VOID_STORAGE"] = "Armazém do Vazio"
     L["SERVICE_CRAFTING_TABLE"] = "Mesa de Artesanato"
-    L["SERVICE_NEAREST"] = "%s mais próximo"
+    L["SERVICE_NEAREST_AUCTION_HOUSE"] = "Casa de Leilões mais próxima"
+    L["SERVICE_NEAREST_BANK"] = "Banco mais próximo"
+    L["SERVICE_NEAREST_VOID_STORAGE"] = "Armazém do Vazio mais próximo"
+    L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Mesa de Artesanato mais próxima"
     L["DEST_SEARCH_SERVICES"] = "Serviços"
 
     -- Errors / Hints
@@ -1645,7 +1660,10 @@ if GetLocale() == "ruRU" then
     L["SERVICE_BANK"] = "Банк"
     L["SERVICE_VOID_STORAGE"] = "Хранилище Бездны"
     L["SERVICE_CRAFTING_TABLE"] = "Стол ремёсел"
-    L["SERVICE_NEAREST"] = "Ближайший %s"
+    L["SERVICE_NEAREST_AUCTION_HOUSE"] = "Ближайший аукцион"
+    L["SERVICE_NEAREST_BANK"] = "Ближайший банк"
+    L["SERVICE_NEAREST_VOID_STORAGE"] = "Ближайшее хранилище Бездны"
+    L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Ближайший ремесленный стол"
     L["DEST_SEARCH_SERVICES"] = "Сервисы"
 
     -- Errors / Hints
@@ -1934,7 +1952,10 @@ if GetLocale() == "koKR" then
     L["SERVICE_BANK"] = "은행"
     L["SERVICE_VOID_STORAGE"] = "공허 보관함"
     L["SERVICE_CRAFTING_TABLE"] = "제작대"
-    L["SERVICE_NEAREST"] = "가장 가까운 %s"
+    L["SERVICE_NEAREST_AUCTION_HOUSE"] = "가장 가까운 경매장"
+    L["SERVICE_NEAREST_BANK"] = "가장 가까운 은행"
+    L["SERVICE_NEAREST_VOID_STORAGE"] = "가장 가까운 공허 보관소"
+    L["SERVICE_NEAREST_CRAFTING_TABLE"] = "가장 가까운 제작대"
     L["DEST_SEARCH_SERVICES"] = "서비스"
 
     -- Errors / Hints
@@ -2223,7 +2244,10 @@ if GetLocale() == "zhCN" then
     L["SERVICE_BANK"] = "银行"
     L["SERVICE_VOID_STORAGE"] = "虚空仓库"
     L["SERVICE_CRAFTING_TABLE"] = "制作台"
-    L["SERVICE_NEAREST"] = "最近的%s"
+    L["SERVICE_NEAREST_AUCTION_HOUSE"] = "最近的拍卖行"
+    L["SERVICE_NEAREST_BANK"] = "最近的银行"
+    L["SERVICE_NEAREST_VOID_STORAGE"] = "最近的虚空仓库"
+    L["SERVICE_NEAREST_CRAFTING_TABLE"] = "最近的制作台"
     L["DEST_SEARCH_SERVICES"] = "服务"
 
     -- Errors / Hints
@@ -2512,7 +2536,10 @@ if GetLocale() == "zhTW" then
     L["SERVICE_BANK"] = "銀行"
     L["SERVICE_VOID_STORAGE"] = "虛空倉庫"
     L["SERVICE_CRAFTING_TABLE"] = "製作檯"
-    L["SERVICE_NEAREST"] = "最近的%s"
+    L["SERVICE_NEAREST_AUCTION_HOUSE"] = "最近的拍賣場"
+    L["SERVICE_NEAREST_BANK"] = "最近的銀行"
+    L["SERVICE_NEAREST_VOID_STORAGE"] = "最近的虛空倉庫"
+    L["SERVICE_NEAREST_CRAFTING_TABLE"] = "最近的製作檯"
     L["DEST_SEARCH_SERVICES"] = "服務"
 
     -- Errors / Hints
@@ -2801,7 +2828,10 @@ if GetLocale() == "itIT" then
     L["SERVICE_BANK"] = "Banca"
     L["SERVICE_VOID_STORAGE"] = "Deposito del Vuoto"
     L["SERVICE_CRAFTING_TABLE"] = "Tavolo da lavoro"
-    L["SERVICE_NEAREST"] = "%s più vicino"
+    L["SERVICE_NEAREST_AUCTION_HOUSE"] = "Casa d'aste più vicina"
+    L["SERVICE_NEAREST_BANK"] = "Banca più vicina"
+    L["SERVICE_NEAREST_VOID_STORAGE"] = "Deposito del Vuoto più vicino"
+    L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Tavolo da artigianato più vicino"
     L["DEST_SEARCH_SERVICES"] = "Servizi"
 
     -- Errors / Hints
