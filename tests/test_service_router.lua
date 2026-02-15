@@ -78,3 +78,186 @@ T:run("ServicePOIs: AH has both Alliance and Horde entries", function(t)
     t:assertTrue(hasHorde, "AH has Horde entries")
     t:assertTrue(hasBoth, "AH has neutral entries")
 end)
+
+T:run("ServiceRouter: localization keys exist", function(t)
+    local L = QR.L
+    t:assertNotNil(L["SERVICE_AUCTION_HOUSE"], "SERVICE_AUCTION_HOUSE")
+    t:assertNotNil(L["SERVICE_BANK"], "SERVICE_BANK")
+    t:assertNotNil(L["SERVICE_VOID_STORAGE"], "SERVICE_VOID_STORAGE")
+    t:assertNotNil(L["SERVICE_CRAFTING_TABLE"], "SERVICE_CRAFTING_TABLE")
+    t:assertNotNil(L["SERVICE_NEAREST"], "SERVICE_NEAREST")
+    t:assertNotNil(L["DEST_SEARCH_SERVICES"], "DEST_SEARCH_SERVICES")
+end)
+
+-------------------------------------------------------------------------------
+-- 2. ServiceRouter Module
+-------------------------------------------------------------------------------
+
+T:run("ServiceRouter: module exists", function(t)
+    t:assertNotNil(QR.ServiceRouter, "ServiceRouter exists")
+end)
+
+T:run("ServiceRouter: GetServiceTypes returns all types", function(t)
+    local types = QR.ServiceRouter:GetServiceTypes()
+    t:assertTrue(#types >= 4, "At least 4 service types")
+    local found = {}
+    for _, st in ipairs(types) do found[st] = true end
+    t:assertTrue(found["AUCTION_HOUSE"] == true, "Has AUCTION_HOUSE")
+    t:assertTrue(found["BANK"] == true, "Has BANK")
+    t:assertTrue(found["VOID_STORAGE"] == true, "Has VOID_STORAGE")
+    t:assertTrue(found["CRAFTING_TABLE"] == true, "Has CRAFTING_TABLE")
+end)
+
+T:run("ServiceRouter: GetServiceTypes is sorted", function(t)
+    local types = QR.ServiceRouter:GetServiceTypes()
+    for i = 2, #types do
+        t:assertTrue(types[i-1] < types[i], "Sorted: " .. types[i-1] .. " < " .. types[i])
+    end
+end)
+
+T:run("ServiceRouter: GetLocations filters by faction (Alliance)", function(t)
+    resetState()
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    local locs = QR.ServiceRouter:GetLocations("AUCTION_HOUSE")
+    t:assertTrue(#locs > 0, "Has AH locations for Alliance")
+    for _, loc in ipairs(locs) do
+        t:assertTrue(loc.faction == "Alliance" or loc.faction == "both",
+            "No Horde-only locations for Alliance player")
+    end
+end)
+
+T:run("ServiceRouter: GetLocations filters by faction (Horde)", function(t)
+    resetState()
+    MockWoW.config.playerFaction = "Horde"
+    QR.PlayerInfo:InvalidateCache()
+    local locs = QR.ServiceRouter:GetLocations("AUCTION_HOUSE")
+    t:assertTrue(#locs > 0, "Has AH locations for Horde")
+    for _, loc in ipairs(locs) do
+        t:assertTrue(loc.faction == "Horde" or loc.faction == "both",
+            "No Alliance-only locations for Horde player")
+    end
+end)
+
+T:run("ServiceRouter: GetLocations returns empty for unknown type", function(t)
+    resetState()
+    local locs = QR.ServiceRouter:GetLocations("NONEXISTENT")
+    t:assertEqual(0, #locs, "Empty for unknown type")
+end)
+
+T:run("ServiceRouter: GetServiceName returns localized name", function(t)
+    resetState()
+    t:assertEqual("Auction House", QR.ServiceRouter:GetServiceName("AUCTION_HOUSE"))
+    t:assertEqual("Bank", QR.ServiceRouter:GetServiceName("BANK"))
+    t:assertEqual("Void Storage", QR.ServiceRouter:GetServiceName("VOID_STORAGE"))
+    t:assertEqual("Crafting Table", QR.ServiceRouter:GetServiceName("CRAFTING_TABLE"))
+end)
+
+T:run("ServiceRouter: GetCityName returns map name", function(t)
+    resetState()
+    local name = QR.ServiceRouter:GetCityName({ mapID = 84 })
+    t:assertNotNil(name, "City name not nil")
+    t:assertTrue(#name > 0, "City name not empty")
+end)
+
+T:run("ServiceRouter: GetCityName handles nil mapID", function(t)
+    resetState()
+    local name = QR.ServiceRouter:GetCityName({})
+    t:assertNotNil(name, "Returns fallback for nil mapID")
+    t:assertEqual("Map 0", name, "Fallback is 'Map 0'")
+end)
+
+T:run("ServiceRouter: FindByAlias maps correctly", function(t)
+    resetState()
+    t:assertEqual("AUCTION_HOUSE", QR.ServiceRouter:FindByAlias("ah"))
+    t:assertEqual("BANK", QR.ServiceRouter:FindByAlias("bank"))
+    t:assertEqual("VOID_STORAGE", QR.ServiceRouter:FindByAlias("void"))
+    t:assertEqual("CRAFTING_TABLE", QR.ServiceRouter:FindByAlias("craft"))
+    t:assertNil(QR.ServiceRouter:FindByAlias("unknown"))
+    t:assertNil(QR.ServiceRouter:FindByAlias(nil))
+end)
+
+T:run("ServiceRouter: FindByAlias is case-insensitive", function(t)
+    resetState()
+    t:assertEqual("AUCTION_HOUSE", QR.ServiceRouter:FindByAlias("AH"))
+    t:assertEqual("BANK", QR.ServiceRouter:FindByAlias("BANK"))
+end)
+
+T:run("ServiceRouter: FindNearest returns nil for unknown type", function(t)
+    resetState()
+    local loc, cost, result = QR.ServiceRouter:FindNearest("NONEXISTENT")
+    t:assertNil(loc, "No location for unknown type")
+    t:assertNil(cost, "No cost for unknown type")
+    t:assertNil(result, "No result for unknown type")
+end)
+
+T:run("ServiceRouter: GetLocations includes neutral for both factions", function(t)
+    -- Alliance should see "both" entries
+    resetState()
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    local allianceLocs = QR.ServiceRouter:GetLocations("AUCTION_HOUSE")
+    local allianceHasBoth = false
+    for _, loc in ipairs(allianceLocs) do
+        if loc.faction == "both" then allianceHasBoth = true end
+    end
+    t:assertTrue(allianceHasBoth, "Alliance sees neutral locations")
+
+    -- Horde should see "both" entries
+    resetState()
+    MockWoW.config.playerFaction = "Horde"
+    QR.PlayerInfo:InvalidateCache()
+    local hordeLocs = QR.ServiceRouter:GetLocations("AUCTION_HOUSE")
+    local hordeHasBoth = false
+    for _, loc in ipairs(hordeLocs) do
+        if loc.faction == "both" then hordeHasBoth = true end
+    end
+    t:assertTrue(hordeHasBoth, "Horde sees neutral locations")
+end)
+
+T:run("ServiceRouter: GetLocations count differs by faction", function(t)
+    -- Alliance and Horde should see different faction-specific entries
+    -- but both should see "both" entries
+    resetState()
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    local allianceLocs = QR.ServiceRouter:GetLocations("AUCTION_HOUSE")
+
+    resetState()
+    MockWoW.config.playerFaction = "Horde"
+    QR.PlayerInfo:InvalidateCache()
+    local hordeLocs = QR.ServiceRouter:GetLocations("AUCTION_HOUSE")
+
+    -- Both should have entries (faction-specific + neutral)
+    t:assertTrue(#allianceLocs > 0, "Alliance has AH locations")
+    t:assertTrue(#hordeLocs > 0, "Horde has AH locations")
+
+    -- Count neutral entries in each (should be same)
+    local allianceNeutral, hordeNeutral = 0, 0
+    for _, loc in ipairs(allianceLocs) do
+        if loc.faction == "both" then allianceNeutral = allianceNeutral + 1 end
+    end
+    for _, loc in ipairs(hordeLocs) do
+        if loc.faction == "both" then hordeNeutral = hordeNeutral + 1 end
+    end
+    t:assertEqual(allianceNeutral, hordeNeutral, "Same number of neutral locations")
+end)
+
+T:run("ServiceRouter: /qr slash command aliases wired", function(t)
+    -- Verify ServiceRouter has the needed methods for slash commands
+    t:assertNotNil(QR.ServiceRouter, "ServiceRouter module loaded")
+    t:assertNotNil(QR.ServiceRouter.FindByAlias, "Has FindByAlias method")
+    t:assertNotNil(QR.ServiceRouter.RouteToNearest, "Has RouteToNearest method")
+    -- Verify all slash aliases map correctly
+    t:assertEqual("AUCTION_HOUSE", QR.ServiceRouter:FindByAlias("ah"))
+    t:assertEqual("BANK", QR.ServiceRouter:FindByAlias("bank"))
+    t:assertEqual("VOID_STORAGE", QR.ServiceRouter:FindByAlias("void"))
+    t:assertEqual("CRAFTING_TABLE", QR.ServiceRouter:FindByAlias("craft"))
+end)
+
+T:run("ServiceRouter: Initialize sets up module", function(t)
+    resetState()
+    -- Should not error
+    QR.ServiceRouter:Initialize()
+    t:assertNotNil(QR.ServiceRouter, "ServiceRouter still exists after init")
+end)

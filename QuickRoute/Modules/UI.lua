@@ -265,8 +265,27 @@ function UI:CreateContent(parentFrame)
         end
     end)
     searchBox:SetScript("OnEditFocusGained", function(self)
-        if QR.DestinationSearch then
+        if QR.DestinationSearch and not QR.DestinationSearch.isShowing
+            and not self._suppressFocusOpen then
             QR.DestinationSearch:ShowDropdown(self)
+        end
+        self._suppressFocusOpen = nil
+    end)
+    searchBox:SetScript("OnEditFocusLost", function(self)
+        -- Defer hide slightly so click-on-row events fire first
+        C_Timer.After(0.1, function()
+            if QR.DestinationSearch and QR.DestinationSearch.isShowing then
+                QR.DestinationSearch:HideDropdown()
+            end
+        end)
+    end)
+    searchBox:SetScript("OnMouseDown", function(self)
+        if QR.DestinationSearch and QR.DestinationSearch.isShowing then
+            -- Toggle: clicking while open closes dropdown and removes focus
+            QR.DestinationSearch:HideDropdown()
+            -- Suppress the focus-gained that follows the click from reopening
+            self._suppressFocusOpen = true
+            self:ClearFocus()
         end
     end)
     searchBox:SetScript("OnEscapePressed", function(self)
@@ -1911,6 +1930,15 @@ SlashCmdList["QR"] = function(msg)
             QR.MinimapButton:ApplyVisibility()
         end
         print("|cFF00FF00QuickRoute|r: Minimap button " .. (QR.db.showMinimap and "shown" or "hidden"))
+    elseif cmd == "ah" or cmd == "bank" or cmd == "void" or cmd == "craft" then
+        if QR.ServiceRouter then
+            local serviceType = QR.ServiceRouter:FindByAlias(cmd)
+            if serviceType then
+                QR.ServiceRouter:RouteToNearest(serviceType)
+                -- Open the route tab to show results
+                if QR.MainFrame then QR.MainFrame:Show("route") end
+            end
+        end
     elseif cmd == "" then
         if QR.MainFrame then QR.MainFrame:Toggle("route") end
     else
@@ -1924,5 +1952,6 @@ SlashCmdList["QR"] = function(msg)
         print("  /qr debug - Toggle debug mode")
         print("  /qr priority mappin|quest|tomtom - Set waypoint source priority")
         print("  /qr autowaypoint - Toggle auto-waypoint for first route step")
+        print("  /qr ah|bank|void|craft - Route to nearest service")
     end
 end

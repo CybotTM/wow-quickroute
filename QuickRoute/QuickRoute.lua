@@ -196,6 +196,7 @@ function QR:OnPlayerLogin()
             { "POIRouting",         function() QR.POIRouting:Initialize() end },
             { "EJButton",           function() if QR.EncounterJournalButton then QR.EncounterJournalButton:Initialize() end end },
             { "DestinationSearch",  function() QR.DestinationSearch:Initialize() end },
+            { "ServiceRouter",      function() QR.ServiceRouter:Initialize() end },
             { "SettingsPanel",      function() QR.SettingsPanel:Initialize() end },
         }
         for _, step in ipairs(steps) do
@@ -301,6 +302,10 @@ local function PrintHelp()
     print("  /qrcd - Show teleport cooldowns")
     print("  /qrwp - Calculate path to current waypoint")
     print("  /qrpath <mapID> <x> <y> - Calculate path to coordinates")
+    print("  /qr ah - Route to nearest Auction House")
+    print("  /qr bank - Route to nearest Bank")
+    print("  /qr void - Route to nearest Void Storage")
+    print("  /qr craft - Route to nearest Crafting Table")
     print("  /qrtest graph - Run graph unit tests")
 end
 
