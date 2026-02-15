@@ -53,13 +53,23 @@ function SR:GetServiceName(serviceType)
     return L and L[key] or serviceType
 end
 
---- Get city name for a service location via C_Map
+--- Get city name for a service location via C_Map, with parent zone for context
+-- Returns "City (Zone)" format, e.g. "Dalaran (Northrend)" to disambiguate
 -- @param loc table Location with mapID
--- @return string City name
+-- @return string City name with zone
 function SR:GetCityName(loc)
     if loc.mapID and C_Map and C_Map.GetMapInfo then
         local info = C_Map.GetMapInfo(loc.mapID)
-        if info and info.name then return info.name end
+        if info and info.name then
+            -- Add parent zone/continent for context
+            if info.parentMapID then
+                local parentInfo = C_Map.GetMapInfo(info.parentMapID)
+                if parentInfo and parentInfo.name then
+                    return info.name .. " (" .. parentInfo.name .. ")"
+                end
+            end
+            return info.name
+        end
     end
     return string_format("Map %d", loc.mapID or 0)
 end

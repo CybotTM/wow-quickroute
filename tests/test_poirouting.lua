@@ -824,36 +824,40 @@ T:run("POIRouting: RouteToMapPosition overwrites previous lastDestination", func
     t:assertEqual(0.3, QR.db.lastDestination.y, "y updated")
 end)
 
-T:run("POIRouting: RouteToMapPosition sets _pendingRoute on UI", function(t)
+T:run("POIRouting: RouteToMapPosition suppresses RefreshRoute and calls UpdateRoute", function(t)
     resetState()
 
-    -- Ensure UI module is available
     local origUI = QR.UI
     local showCalled = false
-    local pendingCaptured = nil
+    local suppressDuringShow = nil
+    local updateRouteResult = nil
     QR.UI = {
-        _pendingRoute = nil,
         Show = function(self)
             showCalled = true
-            pendingCaptured = self._pendingRoute
+            suppressDuringShow = self._suppressRefresh
+        end,
+        UpdateRoute = function(self, result)
+            updateRouteResult = result
         end,
     }
 
     QR.POIRouting:RouteToMapPosition(84, 0.5, 0.5)
 
-    -- Show should have been called
+    -- Show should have been called with _suppressRefresh = true
     t:assertTrue(showCalled, "UI:Show() was called")
-    -- _pendingRoute should have been set BEFORE Show() was called
-    t:assertNotNil(pendingCaptured, "Pending route was set before Show()")
-    t:assertEqual("map_click", pendingCaptured.waypointSource, "Pending route has map_click source")
-    t:assertNotNil(pendingCaptured.waypoint, "Pending route has waypoint")
-    t:assertEqual(84, pendingCaptured.waypoint.mapID, "Pending route waypoint has correct mapID")
+    t:assertTrue(suppressDuringShow == true, "_suppressRefresh was true during Show()")
+    -- _suppressRefresh should be cleared after Show returns
+    t:assertNil(QR.UI._suppressRefresh, "_suppressRefresh cleared after Show()")
+    -- UpdateRoute should have been called with the route result
+    t:assertNotNil(updateRouteResult, "UpdateRoute was called with result")
+    t:assertEqual("map_click", updateRouteResult.waypointSource, "Result has map_click source")
+    t:assertEqual(84, updateRouteResult.waypoint.mapID, "Result has correct mapID")
 
     -- Restore
     QR.UI = origUI
 end)
 
-T:run("POIRouting: RouteToMapPosition does not set _pendingRoute when calc fails", function(t)
+T:run("POIRouting: RouteToMapPosition does not call UpdateRoute when calc fails", function(t)
     resetState()
 
     -- Make PathCalculator fail
@@ -861,18 +865,16 @@ T:run("POIRouting: RouteToMapPosition does not set _pendingRoute when calc fails
     QR.PathCalculator.CalculatePath = function() error("calc fail") end
 
     local origUI = QR.UI
-    local pendingCaptured = nil
+    local updateCalled = false
     QR.UI = {
-        _pendingRoute = nil,
-        Show = function(self)
-            pendingCaptured = self._pendingRoute
-        end,
+        Show = function() end,
+        UpdateRoute = function() updateCalled = true end,
     }
 
     QR.POIRouting:RouteToMapPosition(84, 0.5, 0.5)
 
-    -- _pendingRoute should be nil since calculation failed
-    t:assertNil(pendingCaptured, "No pending route when calculation fails")
+    -- UpdateRoute should NOT be called when calculation fails
+    t:assertFalse(updateCalled, "UpdateRoute not called when calculation fails")
 
     -- Restore
     QR.PathCalculator.CalculatePath = origCalc

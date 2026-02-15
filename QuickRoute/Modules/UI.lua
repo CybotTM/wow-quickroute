@@ -265,6 +265,8 @@ function UI:CreateContent(parentFrame)
         end
     end)
     searchBox:SetScript("OnEditFocusGained", function(self)
+        -- Select all text so user can easily type to replace
+        self:HighlightText()
         if QR.DestinationSearch and not QR.DestinationSearch.isShowing
             and not self._suppressFocusOpen then
             QR.DestinationSearch:ShowDropdown(self)
@@ -444,29 +446,9 @@ function UI:RefreshRoute()
         return
     end
 
-    -- Use pending route from POI/service click (avoids GetActiveWaypoint overriding with mappin)
-    if self._pendingRoute then
-        local pending = self._pendingRoute
-        self._pendingRoute = nil
-        QR:Log("INFO", "RefreshRoute using pending POI route")
-        -- Update destination subtitle
-        local destName = pending.waypoint and pending.waypoint.title or L["UNKNOWN"]
-        local destZone = ""
-        if pending.waypoint and pending.waypoint.mapID then
-            local mapInfo = C_Map.GetMapInfo(pending.waypoint.mapID)
-            if mapInfo then
-                destZone = " (" .. mapInfo.name .. ")"
-            end
-        end
-        if QR.MainFrame and QR.MainFrame.subtitle and QR.MainFrame.activeTab == "route" then
-            QR.MainFrame.subtitle:SetText(destName .. destZone)
-        end
-        local updateOk, updateErr = pcall(function()
-            self:UpdateRoute(pending)
-        end)
-        if not updateOk then
-            QR:Error("UpdateRoute error: " .. tostring(updateErr))
-        end
+    -- POIRouting sets _suppressRefresh when it already has a calculated route
+    -- and will call UpdateRoute directly after Show() returns
+    if self._suppressRefresh then
         return
     end
 

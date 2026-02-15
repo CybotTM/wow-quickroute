@@ -108,14 +108,14 @@ MockWoW.mapDatabase = {
     [51]   = { mapID = 51,   name = "Swamp of Sorrows", mapType = 3 },
     [52]   = { mapID = 52,   name = "Westfall", mapType = 3 },
     [56]   = { mapID = 56,   name = "Wetlands", mapType = 3 },
-    [84]   = { mapID = 84,   name = "Stormwind City", mapType = 3 },
-    [85]   = { mapID = 85,   name = "Orgrimmar", mapType = 3 },
-    [87]   = { mapID = 87,   name = "Ironforge", mapType = 3 },
-    [88]   = { mapID = 88,   name = "Thunder Bluff", mapType = 3 },
-    [89]   = { mapID = 89,   name = "Darnassus", mapType = 3 },
-    [90]   = { mapID = 90,   name = "Undercity", mapType = 3 },
-    [103]  = { mapID = 103,  name = "The Exodar", mapType = 3 },
-    [110]  = { mapID = 110,  name = "Silvermoon City", mapType = 3 },
+    [84]   = { mapID = 84,   name = "Stormwind City", mapType = 3, parentMapID = 12 },
+    [85]   = { mapID = 85,   name = "Orgrimmar", mapType = 3, parentMapID = 13 },
+    [87]   = { mapID = 87,   name = "Ironforge", mapType = 3, parentMapID = 12 },
+    [88]   = { mapID = 88,   name = "Thunder Bluff", mapType = 3, parentMapID = 13 },
+    [89]   = { mapID = 89,   name = "Darnassus", mapType = 3, parentMapID = 13 },
+    [90]   = { mapID = 90,   name = "Undercity", mapType = 3, parentMapID = 12 },
+    [103]  = { mapID = 103,  name = "The Exodar", mapType = 3, parentMapID = 12 },
+    [110]  = { mapID = 110,  name = "Silvermoon City", mapType = 3, parentMapID = 12 },
 
     -- Kalimdor
     [1]    = { mapID = 1,    name = "Durotar", mapType = 3 },
@@ -162,7 +162,7 @@ MockWoW.mapDatabase = {
     [120]  = { mapID = 120,  name = "Storm Peaks", mapType = 3 },
     [121]  = { mapID = 121,  name = "Zul'Drak", mapType = 3 },
     [123]  = { mapID = 123,  name = "Wintergrasp", mapType = 3 },
-    [125]  = { mapID = 125,  name = "Dalaran", mapType = 3 },
+    [125]  = { mapID = 125,  name = "Dalaran", mapType = 3, parentMapID = 113 },
     [127]  = { mapID = 127,  name = "Crystalsong Forest", mapType = 3 },
 
     -- Pandaria
@@ -192,7 +192,7 @@ MockWoW.mapDatabase = {
 
     -- Broken Isles
     [619]  = { mapID = 619,  name = "Broken Isles", mapType = 2 },
-    [627]  = { mapID = 627,  name = "Dalaran", mapType = 3 },
+    [627]  = { mapID = 627,  name = "Dalaran", mapType = 3, parentMapID = 619 },
     [630]  = { mapID = 630,  name = "Azsuna", mapType = 3 },
     [634]  = { mapID = 634,  name = "Stormheim", mapType = 3 },
     [641]  = { mapID = 641,  name = "Val'sharah", mapType = 3 },
@@ -213,8 +213,8 @@ MockWoW.mapDatabase = {
     [895]  = { mapID = 895,  name = "Tiragarde Sound", mapType = 3 },
     [896]  = { mapID = 896,  name = "Drustvar", mapType = 3 },
     [942]  = { mapID = 942,  name = "Stormsong Valley", mapType = 3 },
-    [1161] = { mapID = 1161, name = "Boralus", mapType = 3 },
-    [1165] = { mapID = 1165, name = "Dazar'alor", mapType = 3 },
+    [1161] = { mapID = 1161, name = "Boralus", mapType = 3, parentMapID = 875 },
+    [1165] = { mapID = 1165, name = "Dazar'alor", mapType = 3, parentMapID = 876 },
     [1355] = { mapID = 1355, name = "Nazjatar", mapType = 3 },
     [1462] = { mapID = 1462, name = "Mechagon", mapType = 3 },
 
@@ -225,7 +225,7 @@ MockWoW.mapDatabase = {
     [1543] = { mapID = 1543, name = "The Maw", mapType = 3 },
     [1550] = { mapID = 1550, name = "Shadowlands", mapType = 2 },
     [1565] = { mapID = 1565, name = "Ardenweald", mapType = 3 },
-    [1670] = { mapID = 1670, name = "Oribos", mapType = 3 },
+    [1670] = { mapID = 1670, name = "Oribos", mapType = 3, parentMapID = 1550 },
     [1961] = { mapID = 1961, name = "Korthia", mapType = 3 },
     [1970] = { mapID = 1970, name = "Zereth Mortis", mapType = 3 },
 
@@ -236,7 +236,7 @@ MockWoW.mapDatabase = {
     [2024] = { mapID = 2024, name = "The Azure Span", mapType = 3 },
     [2025] = { mapID = 2025, name = "Thaldraszus", mapType = 3 },
     [2107] = { mapID = 2107, name = "Forbidden Reach", mapType = 3 },
-    [2112] = { mapID = 2112, name = "Valdrakken", mapType = 3 },
+    [2112] = { mapID = 2112, name = "Valdrakken", mapType = 3, parentMapID = 1978 },
     [2133] = { mapID = 2133, name = "Zaralek Cavern", mapType = 3 },
     [2151] = { mapID = 2151, name = "The Forbidden Reach", mapType = 3 },
     [2200] = { mapID = 2200, name = "Emerald Dream", mapType = 3 },
@@ -249,7 +249,7 @@ MockWoW.mapDatabase = {
     [2248] = { mapID = 2248, name = "Isle of Dorn", mapType = 3 },
     [2255] = { mapID = 2255, name = "Azj-Kahet", mapType = 3 },
     [2274] = { mapID = 2274, name = "Khaz Algar", mapType = 2 },
-    [2339] = { mapID = 2339, name = "Dornogal", mapType = 3 },
+    [2339] = { mapID = 2339, name = "Dornogal", mapType = 3, parentMapID = 2274 },
     [2346] = { mapID = 2346, name = "Undermine", mapType = 3 },
     [2369] = { mapID = 2369, name = "Siren Isle", mapType = 3 },
     [2371] = { mapID = 2371, name = "K'aresh", mapType = 3 },
@@ -980,7 +980,7 @@ function MockWoW:Install()
         if not mapID then return nil end
         local info = MockWoW.mapDatabase[mapID]
         if info then
-            return { mapID = info.mapID, name = info.name, mapType = info.mapType }
+            return { mapID = info.mapID, name = info.name, mapType = info.mapType, parentMapID = info.parentMapID }
         end
         -- Return a generic entry for unknown maps
         return { mapID = mapID, name = "Map " .. tostring(mapID), mapType = 3 }

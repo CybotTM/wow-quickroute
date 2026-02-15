@@ -1049,7 +1049,7 @@ T:run("RefreshRoute uses saved destination when no active waypoint", function(t)
         "Subtitle shows saved destination name")
 end)
 
-T:run("RefreshRoute uses _pendingRoute instead of GetActiveWaypoint", function(t)
+T:run("RefreshRoute skips when _suppressRefresh is set", function(t)
     resetState()
     ensureUIFrame()
 
@@ -1065,33 +1065,22 @@ T:run("RefreshRoute uses _pendingRoute instead of GetActiveWaypoint", function(t
         return origGetActive(self)
     end
 
-    -- Set a pending route (simulating POIRouting pre-calculated route)
-    local pendingResult = {
-        totalTime = 42,
-        steps = { { action = "Walk", from = "Here", to = "There", destMapID = 85, fromMapID = 84 } },
-        waypoint = { mapID = 85, x = 0.3, y = 0.4, title = "POI Target" },
-        waypointSource = "map_click",
-    }
-    QR.UI._pendingRoute = pendingResult
+    QR.UI._suppressRefresh = true
     QR.UI.isCalculating = false
 
     QR.UI:RefreshRoute()
 
-    -- Pending route should have been consumed
-    t:assertNil(QR.UI._pendingRoute, "Pending route consumed after RefreshRoute")
     -- GetActiveWaypoint should NOT have been called
-    t:assertFalse(getActiveCalled, "GetActiveWaypoint not called when pending route exists")
-    -- UI should show the pending route's travel time
-    local timeText = QR.UI.frame.timeLabel:GetText()
-    t:assertTrue(timeText ~= nil, "Time label updated from pending route")
-    -- isCalculating should remain false (pending route path doesn't set it)
-    t:assertFalse(QR.UI.isCalculating, "isCalculating remains false after pending route")
+    t:assertFalse(getActiveCalled, "GetActiveWaypoint not called when _suppressRefresh is set")
+    -- isCalculating should remain false (we returned early)
+    t:assertFalse(QR.UI.isCalculating, "isCalculating remains false after suppressed RefreshRoute")
 
     -- Restore
+    QR.UI._suppressRefresh = nil
     QR.WaypointIntegration.GetActiveWaypoint = origGetActive
 end)
 
-T:run("RefreshRoute falls through to GetActiveWaypoint when no pending route", function(t)
+T:run("RefreshRoute runs normally when _suppressRefresh is not set", function(t)
     resetState()
     ensureUIFrame()
 
@@ -1099,8 +1088,7 @@ T:run("RefreshRoute falls through to GetActiveWaypoint when no pending route", f
     MockWoW.config.currentMapID = 84
     setMapPinWaypoint(84, 0.5, 0.5)
 
-    -- No pending route
-    QR.UI._pendingRoute = nil
+    QR.UI._suppressRefresh = nil
     QR.UI.isCalculating = false
 
     -- Track whether GetActiveWaypoint is called
@@ -1113,8 +1101,8 @@ T:run("RefreshRoute falls through to GetActiveWaypoint when no pending route", f
 
     QR.UI:RefreshRoute()
 
-    -- GetActiveWaypoint SHOULD be called (normal fallback)
-    t:assertTrue(getActiveCalled, "GetActiveWaypoint called when no pending route")
+    -- GetActiveWaypoint SHOULD be called (normal flow)
+    t:assertTrue(getActiveCalled, "GetActiveWaypoint called when _suppressRefresh is nil")
     t:assertFalse(QR.UI.isCalculating, "isCalculating reset after normal RefreshRoute")
 
     -- Restore
