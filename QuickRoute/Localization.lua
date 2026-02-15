@@ -207,6 +207,14 @@ L["DEST_SEARCH_DUNGEONS"] = "Dungeons & Raids"
 L["DEST_SEARCH_NO_RESULTS"] = "No matching destinations"
 L["DEST_SEARCH_ROUTE_TO_TT"] = "Click to calculate route"
 
+-- Service POI routing
+L["SERVICE_AUCTION_HOUSE"] = "Auction House"
+L["SERVICE_BANK"] = "Bank"
+L["SERVICE_VOID_STORAGE"] = "Void Storage"
+L["SERVICE_CRAFTING_TABLE"] = "Crafting Table"
+L["SERVICE_NEAREST"] = "Nearest %s"
+L["DEST_SEARCH_SERVICES"] = "Services"
+
 -- Errors / Hints
 L["UNKNOWN"] = "Unknown"
 L["UNKNOWN_VENDOR"] = "Unknown vendor"
@@ -482,6 +490,14 @@ if GetLocale() == "deDE" then
     L["DEST_SEARCH_NO_RESULTS"] = "Keine passenden Ziele"
     L["DEST_SEARCH_ROUTE_TO_TT"] = "Klicken um Route zu berechnen"
 
+    -- Service POI routing
+    L["SERVICE_AUCTION_HOUSE"] = "Auktionshaus"
+    L["SERVICE_BANK"] = "Bank"
+    L["SERVICE_VOID_STORAGE"] = "Leerenlager"
+    L["SERVICE_CRAFTING_TABLE"] = "Handwerkstisch"
+    L["SERVICE_NEAREST"] = "Naechste/r %s"
+    L["DEST_SEARCH_SERVICES"] = "Dienste"
+
     -- Errors / Hints
     L["UNKNOWN"] = "Unbekannt"
     L["UNKNOWN_VENDOR"] = "Unbekannter Händler"
@@ -755,6 +771,14 @@ if GetLocale() == "frFR" then
     L["DEST_SEARCH_DUNGEONS"] = "Donjons & Raids"
     L["DEST_SEARCH_NO_RESULTS"] = "Aucune destination correspondante"
     L["DEST_SEARCH_ROUTE_TO_TT"] = "Cliquer pour calculer l'itineraire"
+
+    -- Service POI routing
+    L["SERVICE_AUCTION_HOUSE"] = "Hotel des ventes"
+    L["SERVICE_BANK"] = "Banque"
+    L["SERVICE_VOID_STORAGE"] = "Coffre du Vide"
+    L["SERVICE_CRAFTING_TABLE"] = "Table d'artisanat"
+    L["SERVICE_NEAREST"] = "%s le/la plus proche"
+    L["DEST_SEARCH_SERVICES"] = "Services"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Inconnu"
@@ -1031,6 +1055,14 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["DEST_SEARCH_NO_RESULTS"] = "No se encontraron destinos"
     L["DEST_SEARCH_ROUTE_TO_TT"] = "Clic para calcular la ruta"
 
+    -- Service POI routing
+    L["SERVICE_AUCTION_HOUSE"] = "Casa de subastas"
+    L["SERVICE_BANK"] = "Banco"
+    L["SERVICE_VOID_STORAGE"] = "Deposito del Vacio"
+    L["SERVICE_CRAFTING_TABLE"] = "Mesa de artesania"
+    L["SERVICE_NEAREST"] = "%s mas cercano/a"
+    L["DEST_SEARCH_SERVICES"] = "Servicios"
+
     -- Errors / Hints
     L["UNKNOWN"] = "Desconocido"
     L["UNKNOWN_VENDOR"] = "Vendedor desconocido"
@@ -1304,6 +1336,14 @@ if GetLocale() == "ptBR" then
     L["DEST_SEARCH_DUNGEONS"] = "Masmorras e Raides"
     L["DEST_SEARCH_NO_RESULTS"] = "Nenhum destino encontrado"
     L["DEST_SEARCH_ROUTE_TO_TT"] = "Clique para calcular a rota"
+
+    -- Service POI routing
+    L["SERVICE_AUCTION_HOUSE"] = "Casa de Leiloes"
+    L["SERVICE_BANK"] = "Banco"
+    L["SERVICE_VOID_STORAGE"] = "Armazem do Vazio"
+    L["SERVICE_CRAFTING_TABLE"] = "Mesa de Artesanato"
+    L["SERVICE_NEAREST"] = "%s mais proximo/a"
+    L["DEST_SEARCH_SERVICES"] = "Servicos"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Desconhecido"
@@ -1579,6 +1619,14 @@ if GetLocale() == "ruRU" then
     L["DEST_SEARCH_NO_RESULTS"] = "Направления не найдены"
     L["DEST_SEARCH_ROUTE_TO_TT"] = "Нажмите для расчета маршрута"
 
+    -- Service POI routing
+    L["SERVICE_AUCTION_HOUSE"] = "Аукцион"
+    L["SERVICE_BANK"] = "Банк"
+    L["SERVICE_VOID_STORAGE"] = "Хранилище Бездны"
+    L["SERVICE_CRAFTING_TABLE"] = "Стол ремёсел"
+    L["SERVICE_NEAREST"] = "Ближайший %s"
+    L["DEST_SEARCH_SERVICES"] = "Сервисы"
+
     -- Errors / Hints
     L["UNKNOWN"] = "Неизвестно"
     L["UNKNOWN_VENDOR"] = "Неизвестный торговец"
@@ -1852,6 +1900,14 @@ if GetLocale() == "koKR" then
     L["DEST_SEARCH_DUNGEONS"] = "던전 및 공격대"
     L["DEST_SEARCH_NO_RESULTS"] = "일치하는 목적지 없음"
     L["DEST_SEARCH_ROUTE_TO_TT"] = "클릭하여 경로 계산"
+
+    -- Service POI routing
+    L["SERVICE_AUCTION_HOUSE"] = "경매장"
+    L["SERVICE_BANK"] = "은행"
+    L["SERVICE_VOID_STORAGE"] = "공허 보관함"
+    L["SERVICE_CRAFTING_TABLE"] = "제작대"
+    L["SERVICE_NEAREST"] = "가장 가까운 %s"
+    L["DEST_SEARCH_SERVICES"] = "서비스"
 
     -- Errors / Hints
     L["UNKNOWN"] = "알 수 없음"
@@ -2127,6 +2183,14 @@ if GetLocale() == "zhCN" then
     L["DEST_SEARCH_NO_RESULTS"] = "没有匹配的目的地"
     L["DEST_SEARCH_ROUTE_TO_TT"] = "点击计算路线"
 
+    -- Service POI routing
+    L["SERVICE_AUCTION_HOUSE"] = "拍卖行"
+    L["SERVICE_BANK"] = "银行"
+    L["SERVICE_VOID_STORAGE"] = "虚空仓库"
+    L["SERVICE_CRAFTING_TABLE"] = "制作台"
+    L["SERVICE_NEAREST"] = "最近的%s"
+    L["DEST_SEARCH_SERVICES"] = "服务"
+
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
     L["UNKNOWN_VENDOR"] = "未知商人"
@@ -2401,6 +2465,14 @@ if GetLocale() == "zhTW" then
     L["DEST_SEARCH_NO_RESULTS"] = "沒有匹配的目的地"
     L["DEST_SEARCH_ROUTE_TO_TT"] = "點擊計算路線"
 
+    -- Service POI routing
+    L["SERVICE_AUCTION_HOUSE"] = "拍賣場"
+    L["SERVICE_BANK"] = "銀行"
+    L["SERVICE_VOID_STORAGE"] = "虛空倉庫"
+    L["SERVICE_CRAFTING_TABLE"] = "製作檯"
+    L["SERVICE_NEAREST"] = "最近的%s"
+    L["DEST_SEARCH_SERVICES"] = "服務"
+
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
     L["UNKNOWN_VENDOR"] = "未知商人"
@@ -2674,6 +2746,14 @@ if GetLocale() == "itIT" then
     L["DEST_SEARCH_DUNGEONS"] = "Dungeon e Raid"
     L["DEST_SEARCH_NO_RESULTS"] = "Nessuna destinazione trovata"
     L["DEST_SEARCH_ROUTE_TO_TT"] = "Clicca per calcolare il percorso"
+
+    -- Service POI routing
+    L["SERVICE_AUCTION_HOUSE"] = "Casa d'aste"
+    L["SERVICE_BANK"] = "Banca"
+    L["SERVICE_VOID_STORAGE"] = "Deposito del Vuoto"
+    L["SERVICE_CRAFTING_TABLE"] = "Tavolo da lavoro"
+    L["SERVICE_NEAREST"] = "%s piu vicino/a"
+    L["DEST_SEARCH_SERVICES"] = "Servizi"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Sconosciuto"

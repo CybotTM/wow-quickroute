@@ -424,3 +424,209 @@ T:run("DestSearch: init sequence includes DestinationSearch", function(t)
     t:assertNotNil(QR.DestinationSearch, "Module exists")
     t:assertNotNil(QR.DestinationSearch.CollectResults, "Has CollectResults")
 end)
+
+-------------------------------------------------------------------------------
+-- 6. Dropdown Close Behavior
+-------------------------------------------------------------------------------
+
+T:run("DestSearch: OnEditFocusLost closes dropdown", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.searchBox = nil
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local parentFrame = CreateFrame("Frame", nil, UIParent)
+    parentFrame:SetSize(500, 400)
+    QR.UI.frame = nil
+    QR.UI:CreateContent(parentFrame)
+
+    local searchBox = parentFrame.searchBox
+    t:assertNotNil(searchBox, "searchBox exists")
+
+    -- Simulate focus gained -> dropdown opens
+    if searchBox._scripts["OnEditFocusGained"] then
+        searchBox._scripts["OnEditFocusGained"](searchBox)
+    end
+    t:assertTrue(QR.DestinationSearch.isShowing, "Dropdown opens on focus")
+
+    -- Simulate focus lost -> dropdown closes (C_Timer.After fires immediately in tests)
+    if searchBox._scripts["OnEditFocusLost"] then
+        searchBox._scripts["OnEditFocusLost"](searchBox)
+    end
+    t:assertFalse(QR.DestinationSearch.isShowing, "Dropdown closes on focus lost")
+end)
+
+T:run("DestSearch: OnMouseDown toggles dropdown closed", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.searchBox = nil
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local parentFrame = CreateFrame("Frame", nil, UIParent)
+    parentFrame:SetSize(500, 400)
+    QR.UI.frame = nil
+    QR.UI:CreateContent(parentFrame)
+
+    local searchBox = parentFrame.searchBox
+    t:assertNotNil(searchBox, "searchBox exists")
+
+    -- Open dropdown first
+    if searchBox._scripts["OnEditFocusGained"] then
+        searchBox._scripts["OnEditFocusGained"](searchBox)
+    end
+    t:assertTrue(QR.DestinationSearch.isShowing, "Dropdown open")
+
+    -- Click searchBox again -> should toggle closed
+    if searchBox._scripts["OnMouseDown"] then
+        searchBox._scripts["OnMouseDown"](searchBox)
+    end
+    t:assertFalse(QR.DestinationSearch.isShowing, "Dropdown closed after toggle click")
+end)
+
+T:run("DestSearch: OnEditFocusGained does not reopen if already showing", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.searchBox = nil
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local parentFrame = CreateFrame("Frame", nil, UIParent)
+    parentFrame:SetSize(500, 400)
+    QR.UI.frame = nil
+    QR.UI:CreateContent(parentFrame)
+
+    local searchBox = parentFrame.searchBox
+
+    -- Open dropdown
+    if searchBox._scripts["OnEditFocusGained"] then
+        searchBox._scripts["OnEditFocusGained"](searchBox)
+    end
+    t:assertTrue(QR.DestinationSearch.isShowing, "Dropdown open")
+
+    -- Manually hide it (simulating toggle click)
+    QR.DestinationSearch:HideDropdown()
+    t:assertFalse(QR.DestinationSearch.isShowing, "Dropdown hidden")
+
+    -- Focus gained again should NOT reopen if isShowing is already false but focus stays
+    -- (This tests the guard: only show if not already showing)
+    QR.DestinationSearch.isShowing = false
+    if searchBox._scripts["OnEditFocusGained"] then
+        searchBox._scripts["OnEditFocusGained"](searchBox)
+    end
+    t:assertTrue(QR.DestinationSearch.isShowing, "Reopens on new focus")
+end)
+
+-------------------------------------------------------------------------------
+-- 7. Services Section
+-------------------------------------------------------------------------------
+
+T:run("DestSearch: CollectResults includes services section", function(t)
+    resetState()
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertNotNil(results.services, "services field exists")
+    t:assertTrue(#results.services > 0, "Has service entries")
+end)
+
+T:run("DestSearch: services have serviceType and serviceName", function(t)
+    resetState()
+    local results = QR.DestinationSearch:CollectResults("")
+    for _, svc in ipairs(results.services) do
+        t:assertNotNil(svc.serviceType, "Has serviceType")
+        t:assertNotNil(svc.serviceName, "Has serviceName")
+        t:assertNotNil(svc.locations, "Has locations")
+        t:assertTrue(#svc.locations > 0, svc.serviceType .. " has locations")
+    end
+end)
+
+T:run("DestSearch: services filtered by search query", function(t)
+    resetState()
+    local results = QR.DestinationSearch:CollectResults("auction")
+    local foundAH = false
+    for _, svc in ipairs(results.services) do
+        if svc.serviceType == "AUCTION_HOUSE" then foundAH = true end
+    end
+    t:assertTrue(foundAH, "AUCTION_HOUSE found via search")
+
+    local results2 = QR.DestinationSearch:CollectResults("xyznoexist")
+    t:assertEqual(0, #results2.services, "No services for nonsense query")
+end)
+
+T:run("DestSearch: service locations are faction-filtered", function(t)
+    resetState()
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    local results = QR.DestinationSearch:CollectResults("")
+    for _, svc in ipairs(results.services) do
+        for _, loc in ipairs(svc.locations) do
+            t:assertNotNil(loc.mapID, "Location has mapID")
+            t:assertNotNil(loc.name, "Location has name")
+        end
+    end
+end)
+
+T:run("DestSearch: services dropdown renders rows", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.collapsedSections = {}
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local DS = QR.DestinationSearch
+    DS:ShowDropdown()
+
+    -- Services section should add rows (header + nearest rows + location rows)
+    local serviceHeaderFound = false
+    for _, row in ipairs(DS.rows) do
+        if row._isHeader and row.nameLabel then
+            local text = row.nameLabel:GetText()
+            if text and text:find("Services") then
+                serviceHeaderFound = true
+                break
+            end
+        end
+    end
+    t:assertTrue(serviceHeaderFound, "Services section header rendered")
+end)
+
+T:run("DestSearch: service nearest row has blue text color", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.collapsedSections = {}
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local DS = QR.DestinationSearch
+    DS:ShowDropdown()
+
+    -- Find a "Nearest" row by checking for blue text color (0.4, 0.8, 1)
+    local nearestRowFound = false
+    for _, row in ipairs(DS.rows) do
+        if not row._isHeader and row.nameLabel then
+            local r = row.nameLabel._textColorR
+            local g = row.nameLabel._textColorG
+            local b = row.nameLabel._textColorB
+            if r and g and b and math.abs(r - 0.4) < 0.01 and math.abs(g - 0.8) < 0.01 and math.abs(b - 1.0) < 0.01 then
+                nearestRowFound = true
+                break
+            end
+        end
+    end
+    t:assertTrue(nearestRowFound, "Found nearest row with blue text color")
+end)

@@ -612,6 +612,11 @@ local function CreateMockFrame(frameType, name, parent, template)
     function frame:GetText() return self._text or "" end
     function frame:HighlightText() end
     function frame:SetFocus() end
+    function frame:ClearFocus()
+        if self._scripts and self._scripts["OnEditFocusLost"] then
+            self._scripts["OnEditFocusLost"](self)
+        end
+    end
 
     -- Button-specific methods
     function frame:SetText(text) self._text = text or "" end

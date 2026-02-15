@@ -35,7 +35,7 @@ recycleContainer:Hide()
 
 --- Collect all destination results, optionally filtered by search query
 -- @param query string Search text (empty = all results)
--- @return table { waypoints = {}, cities = {}, dungeons = {} }
+-- @return table { waypoints = {}, cities = {}, dungeons = {}, services = {} }
 function DS:CollectResults(query)
     L = QR.L
     local queryLower = string_lower(query or "")
@@ -45,6 +45,7 @@ function DS:CollectResults(query)
         waypoints = {},
         cities = {},
         dungeons = {},
+        services = {},
     }
 
     -- 1. Active Waypoints
@@ -128,6 +129,36 @@ function DS:CollectResults(query)
                     tierIndex = tier,
                     instances = matchingInstances,
                 })
+            end
+        end
+    end
+
+    -- 4. Services (AH, Bank, Void Storage, Crafting Table)
+    local SR = QR.ServiceRouter
+    if SR then
+        local serviceTypes = SR:GetServiceTypes()
+        for _, serviceType in ipairs(serviceTypes) do
+            local serviceName = SR:GetServiceName(serviceType)
+            if not isSearching or string_find(string_lower(serviceName), queryLower, 1, true) then
+                local locations = SR:GetLocations(serviceType)
+                if #locations > 0 then
+                    local locs = {}
+                    for _, loc in ipairs(locations) do
+                        table_insert(locs, {
+                            name = SR:GetCityName(loc),
+                            mapID = loc.mapID,
+                            x = loc.x,
+                            y = loc.y,
+                            serviceType = serviceType,
+                        })
+                    end
+                    table_sort(locs, function(a, b) return a.name < b.name end)
+                    table_insert(results.services, {
+                        serviceType = serviceType,
+                        serviceName = serviceName,
+                        locations = locs,
+                    })
+                end
             end
         end
     end
@@ -460,6 +491,54 @@ function DS:RefreshDropdown(query)
                             end
                         end
                     end
+                end
+            end
+        end
+    end
+
+    -- 4. Services section
+    if #results.services > 0 then
+        local sectionTitle = L and L["DEST_SEARCH_SERVICES"] or "Services"
+        local _, newY = self:CreateSectionHeader("services", sectionTitle, yOffset)
+        yOffset = newY
+        totalRows = totalRows + 1
+
+        if not self.collapsedSections["services"] then
+            for _, svc in ipairs(results.services) do
+                -- "Nearest X" auto-pick row
+                local nearestLabel = string_format(L and L["SERVICE_NEAREST"] or "Nearest %s", svc.serviceName)
+                local nearestRow = self:GetRow()
+                nearestRow:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 0, -yOffset)
+                nearestRow:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", 0, 0)
+                nearestRow.nameLabel:SetText("  " .. nearestLabel)
+                nearestRow.nameLabel:SetTextColor(0.4, 0.8, 1)  -- Blue highlight for auto-pick
+                nearestRow.tagLabel:SetText("")
+
+                nearestRow:SetScript("OnClick", function()
+                    PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+                    if QR.ServiceRouter then
+                        QR.ServiceRouter:RouteToNearest(svc.serviceType)
+                    end
+                    DS:HideDropdown()
+                end)
+                nearestRow:SetScript("OnEnter", function(btn)
+                    GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
+                    GameTooltip:AddLine(nearestLabel, 1, 0.82, 0)
+                    GameTooltip:AddLine(L and L["DEST_SEARCH_ROUTE_TO_TT"] or "Click to calculate route", 0.5, 0.5, 0.5, true)
+                    QR.AddTooltipBranding(GameTooltip)
+                    GameTooltip:Show()
+                end)
+                nearestRow:SetScript("OnLeave", function() GameTooltip_Hide() end)
+                table_insert(self.rows, nearestRow)
+                yOffset = yOffset + ROW_HEIGHT
+                totalRows = totalRows + 1
+
+                -- Individual city locations
+                for _, loc in ipairs(svc.locations) do
+                    loc.tag = ""
+                    local _, newY2 = self:CreateResultRow(loc, yOffset)
+                    yOffset = newY2
+                    totalRows = totalRows + 1
                 end
             end
         end
