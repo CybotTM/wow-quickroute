@@ -444,6 +444,32 @@ function UI:RefreshRoute()
         return
     end
 
+    -- Use pending route from POI/service click (avoids GetActiveWaypoint overriding with mappin)
+    if self._pendingRoute then
+        local pending = self._pendingRoute
+        self._pendingRoute = nil
+        QR:Log("INFO", "RefreshRoute using pending POI route")
+        -- Update destination subtitle
+        local destName = pending.waypoint and pending.waypoint.title or L["UNKNOWN"]
+        local destZone = ""
+        if pending.waypoint and pending.waypoint.mapID then
+            local mapInfo = C_Map.GetMapInfo(pending.waypoint.mapID)
+            if mapInfo then
+                destZone = " (" .. mapInfo.name .. ")"
+            end
+        end
+        if QR.MainFrame and QR.MainFrame.subtitle and QR.MainFrame.activeTab == "route" then
+            QR.MainFrame.subtitle:SetText(destName .. destZone)
+        end
+        local updateOk, updateErr = pcall(function()
+            self:UpdateRoute(pending)
+        end)
+        if not updateOk then
+            QR:Error("UpdateRoute error: " .. tostring(updateErr))
+        end
+        return
+    end
+
     -- Show calculating state
     self.isCalculating = true
     self.frame.timeLabel:SetText(C.YELLOW .. L["CALCULATING"] .. C.R)

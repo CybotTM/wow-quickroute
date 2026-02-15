@@ -1049,6 +1049,78 @@ T:run("RefreshRoute uses saved destination when no active waypoint", function(t)
         "Subtitle shows saved destination name")
 end)
 
+T:run("RefreshRoute uses _pendingRoute instead of GetActiveWaypoint", function(t)
+    resetState()
+    ensureUIFrame()
+
+    -- Set up a mappin waypoint that would normally be used
+    MockWoW.config.currentMapID = 84
+    setMapPinWaypoint(84, 0.5, 0.5)
+
+    -- Track whether GetActiveWaypoint is called
+    local origGetActive = QR.WaypointIntegration.GetActiveWaypoint
+    local getActiveCalled = false
+    QR.WaypointIntegration.GetActiveWaypoint = function(self)
+        getActiveCalled = true
+        return origGetActive(self)
+    end
+
+    -- Set a pending route (simulating POIRouting pre-calculated route)
+    local pendingResult = {
+        totalTime = 42,
+        steps = { { action = "Walk", from = "Here", to = "There", destMapID = 85, fromMapID = 84 } },
+        waypoint = { mapID = 85, x = 0.3, y = 0.4, title = "POI Target" },
+        waypointSource = "map_click",
+    }
+    QR.UI._pendingRoute = pendingResult
+    QR.UI.isCalculating = false
+
+    QR.UI:RefreshRoute()
+
+    -- Pending route should have been consumed
+    t:assertNil(QR.UI._pendingRoute, "Pending route consumed after RefreshRoute")
+    -- GetActiveWaypoint should NOT have been called
+    t:assertFalse(getActiveCalled, "GetActiveWaypoint not called when pending route exists")
+    -- UI should show the pending route's travel time
+    local timeText = QR.UI.frame.timeLabel:GetText()
+    t:assertTrue(timeText ~= nil, "Time label updated from pending route")
+    -- isCalculating should remain false (pending route path doesn't set it)
+    t:assertFalse(QR.UI.isCalculating, "isCalculating remains false after pending route")
+
+    -- Restore
+    QR.WaypointIntegration.GetActiveWaypoint = origGetActive
+end)
+
+T:run("RefreshRoute falls through to GetActiveWaypoint when no pending route", function(t)
+    resetState()
+    ensureUIFrame()
+
+    -- Set up a mappin waypoint
+    MockWoW.config.currentMapID = 84
+    setMapPinWaypoint(84, 0.5, 0.5)
+
+    -- No pending route
+    QR.UI._pendingRoute = nil
+    QR.UI.isCalculating = false
+
+    -- Track whether GetActiveWaypoint is called
+    local origGetActive = QR.WaypointIntegration.GetActiveWaypoint
+    local getActiveCalled = false
+    QR.WaypointIntegration.GetActiveWaypoint = function(self)
+        getActiveCalled = true
+        return origGetActive(self)
+    end
+
+    QR.UI:RefreshRoute()
+
+    -- GetActiveWaypoint SHOULD be called (normal fallback)
+    t:assertTrue(getActiveCalled, "GetActiveWaypoint called when no pending route")
+    t:assertFalse(QR.UI.isCalculating, "isCalculating reset after normal RefreshRoute")
+
+    -- Restore
+    QR.WaypointIntegration.GetActiveWaypoint = origGetActive
+end)
+
 T:run("RefreshRoute clears route when no waypoint AND no saved destination", function(t)
     resetState()
     ensureUIFrame()

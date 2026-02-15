@@ -80,14 +80,14 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
         QR.db.lastDestination = { mapID = mapID, x = x, y = y, title = zoneName }
     end
 
-    -- Show in UI
+    -- Show in UI with pre-calculated route (avoids RefreshRoute re-routing to mappin)
     if QR.UI then
-        QR.UI:Show()
         if result then
             result.waypoint = { mapID = mapID, x = x, y = y, title = zoneName }
             result.waypointSource = "map_click"
-            QR.UI:UpdateRoute(result)
+            QR.UI._pendingRoute = result
         end
+        QR.UI:Show()
     end
 end
 
