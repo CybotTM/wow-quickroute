@@ -642,6 +642,8 @@ function WaypointIntegration:RegisterHooks()
     eventFrame:SetScript("OnEvent", function(self, event, ...)
         local ok, err = pcall(function()
             if event == "USER_WAYPOINT_UPDATED" then
+                -- Skip if QuickRoute itself is setting the waypoint (auto-waypoint / POI routing)
+                if WaypointIntegration._settingWaypoint then return end
                 -- Map pin added/removed
                 if C_Map and C_Map.HasUserWaypoint and C_Map.HasUserWaypoint() then
                     WaypointIntegration:OnWaypointChanged()
@@ -741,6 +743,7 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
 
     -- Fallback to native waypoint using C_Map API
     if C_Map and C_Map.SetUserWaypoint and UiMapPoint and UiMapPoint.CreateFromCoordinates then
+        self._settingWaypoint = true
         local success, err = pcall(function()
             local uiMapPoint = UiMapPoint.CreateFromCoordinates(mapID, x, y)
             C_Map.SetUserWaypoint(uiMapPoint)
@@ -748,6 +751,7 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
                 C_SuperTrack.SetSuperTrackedUserWaypoint(true)
             end
         end)
+        self._settingWaypoint = false
         if success then
             QR:Print("|cFF00FF00QuickRoute|r: Native waypoint set for " .. (title or "destination"))
             return nil

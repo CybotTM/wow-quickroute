@@ -488,7 +488,7 @@ if GetLocale() == "deDE" then
     L["SERVICE_BANK"] = "Bank"
     L["SERVICE_VOID_STORAGE"] = "Leerenlager"
     L["SERVICE_CRAFTING_TABLE"] = "Handwerkstisch"
-    L["SERVICE_NEAREST"] = "Nächste(r) %s"
+    L["SERVICE_NEAREST"] = "Nächste %s"
     L["DEST_SEARCH_SERVICES"] = "Dienste"
 
     -- Errors / Hints
@@ -777,7 +777,7 @@ if GetLocale() == "frFR" then
     L["SERVICE_BANK"] = "Banque"
     L["SERVICE_VOID_STORAGE"] = "Coffre du Vide"
     L["SERVICE_CRAFTING_TABLE"] = "Table d'artisanat"
-    L["SERVICE_NEAREST"] = "%s le/la plus proche"
+    L["SERVICE_NEAREST"] = "%s le plus proche"
     L["DEST_SEARCH_SERVICES"] = "Services"
 
     -- Errors / Hints
@@ -1067,7 +1067,7 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["SERVICE_BANK"] = "Banco"
     L["SERVICE_VOID_STORAGE"] = "Depósito del Vacío"
     L["SERVICE_CRAFTING_TABLE"] = "Mesa de artesanía"
-    L["SERVICE_NEAREST"] = "%s más cercano/a"
+    L["SERVICE_NEAREST"] = "%s más cercano"
     L["DEST_SEARCH_SERVICES"] = "Servicios"
 
     -- Errors / Hints
@@ -1356,7 +1356,7 @@ if GetLocale() == "ptBR" then
     L["SERVICE_BANK"] = "Banco"
     L["SERVICE_VOID_STORAGE"] = "Armazém do Vazio"
     L["SERVICE_CRAFTING_TABLE"] = "Mesa de Artesanato"
-    L["SERVICE_NEAREST"] = "%s mais próximo/a"
+    L["SERVICE_NEAREST"] = "%s mais próximo"
     L["DEST_SEARCH_SERVICES"] = "Serviços"
 
     -- Errors / Hints
@@ -2801,7 +2801,7 @@ if GetLocale() == "itIT" then
     L["SERVICE_BANK"] = "Banca"
     L["SERVICE_VOID_STORAGE"] = "Deposito del Vuoto"
     L["SERVICE_CRAFTING_TABLE"] = "Tavolo da lavoro"
-    L["SERVICE_NEAREST"] = "%s più vicino/a"
+    L["SERVICE_NEAREST"] = "%s più vicino"
     L["DEST_SEARCH_SERVICES"] = "Servizi"
 
     -- Errors / Hints

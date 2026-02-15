@@ -596,3 +596,28 @@ T:run("Transit hub: all PortalHubs mapIDs are treated as transit hubs", function
         t:assertTrue(hubMapIDs[mapID] == true, "Hub mapID " .. mapID .. " is in PortalHubs")
     end
 end)
+
+T:run("SetTomTomWaypoint sets _settingWaypoint during native waypoint call", function(t)
+    resetState()
+
+    -- Track _settingWaypoint state during C_Map.SetUserWaypoint
+    local flagDuringCall = nil
+    local origSetUserWaypoint = _G.C_Map.SetUserWaypoint
+    _G.C_Map.SetUserWaypoint = function(point)
+        flagDuringCall = QR.WaypointIntegration._settingWaypoint
+    end
+
+    -- No TomTom → will use native waypoint
+    _G.TomTom = nil
+    QR.WaypointIntegration._settingWaypoint = false
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Test")
+
+    -- _settingWaypoint should have been true DURING the call
+    t:assertTrue(flagDuringCall == true, "_settingWaypoint was true during SetUserWaypoint")
+    -- And false after
+    t:assertFalse(QR.WaypointIntegration._settingWaypoint, "_settingWaypoint reset after call")
+
+    -- Restore
+    _G.C_Map.SetUserWaypoint = origSetUserWaypoint
+end)
