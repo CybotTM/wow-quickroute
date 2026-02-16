@@ -9,6 +9,7 @@ local ADDON_NAME, QR = ...
 QR.Continents = {
     EASTERN_KINGDOMS = {
         name = "Eastern Kingdoms",
+        continentMapID = 13,
         hub = 84,  -- Stormwind City
         hubHorde = 85,  -- Orgrimmar (cross-continent portal room hub)
         zones = {
@@ -62,6 +63,7 @@ QR.Continents = {
     },
     KALIMDOR = {
         name = "Kalimdor",
+        continentMapID = 12,
         hub = 85,   -- Orgrimmar
         hubAlliance = 103, -- Exodar (Darnassus destroyed in BFA)
         zones = {
@@ -103,6 +105,7 @@ QR.Continents = {
     },
     OUTLAND = {
         name = "Outland",
+        continentMapID = 101,
         hub = 111,  -- Shattrath City
         zones = {
             100,  -- Hellfire Peninsula
@@ -118,6 +121,7 @@ QR.Continents = {
     },
     NORTHREND = {
         name = "Northrend",
+        continentMapID = 113,
         hub = 125,  -- Dalaran (Northrend)
         zones = {
             114,  -- Borean Tundra
@@ -135,6 +139,7 @@ QR.Continents = {
     },
     PANDARIA = {
         name = "Pandaria",
+        continentMapID = 424,
         hub = 390,  -- Vale of Eternal Blossoms (Shrine)
         zones = {
             371,  -- Jade Forest
@@ -154,6 +159,7 @@ QR.Continents = {
     },
     DRAENOR = {
         name = "Draenor",
+        continentMapID = 572,
         hub = 622,  -- Warspear/Stormshield (Ashran)
         zones = {
             525,  -- Frostfire Ridge
@@ -172,6 +178,7 @@ QR.Continents = {
     },
     BROKEN_ISLES = {
         name = "Broken Isles",
+        continentMapID = 619,
         hub = 627,  -- Dalaran (Broken Isles)
         zones = {
             627,  -- Dalaran (Broken Isles)
@@ -189,6 +196,7 @@ QR.Continents = {
     },
     KUL_TIRAS = {
         name = "Kul Tiras",
+        continentMapID = 876,
         hub = 1161,  -- Boralus
         faction = "Alliance",
         zones = {
@@ -200,6 +208,7 @@ QR.Continents = {
     },
     ZANDALAR = {
         name = "Zandalar",
+        continentMapID = 875,
         hub = 1165,  -- Dazar'alor
         faction = "Horde",
         zones = {
@@ -207,11 +216,12 @@ QR.Continents = {
             863,  -- Nazmir
             864,  -- Vol'dun
             1165, -- Dazar'alor
-            876,  -- Zandalar (continent-level map, Crucible of Storms)
+            875,  -- Zandalar (continent-level map)
         },
     },
     BFA_NEUTRAL = {
         name = "Battle for Azeroth Neutral",
+        continentMapID = 875,  -- Zandalar (closest continent)
         hub = 1355,  -- Nazjatar
         zones = {
             1355, -- Nazjatar
@@ -221,6 +231,7 @@ QR.Continents = {
     },
     SHADOWLANDS = {
         name = "Shadowlands",
+        continentMapID = 1550,
         hub = 1670,  -- Oribos
         zones = {
             1525, -- Revendreth
@@ -235,6 +246,7 @@ QR.Continents = {
     },
     DRAGON_ISLES = {
         name = "Dragon Isles",
+        continentMapID = 1978,
         hub = 2112,  -- Valdrakken
         zones = {
             2022, -- Waking Shores
@@ -251,6 +263,7 @@ QR.Continents = {
     },
     KHAZ_ALGAR = {
         name = "Khaz Algar",
+        continentMapID = 2274,
         hub = 2339,  -- Dornogal
         zones = {
             2248, -- Isle of Dorn
@@ -282,15 +295,15 @@ end
 
 -- Fallback: continent-level map IDs (for when user pins on continent map)
 -- These are the parent uiMapIDs that C_Map.GetUserWaypoint may return
-QR.ZoneToContinent[12]   = "EASTERN_KINGDOMS"  -- Eastern Kingdoms (continent)
-QR.ZoneToContinent[13]   = "KALIMDOR"          -- Kalimdor (continent)
+QR.ZoneToContinent[12]   = "KALIMDOR"            -- Kalimdor (continent, mapID 12)
+QR.ZoneToContinent[13]   = "EASTERN_KINGDOMS"    -- Eastern Kingdoms (continent, mapID 13)
 QR.ZoneToContinent[101]  = "OUTLAND"           -- Outland (continent)
 QR.ZoneToContinent[113]  = "NORTHREND"         -- Northrend (continent)
 QR.ZoneToContinent[424]  = "PANDARIA"          -- Pandaria (continent)
 QR.ZoneToContinent[572]  = "DRAENOR"           -- Draenor (continent)
 QR.ZoneToContinent[619]  = "BROKEN_ISLES"      -- Broken Isles (continent)
-QR.ZoneToContinent[875]  = "KUL_TIRAS"         -- Kul Tiras (continent)
-QR.ZoneToContinent[876]  = "ZANDALAR"          -- Zandalar (continent)
+QR.ZoneToContinent[875]  = "ZANDALAR"            -- Zandalar (continent, mapID 875)
+QR.ZoneToContinent[876]  = "KUL_TIRAS"           -- Kul Tiras (continent, mapID 876)
 QR.ZoneToContinent[1550] = "SHADOWLANDS"       -- Shadowlands (continent)
 QR.ZoneToContinent[1978] = "DRAGON_ISLES"      -- Dragon Isles (continent)
 QR.ZoneToContinent[2274] = "KHAZ_ALGAR"        -- Khaz Algar (continent)
@@ -299,9 +312,9 @@ QR.ZoneToContinent[2274] = "KHAZ_ALGAR"        -- Khaz Algar (continent)
 -- Continent Key → Map ID (for C_Map.GetMapInfo localization)
 -------------------------------------------------------------------------------
 local ContinentKeyToMapID = {
-    EASTERN_KINGDOMS = 12, KALIMDOR = 13, OUTLAND = 101,
+    EASTERN_KINGDOMS = 13, KALIMDOR = 12, OUTLAND = 101,
     NORTHREND = 113, PANDARIA = 424, DRAENOR = 572,
-    BROKEN_ISLES = 619, KUL_TIRAS = 875, ZANDALAR = 876,
+    BROKEN_ISLES = 619, KUL_TIRAS = 876, ZANDALAR = 875,
     SHADOWLANDS = 1550, DRAGON_ISLES = 1978, KHAZ_ALGAR = 2274,
 }
 
@@ -537,6 +550,7 @@ QR.ZoneAdjacencies = {
     -- Kul Tiras connections (BFA Alliance)
     [1161] = {  -- Boralus
         {zone = 895, travelTime = 30},   -- Tiragarde Sound
+        {zone = 1165, travelTime = 120}, -- Dazar'alor (boat)
     },
     [895] = {  -- Tiragarde Sound
         {zone = 1161, travelTime = 30},  -- Boralus
@@ -557,6 +571,7 @@ QR.ZoneAdjacencies = {
     -- Zandalar connections (BFA Horde)
     [1165] = {  -- Dazar'alor
         {zone = 862, travelTime = 30},   -- Zuldazar
+        {zone = 1161, travelTime = 120}, -- Boralus (boat)
     },
     [862] = {  -- Zuldazar
         {zone = 1165, travelTime = 30},  -- Dazar'alor

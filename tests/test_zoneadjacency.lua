@@ -158,10 +158,10 @@ end)
 
 T:run("GetContinentForZone: continent-level fallback mapIDs work", function(t)
     -- These are the continent parent uiMapIDs used as fallbacks
-    t:assertEqual("EASTERN_KINGDOMS", QR.GetContinentForZone(12),
-        "MapID 12 -> Eastern Kingdoms (continent)")
-    t:assertEqual("KALIMDOR", QR.GetContinentForZone(13),
-        "MapID 13 -> Kalimdor (continent)")
+    t:assertEqual("KALIMDOR", QR.GetContinentForZone(12),
+        "MapID 12 -> Kalimdor (continent)")
+    t:assertEqual("EASTERN_KINGDOMS", QR.GetContinentForZone(13),
+        "MapID 13 -> Eastern Kingdoms (continent)")
     t:assertEqual("OUTLAND", QR.GetContinentForZone(101),
         "MapID 101 -> Outland (continent)")
     t:assertEqual("NORTHREND", QR.GetContinentForZone(113),
@@ -172,10 +172,10 @@ T:run("GetContinentForZone: continent-level fallback mapIDs work", function(t)
         "MapID 572 -> Draenor (continent)")
     t:assertEqual("BROKEN_ISLES", QR.GetContinentForZone(619),
         "MapID 619 -> Broken Isles (continent)")
-    t:assertEqual("KUL_TIRAS", QR.GetContinentForZone(875),
-        "MapID 875 -> Kul Tiras (continent)")
-    t:assertEqual("ZANDALAR", QR.GetContinentForZone(876),
-        "MapID 876 -> Zandalar (continent)")
+    t:assertEqual("ZANDALAR", QR.GetContinentForZone(875),
+        "MapID 875 -> Zandalar (continent)")
+    t:assertEqual("KUL_TIRAS", QR.GetContinentForZone(876),
+        "MapID 876 -> Kul Tiras (continent)")
     t:assertEqual("SHADOWLANDS", QR.GetContinentForZone(1550),
         "MapID 1550 -> Shadowlands (continent)")
     t:assertEqual("DRAGON_ISLES", QR.GetContinentForZone(1978),
@@ -508,14 +508,14 @@ function(t)
     -- The fallback continent mapIDs (12, 13, 101, etc.) should each map to exactly
     -- one continent. We just verify they are present.
     local continentFallbacks = {
-        [12]   = "EASTERN_KINGDOMS",
-        [13]   = "KALIMDOR",
+        [12]   = "KALIMDOR",
+        [13]   = "EASTERN_KINGDOMS",
         [113]  = "NORTHREND",
         [424]  = "PANDARIA",
         [572]  = "DRAENOR",
         [619]  = "BROKEN_ISLES",
-        [875]  = "KUL_TIRAS",
-        [876]  = "ZANDALAR",
+        [875]  = "ZANDALAR",
+        [876]  = "KUL_TIRAS",
         [1550] = "SHADOWLANDS",
         [1978] = "DRAGON_ISLES",
         [2274] = "KHAZ_ALGAR",

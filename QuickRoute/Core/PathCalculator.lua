@@ -264,9 +264,12 @@ function PathCalculator:ConnectSameMapNodes()
                     local nodeA = nodes[i]
                     local nodeB = nodes[j]
 
-                    -- Check if edge already exists
+                    -- Check if edge already exists; override coarse "travel" estimates
+                    -- Check both directions since AddBidirectionalEdge writes both
                     local existingEdge = self.graph:GetEdge(nodeA.name, nodeB.name)
-                    if not existingEdge then
+                    local reverseEdge = self.graph:GetEdge(nodeB.name, nodeA.name)
+                    if (not existingEdge or existingEdge.edgeType == "travel")
+                        and (not reverseEdge or reverseEdge.edgeType == "travel") then
                         -- Calculate walking time
                         local walkTime = SafeEstimateWalkingTime(
                             nodeA.data.x or 0.5, nodeA.data.y or 0.5,
@@ -475,6 +478,8 @@ function PathCalculator:AddDungeonNodes()
         return
     end
 
+    -- First pass: add all dungeon nodes
+    local dungeonNodes = {}
     local addedCount = 0
     for instanceID, inst in pairs(QR.DungeonData.instances) do
         if inst.zoneMapID and inst.x and inst.y and inst.name then
@@ -487,8 +492,15 @@ function PathCalculator:AddDungeonNodes()
                 isRaid = inst.isRaid,
                 isDungeon = true,
             })
+            table_insert(dungeonNodes, {name = nodeName, mapID = inst.zoneMapID, x = inst.x, y = inst.y})
             addedCount = addedCount + 1
         end
+    end
+
+    -- Second pass: connect dungeon nodes via continent routing
+    -- (all dungeon+teleport nodes exist by now, so adjacency edges work)
+    for _, dn in ipairs(dungeonNodes) do
+        self:ConnectViaContinentRouting(dn.name, dn.mapID, dn.x, dn.y)
     end
 
     QR:Debug(string_format("PathCalculator: added %d dungeon/raid entrance nodes", addedCount))

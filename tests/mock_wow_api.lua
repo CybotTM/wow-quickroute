@@ -83,8 +83,8 @@ MockWoW.config = {
 -- Map name database (mapID -> info table)
 -- Covers all the key maps referenced by the addon
 MockWoW.mapDatabase = {
-    -- Eastern Kingdoms
-    [12]   = { mapID = 12,   name = "Eastern Kingdoms", mapType = 1 },
+    -- Eastern Kingdoms (continent mapID 13)
+    [13]   = { mapID = 13,   name = "Eastern Kingdoms", mapType = 2 },
     [14]   = { mapID = 14,   name = "Arathi Highlands", mapType = 3 },
     [15]   = { mapID = 15,   name = "Badlands", mapType = 3 },
     [17]   = { mapID = 17,   name = "Badlands", mapType = 3 },
@@ -108,21 +108,21 @@ MockWoW.mapDatabase = {
     [51]   = { mapID = 51,   name = "Swamp of Sorrows", mapType = 3 },
     [52]   = { mapID = 52,   name = "Westfall", mapType = 3 },
     [56]   = { mapID = 56,   name = "Wetlands", mapType = 3 },
-    [84]   = { mapID = 84,   name = "Stormwind City", mapType = 3, parentMapID = 12 },
-    [85]   = { mapID = 85,   name = "Orgrimmar", mapType = 3, parentMapID = 13 },
-    [87]   = { mapID = 87,   name = "Ironforge", mapType = 3, parentMapID = 12 },
-    [88]   = { mapID = 88,   name = "Thunder Bluff", mapType = 3, parentMapID = 13 },
-    [89]   = { mapID = 89,   name = "Darnassus", mapType = 3, parentMapID = 13 },
-    [90]   = { mapID = 90,   name = "Undercity", mapType = 3, parentMapID = 12 },
+    [84]   = { mapID = 84,   name = "Stormwind City", mapType = 3, parentMapID = 13 },
+    [85]   = { mapID = 85,   name = "Orgrimmar", mapType = 3, parentMapID = 12 },
+    [87]   = { mapID = 87,   name = "Ironforge", mapType = 3, parentMapID = 13 },
+    [88]   = { mapID = 88,   name = "Thunder Bluff", mapType = 3, parentMapID = 12 },
+    [89]   = { mapID = 89,   name = "Darnassus", mapType = 3, parentMapID = 12 },
+    [90]   = { mapID = 90,   name = "Undercity", mapType = 3, parentMapID = 13 },
     [103]  = { mapID = 103,  name = "The Exodar", mapType = 3, parentMapID = 12 },
-    [110]  = { mapID = 110,  name = "Silvermoon City", mapType = 3, parentMapID = 12 },
+    [110]  = { mapID = 110,  name = "Silvermoon City", mapType = 3, parentMapID = 13 },
 
-    -- Kalimdor
+    -- Kalimdor (continent mapID 12)
+    [12]   = { mapID = 12,   name = "Kalimdor", mapType = 2 },
     [1]    = { mapID = 1,    name = "Durotar", mapType = 3 },
     [7]    = { mapID = 7,    name = "Mulgore", mapType = 3 },
     [10]   = { mapID = 10,   name = "Northern Barrens", mapType = 3 },
     [11]   = { mapID = 11,   name = "Ashenvale", mapType = 3 },
-    [13]   = { mapID = 13,   name = "Kalimdor", mapType = 1 },
     [57]   = { mapID = 57,   name = "Teldrassil", mapType = 3 },
     [62]   = { mapID = 62,   name = "Darkshore", mapType = 3 },
     [67]   = { mapID = 67,   name = "Feralas", mapType = 3 },
@@ -139,20 +139,20 @@ MockWoW.mapDatabase = {
     [199]  = { mapID = 199,  name = "Southern Barrens", mapType = 3 },
     [261]  = { mapID = 261,  name = "Uldum", mapType = 3 },
 
-    -- Outland
+    -- Outland (continent mapID 101)
     [100]  = { mapID = 100,  name = "Hellfire Peninsula", mapType = 3 },
-    [101]  = { mapID = 101,  name = "Zangarmarsh", mapType = 3 },
-    [102]  = { mapID = 102,  name = "Terokkar Forest", mapType = 3 },
-    [104]  = { mapID = 104,  name = "Nagrand", mapType = 3 },
+    [101]  = { mapID = 101,  name = "Outland", mapType = 2 },
+    [102]  = { mapID = 102,  name = "Zangarmarsh", mapType = 3 },
+    [104]  = { mapID = 104,  name = "Shadowmoon Valley", mapType = 3 },
     [105]  = { mapID = 105,  name = "Blade's Edge Mountains", mapType = 3 },
-    [107]  = { mapID = 107,  name = "Netherstorm", mapType = 3 },
-    [108]  = { mapID = 108,  name = "Shadowmoon Valley", mapType = 3 },
+    [107]  = { mapID = 107,  name = "Nagrand", mapType = 3 },
+    [108]  = { mapID = 108,  name = "Terokkar Forest", mapType = 3 },
     [109]  = { mapID = 109,  name = "Netherstorm", mapType = 3 },
     [111]  = { mapID = 111,  name = "Shattrath City", mapType = 3 },
     [122]  = { mapID = 122,  name = "Isle of Quel'Danas", mapType = 3 },
 
     -- Northrend
-    [113]  = { mapID = 113,  name = "Northrend", mapType = 1 },
+    [113]  = { mapID = 113,  name = "Northrend", mapType = 2 },
     [114]  = { mapID = 114,  name = "Borean Tundra", mapType = 3 },
     [115]  = { mapID = 115,  name = "Dragonblight", mapType = 3 },
     [116]  = { mapID = 116,  name = "Grizzly Hills", mapType = 3 },
@@ -205,16 +205,16 @@ MockWoW.mapDatabase = {
     [809]  = { mapID = 809,  name = "Peak of Serenity", mapType = 3 },
 
     -- BFA
-    [862]  = { mapID = 862,  name = "Zuldazar", mapType = 3 },
-    [863]  = { mapID = 863,  name = "Nazmir", mapType = 3 },
-    [864]  = { mapID = 864,  name = "Vol'dun", mapType = 3 },
-    [875]  = { mapID = 875,  name = "Kul Tiras", mapType = 2 },
-    [876]  = { mapID = 876,  name = "Zandalar", mapType = 2 },
+    [862]  = { mapID = 862,  name = "Zuldazar", mapType = 3, parentMapID = 875 },
+    [863]  = { mapID = 863,  name = "Nazmir", mapType = 3, parentMapID = 875 },
+    [864]  = { mapID = 864,  name = "Vol'dun", mapType = 3, parentMapID = 875 },
+    [875]  = { mapID = 875,  name = "Zandalar", mapType = 2 },
+    [876]  = { mapID = 876,  name = "Kul Tiras", mapType = 2 },
     [895]  = { mapID = 895,  name = "Tiragarde Sound", mapType = 3 },
     [896]  = { mapID = 896,  name = "Drustvar", mapType = 3 },
     [942]  = { mapID = 942,  name = "Stormsong Valley", mapType = 3 },
-    [1161] = { mapID = 1161, name = "Boralus", mapType = 3, parentMapID = 875 },
-    [1165] = { mapID = 1165, name = "Dazar'alor", mapType = 3, parentMapID = 876 },
+    [1161] = { mapID = 1161, name = "Boralus", mapType = 3, parentMapID = 876 },
+    [1165] = { mapID = 1165, name = "Dazar'alor", mapType = 3, parentMapID = 875 },
     [1355] = { mapID = 1355, name = "Nazjatar", mapType = 3 },
     [1462] = { mapID = 1462, name = "Mechagon", mapType = 3 },
 
