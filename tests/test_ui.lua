@@ -1229,15 +1229,18 @@ T:run("BuildStepCardTexts returns action and destination for teleport", function
         to = "Stormwind",
         localizedTo = "Sturmwind",
         time = 180,
+        destX = 0.452,
+        destY = 0.631,
     }
 
     local actionLine, destLine = QR.UI:BuildStepCardTexts(step)
     t:assertNotNil(actionLine, "action line not nil")
     t:assertNotNil(destLine, "dest line not nil")
-    -- Action should contain item name (from cache or fallback)
-    t:assertTrue(#actionLine > 0, "action line has content")
-    -- Destination should contain localized name
-    t:assertTrue(destLine:find("Sturmwind") ~= nil, "dest line contains localized destination")
+    -- Action line should contain destination name (new: included via _TO format)
+    t:assertTrue(actionLine:find("Sturmwind") ~= nil, "action line contains localized destination")
+    -- Detail line should contain coordinates
+    t:assertTrue(destLine:find("45.2") ~= nil, "dest line contains X coordinate")
+    t:assertTrue(destLine:find("63.1") ~= nil, "dest line contains Y coordinate")
 end)
 
 T:run("BuildStepCardTexts returns action and destination for walk", function(t)
@@ -1250,15 +1253,18 @@ T:run("BuildStepCardTexts returns action and destination for walk", function(t)
         to = "Goldshire",
         localizedTo = "Goldhain",
         time = 60,
+        destX = 0.423,
+        destY = 0.658,
     }
 
     local actionLine, destLine = QR.UI:BuildStepCardTexts(step)
     t:assertNotNil(actionLine, "action line not nil")
     t:assertNotNil(destLine, "dest line not nil")
-    -- Action should be the travel verb
-    t:assertEqual(QR.L["ACTION_TRAVEL"], actionLine, "walk step uses ACTION_TRAVEL")
-    -- Destination should contain localized name
-    t:assertTrue(destLine:find("Goldhain") ~= nil, "dest line contains localized destination")
+    -- Action should include destination (new _TO format)
+    local expected = string.format(QR.L["ACTION_TRAVEL_TO"], "Goldhain")
+    t:assertEqual(expected, actionLine, "walk step uses ACTION_TRAVEL_TO with destination")
+    -- Detail line should contain coordinates and time
+    t:assertTrue(destLine:find("42.3") ~= nil, "dest line contains X coordinate")
 end)
 
 T:run("BuildStepCardTexts shows cooldown for teleport steps", function(t)
@@ -1292,23 +1298,23 @@ T:run("BuildStepCardTexts handles all step types", function(t)
     ensureUIFrame()
 
     local types = {
-        { type = "portal", expected = QR.L["ACTION_PORTAL"] },
-        { type = "boat", expected = QR.L["ACTION_BOAT"] },
-        { type = "zeppelin", expected = QR.L["ACTION_ZEPPELIN"] },
-        { type = "tram", expected = QR.L["ACTION_TRAM"] },
-        { type = "flight", expected = QR.L["ACTION_FLY"] },
+        { type = "portal", expected = string.format(QR.L["ACTION_PORTAL_TO"], "TestDest") },
+        { type = "boat", expected = string.format(QR.L["ACTION_BOAT_TO"], "TestDest") },
+        { type = "zeppelin", expected = string.format(QR.L["ACTION_ZEPPELIN_TO"], "TestDest") },
+        { type = "tram", expected = string.format(QR.L["ACTION_TRAM_TO"], "TestDest") },
+        { type = "flight", expected = string.format(QR.L["ACTION_FLY_TO"], "TestDest") },
     }
 
     for _, tc in ipairs(types) do
         local step = {
             type = tc.type,
             action = "Action",
-            to = "Destination",
-            localizedTo = "Destination",
+            to = "TestDest",
+            localizedTo = "TestDest",
         }
         local actionLine = QR.UI:BuildStepCardTexts(step)
         t:assertEqual(tc.expected, actionLine,
-            tc.type .. " step uses correct action label")
+            tc.type .. " step uses correct action label with destination")
     end
 end)
 
@@ -1325,8 +1331,9 @@ T:run("BuildStepCardTexts handles teleport without teleportID", function(t)
     }
 
     local actionLine = QR.UI:BuildStepCardTexts(step)
-    t:assertEqual(QR.L["ACTION_TELEPORT"], actionLine,
-        "teleport without teleportID uses ACTION_TELEPORT")
+    local expected = string.format(QR.L["ACTION_TELEPORT_TO"], "Sturmwind")
+    t:assertEqual(expected, actionLine,
+        "teleport without teleportID uses ACTION_TELEPORT_TO")
 end)
 
 T:run("BuildStepCardTexts falls back to step.to when localizedTo missing", function(t)
@@ -1340,7 +1347,8 @@ T:run("BuildStepCardTexts falls back to step.to when localizedTo missing", funct
         -- no localizedTo
     }
 
-    local _, destLine = QR.UI:BuildStepCardTexts(step)
-    t:assertTrue(destLine:find("TestZone") ~= nil,
+    local actionLine = QR.UI:BuildStepCardTexts(step)
+    -- Should fall back to step.to in the action line
+    t:assertTrue(actionLine:find("TestZone") ~= nil,
         "falls back to step.to when localizedTo is nil")
 end)

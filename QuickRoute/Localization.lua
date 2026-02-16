@@ -120,6 +120,13 @@ L["ACTION_BOAT"] = "Boat"
 L["ACTION_ZEPPELIN"] = "Zeppelin"
 L["ACTION_TRAM"] = "Tram"
 L["ACTION_TRAVEL"] = "Travel"
+L["ACTION_TELEPORT_TO"] = "Teleport to %s"
+L["ACTION_PORTAL_TO"] = "Portal to %s"
+L["ACTION_TRAVEL_TO"] = "Travel to %s"
+L["ACTION_BOAT_TO"] = "Boat to %s"
+L["ACTION_ZEPPELIN_TO"] = "Zeppelin to %s"
+L["ACTION_TRAM_TO"] = "Tram to %s"
+L["ACTION_FLY_TO"] = "Fly to %s"
 L["COOLDOWN_SHORT"] = "CD"
 
 -- Step Descriptions (used in route display)
@@ -418,6 +425,13 @@ if GetLocale() == "deDE" then
     L["ACTION_ZEPPELIN"] = "Zeppelin"
     L["ACTION_TRAM"] = "Tram"
     L["ACTION_TRAVEL"] = "Reisen"
+    L["ACTION_TELEPORT_TO"] = "Teleport nach %s"
+    L["ACTION_PORTAL_TO"] = "Portal nach %s"
+    L["ACTION_TRAVEL_TO"] = "Reise nach %s"
+    L["ACTION_BOAT_TO"] = "Schiff nach %s"
+    L["ACTION_ZEPPELIN_TO"] = "Zeppelin nach %s"
+    L["ACTION_TRAM_TO"] = "Tram nach %s"
+    L["ACTION_FLY_TO"] = "Flug nach %s"
     L["COOLDOWN_SHORT"] = "AZ"
 
     -- Step Descriptions
@@ -715,6 +729,13 @@ if GetLocale() == "frFR" then
     L["ACTION_ZEPPELIN"] = "Zeppelin"
     L["ACTION_TRAM"] = "Tram"
     L["ACTION_TRAVEL"] = "Voyager"
+    L["ACTION_TRAVEL_TO"] = "Voyager vers %s"
+    L["ACTION_TELEPORT_TO"] = "Téléportation vers %s"
+    L["ACTION_PORTAL_TO"] = "Portail vers %s"
+    L["ACTION_BOAT_TO"] = "Bateau vers %s"
+    L["ACTION_ZEPPELIN_TO"] = "Zeppelin vers %s"
+    L["ACTION_TRAM_TO"] = "Tram vers %s"
+    L["ACTION_FLY_TO"] = "Vol vers %s"
     L["COOLDOWN_SHORT"] = "RA"
 
     -- Step Descriptions
@@ -1013,6 +1034,13 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["ACTION_ZEPPELIN"] = "Zepelín"
     L["ACTION_TRAM"] = "Tranvía"
     L["ACTION_TRAVEL"] = "Viajar"
+    L["ACTION_TELEPORT_TO"] = "Teletransporte a %s"
+    L["ACTION_PORTAL_TO"] = "Portal a %s"
+    L["ACTION_TRAVEL_TO"] = "Viajar a %s"
+    L["ACTION_BOAT_TO"] = "Barco a %s"
+    L["ACTION_ZEPPELIN_TO"] = "Zepelín a %s"
+    L["ACTION_TRAM_TO"] = "Tranvía a %s"
+    L["ACTION_FLY_TO"] = "Volar a %s"
     L["COOLDOWN_SHORT"] = "RE"
 
     -- Step Descriptions
@@ -1310,6 +1338,13 @@ if GetLocale() == "ptBR" then
     L["ACTION_ZEPPELIN"] = "Zepelim"
     L["ACTION_TRAM"] = "Metrô"
     L["ACTION_TRAVEL"] = "Viajar"
+    L["ACTION_TELEPORT_TO"] = "Teletransporte para %s"
+    L["ACTION_PORTAL_TO"] = "Portal para %s"
+    L["ACTION_TRAVEL_TO"] = "Viajar para %s"
+    L["ACTION_BOAT_TO"] = "Barco para %s"
+    L["ACTION_ZEPPELIN_TO"] = "Zepelim para %s"
+    L["ACTION_TRAM_TO"] = "Metrô para %s"
+    L["ACTION_FLY_TO"] = "Voar para %s"
     L["COOLDOWN_SHORT"] = "REC"
 
     -- Step Descriptions
@@ -1607,6 +1642,13 @@ if GetLocale() == "ruRU" then
     L["ACTION_ZEPPELIN"] = "Дирижабль"
     L["ACTION_TRAM"] = "Трамвай"
     L["ACTION_TRAVEL"] = "Путешествие"
+    L["ACTION_TELEPORT_TO"] = "Телепорт в %s"
+    L["ACTION_PORTAL_TO"] = "Портал в %s"
+    L["ACTION_TRAVEL_TO"] = "Путешествие в %s"
+    L["ACTION_BOAT_TO"] = "Корабль в %s"
+    L["ACTION_ZEPPELIN_TO"] = "Дирижабль в %s"
+    L["ACTION_TRAM_TO"] = "Трамвай в %s"
+    L["ACTION_FLY_TO"] = "Полёт в %s"
     L["COOLDOWN_SHORT"] = "ПЗ"
 
     -- Step Descriptions
@@ -1904,6 +1946,13 @@ if GetLocale() == "koKR" then
     L["ACTION_ZEPPELIN"] = "비행선"
     L["ACTION_TRAM"] = "지하철"
     L["ACTION_TRAVEL"] = "여행"
+    L["ACTION_TELEPORT_TO"] = "%s(으)로 순간이동"
+    L["ACTION_PORTAL_TO"] = "%s(으)로 차원문"
+    L["ACTION_TRAVEL_TO"] = "%s(으)로 여행"
+    L["ACTION_BOAT_TO"] = "%s(으)로 배"
+    L["ACTION_ZEPPELIN_TO"] = "%s(으)로 비행선"
+    L["ACTION_TRAM_TO"] = "%s(으)로 지하철"
+    L["ACTION_FLY_TO"] = "%s(으)로 비행"
     L["COOLDOWN_SHORT"] = "재사용"
 
     -- Step Descriptions
@@ -2201,6 +2250,13 @@ if GetLocale() == "zhCN" then
     L["ACTION_ZEPPELIN"] = "飞艇"
     L["ACTION_TRAM"] = "矿道地铁"
     L["ACTION_TRAVEL"] = "旅行"
+    L["ACTION_TELEPORT_TO"] = "传送至%s"
+    L["ACTION_PORTAL_TO"] = "传送门至%s"
+    L["ACTION_TRAVEL_TO"] = "旅行至%s"
+    L["ACTION_BOAT_TO"] = "乘船至%s"
+    L["ACTION_ZEPPELIN_TO"] = "飞艇至%s"
+    L["ACTION_TRAM_TO"] = "地铁至%s"
+    L["ACTION_FLY_TO"] = "飞行至%s"
     L["COOLDOWN_SHORT"] = "冷却"
 
     -- Step Descriptions
@@ -2498,6 +2554,13 @@ if GetLocale() == "zhTW" then
     L["ACTION_ZEPPELIN"] = "飛艇"
     L["ACTION_TRAM"] = "乘坐地鐵"
     L["ACTION_TRAVEL"] = "旅行"
+    L["ACTION_TELEPORT_TO"] = "傳送至%s"
+    L["ACTION_PORTAL_TO"] = "傳送門至%s"
+    L["ACTION_TRAVEL_TO"] = "旅行至%s"
+    L["ACTION_BOAT_TO"] = "乘船至%s"
+    L["ACTION_ZEPPELIN_TO"] = "飛艇至%s"
+    L["ACTION_TRAM_TO"] = "地鐵至%s"
+    L["ACTION_FLY_TO"] = "飛行至%s"
     L["COOLDOWN_SHORT"] = "冷卻"
 
     -- Step Descriptions
@@ -2795,6 +2858,13 @@ if GetLocale() == "itIT" then
     L["ACTION_ZEPPELIN"] = "Zeppelin"
     L["ACTION_TRAM"] = "Tram"
     L["ACTION_TRAVEL"] = "Viaggio"
+    L["ACTION_TELEPORT_TO"] = "Teletrasporto a %s"
+    L["ACTION_PORTAL_TO"] = "Portale per %s"
+    L["ACTION_TRAVEL_TO"] = "Viaggio a %s"
+    L["ACTION_BOAT_TO"] = "Nave per %s"
+    L["ACTION_ZEPPELIN_TO"] = "Zeppelin per %s"
+    L["ACTION_TRAM_TO"] = "Tram per %s"
+    L["ACTION_FLY_TO"] = "Volo per %s"
     L["COOLDOWN_SHORT"] = "RIC"
 
     -- Step Descriptions

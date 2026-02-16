@@ -94,6 +94,7 @@ local STEP_ICON_PATHS = {
     zeppelin = "Interface\\Icons\\Ability_Mount_RocketMount",
     tram = "Interface\\Icons\\Achievement_Character_Gnome_Male",
 }
+local NAV_ICON_PATH = "Interface\\Icons\\INV_Misc_Map_01"
 
 -- Button icon textures (used when useIconButtons is enabled)
 local BUTTON_ICONS = {
@@ -734,15 +735,17 @@ function UI:UpdateRoute(result)
 end
 
 --- Build card-style text for a route step (two lines)
+-- Line 1: action + destination (e.g. "Portal to Stormwind", "Use [Hearthstone] to Stormwind")
+-- Line 2: coordinates + travel time (e.g. "45.2, 63.1 · 3:20")
 -- @param step table The step data
 -- @return string actionLine The action text for line 1
--- @return string destLine The destination text for line 2
+-- @return string detailLine The detail text for line 2
 function UI:BuildStepCardTexts(step)
     local actionLine = ""
-    local destLine = ""
+    local detailLine = ""
     local dest = step.localizedTo or step.to or L["UNKNOWN"]
 
-    -- Line 1: action description (without destination)
+    -- Line 1: action + destination
     if step.type == "teleport" and step.teleportID then
         local localizedName, link
         if step.sourceType == "spell" then
@@ -751,21 +754,21 @@ function UI:BuildStepCardTexts(step)
             localizedName, link = self:GetLocalizedItemInfo(step.teleportID)
         end
         local itemText = link or localizedName or (step.action or L["UNKNOWN"])
-        actionLine = string_format(L["ACTION_USE"], itemText)
+        actionLine = string_format(L["ACTION_USE_TELEPORT"], itemText, dest)
     elseif step.type == "teleport" then
-        actionLine = L["ACTION_TELEPORT"]
+        actionLine = string_format(L["ACTION_TELEPORT_TO"], dest)
     elseif step.type == "portal" then
-        actionLine = L["ACTION_PORTAL"]
+        actionLine = string_format(L["ACTION_PORTAL_TO"], dest)
     elseif step.type == "walk" or step.type == "travel" then
-        actionLine = L["ACTION_TRAVEL"]
+        actionLine = string_format(L["ACTION_TRAVEL_TO"], dest)
     elseif step.type == "boat" then
-        actionLine = L["ACTION_BOAT"]
+        actionLine = string_format(L["ACTION_BOAT_TO"], dest)
     elseif step.type == "zeppelin" then
-        actionLine = L["ACTION_ZEPPELIN"]
+        actionLine = string_format(L["ACTION_ZEPPELIN_TO"], dest)
     elseif step.type == "tram" then
-        actionLine = L["ACTION_TRAM"]
+        actionLine = string_format(L["ACTION_TRAM_TO"], dest)
     elseif step.type == "flight" then
-        actionLine = L["ACTION_FLY"]
+        actionLine = string_format(L["ACTION_FLY_TO"], dest)
     else
         actionLine = step.action or L["UNKNOWN"]
     end
@@ -779,13 +782,17 @@ function UI:BuildStepCardTexts(step)
         end
     end
 
-    -- Line 2: destination + travel time
-    destLine = dest
-    if step.time and QR.CooldownTracker then
-        destLine = destLine .. "  " .. C.GRAY .. QR.CooldownTracker:FormatTime(step.time) .. C.R
+    -- Line 2: coordinates + travel time
+    local parts = {}
+    if step.destX and step.destY then
+        table_insert(parts, string_format("%.1f, %.1f", step.destX * 100, step.destY * 100))
     end
+    if step.time and QR.CooldownTracker then
+        table_insert(parts, QR.CooldownTracker:FormatTime(step.time))
+    end
+    detailLine = table.concat(parts, "  ·  ")
 
-    return actionLine, destLine
+    return actionLine, detailLine
 end
 
 --- Set up the Nav button for a step (creates or reuses, configures click/tooltip)
@@ -793,15 +800,23 @@ end
 -- @param step table The step data
 -- @return Button navButton The configured Nav button
 function UI:SetupStepNavButton(stepFrame, step)
-    -- Reuse or create Nav button for setting waypoint to step destination
+    -- Reuse or create Nav button (28×28 icon, matching step icon style)
     local navButton = stepFrame.navButton
     if not navButton then
-        navButton = QR.CreateModernButton(stepFrame, 50, 22)
+        navButton = CreateFrame("Button", nil, stepFrame)
+        navButton:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
+        -- Nav icon filling the full button
+        navButton.iconTexture = navButton:CreateTexture(nil, "ARTWORK")
+        navButton.iconTexture:SetAllPoints(navButton)
+        navButton.iconTexture:SetTexture(NAV_ICON_PATH)
+        -- Subtle highlight on hover
+        navButton.highlightTexture = navButton:CreateTexture(nil, "HIGHLIGHT")
+        navButton.highlightTexture:SetAllPoints(navButton)
+        navButton.highlightTexture:SetColorTexture(1, 1, 1, 0.15)
         stepFrame.navButton = navButton
     end
     navButton:ClearAllPoints()
-    navButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -5, -4)
-    ApplyButtonStyle(navButton, L["NAV"], "nav")
+    navButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -5, -10)
     navButton.stepTo = step.navTitle or step.to  -- Store navigation title
     navButton.destMapID = step.navMapID or step.destMapID  -- Store nav coordinates (from node for portals)
     navButton.destX = step.navX or step.destX

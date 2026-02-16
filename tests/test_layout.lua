@@ -211,7 +211,7 @@ T:run("Layout: navButton is inside stepFrame bounds", function(t)
     local navButton = stepFrame.navButton
     t:assertNotNil(navButton, "nav button exists")
 
-    -- navButton should be inside stepFrame (TOPRIGHT anchor with -5, -4 offset)
+    -- navButton should be inside stepFrame (TOPRIGHT anchor with -5, -10 offset)
     -- Check the anchor setup
     t:assertGreaterThan(#navButton._points, 0, "navButton has anchor points")
 
