@@ -319,6 +319,7 @@ local function PrintHelp()
     print("  /qr bank - Route to nearest Bank")
     print("  /qr void - Route to nearest Void Storage")
     print("  /qr craft - Route to nearest Crafting Table")
+    print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
     print("  /qrtest graph - Run graph unit tests")
 end
 

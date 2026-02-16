@@ -63,6 +63,7 @@ Install from CurseForge or WoWUp - dependencies are resolved automatically.
 - `/qrteleports` - Toggle teleport panel
 - `/qrinv` - Show available teleports
 - `/qrcd` - Show teleport cooldowns
+- `/qrscreenshot` - Take UI screenshots (`all`, `route`, `teleport`, `search`, `mini`)
 
 ### How to Use
 1. Set a waypoint on your map (right-click) or use TomTom
