@@ -1212,3 +1212,135 @@ T:run("RefreshRoute clears route when no waypoint AND no saved destination", fun
     t:assertTrue(timeText:find(QR.L["SET_WAYPOINT_HINT"]) ~= nil,
         "Shows hint when no waypoint and no saved destination")
 end)
+
+-------------------------------------------------------------------------------
+-- 14. BuildStepCardTexts
+-------------------------------------------------------------------------------
+
+T:run("BuildStepCardTexts returns action and destination for teleport", function(t)
+    resetState()
+    ensureUIFrame()
+
+    local step = {
+        type = "teleport",
+        teleportID = 6948,
+        sourceType = "item",
+        action = "Use Hearthstone to teleport to Stormwind",
+        to = "Stormwind",
+        localizedTo = "Sturmwind",
+        time = 180,
+    }
+
+    local actionLine, destLine = QR.UI:BuildStepCardTexts(step)
+    t:assertNotNil(actionLine, "action line not nil")
+    t:assertNotNil(destLine, "dest line not nil")
+    -- Action should contain item name (from cache or fallback)
+    t:assertTrue(#actionLine > 0, "action line has content")
+    -- Destination should contain localized name
+    t:assertTrue(destLine:find("Sturmwind") ~= nil, "dest line contains localized destination")
+end)
+
+T:run("BuildStepCardTexts returns action and destination for walk", function(t)
+    resetState()
+    ensureUIFrame()
+
+    local step = {
+        type = "walk",
+        action = "Go to Goldshire",
+        to = "Goldshire",
+        localizedTo = "Goldhain",
+        time = 60,
+    }
+
+    local actionLine, destLine = QR.UI:BuildStepCardTexts(step)
+    t:assertNotNil(actionLine, "action line not nil")
+    t:assertNotNil(destLine, "dest line not nil")
+    -- Action should be the travel verb
+    t:assertEqual(QR.L["ACTION_TRAVEL"], actionLine, "walk step uses ACTION_TRAVEL")
+    -- Destination should contain localized name
+    t:assertTrue(destLine:find("Goldhain") ~= nil, "dest line contains localized destination")
+end)
+
+T:run("BuildStepCardTexts shows cooldown for teleport steps", function(t)
+    resetState()
+    ensureUIFrame()
+
+    -- Mock cooldown tracker with active cooldown
+    local origGetCooldown = QR.CooldownTracker.GetCooldown
+    QR.CooldownTracker.GetCooldown = function(self, id, sourceType)
+        return { remaining = 120 }
+    end
+
+    local step = {
+        type = "teleport",
+        teleportID = 6948,
+        sourceType = "item",
+        action = "Use Hearthstone",
+        to = "Stormwind",
+        localizedTo = "Stormwind",
+    }
+
+    local actionLine, destLine = QR.UI:BuildStepCardTexts(step)
+    t:assertTrue(actionLine:find(QR.L["COOLDOWN_SHORT"]) ~= nil,
+        "action line contains cooldown indicator")
+
+    QR.CooldownTracker.GetCooldown = origGetCooldown
+end)
+
+T:run("BuildStepCardTexts handles all step types", function(t)
+    resetState()
+    ensureUIFrame()
+
+    local types = {
+        { type = "portal", expected = QR.L["ACTION_PORTAL"] },
+        { type = "boat", expected = QR.L["ACTION_BOAT"] },
+        { type = "zeppelin", expected = QR.L["ACTION_ZEPPELIN"] },
+        { type = "tram", expected = QR.L["ACTION_TRAM"] },
+        { type = "flight", expected = QR.L["ACTION_FLY"] },
+    }
+
+    for _, tc in ipairs(types) do
+        local step = {
+            type = tc.type,
+            action = "Action",
+            to = "Destination",
+            localizedTo = "Destination",
+        }
+        local actionLine = QR.UI:BuildStepCardTexts(step)
+        t:assertEqual(tc.expected, actionLine,
+            tc.type .. " step uses correct action label")
+    end
+end)
+
+T:run("BuildStepCardTexts handles teleport without teleportID", function(t)
+    resetState()
+    ensureUIFrame()
+
+    local step = {
+        type = "teleport",
+        -- no teleportID
+        action = "Teleport to Stormwind",
+        to = "Stormwind",
+        localizedTo = "Sturmwind",
+    }
+
+    local actionLine = QR.UI:BuildStepCardTexts(step)
+    t:assertEqual(QR.L["ACTION_TELEPORT"], actionLine,
+        "teleport without teleportID uses ACTION_TELEPORT")
+end)
+
+T:run("BuildStepCardTexts falls back to step.to when localizedTo missing", function(t)
+    resetState()
+    ensureUIFrame()
+
+    local step = {
+        type = "walk",
+        action = "Go to TestZone",
+        to = "TestZone",
+        -- no localizedTo
+    }
+
+    local _, destLine = QR.UI:BuildStepCardTexts(step)
+    t:assertTrue(destLine:find("TestZone") ~= nil,
+        "falls back to step.to when localizedTo is nil")
+end)

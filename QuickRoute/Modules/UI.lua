@@ -50,12 +50,14 @@ recycleContainer:Hide()
 -- Constants
 local FRAME_MIN_WIDTH = 500
 local FRAME_HEIGHT = 400
-local STEP_HEIGHT = 24
+local STEP_HEIGHT = 48
+local STEP_ICON_SIZE = 28
 local PADDING = 10
 local BUTTON_HEIGHT = 22
 local BUTTON_PADDING = 4
 local BUTTON_MIN_WIDTH = 50
 local CACHE_MAX_SIZE = 100  -- Max entries in item/spell caches (LRU eviction)
+local ARROW_RIGHT = "\226\134\146"  -- UTF-8 → (U+2192)
 
 --- Helper to calculate button width based on text (for localization flexibility)
 -- @param text string The button label text
@@ -80,13 +82,17 @@ local function CalculateButtonRowWidth(buttonTexts)
     return total + (PADDING * 2)  -- Add frame padding
 end
 
--- Icon textures for different step types
-local STEP_ICONS = {
-    teleport = "|TInterface\\Icons\\INV_Misc_Rune_01:16:16|t",
-    portal = "|TInterface\\Icons\\Spell_Arcane_PortalStormwind:16:16|t",
-    walk = "|TInterface\\Icons\\Ability_Tracking:16:16|t",
-    flight = "|TInterface\\Icons\\Ability_Mount_RocketMount:16:16|t",
-    hearthstone = "|TInterface\\Icons\\INV_Misc_Rune_01:16:16|t",
+-- Icon texture paths for step type icons (used as Texture frames in card layout)
+-- "travel" type (continent routing) falls through to walk icon via fallback
+-- "hearthstone" was intentionally removed: hearthstones use type="teleport"
+local STEP_ICON_PATHS = {
+    teleport = "Interface\\Icons\\INV_Misc_Rune_01",
+    portal = "Interface\\Icons\\Spell_Arcane_PortalStormwind",
+    walk = "Interface\\Icons\\Ability_Tracking",
+    flight = "Interface\\Icons\\Ability_Mount_RocketMount",
+    boat = "Interface\\Icons\\INV_Misc_Anchor",
+    zeppelin = "Interface\\Icons\\Ability_Mount_RocketMount",
+    tram = "Interface\\Icons\\Achievement_Character_Gnome_Male",
 }
 
 -- Button icon textures (used when useIconButtons is enabled)
@@ -275,20 +281,30 @@ function UI:CreateContent(parentFrame)
         self._suppressFocusOpen = nil
     end)
     searchBox:SetScript("OnEditFocusLost", function(self)
-        -- Defer hide slightly so click-on-row events fire first
-        C_Timer.After(0.1, function()
+        -- Defer to next frame so row OnClick can fire first.
+        -- Use IsMouseOver to prevent hiding when user is clicking inside dropdown.
+        C_Timer.After(0, function()
             if QR.DestinationSearch and QR.DestinationSearch.isShowing then
+                local dropdownFrame = QR.DestinationSearch.frame
+                if dropdownFrame and dropdownFrame:IsMouseOver() then
+                    return -- user is clicking inside dropdown, don't hide
+                end
                 QR.DestinationSearch:HideDropdown()
             end
         end)
     end)
     searchBox:SetScript("OnMouseDown", function(self)
-        if QR.DestinationSearch and QR.DestinationSearch.isShowing then
+        if not QR.DestinationSearch then return end
+        if QR.DestinationSearch.isShowing then
             -- Toggle: clicking while open closes dropdown and removes focus
             QR.DestinationSearch:HideDropdown()
-            -- Suppress the focus-gained that follows the click from reopening
             self._suppressFocusOpen = true
             self:ClearFocus()
+        else
+            -- Open dropdown (handles both "already focused" and "gaining focus")
+            QR.DestinationSearch:ShowDropdown(self)
+            -- Suppress OnEditFocusGained from double-opening
+            self._suppressFocusOpen = true
         end
     end)
     searchBox:SetScript("OnEscapePressed", function(self)
@@ -717,25 +733,41 @@ function UI:UpdateRoute(result)
     end
 end
 
---- Build the action text for a route step, using localized names and cooldown info
+--- Build card-style text for a route step (two lines)
 -- @param step table The step data
--- @return string actionText The formatted action text
-function UI:BuildStepActionText(step)
-    local actionText = step.action or L["UNKNOWN"]
+-- @return string actionLine The action text for line 1
+-- @return string destLine The destination text for line 2
+function UI:BuildStepCardTexts(step)
+    local actionLine = ""
+    local destLine = ""
+    local dest = step.localizedTo or step.to or L["UNKNOWN"]
+
+    -- Line 1: action description (without destination)
     if step.type == "teleport" and step.teleportID then
         local localizedName, link
         if step.sourceType == "spell" then
             localizedName, link = self:GetLocalizedSpellInfo(step.teleportID)
         else
-            -- "item" or "toy" both use item API
             localizedName, link = self:GetLocalizedItemInfo(step.teleportID)
         end
-        -- Use localized link if available (clickable), otherwise localized name, otherwise fallback to original action
-        if link then
-            actionText = string_format(L["ACTION_USE_TELEPORT"], link, step.to or L["UNKNOWN"])
-        elseif localizedName then
-            actionText = string_format(L["ACTION_USE_TELEPORT"], localizedName, step.to or L["UNKNOWN"])
-        end
+        local itemText = link or localizedName or (step.action or L["UNKNOWN"])
+        actionLine = string_format(L["ACTION_USE"], itemText)
+    elseif step.type == "teleport" then
+        actionLine = L["ACTION_TELEPORT"]
+    elseif step.type == "portal" then
+        actionLine = L["ACTION_PORTAL"]
+    elseif step.type == "walk" or step.type == "travel" then
+        actionLine = L["ACTION_TRAVEL"]
+    elseif step.type == "boat" then
+        actionLine = L["ACTION_BOAT"]
+    elseif step.type == "zeppelin" then
+        actionLine = L["ACTION_ZEPPELIN"]
+    elseif step.type == "tram" then
+        actionLine = L["ACTION_TRAM"]
+    elseif step.type == "flight" then
+        actionLine = L["ACTION_FLY"]
+    else
+        actionLine = step.action or L["UNKNOWN"]
     end
 
     -- Add cooldown indication for teleport steps
@@ -743,11 +775,17 @@ function UI:BuildStepActionText(step)
         local cdInfo = QR.CooldownTracker:GetCooldown(step.teleportID, step.sourceType)
         if cdInfo and cdInfo.remaining and cdInfo.remaining > 0 then
             local cdStr = QR.CooldownTracker:FormatTime(cdInfo.remaining)
-            actionText = C.ERROR_RED .. actionText .. " (" .. L["COOLDOWN_SHORT"] .. ": " .. cdStr .. ")" .. C.R
+            actionLine = C.ERROR_RED .. actionLine .. " (" .. L["COOLDOWN_SHORT"] .. ": " .. cdStr .. ")" .. C.R
         end
     end
 
-    return actionText
+    -- Line 2: destination + travel time
+    destLine = dest
+    if step.time and QR.CooldownTracker then
+        destLine = destLine .. "  " .. C.GRAY .. QR.CooldownTracker:FormatTime(step.time) .. C.R
+    end
+
+    return actionLine, destLine
 end
 
 --- Set up the Nav button for a step (creates or reuses, configures click/tooltip)
@@ -758,10 +796,11 @@ function UI:SetupStepNavButton(stepFrame, step)
     -- Reuse or create Nav button for setting waypoint to step destination
     local navButton = stepFrame.navButton
     if not navButton then
-        navButton = QR.CreateModernButton(stepFrame, 40, 18)
-        navButton:SetPoint("RIGHT", stepFrame, "RIGHT", -5, 0)
+        navButton = QR.CreateModernButton(stepFrame, 50, 22)
         stepFrame.navButton = navButton
     end
+    navButton:ClearAllPoints()
+    navButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -5, -4)
     ApplyButtonStyle(navButton, L["NAV"], "nav")
     navButton.stepTo = step.navTitle or step.to  -- Store navigation title
     navButton.destMapID = step.navMapID or step.destMapID  -- Store nav coordinates (from node for portals)
@@ -848,8 +887,8 @@ function UI:ConfigureStepUseButton(stepFrame, step)
     -- Cannot use SetParent/SetPoint to anchor secure frames to non-secure frames (WoW 11.x restriction)
     useButton:SetFrameStrata("DIALOG")
     useButton:SetFrameLevel(100)
-    useButton:SetSize(38, 22)
-    QR.SecureButtons:AttachOverlay(useButton, stepFrame, nil, -48)
+    useButton:SetSize(50, 22)
+    QR.SecureButtons:AttachOverlay(useButton, stepFrame, nil, -58)
 
     -- Create button text
     if not useButton.text then
@@ -939,12 +978,13 @@ function UI:ConfigureStepUseButton(stepFrame, step)
     return useButton
 end
 
---- Create a label for a single step
+--- Create a card-style label for a single route step
+-- Layout: 28×28 icon left, line 1 (action) + line 2 (destination) right of icon, buttons top-right
 -- @param index number The step index
 -- @param step table The step data
 -- @param yOffset number The vertical offset
 -- @param status string "completed", "current", or "upcoming"
--- @return FontString The created label
+-- @return Frame The created step frame
 function UI:CreateStepLabel(index, step, yOffset, status)
     local scrollChild = self.frame.scrollChild
 
@@ -959,15 +999,36 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     stepFrame.teleportID = step.teleportID
     stepFrame.sourceType = step.sourceType
 
-    -- Get icon for step type
-    local icon = STEP_ICONS[step.type] or STEP_ICONS.walk
-    local timeStr = ""
-    if step.time and QR.CooldownTracker then
-        timeStr = " |cFF888888(" .. QR.CooldownTracker:FormatTime(step.time) .. ")|r"
+    -- Current-step highlight: gold left border
+    local highlight = stepFrame.highlight
+    if not highlight then
+        highlight = stepFrame:CreateTexture(nil, "BACKGROUND")
+        highlight:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", 0, 0)
+        highlight:SetPoint("BOTTOMLEFT", stepFrame, "BOTTOMLEFT", 0, 0)
+        highlight:SetWidth(3)
+        highlight:SetColorTexture(1, 0.82, 0, 1)
+        stepFrame.highlight = highlight
     end
+    highlight:SetShown(status == "current")
 
-    -- Build action text with localized names and cooldown indication
-    local actionText = self:BuildStepActionText(step)
+    -- Step icon (28×28 Texture frame)
+    local iconTexture = stepFrame.iconTexture
+    if not iconTexture then
+        iconTexture = stepFrame:CreateTexture(nil, "ARTWORK")
+        iconTexture:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
+        iconTexture:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", 8, -10)
+        stepFrame.iconTexture = iconTexture
+    end
+    local iconPath = STEP_ICON_PATHS[step.type] or STEP_ICON_PATHS.walk
+    iconTexture:SetTexture(iconPath)
+    if status == "completed" then
+        iconTexture:SetDesaturated(true)
+        iconTexture:SetAlpha(0.6)
+    else
+        iconTexture:SetDesaturated(false)
+        iconTexture:SetAlpha(1.0)
+    end
+    iconTexture:Show()
 
     -- Set up Nav button for waypoint navigation
     local navButton = self:SetupStepNavButton(stepFrame, step)
@@ -975,44 +1036,64 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     -- Configure secure "Use" button for teleport steps
     local useButton = self:ConfigureStepUseButton(stepFrame, step)
 
-    -- Reuse or create the text label (shortened to make room for Nav button and Use button)
-    local label = stepFrame.label
-    if not label then
-        label = stepFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        label:SetPoint("LEFT", stepFrame, "LEFT", 5, 0)
-        label:SetJustifyH("LEFT")
-        stepFrame.label = label
+    -- Build card text (action line + destination line)
+    local actionLine, destLine = self:BuildStepCardTexts(step)
+
+    -- Line 1: step number + action text (right of icon, top-aligned)
+    local label1 = stepFrame.label
+    if not label1 then
+        label1 = stepFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        label1:SetJustifyH("LEFT")
+        stepFrame.label = label1
     end
+    label1:ClearAllPoints()
+    local textLeft = 8 + STEP_ICON_SIZE + 6  -- icon offset + icon size + gap
+    label1:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", textLeft, -6)
+    label1:SetPoint("RIGHT", navButton, "LEFT", -5, 0)
+    label1:SetWordWrap(true)
 
-    -- Update label anchor based on button presence
-    label:ClearAllPoints()
-    label:SetPoint("LEFT", stepFrame, "LEFT", 5, 0)
-    -- UseButton is an overlay on UIParent, so it doesn't take space in the layout
-    label:SetPoint("RIGHT", navButton, "LEFT", -5, 0)
-    label:SetWordWrap(true)
-
-    -- Apply route progress styling
-    local stepText = string_format("%d. %s %s%s", index, icon, actionText, timeStr)
+    -- Apply route progress styling to line 1
+    local stepPrefix = string_format("%d. ", index)
     if status == "completed" then
-        label:SetText(C.GRAY .. stepText .. C.R)
+        label1:SetText(C.GRAY .. stepPrefix .. actionLine .. C.R)
         stepFrame:SetAlpha(0.6)
     elseif status == "current" then
-        label:SetText(C.LIGHT_BLUE .. ">" .. C.R .. " " .. stepText)
+        label1:SetText(C.LIGHT_BLUE .. stepPrefix .. C.R .. actionLine)
         stepFrame:SetAlpha(1.0)
     else
-        label:SetText(stepText)
+        label1:SetText(stepPrefix .. actionLine)
         stepFrame:SetAlpha(1.0)
     end
-    label:Show()
+    label1:Show()
 
-    -- Dynamic height: grow the step frame if text wraps to multiple lines
-    local textHeight = label:GetStringHeight()
-    if textHeight then
-        local actualHeight = math_max(STEP_HEIGHT, textHeight + 8)
-        stepFrame:SetHeight(actualHeight)
+    -- Line 2: destination + travel time (below line 1, muted color)
+    local label2 = stepFrame.label2
+    if not label2 then
+        label2 = stepFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        label2:SetJustifyH("LEFT")
+        stepFrame.label2 = label2
     end
+    label2:ClearAllPoints()
+    label2:SetPoint("TOPLEFT", label1, "BOTTOMLEFT", 0, -2)
+    label2:SetPoint("RIGHT", navButton, "LEFT", -5, 0)
+    label2:SetWordWrap(true)
 
-    -- Enable mouse for nav button clicks (tooltip is on the icon/use button only)
+    -- Destination line styling
+    if status == "completed" then
+        label2:SetText(C.GRAY .. ARROW_RIGHT .. " " .. destLine .. C.R)
+    else
+        label2:SetText(C.GRAY .. ARROW_RIGHT .. " " .. C.R .. destLine)
+    end
+    label2:Show()
+
+    -- Dynamic height: grow the step frame if text wraps
+    local line1Height = label1:GetStringHeight() or 14
+    local line2Height = label2:GetStringHeight() or 12
+    local totalTextHeight = line1Height + line2Height + 2 -- 2px gap between lines
+    local actualHeight = math_max(STEP_HEIGHT, totalTextHeight + 16) -- 16px total vertical padding
+    stepFrame:SetHeight(actualHeight)
+
+    -- Enable mouse for nav button clicks
     stepFrame:EnableMouse(true)
 
     return stepFrame
@@ -1031,6 +1112,9 @@ function UI:ReleaseStepLabelFrame(stepFrame)
 
     -- Hide child elements (but keep them for reuse)
     if stepFrame.label then stepFrame.label:Hide() end
+    if stepFrame.label2 then stepFrame.label2:Hide() end
+    if stepFrame.iconTexture then stepFrame.iconTexture:Hide() end
+    if stepFrame.highlight then stepFrame.highlight:Hide() end
     if stepFrame.navButton then
         stepFrame.navButton:Hide()
         stepFrame.navButton:SetScript("OnClick", nil)

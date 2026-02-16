@@ -349,6 +349,7 @@ local function CreateMockTexture(parent)
     function tex:SetAllPoints() end
     function tex:Show() self._shown = true end
     function tex:Hide() self._shown = false end
+    function tex:SetShown(show) if show then self:Show() else self:Hide() end end
     function tex:IsShown() return self._shown end
     function tex:SetTexCoord() end
     function tex:SetVertexColor() end
@@ -456,6 +457,9 @@ local function CreateMockFrame(frameType, name, parent, template)
             self._scripts["OnShow"](self)
         end
     end
+    function frame:SetShown(show)
+        if show then self:Show() else self:Hide() end
+    end
     function frame:Hide()
         local wasShown = self._shown
         self._shown = false
@@ -465,6 +469,7 @@ local function CreateMockFrame(frameType, name, parent, template)
     end
     function frame:IsShown() return self._shown end
     function frame:IsVisible() return self._shown end
+    function frame:IsMouseOver() return self._isMouseOver or false end
     function frame:SetParent(p) self._parent = p end
     function frame:GetParent() return self._parent end
     function frame:GetLeft() return 0 end
@@ -612,7 +617,9 @@ local function CreateMockFrame(frameType, name, parent, template)
     function frame:GetText() return self._text or "" end
     function frame:HighlightText() end
     function frame:SetFocus() end
+    function frame:HasFocus() return self._hasFocus or false end
     function frame:ClearFocus()
+        self._hasFocus = false
         if self._scripts and self._scripts["OnEditFocusLost"] then
             self._scripts["OnEditFocusLost"](self)
         end

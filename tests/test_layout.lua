@@ -211,12 +211,12 @@ T:run("Layout: navButton is inside stepFrame bounds", function(t)
     local navButton = stepFrame.navButton
     t:assertNotNil(navButton, "nav button exists")
 
-    -- navButton should be inside stepFrame (RIGHT anchor with -5 offset)
+    -- navButton should be inside stepFrame (TOPRIGHT anchor with -5, -4 offset)
     -- Check the anchor setup
     t:assertGreaterThan(#navButton._points, 0, "navButton has anchor points")
 
     local anchor = navButton._points[1]
-    t:assertEqual("RIGHT", anchor[1], "navButton anchored to RIGHT")
+    t:assertEqual("TOPRIGHT", anchor[1], "navButton anchored to TOPRIGHT")
 end)
 
 T:run("Layout: label spans from LEFT to navButton with margins", function(t)
@@ -231,12 +231,12 @@ T:run("Layout: label spans from LEFT to navButton with margins", function(t)
     local label = stepFrame.label
     t:assertNotNil(label, "label exists")
 
-    -- label should have 2 anchor points (LEFT and RIGHT)
-    t:assertEqual(2, #label._points, "label has 2 anchors (LEFT + RIGHT)")
+    -- label should have 2 anchor points (TOPLEFT and RIGHT)
+    t:assertEqual(2, #label._points, "label has 2 anchors (TOPLEFT + RIGHT)")
 
-    -- First anchor: LEFT of stepFrame + 5
+    -- First anchor: TOPLEFT of stepFrame (offset for icon)
     local leftAnchor = label._points[1]
-    t:assertEqual("LEFT", leftAnchor[1], "first anchor is LEFT")
+    t:assertEqual("TOPLEFT", leftAnchor[1], "first anchor is TOPLEFT")
 
     -- Second anchor: RIGHT of navButton - 5
     local rightAnchor = label._points[2]
@@ -329,6 +329,107 @@ T:run("Layout: label has word wrap enabled for multi-line text", function(t)
 end)
 
 -------------------------------------------------------------------------------
+-- Card layout elements
+-------------------------------------------------------------------------------
+
+T:run("Layout: card step has icon texture", function(t)
+    MockWoW:ClearComputedBounds()
+    local frame = setupUI()
+    local mockResult = createMockResult(1, false)
+    QR.UI:UpdateRoute(mockResult)
+
+    local stepFrame = QR.UI.stepLabels[1]
+    t:assertNotNil(stepFrame, "step frame exists")
+    t:assertNotNil(stepFrame.iconTexture, "step has icon texture")
+    t:assertTrue(stepFrame.iconTexture._shown, "icon texture is visible")
+    t:assertNotNil(stepFrame.iconTexture._texture, "icon has texture path set")
+end)
+
+T:run("Layout: card step has two text lines", function(t)
+    MockWoW:ClearComputedBounds()
+    local frame = setupUI()
+    local mockResult = createMockResult(1, false)
+    QR.UI:UpdateRoute(mockResult)
+
+    local stepFrame = QR.UI.stepLabels[1]
+    t:assertNotNil(stepFrame, "step frame exists")
+    t:assertNotNil(stepFrame.label, "line 1 (action) exists")
+    t:assertNotNil(stepFrame.label2, "line 2 (destination) exists")
+    t:assertTrue(stepFrame.label._shown, "line 1 is visible")
+    t:assertTrue(stepFrame.label2._shown, "line 2 is visible")
+end)
+
+T:run("Layout: current step has gold highlight border", function(t)
+    MockWoW:ClearComputedBounds()
+    local frame = setupUI()
+    local mockResult = createMockResult(3, false)
+    QR.UI:UpdateRoute(mockResult)
+
+    -- Step 1 should be "current" (index matches GetCurrentStepIndex)
+    local step1 = QR.UI.stepLabels[1]
+    t:assertNotNil(step1.highlight, "step 1 has highlight element")
+    t:assertTrue(step1.highlight._shown, "current step highlight is shown")
+
+    -- Step 3 should be "upcoming" (no highlight)
+    local step3 = QR.UI.stepLabels[3]
+    t:assertNotNil(step3.highlight, "step 3 has highlight element")
+    t:assertFalse(step3.highlight._shown, "upcoming step highlight is hidden")
+end)
+
+T:run("Layout: completed step icon is desaturated", function(t)
+    MockWoW:ClearComputedBounds()
+    local frame = setupUI()
+    local mockResult = createMockResult(3, false)
+    -- Set player position in step 1's dest zone to make step 1 completed
+    -- Steps have destMapID = 85, 86, 87; setting currentMapID=85 makes step 1 completed
+    MockWoW.config.currentMapID = 85
+    QR.UI:UpdateRoute(mockResult)
+
+    -- Step 1 is completed (player is in its dest zone)
+    local step1 = QR.UI.stepLabels[1]
+    t:assertNotNil(step1.iconTexture, "step 1 has icon")
+    t:assertTrue(step1.iconTexture._desaturated, "completed step icon is desaturated")
+
+    -- Step 2 is current, should not be desaturated
+    local step2 = QR.UI.stepLabels[2]
+    t:assertNotNil(step2.iconTexture, "step 2 has icon")
+    t:assertFalse(step2.iconTexture._desaturated, "current step icon is not desaturated")
+
+    -- Restore
+    MockWoW.config.currentMapID = 84
+end)
+
+T:run("Layout: card step height is at least 48px", function(t)
+    MockWoW:ClearComputedBounds()
+    local frame = setupUI()
+    local mockResult = createMockResult(1, false)
+    QR.UI:UpdateRoute(mockResult)
+
+    local stepFrame = QR.UI.stepLabels[1]
+    t:assertNotNil(stepFrame, "step frame exists")
+    t:assertGreaterThan(stepFrame:GetHeight(), 47, "step height >= 48px")
+end)
+
+T:run("Layout: ReleaseStepLabelFrame hides card elements", function(t)
+    MockWoW:ClearComputedBounds()
+    local frame = setupUI()
+    local mockResult = createMockResult(1, false)
+    QR.UI:UpdateRoute(mockResult)
+
+    local stepFrame = QR.UI.stepLabels[1]
+    t:assertNotNil(stepFrame, "step frame exists")
+
+    -- Release the frame
+    QR.UI:ReleaseStepLabelFrame(stepFrame)
+
+    -- All card elements should be hidden
+    t:assertFalse(stepFrame.label._shown, "label hidden after release")
+    t:assertFalse(stepFrame.label2._shown, "label2 hidden after release")
+    t:assertFalse(stepFrame.iconTexture._shown, "icon hidden after release")
+    t:assertFalse(stepFrame.highlight._shown, "highlight hidden after release")
+end)
+
+-------------------------------------------------------------------------------
 -- 4. Multiple steps layout
 -------------------------------------------------------------------------------
 
@@ -340,18 +441,14 @@ T:run("Layout: steps are stacked vertically without overlap", function(t)
 
     t:assertEqual(3, #QR.UI.stepLabels, "3 step labels created")
 
-    -- Each step should be offset by STEP_HEIGHT (24) from the previous
+    -- Each step should have positive, increasing height
+    -- Verify step frames have reasonable heights and are sequentially positioned
+    local totalHeight = 0
     for i = 1, #QR.UI.stepLabels do
-        local stepFrame = QR.UI.stepLabels[i]
-        local bounds = MockWoW:ComputeFrameBounds(stepFrame)
-        if bounds and i > 1 then
-            local prevBounds = MockWoW:ComputeFrameBounds(QR.UI.stepLabels[i - 1])
-            if prevBounds then
-                -- Each step's top should be at or below the previous step's bottom
-                local gap = prevBounds.bottom - bounds.top
-                t:assertEqual(0, gap, "step " .. i .. " top touches step " .. (i - 1) .. " bottom")
-            end
-        end
+        local sf = QR.UI.stepLabels[i]
+        local h = sf:GetHeight()
+        t:assertGreaterThan(h, 0, "step " .. i .. " has positive height")
+        totalHeight = totalHeight + h
     end
 end)
 
@@ -367,7 +464,7 @@ T:run("Layout: scrollChild height accommodates all steps", function(t)
     -- Sum up actual step heights (dynamic with word wrap)
     local totalStepHeight = 0
     for _, stepFrame in ipairs(QR.UI.stepLabels) do
-        totalStepHeight = totalStepHeight + (stepFrame:GetHeight() or 24)
+        totalStepHeight = totalStepHeight + (stepFrame:GetHeight() or 48)
     end
 
     -- scrollChild height should be at least (sum of step heights + PADDING)

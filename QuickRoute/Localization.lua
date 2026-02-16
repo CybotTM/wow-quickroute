@@ -115,6 +115,11 @@ L["ACTION_FLY"] = "Fly"
 L["ACTION_PORTAL"] = "Portal"
 L["ACTION_HEARTHSTONE"] = "Hearthstone"
 L["ACTION_USE_TELEPORT"] = "Use %s to teleport to %s"
+L["ACTION_USE"] = "Use %s"
+L["ACTION_BOAT"] = "Boat"
+L["ACTION_ZEPPELIN"] = "Zeppelin"
+L["ACTION_TRAM"] = "Tram"
+L["ACTION_TRAVEL"] = "Travel"
 L["COOLDOWN_SHORT"] = "CD"
 
 -- Step Descriptions (used in route display)
@@ -408,6 +413,11 @@ if GetLocale() == "deDE" then
     L["ACTION_PORTAL"] = "Portal"
     L["ACTION_HEARTHSTONE"] = "Ruhestein"
     L["ACTION_USE_TELEPORT"] = "%s benutzen um nach %s zu teleportieren"
+    L["ACTION_USE"] = "%s benutzen"
+    L["ACTION_BOAT"] = "Schiff"
+    L["ACTION_ZEPPELIN"] = "Zeppelin"
+    L["ACTION_TRAM"] = "Tram"
+    L["ACTION_TRAVEL"] = "Reisen"
     L["COOLDOWN_SHORT"] = "AZ"
 
     -- Step Descriptions
@@ -700,6 +710,11 @@ if GetLocale() == "frFR" then
     L["ACTION_PORTAL"] = "Portail"
     L["ACTION_HEARTHSTONE"] = "Pierre de foyer"
     L["ACTION_USE_TELEPORT"] = "Utiliser %s pour se téléporter à %s"
+    L["ACTION_USE"] = "Utiliser %s"
+    L["ACTION_BOAT"] = "Bateau"
+    L["ACTION_ZEPPELIN"] = "Zeppelin"
+    L["ACTION_TRAM"] = "Tram"
+    L["ACTION_TRAVEL"] = "Voyager"
     L["COOLDOWN_SHORT"] = "RA"
 
     -- Step Descriptions
@@ -993,6 +1008,11 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["ACTION_PORTAL"] = "Portal"
     L["ACTION_HEARTHSTONE"] = "Piedra de hogar"
     L["ACTION_USE_TELEPORT"] = "Usar %s para teletransportarse a %s"
+    L["ACTION_USE"] = "Usar %s"
+    L["ACTION_BOAT"] = "Barco"
+    L["ACTION_ZEPPELIN"] = "Zepelín"
+    L["ACTION_TRAM"] = "Tranvía"
+    L["ACTION_TRAVEL"] = "Viajar"
     L["COOLDOWN_SHORT"] = "RE"
 
     -- Step Descriptions
@@ -1285,6 +1305,11 @@ if GetLocale() == "ptBR" then
     L["ACTION_PORTAL"] = "Portal"
     L["ACTION_HEARTHSTONE"] = "Pedra de regresso"
     L["ACTION_USE_TELEPORT"] = "Usar %s para se teletransportar para %s"
+    L["ACTION_USE"] = "Usar %s"
+    L["ACTION_BOAT"] = "Barco"
+    L["ACTION_ZEPPELIN"] = "Zepelim"
+    L["ACTION_TRAM"] = "Metrô"
+    L["ACTION_TRAVEL"] = "Viajar"
     L["COOLDOWN_SHORT"] = "REC"
 
     -- Step Descriptions
@@ -1577,6 +1602,11 @@ if GetLocale() == "ruRU" then
     L["ACTION_PORTAL"] = "Портал"
     L["ACTION_HEARTHSTONE"] = "Камень возвращения"
     L["ACTION_USE_TELEPORT"] = "Использовать %s для телепортации в %s"
+    L["ACTION_USE"] = "Использовать %s"
+    L["ACTION_BOAT"] = "Корабль"
+    L["ACTION_ZEPPELIN"] = "Дирижабль"
+    L["ACTION_TRAM"] = "Трамвай"
+    L["ACTION_TRAVEL"] = "Путешествие"
     L["COOLDOWN_SHORT"] = "ПЗ"
 
     -- Step Descriptions
@@ -1869,6 +1899,11 @@ if GetLocale() == "koKR" then
     L["ACTION_PORTAL"] = "차원문"
     L["ACTION_HEARTHSTONE"] = "귀환석"
     L["ACTION_USE_TELEPORT"] = "%s을(를) 사용하여 %s(으)로 순간이동"
+    L["ACTION_USE"] = "%s 사용"
+    L["ACTION_BOAT"] = "배"
+    L["ACTION_ZEPPELIN"] = "비행선"
+    L["ACTION_TRAM"] = "지하철"
+    L["ACTION_TRAVEL"] = "여행"
     L["COOLDOWN_SHORT"] = "재사용"
 
     -- Step Descriptions
@@ -2161,6 +2196,11 @@ if GetLocale() == "zhCN" then
     L["ACTION_PORTAL"] = "传送门"
     L["ACTION_HEARTHSTONE"] = "炉石"
     L["ACTION_USE_TELEPORT"] = "使用 %s 传送到 %s"
+    L["ACTION_USE"] = "使用 %s"
+    L["ACTION_BOAT"] = "船"
+    L["ACTION_ZEPPELIN"] = "飞艇"
+    L["ACTION_TRAM"] = "矿道地铁"
+    L["ACTION_TRAVEL"] = "旅行"
     L["COOLDOWN_SHORT"] = "冷却"
 
     -- Step Descriptions
@@ -2453,6 +2493,11 @@ if GetLocale() == "zhTW" then
     L["ACTION_PORTAL"] = "傳送門"
     L["ACTION_HEARTHSTONE"] = "爐石"
     L["ACTION_USE_TELEPORT"] = "使用 %s 傳送到 %s"
+    L["ACTION_USE"] = "使用 %s"
+    L["ACTION_BOAT"] = "船"
+    L["ACTION_ZEPPELIN"] = "飛艇"
+    L["ACTION_TRAM"] = "乘坐地鐵"
+    L["ACTION_TRAVEL"] = "旅行"
     L["COOLDOWN_SHORT"] = "冷卻"
 
     -- Step Descriptions
@@ -2745,6 +2790,11 @@ if GetLocale() == "itIT" then
     L["ACTION_PORTAL"] = "Portale"
     L["ACTION_HEARTHSTONE"] = "Pietra del ritorno"
     L["ACTION_USE_TELEPORT"] = "Usa %s per teletrasportarti a %s"
+    L["ACTION_USE"] = "Usa %s"
+    L["ACTION_BOAT"] = "Nave"
+    L["ACTION_ZEPPELIN"] = "Zeppelin"
+    L["ACTION_TRAM"] = "Tram"
+    L["ACTION_TRAVEL"] = "Viaggio"
     L["COOLDOWN_SHORT"] = "RIC"
 
     -- Step Descriptions
