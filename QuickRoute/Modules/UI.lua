@@ -834,7 +834,7 @@ function UI:SetupStepNavButton(stepFrame, step)
         stepFrame.navButton = navButton
     end
     navButton:ClearAllPoints()
-    navButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -5, -10)
+    navButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -3, -10)
     navButton.stepTo = step.navTitle or step.to  -- Store navigation title
     navButton.destMapID = step.navMapID or step.destMapID  -- Store nav coordinates (from node for portals)
     navButton.destX = step.navX or step.destX
@@ -922,7 +922,7 @@ function UI:ConfigureStepUseButton(stepFrame, step)
     useButton:SetFrameLevel(100)
     useButton:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
     -- Overlay left of Nav button at same vertical as step icon
-    QR.SecureButtons:AttachOverlay(useButton, stepFrame, nil, -STEP_ICON_SIZE - 8)
+    QR.SecureButtons:AttachOverlay(useButton, stepFrame, nil, -STEP_ICON_SIZE - 5)
 
     -- Hide text label (icon-only button)
     if useButton.text then
@@ -1074,8 +1074,10 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     end
     label1:ClearAllPoints()
     local textLeft = 8 + STEP_ICON_SIZE + 6  -- icon offset + icon size + gap
+    -- When useButton is present, leave room for both buttons (use + nav)
+    local textRightOffset = useButton and (-(STEP_ICON_SIZE + 6)) or -4
     label1:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", textLeft, -6)
-    label1:SetPoint("RIGHT", navButton, "LEFT", -5, 0)
+    label1:SetPoint("RIGHT", navButton, "LEFT", textRightOffset, 0)
     label1:SetWordWrap(true)
 
     -- Apply route progress styling to line 1
@@ -1101,7 +1103,7 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     end
     label2:ClearAllPoints()
     label2:SetPoint("TOPLEFT", label1, "BOTTOMLEFT", 0, -2)
-    label2:SetPoint("RIGHT", navButton, "LEFT", -5, 0)
+    label2:SetPoint("RIGHT", navButton, "LEFT", textRightOffset, 0)
     label2:SetWordWrap(true)
 
     -- Destination line styling
