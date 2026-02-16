@@ -1049,13 +1049,19 @@ T:run("RefreshRoute uses saved destination when no active waypoint", function(t)
         "Subtitle shows saved destination name")
 end)
 
-T:run("RefreshRoute skips when _suppressRefresh is set", function(t)
+T:run("RefreshRoute uses _pendingPOIRoute when set", function(t)
     resetState()
     ensureUIFrame()
 
-    -- Set up a mappin waypoint that would normally be used
-    MockWoW.config.currentMapID = 84
-    setMapPinWaypoint(84, 0.5, 0.5)
+    -- Set up a pending POI route (as POIRouting would set before Show)
+    local fakeResult = {
+        waypoint = { mapID = 84, x = 0.5, y = 0.5, title = "Stormwind City" },
+        waypointSource = "map_click",
+        totalTime = 42,
+        steps = {{ action = "Test step", time = 42, type = "walk" }},
+    }
+    QR.UI._pendingPOIRoute = fakeResult
+    QR.UI.isCalculating = false
 
     -- Track whether GetActiveWaypoint is called
     local origGetActive = QR.WaypointIntegration.GetActiveWaypoint
@@ -1065,22 +1071,20 @@ T:run("RefreshRoute skips when _suppressRefresh is set", function(t)
         return origGetActive(self)
     end
 
-    QR.UI._suppressRefresh = true
-    QR.UI.isCalculating = false
-
     QR.UI:RefreshRoute()
 
-    -- GetActiveWaypoint should NOT have been called
-    t:assertFalse(getActiveCalled, "GetActiveWaypoint not called when _suppressRefresh is set")
-    -- isCalculating should remain false (we returned early)
-    t:assertFalse(QR.UI.isCalculating, "isCalculating remains false after suppressed RefreshRoute")
+    -- GetActiveWaypoint should NOT have been called (POI route used instead)
+    t:assertFalse(getActiveCalled, "GetActiveWaypoint not called when _pendingPOIRoute is set")
+    -- _pendingPOIRoute should be consumed (cleared)
+    t:assertNil(QR.UI._pendingPOIRoute, "_pendingPOIRoute consumed after RefreshRoute")
+    -- isCalculating should remain false (we returned early from POI path)
+    t:assertFalse(QR.UI.isCalculating, "isCalculating remains false after POI route used")
 
     -- Restore
-    QR.UI._suppressRefresh = nil
     QR.WaypointIntegration.GetActiveWaypoint = origGetActive
 end)
 
-T:run("RefreshRoute runs normally when _suppressRefresh is not set", function(t)
+T:run("RefreshRoute runs normally when _pendingPOIRoute is not set", function(t)
     resetState()
     ensureUIFrame()
 
@@ -1088,8 +1092,10 @@ T:run("RefreshRoute runs normally when _suppressRefresh is not set", function(t)
     MockWoW.config.currentMapID = 84
     setMapPinWaypoint(84, 0.5, 0.5)
 
-    QR.UI._suppressRefresh = nil
+    QR.UI._pendingPOIRoute = nil
     QR.UI.isCalculating = false
+    -- Ensure no locked destination interferes
+    QR.db.destinationLocked = false
 
     -- Track whether GetActiveWaypoint is called
     local origGetActive = QR.WaypointIntegration.GetActiveWaypoint
@@ -1102,11 +1108,90 @@ T:run("RefreshRoute runs normally when _suppressRefresh is not set", function(t)
     QR.UI:RefreshRoute()
 
     -- GetActiveWaypoint SHOULD be called (normal flow)
-    t:assertTrue(getActiveCalled, "GetActiveWaypoint called when _suppressRefresh is nil")
+    t:assertTrue(getActiveCalled, "GetActiveWaypoint called when _pendingPOIRoute is nil")
     t:assertFalse(QR.UI.isCalculating, "isCalculating reset after normal RefreshRoute")
 
     -- Restore
     QR.WaypointIntegration.GetActiveWaypoint = origGetActive
+end)
+
+T:run("RefreshRoute uses locked destination instead of active waypoint", function(t)
+    resetState()
+    ensureUIFrame()
+
+    -- Set up a quest waypoint that would normally be used
+    MockWoW.config.currentMapID = 84
+    setMapPinWaypoint(84, 0.5, 0.5)
+
+    -- Lock destination to a different location (e.g. Orgrimmar)
+    QR.db.destinationLocked = true
+    QR.db.lastDestination = { mapID = 85, x = 0.4, y = 0.6, title = "Orgrimmar" }
+    QR.UI._pendingPOIRoute = nil
+    QR.UI.isCalculating = false
+
+    -- Track whether GetActiveWaypoint is called
+    local origGetActive = QR.WaypointIntegration.GetActiveWaypoint
+    local getActiveCalled = false
+    QR.WaypointIntegration.GetActiveWaypoint = function(self)
+        getActiveCalled = true
+        return origGetActive(self)
+    end
+
+    QR.UI:RefreshRoute()
+
+    -- GetActiveWaypoint should NOT be called (locked destination takes priority)
+    t:assertFalse(getActiveCalled, "GetActiveWaypoint not called when destination is locked")
+    t:assertFalse(QR.UI.isCalculating, "isCalculating reset after locked route")
+
+    -- Restore
+    QR.WaypointIntegration.GetActiveWaypoint = origGetActive
+    QR.db.destinationLocked = false
+end)
+
+T:run("RefreshRoute refresh button clears destinationLocked", function(t)
+    resetState()
+    ensureUIFrame()
+
+    QR.db.destinationLocked = true
+    QR.db.lastDestination = { mapID = 85, x = 0.4, y = 0.6, title = "Orgrimmar" }
+
+    -- Simulate Refresh button click
+    local refreshBtn = QR.UI.frame.refreshButton
+    t:assertTrue(refreshBtn ~= nil, "Refresh button exists")
+    local onClick = refreshBtn:GetScript("OnClick")
+    t:assertTrue(onClick ~= nil, "Refresh button has OnClick handler")
+
+    -- Reset throttle and click the refresh button
+    QR.UI.lastRefreshClickTime = 0
+    QR.UI.isCalculating = false
+    onClick()
+
+    -- destinationLocked should be cleared
+    t:assertFalse(QR.db.destinationLocked, "destinationLocked cleared after Refresh click")
+end)
+
+T:run("_pendingPOIRoute sets destinationLocked", function(t)
+    resetState()
+    ensureUIFrame()
+
+    QR.db.destinationLocked = false
+
+    -- Set up a pending POI route
+    QR.UI._pendingPOIRoute = {
+        waypoint = { mapID = 84, x = 0.5, y = 0.5, title = "Stormwind City" },
+        waypointSource = "map_click",
+        totalTime = 42,
+        steps = {{ action = "Test step", time = 42, type = "walk" }},
+    }
+    QR.UI.isCalculating = false
+
+    QR.UI:RefreshRoute()
+
+    -- destinationLocked should be set
+    t:assertTrue(QR.db.destinationLocked, "destinationLocked set after consuming _pendingPOIRoute")
+
+    -- Clean up
+    QR.db.destinationLocked = false
 end)
 
 T:run("RefreshRoute clears route when no waypoint AND no saved destination", function(t)

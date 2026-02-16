@@ -80,33 +80,16 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
         QR.db.lastDestination = { mapID = mapID, x = x, y = y, title = zoneName }
     end
 
-    -- Show route in UI. We already have the calculated result, so suppress the
-    -- automatic RefreshRoute (which would re-route to the active mappin) and
-    -- call UpdateRoute directly with our pre-calculated result.
+    -- Show route in UI. Pass the pre-calculated result via _pendingPOIRoute so
+    -- RefreshRoute (triggered by SetActiveTab during Show) uses it directly
+    -- instead of re-calculating from the active waypoint.
     if QR.UI then
-        QR.UI._suppressRefresh = true
-        QR.UI:Show()
-        QR.UI._suppressRefresh = nil
-
         if result then
             result.waypoint = { mapID = mapID, x = x, y = y, title = zoneName }
             result.waypointSource = "map_click"
-
-            -- Update subtitle
-            local destZone = ""
-            if C_Map and C_Map.GetMapInfo then
-                local mapInfo = C_Map.GetMapInfo(mapID)
-                if mapInfo then destZone = " (" .. mapInfo.name .. ")" end
-            end
-            if QR.MainFrame and QR.MainFrame.subtitle and QR.MainFrame.activeTab == "route" then
-                QR.MainFrame.subtitle:SetText(zoneName .. destZone)
-            end
-
-            local ok, err = pcall(QR.UI.UpdateRoute, QR.UI, result)
-            if not ok then
-                QR:Error("UpdateRoute error: " .. tostring(err))
-            end
+            QR.UI._pendingPOIRoute = result
         end
+        QR.UI:Show()
     end
 end
 

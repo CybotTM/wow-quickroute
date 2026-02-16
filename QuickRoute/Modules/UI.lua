@@ -32,6 +32,7 @@ QR.UI = {
     lastRefreshClickTime = 0,
     -- State tracking
     isCalculating = false,
+    _pendingPOIRoute = nil,  -- Pre-computed route from POI routing (consumed by RefreshRoute)
 }
 
 local UI = QR.UI
@@ -328,6 +329,8 @@ function UI:CreateContent(parentFrame)
         if now - UI.lastRefreshClickTime < 1 then return end
         UI.lastRefreshClickTime = now
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        -- Clear locked destination so Refresh uses the active waypoint
+        if QR.db then QR.db.destinationLocked = false end
         UI:RefreshRoute()
     end)
     refreshButton:SetScript("OnEnter", function(self)
@@ -446,9 +449,36 @@ function UI:RefreshRoute()
         return
     end
 
-    -- POIRouting sets _suppressRefresh when it already has a calculated route
-    -- and will call UpdateRoute directly after Show() returns
-    if self._suppressRefresh then
+    -- Check for pre-calculated POI route (set by POIRouting before Show)
+    -- This is consumed once and avoids re-calculating from the active waypoint.
+    if self._pendingPOIRoute then
+        local poiResult = self._pendingPOIRoute
+        self._pendingPOIRoute = nil
+        self.isCalculating = true  -- Guard against re-entrancy via TomTom callbacks
+        QR:Debug("RefreshRoute: using pending POI route")
+
+        -- Lock this destination so quest waypoints don't override it
+        if QR.db then
+            QR.db.destinationLocked = true
+        end
+
+        -- Update subtitle with destination info
+        if poiResult.waypoint and QR.MainFrame and QR.MainFrame.subtitle
+            and QR.MainFrame.activeTab == "route" then
+            local destName = poiResult.waypoint.title or L["UNKNOWN"]
+            local destZone = ""
+            if poiResult.waypoint.mapID and C_Map and C_Map.GetMapInfo then
+                local mapInfo = C_Map.GetMapInfo(poiResult.waypoint.mapID)
+                if mapInfo then destZone = " (" .. mapInfo.name .. ")" end
+            end
+            QR.MainFrame.subtitle:SetText(destName .. destZone)
+        end
+
+        local ok, err = pcall(self.UpdateRoute, self, poiResult)
+        if not ok then
+            QR:Error("UpdateRoute error (POI): " .. tostring(err))
+        end
+        self.isCalculating = false
         return
     end
 
@@ -459,20 +489,39 @@ function UI:RefreshRoute()
 
     QR:Log("INFO", "RefreshRoute started")
 
-    -- First check if there's a waypoint at all
+    -- When the user has explicitly selected a destination (dropdown/map click),
+    -- use that instead of the active waypoint. This prevents quest waypoints
+    -- from constantly overriding the user's selection.
     local waypoint = nil
-    local wpSuccess, wpErr = pcall(function()
-        waypoint = QR.WaypointIntegration:GetActiveWaypoint()
-    end)
-
-    if not wpSuccess then
-        self.frame.timeLabel:SetText(C.ERROR_RED .. L["WAYPOINT_DETECTION_FAILED"] .. C.R)
-        if QR.MainFrame and QR.MainFrame.subtitle and QR.MainFrame.activeTab == "route" then
-            QR.MainFrame.subtitle:SetText(L["TAB_ROUTE"] or "Route")
+    if QR.db and QR.db.destinationLocked and QR.db.lastDestination then
+        local dest = QR.db.lastDestination
+        if dest.mapID and dest.x and dest.y then
+            waypoint = {
+                mapID = dest.mapID,
+                x = dest.x,
+                y = dest.y,
+                title = dest.title or "?",
+                source = "locked",
+            }
+            QR:Debug("RefreshRoute: using locked destination " .. (dest.title or "?"))
         end
-        QR:Error("Waypoint detection: " .. tostring(wpErr))
-        self:ResetCalculatingState()
-        return
+    end
+
+    -- Normal waypoint detection (when no locked destination)
+    if not waypoint then
+        local wpSuccess, wpErr = pcall(function()
+            waypoint = QR.WaypointIntegration:GetActiveWaypoint()
+        end)
+
+        if not wpSuccess then
+            self.frame.timeLabel:SetText(C.ERROR_RED .. L["WAYPOINT_DETECTION_FAILED"] .. C.R)
+            if QR.MainFrame and QR.MainFrame.subtitle and QR.MainFrame.activeTab == "route" then
+                QR.MainFrame.subtitle:SetText(L["TAB_ROUTE"] or "Route")
+            end
+            QR:Error("Waypoint detection: " .. tostring(wpErr))
+            self:ResetCalculatingState()
+            return
+        end
     end
 
     if not waypoint then
@@ -520,14 +569,14 @@ function UI:RefreshRoute()
 
     -- Now try to calculate path
     local success, errOrResult = pcall(function()
-        -- For saved destinations, calculate directly (no active waypoint to detect)
-        if waypoint.source == "saved" then
+        -- For saved/locked destinations, calculate directly (bypass waypoint detection)
+        if waypoint.source == "saved" or waypoint.source == "locked" then
             local calcResult = QR.PathCalculator:CalculatePath(
                 waypoint.mapID, waypoint.x, waypoint.y, waypoint.title
             )
             if calcResult then
                 calcResult.waypoint = waypoint
-                calcResult.waypointSource = "saved"
+                calcResult.waypointSource = waypoint.source
             end
             return calcResult
         end
@@ -1860,6 +1909,11 @@ function UI:Initialize()
         return
     end
     self.initialized = true
+
+    -- Clear stale destination lock from previous session
+    if QR.db then
+        QR.db.destinationLocked = false
+    end
 
     -- Create content inside MainFrame's route content area
     if QR.MainFrame then

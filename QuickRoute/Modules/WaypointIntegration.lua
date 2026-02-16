@@ -644,6 +644,8 @@ function WaypointIntegration:RegisterHooks()
             if event == "USER_WAYPOINT_UPDATED" then
                 -- Skip if QuickRoute itself is setting the waypoint (auto-waypoint / POI routing)
                 if WaypointIntegration._settingWaypoint then return end
+                -- User manually placed/removed a map pin: unlock any locked destination
+                if QR.db then QR.db.destinationLocked = false end
                 -- Map pin added/removed
                 if C_Map and C_Map.HasUserWaypoint and C_Map.HasUserWaypoint() then
                     WaypointIntegration:OnWaypointChanged()
