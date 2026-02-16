@@ -68,6 +68,7 @@ globals = {
     "GetFactionInfo",
     "SetPortraitToTexture",
     "PlaySound",
+    "Screenshot",
     "hooksecurefunc",
     "wipe",
     "GameTooltip",
@@ -128,6 +129,7 @@ globals = {
     "SLASH_QRDEBUGPATH1",
     "SLASH_QRSCAN1",
     "SLASH_QRTELEPORTS1",
+    "SLASH_QRSCREENSHOT1",
 
     -- Addon compartment functions (referenced in TOC)
     "QuickRoute_OnAddonCompartmentClick",
