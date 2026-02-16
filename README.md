@@ -31,13 +31,9 @@ A World of Warcraft addon that calculates and displays the shortest path to any 
 
 ## Screenshots
 
-| Route Panel | Teleport Panel |
-|:-----------:|:--------------:|
-| ![Route](screenshots/route-panel.png) | ![Teleports](screenshots/teleport-panel.png) |
-
-| Destination Search | Minimap Button |
-|:------------------:|:--------------:|
-| ![Search](screenshots/destination-search.png) | ![Minimap](screenshots/minimap-button.png) |
+| Route Panel | Teleport Panel | Quick Teleports |
+|:-----------:|:--------------:|:---------------:|
+| ![Route](screenshots/route-panel.png) | ![Teleports](screenshots/teleport-panel.png) | ![Quick Teleports](screenshots/destination-search.png) |
 
 ## Installation
 
