@@ -1,0 +1,16 @@
+name: Upload Localization
+
+on:
+  workflow_dispatch:
+
+jobs:
+  upload:
+    name: Upload to CurseForge
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload localization
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+        run: python3 scripts/export_localization.py --upload
