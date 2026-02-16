@@ -41,8 +41,6 @@ QR.Colors = {
 local BRAND_ICON = "Interface\\AddOns\\QuickRoute\\Textures\\logo"
 QR.LOGO_PATH = BRAND_ICON
 QR.LOGO_MINIMAP_PATH = "Interface\\AddOns\\QuickRoute\\Textures\\logo-minimap"
-local BRAND_COLOR = { r = 0.0, g = 0.8, b = 0.2 }
-
 --- Add QuickRoute branding footer to a GameTooltip.
 -- Call this just before GameTooltip:Show() in every tooltip handler.
 -- Adds a blank separator line + "QuickRoute — /qr" in brand color.
@@ -54,49 +52,6 @@ function QR.AddTooltipBranding(tooltip)
         "|cFF888888/qr|r", 1, 1, 1)
 end
 
---- Add a brand-colored accent border to a frame.
--- Creates a thin inner glow/border in the addon's brand color.
--- @param frame Frame The frame to add the accent to
--- @param thickness number Border thickness in pixels (default 1)
--- @return table The border textures { top, bottom, left, right }
-function QR.AddBrandAccent(frame, thickness)
-    if not frame then return end
-    thickness = thickness or 1
-
-    local borders = {}
-    local r, g, b, a = BRAND_COLOR.r, BRAND_COLOR.g, BRAND_COLOR.b, 0.6
-
-    -- Top border
-    borders.top = frame:CreateTexture(nil, "OVERLAY")
-    borders.top:SetColorTexture(r, g, b, a)
-    borders.top:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-    borders.top:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-    borders.top:SetHeight(thickness)
-
-    -- Bottom border
-    borders.bottom = frame:CreateTexture(nil, "OVERLAY")
-    borders.bottom:SetColorTexture(r, g, b, a)
-    borders.bottom:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
-    borders.bottom:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-    borders.bottom:SetHeight(thickness)
-
-    -- Left border
-    borders.left = frame:CreateTexture(nil, "OVERLAY")
-    borders.left:SetColorTexture(r, g, b, a)
-    borders.left:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
-    borders.left:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
-    borders.left:SetWidth(thickness)
-
-    -- Right border
-    borders.right = frame:CreateTexture(nil, "OVERLAY")
-    borders.right:SetColorTexture(r, g, b, a)
-    borders.right:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
-    borders.right:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
-    borders.right:SetWidth(thickness)
-
-    frame._brandBorders = borders
-    return borders
-end
 
 --- Add a small QuickRoute micro-icon to a button.
 -- Places a tiny map icon in the bottom-right corner for addon identification.

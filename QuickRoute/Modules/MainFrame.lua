@@ -101,9 +101,6 @@ function MainFrame:CreateFrame()
     })
     frame:SetBackdropColor(0.08, 0.08, 0.1, 0.95)
 
-    -- Brand accent border
-    QR.AddBrandAccent(frame, 1)
-
     -- Portrait header
     self.header = QR.CreatePortraitHeader(frame, {
         icon = QR.LOGO_PATH,

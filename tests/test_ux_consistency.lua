@@ -723,25 +723,6 @@ T:run("UX: MiniTeleportPanel OnHide resets isShowing", function(t)
 end)
 
 -------------------------------------------------------------------------------
--- 11. AddBrandAccent function
--------------------------------------------------------------------------------
-
-T:run("UX: AddBrandAccent function exists and works", function(t)
-    resetState()
-    t:assertNotNil(QR.AddBrandAccent, "QR.AddBrandAccent exists")
-    t:assertEqual(type(QR.AddBrandAccent), "function", "Is a function")
-
-    local mockFrame = CreateFrame("Frame", nil, UIParent)
-    local borders = QR.AddBrandAccent(mockFrame, 1)
-    t:assertNotNil(borders, "Returns border textures")
-    t:assertNotNil(mockFrame._brandBorders, "Frame gets _brandBorders field")
-end)
-
-T:run("UX: AddBrandAccent handles nil frame safely", function(t)
-    resetState()
-    QR.AddBrandAccent(nil)
-end)
-
 -------------------------------------------------------------------------------
 -- 12. Comprehensive: every module's tooltip pattern is correct
 -------------------------------------------------------------------------------

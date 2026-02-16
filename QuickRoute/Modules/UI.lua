@@ -1781,7 +1781,6 @@ function UI:CopyDebugToClipboard()
             insets = { left = 4, right = 4, top = 4, bottom = 4 }
         })
         f:SetBackdropColor(0.08, 0.08, 0.1, 0.95)
-        if QR.AddBrandAccent then QR.AddBrandAccent(f, 1) end
         f:SetMovable(true)
         f:SetClampedToScreen(true)
         f:EnableMouse(true)

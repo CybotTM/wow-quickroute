@@ -274,9 +274,6 @@ function QR.CreateStandardWindow(options)
     })
     frame:SetBackdropColor(0.08, 0.08, 0.1, 0.95)
 
-    -- Brand accent border
-    QR.AddBrandAccent(frame, 1)
-
     -- Title (simple gold text at top-left, no ornate header texture)
     local titleText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     titleText:SetPoint("TOPLEFT", 12, -10)
