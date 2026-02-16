@@ -1391,3 +1391,72 @@ T:run("BuildStepCardTexts falls back to step.to when localizedTo missing", funct
     t:assertTrue(actionLine:find("TestZone") ~= nil,
         "falls back to step.to when localizedTo is nil")
 end)
+
+-------------------------------------------------------------------------------
+-- /qrscreenshot command tests
+-------------------------------------------------------------------------------
+
+T:run("/qrscreenshot registers slash command", function(t)
+    t:assertNotNil(SlashCmdList["QRSCREENSHOT"], "QRSCREENSHOT handler exists")
+    t:assertEqual(SLASH_QRSCREENSHOT1, "/qrscreenshot", "slash alias registered")
+end)
+
+T:run("/qrscreenshot (no args) takes screenshot", function(t)
+    resetState()
+    ensureUIFrame()
+    MockWoW.config.screenshotsTaken = 0
+
+    SlashCmdList["QRSCREENSHOT"]("")
+
+    -- C_Timer.After executes immediately in mock
+    t:assertTrue(MockWoW.config.screenshotsTaken > 0,
+        "Screenshot() was called")
+end)
+
+T:run("/qrscreenshot route opens route tab and takes screenshot", function(t)
+    resetState()
+    ensureUIFrame()
+    MockWoW.config.screenshotsTaken = 0
+
+    SlashCmdList["QRSCREENSHOT"]("route")
+
+    t:assertTrue(QR.MainFrame.isShowing, "MainFrame is showing")
+    t:assertEqual(QR.MainFrame.activeTab, "route", "route tab active")
+    t:assertTrue(MockWoW.config.screenshotsTaken > 0,
+        "Screenshot() was called")
+end)
+
+T:run("/qrscreenshot teleport opens teleport tab", function(t)
+    resetState()
+    ensureUIFrame()
+
+    SlashCmdList["QRSCREENSHOT"]("teleport")
+
+    t:assertTrue(QR.MainFrame.isShowing, "MainFrame is showing")
+    t:assertEqual(QR.MainFrame.activeTab, "teleports", "teleports tab active")
+end)
+
+T:run("/qrscreenshot blocked in combat", function(t)
+    resetState()
+    ensureUIFrame()
+    MockWoW.config.inCombatLockdown = true
+    MockWoW.config.screenshotsTaken = 0
+
+    SlashCmdList["QRSCREENSHOT"]("route")
+
+    t:assertEqual(0, MockWoW.config.screenshotsTaken or 0,
+        "Screenshot() not called during combat")
+    MockWoW.config.inCombatLockdown = false
+end)
+
+T:run("/qrscreenshot all cycles through panels", function(t)
+    resetState()
+    ensureUIFrame()
+    MockWoW.config.screenshotsTaken = 0
+
+    SlashCmdList["QRSCREENSHOT"]("all")
+
+    -- C_Timer.After executes immediately in mock, so all 4 panels fire
+    t:assertTrue(MockWoW.config.screenshotsTaken >= 4,
+        "Screenshot() called for each panel")
+end)

@@ -1710,6 +1710,10 @@ function MockWoW:Install()
         return cfg.bindLocation
     end
 
+    _G.Screenshot = function()
+        cfg.screenshotsTaken = (cfg.screenshotsTaken or 0) + 1
+    end
+
     ---------------------------------------------------------------------------
     -- Misc WoW globals
     ---------------------------------------------------------------------------
