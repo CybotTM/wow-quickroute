@@ -93,11 +93,12 @@ def parse_localization(filepath):
 
 
 def to_cf_format(strings):
-    """Convert {key: value} dict to CurseForge import format."""
+    """Convert {key: value} dict to CurseForge Lua additive table format."""
     lines = []
     for key in sorted(strings.keys()):
-        # CF format: KEY=Value (no quotes)
-        lines.append(f"{key}={strings[key]}")
+        # Escape backslashes and double quotes in values for Lua string
+        value = strings[key].replace("\\", "\\\\").replace('"', '\\"')
+        lines.append(f'L["{key}"] = "{value}"')
     return "\n".join(lines)
 
 
@@ -154,6 +155,7 @@ def upload_to_curseforge(locales):
         metadata = json.dumps({
             "language": cf_locale,
             "namespace": "",
+            "format-type": "lua_additive_table",
             "missing-phrase-handling": "DeletePhrase" if is_default else "DoNothing",
         })
 
