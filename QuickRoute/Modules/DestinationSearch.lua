@@ -78,15 +78,54 @@ function DS:CollectResults(query)
     local cities = QR.CAPITAL_CITIES
     if cities then
         local cityList = {}
-        for name, data in pairs(cities) do
+        for englishName, data in pairs(cities) do
             if data.faction == "both" or data.faction == playerFaction then
-                if not isSearching or string_find(string_lower(name), queryLower, 1, true) then
+                -- Use localized city name from WoW API
+                local displayName = englishName
+                if data.mapID and C_Map and C_Map.GetMapInfo then
+                    local mapInfo = C_Map.GetMapInfo(data.mapID)
+                    if mapInfo and mapInfo.name then
+                        displayName = mapInfo.name
+                    end
+                end
+                -- Get continent/region as tag (localized via C_Map.GetMapInfo)
+                local regionTag = ""
+                local continentKey
+                if QR.GetContinentForZone and QR.Continents then
+                    continentKey = QR.GetContinentForZone(data.mapID)
+                    if continentKey and QR.Continents[continentKey] then
+                        local cData = QR.Continents[continentKey]
+                        -- Prefer localized continent name from WoW API
+                        if cData.continentMapID and C_Map and C_Map.GetMapInfo then
+                            local cInfo = C_Map.GetMapInfo(cData.continentMapID)
+                            if cInfo and cInfo.name then
+                                regionTag = cInfo.name
+                            end
+                        end
+                        -- Fallback to English name from data table
+                        if regionTag == "" then
+                            regionTag = cData.name or ""
+                        end
+                    end
+                end
+                -- Disambiguate cities with same localized name (e.g. two "Dalaran")
+                -- by appending the continent if the English key had a parenthetical
+                local paren = englishName:match("%b()")
+                if paren and regionTag ~= "" then
+                    displayName = displayName .. " (" .. regionTag .. ")"
+                end
+                -- Search matches both localized and English name
+                if not isSearching
+                    or string_find(string_lower(displayName), queryLower, 1, true)
+                    or string_find(string_lower(englishName), queryLower, 1, true)
+                    or string_find(string_lower(regionTag), queryLower, 1, true) then
                     table_insert(cityList, {
-                        name = name,
+                        name = displayName,
                         mapID = data.mapID,
                         x = data.x,
                         y = data.y,
                         faction = data.faction,
+                        tag = "|cFF88CC88" .. regionTag .. "|r",
                     })
                 end
             end
@@ -460,7 +499,7 @@ function DS:RefreshDropdown(query)
 
         if not self.collapsedSections["cities"] then
             for _, city in ipairs(results.cities) do
-                city.tag = ""  -- Section header provides category context
+                -- tag already set with continent/region in CollectResults
                 local _, newY2 = self:CreateResultRow(city, yOffset)
                 yOffset = newY2
                 totalRows = totalRows + 1
@@ -604,8 +643,7 @@ end
 function DS:SelectResult(entry)
     if not entry then return end
 
-    PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-
+    -- Note: PlaySound is already called by the row OnClick handler
     local mapID = entry.mapID or entry.zoneMapID
     if mapID and entry.x and entry.y and QR.POIRouting then
         QR.POIRouting:RouteToMapPosition(mapID, entry.x, entry.y)

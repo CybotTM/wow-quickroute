@@ -292,7 +292,7 @@ T:run("DestSearch: selecting city routes via POIRouting", function(t)
     QR.POIRouting.RouteToMapPosition = origRoute
 end)
 
-T:run("DestSearch: selecting plays sound", function(t)
+T:run("DestSearch: row OnClick plays sound", function(t)
     resetState()
     QR.DestinationSearch.frame = nil
     QR.DestinationSearch.isShowing = false
@@ -300,18 +300,21 @@ T:run("DestSearch: selecting plays sound", function(t)
     QR.DestinationSearch.rowPool = {}
     MockWoW.config.playedSounds = {}
 
+    -- Create dropdown so CreateResultRow works
+    local DS = QR.DestinationSearch
+    DS:CreateDropdown()
+
     local origRoute = QR.POIRouting.RouteToMapPosition
     QR.POIRouting.RouteToMapPosition = function() end
 
-    local DS = QR.DestinationSearch
-    DS:SelectResult({
-        name = "Stormwind City",
-        mapID = 84,
-        x = 0.4965,
-        y = 0.8725,
-    })
+    local entry = { name = "Stormwind City", mapID = 84, x = 0.4965, y = 0.8725, tag = "" }
+    local row = DS:CreateResultRow(entry, 0)
 
-    t:assertTrue(#MockWoW.config.playedSounds > 0, "Sound played on selection")
+    -- Simulate clicking the row (OnClick handler has PlaySound)
+    local onClick = row:GetScript("OnClick")
+    if onClick then onClick(row) end
+
+    t:assertTrue(#MockWoW.config.playedSounds > 0, "Sound played on row click")
     QR.POIRouting.RouteToMapPosition = origRoute
 end)
 
@@ -489,6 +492,36 @@ T:run("DestSearch: OnMouseDown toggles dropdown closed", function(t)
         searchBox._scripts["OnMouseDown"](searchBox)
     end
     t:assertFalse(QR.DestinationSearch.isShowing, "Dropdown closed after toggle click")
+end)
+
+T:run("DestSearch: OnMouseDown reopens dropdown when closed", function(t)
+    resetState()
+    QR.DestinationSearch.frame = nil
+    QR.DestinationSearch.isShowing = false
+    QR.DestinationSearch.rows = {}
+    QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.searchBox = nil
+
+    if QR.DungeonData then QR.DungeonData:Initialize() end
+
+    local parentFrame = CreateFrame("Frame", nil, UIParent)
+    parentFrame:SetSize(500, 400)
+    QR.UI.frame = nil
+    QR.UI:CreateContent(parentFrame)
+
+    local searchBox = parentFrame.searchBox
+    t:assertNotNil(searchBox, "searchBox exists")
+
+    -- Simulate: dropdown was previously closed
+    QR.DestinationSearch.isShowing = false
+
+    -- Click searchBox -> OnMouseDown should open dropdown
+    if searchBox._scripts["OnMouseDown"] then
+        searchBox._scripts["OnMouseDown"](searchBox)
+    end
+    t:assertTrue(QR.DestinationSearch.isShowing, "Dropdown opens on OnMouseDown when closed")
+    -- _suppressFocusOpen should be set to prevent OnEditFocusGained from double-opening
+    t:assertTrue(searchBox._suppressFocusOpen == true, "suppressFocusOpen set to prevent double-open")
 end)
 
 T:run("DestSearch: OnEditFocusGained does not reopen if already showing", function(t)
@@ -674,6 +707,80 @@ T:run("DestSearch: empty query does not alias-match services", function(t)
     -- Empty query should return ALL services (not filtered by alias)
     local results = QR.DestinationSearch:CollectResults("")
     t:assertTrue(#results.services >= 4, "All services returned for empty query")
+end)
+
+-------------------------------------------------------------------------------
+-- City Region Tags & Disambiguation
+-------------------------------------------------------------------------------
+
+T:run("DestSearch: cities have continent region tags", function(t)
+    resetState()
+    local DS = QR.DestinationSearch
+    local results = DS:CollectResults("")
+
+    -- Find Stormwind — should have Eastern Kingdoms tag
+    local sw = nil
+    for _, city in ipairs(results.cities) do
+        if city.name == "Stormwind City" then sw = city; break end
+    end
+    t:assertNotNil(sw, "Stormwind City found")
+    t:assertNotNil(sw.tag, "has tag field")
+    -- Tag should contain "Eastern Kingdoms" (localized mock name for mapID 13)
+    t:assertTrue(sw.tag:find("Eastern Kingdoms") ~= nil,
+        "Stormwind tag contains 'Eastern Kingdoms', got: " .. tostring(sw.tag))
+end)
+
+T:run("DestSearch: Dalaran entries are disambiguated by continent", function(t)
+    resetState()
+    local DS = QR.DestinationSearch
+    local results = DS:CollectResults("Dalaran")
+
+    local names = {}
+    for _, city in ipairs(results.cities) do
+        if city.name:find("Dalaran") then
+            table.insert(names, city.name)
+        end
+    end
+    t:assertTrue(#names >= 2, "At least 2 Dalaran entries, got " .. #names)
+    -- They must be different (disambiguated with continent)
+    if #names >= 2 then
+        t:assertTrue(names[1] ~= names[2],
+            "Dalaran entries are disambiguated: " .. names[1] .. " vs " .. names[2])
+    end
+end)
+
+T:run("DestSearch: searching by continent name finds cities", function(t)
+    resetState()
+    local DS = QR.DestinationSearch
+    -- "Eastern Kingdoms" should match cities on that continent
+    local results = DS:CollectResults("Eastern Kingdoms")
+    t:assertTrue(#results.cities > 0,
+        "Searching 'Eastern Kingdoms' finds cities, got " .. #results.cities)
+    -- Should find Stormwind (Alliance, on Eastern Kingdoms)
+    local found = false
+    for _, city in ipairs(results.cities) do
+        if city.name == "Stormwind City" then found = true; break end
+    end
+    t:assertTrue(found, "Stormwind found when searching by continent")
+end)
+
+T:run("DestSearch: city region tag uses localized continent name from C_Map", function(t)
+    resetState()
+    local DS = QR.DestinationSearch
+    local results = DS:CollectResults("")
+
+    -- Valdrakken is on Dragon Isles (continentMapID 1978)
+    local vk = nil
+    for _, city in ipairs(results.cities) do
+        if city.name == "Valdrakken" then vk = city; break end
+    end
+    t:assertNotNil(vk, "Valdrakken found")
+    -- Tag should use C_Map.GetMapInfo(1978).name
+    local expected = MockWoW.mapDatabase[1978] and MockWoW.mapDatabase[1978].name or ""
+    if expected ~= "" then
+        t:assertTrue(vk.tag:find(expected) ~= nil,
+            "Valdrakken tag contains '" .. expected .. "', got: " .. tostring(vk.tag))
+    end
 end)
 
 T:run("DestSearch: new localization keys exist for all service messages", function(t)
