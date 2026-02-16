@@ -85,7 +85,6 @@ def main():
     parser.add_argument(
         "--name", "-n",
         help=f"Output name (one of: {', '.join(VALID_NAMES)})",
-        required=True,
     )
     parser.add_argument(
         "--crop",
@@ -108,7 +107,7 @@ def main():
             print(f"  {n}.png  [{exists}]")
         return
 
-    if args.name not in VALID_NAMES:
+    if not args.name or args.name not in VALID_NAMES:
         print(f"Error: --name must be one of: {', '.join(VALID_NAMES)}")
         sys.exit(1)
 
