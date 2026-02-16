@@ -11,6 +11,9 @@
 # Local config / secrets
 config/
 
+# Build output
+dist/
+
 # Temporary analysis files
 COVERAGE_ANALYSIS.md
 CRITICAL_GAPS.txt

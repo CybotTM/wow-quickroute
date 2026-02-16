@@ -82,6 +82,11 @@ jobs:
             --title "QuickRoute $GITHUB_REF_NAME" \
             --notes-file /tmp/release-notes.md
 
+      - name: Upload localization to CurseForge
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+        run: python3 scripts/export_localization.py --upload
+
       - name: Upload to CurseForge
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
