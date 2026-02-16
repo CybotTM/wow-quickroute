@@ -19,6 +19,14 @@ local MIN_TRAVEL_TIME = 5         -- Minimum travel time in seconds
 local DEBUG_DISPLAY_LIMIT = 5     -- Max items to show in debug output
 local PLAYER_NODE = "Player Location"  -- Graph node key for player's current position
 
+-- Step types that transport the player to a specific location (for AbsorbRedundantWalkSteps)
+-- flight intentionally excluded: flight masters deposit at a fixed point,
+-- so the subsequent walk to the actual destination is meaningful, not redundant
+local TRANSPORT_TYPES = {
+    teleport = true, portal = true, boat = true,
+    zeppelin = true, tram = true,
+}
+
 --- Safe wrapper for TravelTime:EstimateWalkingTime with fallback
 -- @param x1 number Source X coordinate (0-1)
 -- @param y1 number Source Y coordinate (0-1)
@@ -647,6 +655,10 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     -- Collapse consecutive walk/travel steps
     steps = self:CollapseConsecutiveSteps(steps)
 
+    -- Absorb walk steps that follow a transport to the same map
+    -- e.g. "Teleport to Stormwind" + "Go to Stormwind" → just "Teleport to Stormwind"
+    steps = self:AbsorbRedundantWalkSteps(steps)
+
     return {
         path = path,
         totalTime = totalTime,
@@ -973,6 +985,7 @@ function PathCalculator:BuildSteps(path, edges)
         -- Get localized display name for destination node
         -- Uses C_Map API to resolve zone and continent names for the player's locale
         local localizedToNode = GetLocalizedNodeDisplayName(toNode, toNodeData and toNodeData.mapID)
+        step.localizedTo = localizedToNode
 
         -- Build action description based on edge type
         local L = QR.L
@@ -1078,6 +1091,47 @@ function PathCalculator:CollapseConsecutiveSteps(steps)
         i = i + 1
     end
     return collapsed
+end
+
+--- Absorb walk/travel steps that follow a transport step to the same map.
+-- "Teleport to Stormwind" + "Go to Stormwind" becomes just "Teleport to Stormwind"
+-- with the walk time added and destination coordinates updated.
+-- @param steps table Array of step objects
+-- @return table Steps with redundant walk steps absorbed
+function PathCalculator:AbsorbRedundantWalkSteps(steps)
+    if not steps or #steps <= 1 then return steps end
+
+    local result = {}
+    local i = 1
+    while i <= #steps do
+        local step = steps[i]
+        local nextStep = steps[i + 1]
+
+        -- Check: transport step followed by walk/travel to the same map
+        if nextStep and TRANSPORT_TYPES[step.type]
+            and (nextStep.type == "walk" or nextStep.type == "travel")
+            and step.destMapID and nextStep.destMapID
+            and step.destMapID == nextStep.destMapID then
+            -- Absorb the walk into the transport step
+            local merged = {}
+            for k, v in pairs(step) do merged[k] = v end
+            merged.time = (step.time or 0) + (nextStep.time or 0)
+            -- Use the walk step's final destination and navigation coordinates
+            merged.destX = nextStep.destX or step.destX
+            merged.destY = nextStep.destY or step.destY
+            merged.to = nextStep.to or step.to
+            merged.localizedTo = nextStep.localizedTo or step.localizedTo
+            merged.navX = nextStep.navX or nextStep.destX or step.navX
+            merged.navY = nextStep.navY or nextStep.destY or step.navY
+            merged.navTitle = nextStep.navTitle or step.navTitle
+            table_insert(result, merged)
+            i = i + 2  -- skip the absorbed walk step
+        else
+            table_insert(result, step)
+            i = i + 1
+        end
+    end
+    return result
 end
 
 -------------------------------------------------------------------------------

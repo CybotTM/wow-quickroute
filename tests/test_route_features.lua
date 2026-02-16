@@ -157,6 +157,86 @@ T:run("CollapseSteps: collapsed step preserves destination fields", function(t)
 end)
 
 -------------------------------------------------------------------------------
+-- 1b. AbsorbRedundantWalkSteps (walk after transport to same map)
+-------------------------------------------------------------------------------
+
+T:run("AbsorbWalk: teleport + walk to same map absorbed", function(t)
+    resetState()
+    local steps = {
+        { type = "teleport", from = "A", to = "Stormwind", time = 10, destMapID = 84, destX = 0.5, destY = 0.5,
+          action = "Teleport to Stormwind", localizedTo = "Sturmwind", navTitle = "TeleportNav", navX = 0.5, navY = 0.5 },
+        { type = "walk", from = "Stormwind", to = "SW-dest", time = 20, destMapID = 84, destX = 0.6, destY = 0.7,
+          action = "Go to Stormwind", localizedTo = "SW-Ziel", navTitle = "WalkNav", navX = 0.6, navY = 0.7 },
+    }
+    local result = QR.PathCalculator:AbsorbRedundantWalkSteps(steps)
+    t:assertEqual(1, #result, "Walk absorbed into teleport")
+    t:assertEqual("teleport", result[1].type, "Type stays teleport")
+    t:assertEqual(30, result[1].time, "Time combined: 10 + 20 = 30")
+    t:assertEqual(0.6, result[1].destX, "destX from walk step")
+    t:assertEqual(0.7, result[1].destY, "destY from walk step")
+    t:assertEqual("SW-dest", result[1].to, "to from walk step")
+    -- Verify localized/nav fields are preserved from walk step
+    t:assertEqual("SW-Ziel", result[1].localizedTo, "localizedTo from walk step")
+    t:assertEqual("WalkNav", result[1].navTitle, "navTitle from walk step")
+    t:assertEqual(0.6, result[1].navX, "navX from walk step")
+    t:assertEqual(0.7, result[1].navY, "navY from walk step")
+end)
+
+T:run("AbsorbWalk: portal + walk to same map absorbed", function(t)
+    resetState()
+    local steps = {
+        { type = "portal", from = "SW-portal", to = "Ironforge", time = 5, destMapID = 87, destX = 0.3, destY = 0.4, action = "Portal to Ironforge" },
+        { type = "walk", from = "Ironforge", to = "IF-dest", time = 15, destMapID = 87, destX = 0.5, destY = 0.6, action = "Go to Ironforge" },
+    }
+    local result = QR.PathCalculator:AbsorbRedundantWalkSteps(steps)
+    t:assertEqual(1, #result, "Walk absorbed into portal")
+    t:assertEqual(20, result[1].time, "Time combined: 5 + 15 = 20")
+end)
+
+T:run("AbsorbWalk: transport + walk to DIFFERENT map NOT absorbed", function(t)
+    resetState()
+    local steps = {
+        { type = "teleport", from = "A", to = "Stormwind", time = 10, destMapID = 84, destX = 0.5, destY = 0.5, action = "Teleport to Stormwind" },
+        { type = "walk", from = "Stormwind", to = "B", time = 20, destMapID = 85, destX = 0.3, destY = 0.4, action = "Go to Orgrimmar" },
+    }
+    local result = QR.PathCalculator:AbsorbRedundantWalkSteps(steps)
+    t:assertEqual(2, #result, "Walk to different map NOT absorbed")
+end)
+
+T:run("AbsorbWalk: walk + walk NOT absorbed (only transport + walk)", function(t)
+    resetState()
+    local steps = {
+        { type = "walk", from = "A", to = "B", time = 10, destMapID = 84, destX = 0.5, destY = 0.5, action = "Go to B" },
+        { type = "walk", from = "B", to = "C", time = 20, destMapID = 84, destX = 0.6, destY = 0.7, action = "Go to C" },
+    }
+    local result = QR.PathCalculator:AbsorbRedundantWalkSteps(steps)
+    t:assertEqual(2, #result, "Consecutive walks not absorbed by this pass")
+end)
+
+T:run("AbsorbWalk: multi-step chain with two absorptions", function(t)
+    resetState()
+    local steps = {
+        { type = "teleport", from = "A", to = "SW", time = 10, destMapID = 84, action = "Teleport to Stormwind" },
+        { type = "walk", from = "SW", to = "SW-portal", time = 5, destMapID = 84, action = "Go to Stormwind" },
+        { type = "portal", from = "SW-portal", to = "IF", time = 3, destMapID = 87, action = "Portal to Ironforge" },
+        { type = "walk", from = "IF", to = "IF-dest", time = 8, destMapID = 87, action = "Go to Ironforge" },
+    }
+    local result = QR.PathCalculator:AbsorbRedundantWalkSteps(steps)
+    t:assertEqual(2, #result, "Both walks absorbed: 4 steps → 2")
+    t:assertEqual("teleport", result[1].type, "First is teleport")
+    t:assertEqual(15, result[1].time, "Teleport absorbed walk: 10 + 5")
+    t:assertEqual("portal", result[2].type, "Second is portal")
+    t:assertEqual(11, result[2].time, "Portal absorbed walk: 3 + 8")
+end)
+
+T:run("AbsorbWalk: nil/empty input handled", function(t)
+    resetState()
+    t:assertNil(QR.PathCalculator:AbsorbRedundantWalkSteps(nil), "nil returns nil")
+    local result = QR.PathCalculator:AbsorbRedundantWalkSteps({})
+    t:assertEqual(0, #result, "Empty returns empty")
+end)
+
+-------------------------------------------------------------------------------
 -- 2. Max Cooldown Filter
 -------------------------------------------------------------------------------
 
