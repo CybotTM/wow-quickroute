@@ -8,6 +8,9 @@
 !images/logo.png
 !QuickRoute/Textures/*.tga
 
+# Local config / secrets
+config/
+
 # Temporary analysis files
 COVERAGE_ANALYSIS.md
 CRITICAL_GAPS.txt
