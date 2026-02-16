@@ -57,7 +57,7 @@ local BUTTON_HEIGHT = 22
 local BUTTON_PADDING = 4
 local BUTTON_MIN_WIDTH = 50
 local CACHE_MAX_SIZE = 100  -- Max entries in item/spell caches (LRU eviction)
-local ARROW_RIGHT = "\226\134\146"  -- UTF-8 → (U+2192)
+local ARROW_PREFIX = ">"  -- Prefix for destination line (UTF-8 arrows don't render in WoW fonts)
 
 --- Helper to calculate button width based on text (for localization flexibility)
 -- @param text string The button label text
@@ -887,44 +887,38 @@ function UI:ConfigureStepUseButton(stepFrame, step)
     -- Cannot use SetParent/SetPoint to anchor secure frames to non-secure frames (WoW 11.x restriction)
     useButton:SetFrameStrata("DIALOG")
     useButton:SetFrameLevel(100)
-    useButton:SetSize(50, 22)
-    QR.SecureButtons:AttachOverlay(useButton, stepFrame, nil, -58)
+    useButton:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
+    -- Overlay left of Nav button at same vertical as step icon
+    QR.SecureButtons:AttachOverlay(useButton, stepFrame, nil, -STEP_ICON_SIZE - 8)
 
-    -- Create button text
-    if not useButton.text then
-        useButton.text = useButton:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        useButton.text:SetPoint("CENTER")
+    -- Hide text label (icon-only button)
+    if useButton.text then
+        useButton.text:SetText("")
     end
-    useButton.text:SetText(L["USE"])
 
-    -- Style the button with modern flat textures
+    -- Style as icon button: suppress default button chrome
     if not useButton.styled then
         if useButton.SetNormalTexture then
-            useButton:SetNormalTexture("Interface\\Buttons\\WHITE8x8")
-            local nt = useButton.GetNormalTexture and useButton:GetNormalTexture()
-            if nt and nt.SetVertexColor then nt:SetVertexColor(0.12, 0.12, 0.15, 0.9) end
+            useButton:SetNormalTexture("")
         end
         if useButton.SetHighlightTexture then
             useButton:SetHighlightTexture("Interface\\Buttons\\WHITE8x8")
             local ht = useButton.GetHighlightTexture and useButton:GetHighlightTexture()
-            if ht and ht.SetVertexColor then ht:SetVertexColor(1, 1, 1, 0.08) end
+            if ht and ht.SetVertexColor then ht:SetVertexColor(1, 1, 1, 0.15) end
         end
         if useButton.SetPushedTexture then
-            useButton:SetPushedTexture("Interface\\Buttons\\WHITE8x8")
-            local pt = useButton.GetPushedTexture and useButton:GetPushedTexture()
-            if pt and pt.SetVertexColor then pt:SetVertexColor(0.08, 0.08, 0.1, 0.95) end
+            useButton:SetPushedTexture("")
         end
         useButton.styled = true
     end
 
-    -- Create icon texture showing the item/spell icon
+    -- Icon filling the full button (same size as step icon)
     if not useButton.iconTexture then
         useButton.iconTexture = useButton:CreateTexture(nil, "OVERLAY")
-        useButton.iconTexture:SetPoint("LEFT", useButton, "LEFT", 2, 0)
+        useButton.iconTexture:SetAllPoints(useButton)
     end
-    useButton.iconTexture:SetSize(20, 20)
 
-    -- Get and set the icon
+    -- Get and set the item/spell icon
     local iconID = nil
     if step.sourceType == "spell" then
         local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(step.teleportID)
@@ -938,17 +932,16 @@ function UI:ConfigureStepUseButton(stepFrame, step)
     if iconID then
         useButton.iconTexture:SetTexture(iconID)
         useButton.iconTexture:Show()
-        -- Adjust text position to make room for icon
-        useButton.text:SetPoint("CENTER", 8, 0)
     else
-        useButton.iconTexture:Hide()
-        useButton.text:SetPoint("CENTER", 0, 0)
+        -- Fallback: show the step type icon
+        local fallbackPath = STEP_ICON_PATHS[step.type] or STEP_ICON_PATHS.teleport
+        useButton.iconTexture:SetTexture(fallbackPath)
+        useButton.iconTexture:Show()
     end
 
     -- Set initial button appearance (always active here;
     -- combat state is already checked at the top of this block)
     useButton:SetAlpha(1.0)
-    useButton.text:SetTextColor(1, 0.82, 0)  -- Gold color
 
     -- Set up tooltip
     useButton:SetScript("OnEnter", function(self)
@@ -1080,9 +1073,9 @@ function UI:CreateStepLabel(index, step, yOffset, status)
 
     -- Destination line styling
     if status == "completed" then
-        label2:SetText(C.GRAY .. ARROW_RIGHT .. " " .. destLine .. C.R)
+        label2:SetText(C.GRAY .. ARROW_PREFIX .. " " .. destLine .. C.R)
     else
-        label2:SetText(C.GRAY .. ARROW_RIGHT .. " " .. C.R .. destLine)
+        label2:SetText(C.GRAY .. ARROW_PREFIX .. " " .. C.R .. destLine)
     end
     label2:Show()
 
