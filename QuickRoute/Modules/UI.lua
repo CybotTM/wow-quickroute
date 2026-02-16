@@ -2125,5 +2125,71 @@ SlashCmdList["QR"] = function(msg)
         print("  /qr priority mappin|quest|tomtom - Set waypoint source priority")
         print("  /qr autowaypoint - Toggle auto-waypoint for first route step")
         print("  /qr ah|bank|void|craft - Route to nearest service")
+        print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
+    end
+end
+
+-------------------------------------------------------------------------------
+-- Screenshot Command
+-------------------------------------------------------------------------------
+
+local SCREENSHOT_PANELS = { "route", "teleport", "search", "mini" }
+
+local function TakeScreenshotOfPanel(panel)
+    if not QR.MainFrame then return end
+
+    if panel == "route" then
+        QR.MainFrame:Show("route")
+    elseif panel == "teleport" then
+        QR.MainFrame:Show("teleports")
+    elseif panel == "search" then
+        QR.MainFrame:Show("teleports")
+        -- Open search dropdown if available
+        if QR.TeleportPanel and QR.TeleportPanel.searchBox then
+            QR.TeleportPanel.searchBox:SetFocus()
+        end
+    elseif panel == "mini" then
+        if QR.MiniTeleportPanel and QR.MiniTeleportPanel.Show then
+            QR.MiniTeleportPanel:Show()
+        end
+    end
+
+    -- Short delay for frame render, then capture
+    C_Timer.After(0.2, function()
+        Screenshot()
+        QR:Print(L["SCREENSHOT_SAVED"])
+    end)
+end
+
+SLASH_QRSCREENSHOT1 = "/qrscreenshot"
+SlashCmdList["QRSCREENSHOT"] = function(msg)
+    local L = QR.L
+    local cmd = msg and msg:lower():trim() or ""
+
+    if InCombatLockdown() then
+        QR:Print(L["SCREENSHOT_COMBAT"])
+        return
+    end
+
+    if cmd == "all" then
+        QR:Print(L["SCREENSHOT_CYCLING"])
+        for i, panel in ipairs(SCREENSHOT_PANELS) do
+            C_Timer.After((i - 1) * 1.5, function()
+                TakeScreenshotOfPanel(panel)
+            end)
+        end
+        C_Timer.After(#SCREENSHOT_PANELS * 1.5, function()
+            QR:Print(L["SCREENSHOT_DONE"])
+        end)
+    elseif cmd == "route" or cmd == "teleport" or cmd == "search" or cmd == "mini" then
+        TakeScreenshotOfPanel(cmd)
+    elseif cmd == "" then
+        -- Screenshot current state
+        C_Timer.After(0.2, function()
+            Screenshot()
+            QR:Print(L["SCREENSHOT_SAVED"])
+        end)
+    else
+        QR:Print("Usage: /qrscreenshot [all|route|teleport|search|mini]")
     end
 end

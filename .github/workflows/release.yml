@@ -64,7 +64,7 @@ jobs:
           mkdir -p dist/QuickRoute
           # Copy addon files (exclude dev/test files)
           cp -r QuickRoute/Core QuickRoute/Data QuickRoute/Modules QuickRoute/Utils dist/QuickRoute/
-          cp QuickRoute/QuickRoute.lua QuickRoute/QuickRoute.toc QuickRoute/Localization.lua QuickRoute/embeds.xml dist/QuickRoute/
+          cp QuickRoute/QuickRoute.lua QuickRoute/QuickRoute.toc QuickRoute/Localization.lua dist/QuickRoute/
           # Copy pkgmeta for CurseForge packager compatibility
           cp QuickRoute/.pkgmeta dist/QuickRoute/
           # Create zip
@@ -81,6 +81,14 @@ jobs:
             "dist/QuickRoute-${VERSION}.zip" \
             --title "QuickRoute $GITHUB_REF_NAME" \
             --notes-file /tmp/release-notes.md
+
+      - name: Attach screenshots to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for img in screenshots/*.png screenshots/*.jpg; do
+            [ -f "$img" ] && gh release upload "$GITHUB_REF_NAME" "$img" --clobber || true
+          done
 
       - name: Upload localization to CurseForge
         env:

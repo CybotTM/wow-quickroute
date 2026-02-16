@@ -315,6 +315,12 @@ L["TAB_ROUTE"] = "Route"
 L["TAB_TELEPORTS"] = "Teleports"
 L["FILTER_OPTIONS"] = "Filter Options"
 
+-- Screenshot command
+L["SCREENSHOT_SAVED"] = "Screenshot saved to Screenshots folder"
+L["SCREENSHOT_COMBAT"] = "Cannot take screenshots during combat"
+L["SCREENSHOT_CYCLING"] = "Cycling through panels for screenshots..."
+L["SCREENSHOT_DONE"] = "All screenshots captured!"
+
 -------------------------------------------------------------------------------
 -- German translations (deDE)
 -------------------------------------------------------------------------------
@@ -617,6 +623,12 @@ if GetLocale() == "deDE" then
     L["TAB_ROUTE"] = "Route"
     L["TAB_TELEPORTS"] = "Teleporte"
     L["FILTER_OPTIONS"] = "Filteroptionen"
+
+    -- Screenshot command
+    L["SCREENSHOT_SAVED"] = "Screenshot im Screenshots-Ordner gespeichert"
+    L["SCREENSHOT_COMBAT"] = "Screenshots können im Kampf nicht erstellt werden"
+    L["SCREENSHOT_CYCLING"] = "Durchlaufe Panels für Screenshots..."
+    L["SCREENSHOT_DONE"] = "Alle Screenshots erstellt!"
 end
 
 -------------------------------------------------------------------------------
@@ -921,6 +933,12 @@ if GetLocale() == "frFR" then
     L["TAB_ROUTE"] = "Itinéraire"
     L["TAB_TELEPORTS"] = "Téléports"
     L["FILTER_OPTIONS"] = "Options de filtre"
+
+    -- Screenshot command
+    L["SCREENSHOT_SAVED"] = "Capture d'écran enregistrée dans le dossier Screenshots"
+    L["SCREENSHOT_COMBAT"] = "Impossible de capturer en combat"
+    L["SCREENSHOT_CYCLING"] = "Parcours des panneaux pour captures d'écran..."
+    L["SCREENSHOT_DONE"] = "Toutes les captures d'écran effectuées !"
 end
 
 -------------------------------------------------------------------------------
@@ -1226,6 +1244,12 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["TAB_ROUTE"] = "Ruta"
     L["TAB_TELEPORTS"] = "Teletransportes"
     L["FILTER_OPTIONS"] = "Opciones de filtro"
+
+    -- Screenshot command
+    L["SCREENSHOT_SAVED"] = "Captura guardada en la carpeta Screenshots"
+    L["SCREENSHOT_COMBAT"] = "No se pueden tomar capturas en combate"
+    L["SCREENSHOT_CYCLING"] = "Recorriendo paneles para capturas..."
+    L["SCREENSHOT_DONE"] = "¡Todas las capturas realizadas!"
 end
 
 -------------------------------------------------------------------------------
@@ -1530,6 +1554,12 @@ if GetLocale() == "ptBR" then
     L["TAB_ROUTE"] = "Rota"
     L["TAB_TELEPORTS"] = "Teletransportes"
     L["FILTER_OPTIONS"] = "Opções de filtro"
+
+    -- Screenshot command
+    L["SCREENSHOT_SAVED"] = "Captura salva na pasta Screenshots"
+    L["SCREENSHOT_COMBAT"] = "Não é possível capturar em combate"
+    L["SCREENSHOT_CYCLING"] = "Percorrendo painéis para capturas..."
+    L["SCREENSHOT_DONE"] = "Todas as capturas realizadas!"
 end
 
 -------------------------------------------------------------------------------
@@ -1834,6 +1864,12 @@ if GetLocale() == "ruRU" then
     L["TAB_ROUTE"] = "Маршрут"
     L["TAB_TELEPORTS"] = "Телепорты"
     L["FILTER_OPTIONS"] = "Параметры фильтра"
+
+    -- Screenshot command
+    L["SCREENSHOT_SAVED"] = "Скриншот сохранён в папку Screenshots"
+    L["SCREENSHOT_COMBAT"] = "Нельзя делать скриншоты в бою"
+    L["SCREENSHOT_CYCLING"] = "Переключение панелей для скриншотов..."
+    L["SCREENSHOT_DONE"] = "Все скриншоты сделаны!"
 end
 
 -------------------------------------------------------------------------------
@@ -2138,6 +2174,12 @@ if GetLocale() == "koKR" then
     L["TAB_ROUTE"] = "경로"
     L["TAB_TELEPORTS"] = "텔레포트"
     L["FILTER_OPTIONS"] = "필터 옵션"
+
+    -- Screenshot command
+    L["SCREENSHOT_SAVED"] = "스크린샷이 Screenshots 폴더에 저장되었습니다"
+    L["SCREENSHOT_COMBAT"] = "전투 중에는 스크린샷을 찍을 수 없습니다"
+    L["SCREENSHOT_CYCLING"] = "스크린샷을 위해 패널 순환 중..."
+    L["SCREENSHOT_DONE"] = "모든 스크린샷 완료!"
 end
 
 -------------------------------------------------------------------------------
@@ -2442,6 +2484,12 @@ if GetLocale() == "zhCN" then
     L["TAB_ROUTE"] = "路线"
     L["TAB_TELEPORTS"] = "传送"
     L["FILTER_OPTIONS"] = "筛选选项"
+
+    -- Screenshot command
+    L["SCREENSHOT_SAVED"] = "截图已保存至Screenshots文件夹"
+    L["SCREENSHOT_COMBAT"] = "战斗中无法截图"
+    L["SCREENSHOT_CYCLING"] = "正在循环面板截图..."
+    L["SCREENSHOT_DONE"] = "所有截图已完成！"
 end
 
 -------------------------------------------------------------------------------
@@ -2746,6 +2794,12 @@ if GetLocale() == "zhTW" then
     L["TAB_ROUTE"] = "路線"
     L["TAB_TELEPORTS"] = "傳送"
     L["FILTER_OPTIONS"] = "篩選選項"
+
+    -- Screenshot command
+    L["SCREENSHOT_SAVED"] = "截圖已儲存至Screenshots資料夾"
+    L["SCREENSHOT_COMBAT"] = "戰鬥中無法截圖"
+    L["SCREENSHOT_CYCLING"] = "正在循環面板截圖..."
+    L["SCREENSHOT_DONE"] = "所有截圖已完成！"
 end
 
 -------------------------------------------------------------------------------
@@ -3050,4 +3104,10 @@ if GetLocale() == "itIT" then
     L["TAB_ROUTE"] = "Percorso"
     L["TAB_TELEPORTS"] = "Teletrasporti"
     L["FILTER_OPTIONS"] = "Opzioni filtro"
+
+    -- Screenshot command
+    L["SCREENSHOT_SAVED"] = "Screenshot salvato nella cartella Screenshots"
+    L["SCREENSHOT_COMBAT"] = "Impossibile acquisire screenshot in combattimento"
+    L["SCREENSHOT_CYCLING"] = "Scorrimento pannelli per screenshot..."
+    L["SCREENSHOT_DONE"] = "Tutti gli screenshot acquisiti!"
 end

@@ -6,6 +6,8 @@
 *.jpg
 *.jpeg
 !images/logo.png
+!screenshots/*.png
+!screenshots/*.jpg
 !QuickRoute/Textures/*.tga
 
 # Local config / secrets

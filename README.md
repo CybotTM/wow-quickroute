@@ -29,6 +29,16 @@ A World of Warcraft addon that calculates and displays the shortest path to any 
 - **POI Click Routing:** Ctrl+Right-click on the world map to route to any location
 - **Configurable Settings:** Max cooldown filter, loading screen time, window scale
 
+## Screenshots
+
+| Route Panel | Teleport Panel |
+|:-----------:|:--------------:|
+| ![Route](screenshots/route-panel.png) | ![Teleports](screenshots/teleport-panel.png) |
+
+| Destination Search | Minimap Button |
+|:------------------:|:--------------:|
+| ![Search](screenshots/destination-search.png) | ![Minimap](screenshots/minimap-button.png) |
+
 ## Installation
 
 ### Via CurseForge/WoWUp (Recommended)
@@ -36,11 +46,7 @@ Install from CurseForge or WoWUp - dependencies are resolved automatically.
 
 ### Manual Installation
 1. Download and extract to `World of Warcraft\_retail_\Interface\AddOns\QuickRoute`
-2. Download required libraries to the `Libs` folder:
-   - [LibStub](https://www.curseforge.com/wow/addons/libstub)
-   - [CallbackHandler-1.0](https://www.curseforge.com/wow/addons/callbackhandler)
-   - [HereBeDragons-2.0](https://www.curseforge.com/wow/addons/herebedragons-2-0)
-3. Restart WoW or `/reload`
+2. Restart WoW or `/reload`
 
 ## Usage
 
@@ -65,13 +71,8 @@ Install from CurseForge or WoWUp - dependencies are resolved automatically.
 
 ## Dependencies
 
-**Required:**
-- LibStub
-- CallbackHandler-1.0
-
 **Optional:**
-- TomTom (for waypoint integration)
-- HereBeDragons-2.0 (for enhanced coordinate handling)
+- [TomTom](https://www.curseforge.com/wow/addons/tomtom) (for waypoint integration)
 
 ## Supported Teleports
 

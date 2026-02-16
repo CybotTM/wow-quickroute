@@ -15,9 +15,6 @@
 ## AddonCompartmentFuncOnEnter: QuickRoute_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: QuickRoute_OnAddonCompartmentLeave
 
-# Libraries
-embeds.xml
-
 # Localization
 Localization.lua
 
