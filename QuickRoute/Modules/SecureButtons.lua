@@ -83,7 +83,12 @@ local function UpdateAllOverlays(self, elapsed)
                         newX = right + info.xOffset
                         anchor = "RIGHT"
                     end
-                    local newY = (top + bottom) / 2
+                    local newY
+                    if info.yFromTop then
+                        newY = top - info.yFromTop
+                    else
+                        newY = (top + bottom) / 2
+                    end
                     if info.lastX ~= newX or info.lastY ~= newY then
                         info.lastX = newX
                         info.lastY = newY
@@ -470,7 +475,8 @@ end
 -- @param scrollFrame Frame|nil Optional scroll frame for clipping (hide when row scrolls out)
 -- @param xOffset number|nil Offset from anchor edge of target (default: -5)
 -- @param anchorLeft boolean|nil If true, anchor button's LEFT to target's LEFT + xOffset
-function SecureButtons:AttachOverlay(btn, targetFrame, scrollFrame, xOffset, anchorLeft)
+-- @param yFromTop number|nil If set, position button center at this offset from target's top edge
+function SecureButtons:AttachOverlay(btn, targetFrame, scrollFrame, xOffset, anchorLeft, yFromTop)
     if not btn or not targetFrame then
         return
     end
@@ -490,6 +496,7 @@ function SecureButtons:AttachOverlay(btn, targetFrame, scrollFrame, xOffset, anc
         scrollFrame = scrollFrame or nil,
         xOffset = xOffset,
         anchorLeft = anchorLeft or false,
+        yFromTop = yFromTop or nil,
         lastX = nil,
         lastY = nil,
     }

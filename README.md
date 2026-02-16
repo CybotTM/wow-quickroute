@@ -35,6 +35,8 @@ A World of Warcraft addon that calculates and displays the shortest path to any 
 |:-----------:|:--------------:|:---------------:|
 | ![Route](screenshots/route-panel.png) | ![Teleports](screenshots/teleport-panel.png) | ![Quick Teleports](screenshots/destination-search.png) |
 
+![Route with Quest Tracker](screenshots/quest-teleport.png)
+
 ## Installation
 
 ### Via CurseForge/WoWUp (Recommended)

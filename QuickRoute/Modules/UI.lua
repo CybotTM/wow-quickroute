@@ -921,8 +921,9 @@ function UI:ConfigureStepUseButton(stepFrame, step)
     useButton:SetFrameStrata("DIALOG")
     useButton:SetFrameLevel(100)
     useButton:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
-    -- Overlay left of Nav button at same vertical as step icon
-    QR.SecureButtons:AttachOverlay(useButton, stepFrame, nil, -STEP_ICON_SIZE - 5)
+    -- Overlay left of Nav button, vertically aligned with nav button (top -10, half icon = 14)
+    local navCenterFromTop = 10 + STEP_ICON_SIZE / 2
+    QR.SecureButtons:AttachOverlay(useButton, stepFrame, nil, -STEP_ICON_SIZE - 5, false, navCenterFromTop)
 
     -- Hide text label (icon-only button)
     if useButton.text then
