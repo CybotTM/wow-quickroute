@@ -782,15 +782,33 @@ function UI:BuildStepCardTexts(step)
         end
     end
 
-    -- Line 2: coordinates + travel time
+    -- Line 2: location context + coordinates + travel time
+    -- Use nav coordinates (where the player physically walks to)
     local parts = {}
-    if step.destX and step.destY then
-        table_insert(parts, string_format("%.1f, %.1f", step.destX * 100, step.destY * 100))
+    local navMapID = step.navMapID or step.destMapID
+    if navMapID and C_Map and C_Map.GetMapInfo then
+        local mapInfo = C_Map.GetMapInfo(navMapID)
+        if mapInfo and mapInfo.name then
+            local locParts = { mapInfo.name }
+            -- Add continent name from parent map
+            if mapInfo.parentMapID then
+                local parentInfo = C_Map.GetMapInfo(mapInfo.parentMapID)
+                if parentInfo and parentInfo.name then
+                    table_insert(locParts, parentInfo.name)
+                end
+            end
+            table_insert(parts, table_concat(locParts, " / "))
+        end
+    end
+    local navX = step.navX or step.destX
+    local navY = step.navY or step.destY
+    if navX and navY then
+        table_insert(parts, string_format("%.1f, %.1f", navX * 100, navY * 100))
     end
     if step.time and QR.CooldownTracker then
         table_insert(parts, QR.CooldownTracker:FormatTime(step.time))
     end
-    detailLine = table.concat(parts, "  ·  ")
+    detailLine = table_concat(parts, "  ·  ")
 
     return actionLine, detailLine
 end

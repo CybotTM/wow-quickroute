@@ -1229,6 +1229,9 @@ T:run("BuildStepCardTexts returns action and destination for teleport", function
         to = "Stormwind",
         localizedTo = "Sturmwind",
         time = 180,
+        navMapID = 84,  -- Stormwind City
+        navX = 0.452,
+        navY = 0.631,
         destX = 0.452,
         destY = 0.631,
     }
@@ -1236,9 +1239,11 @@ T:run("BuildStepCardTexts returns action and destination for teleport", function
     local actionLine, destLine = QR.UI:BuildStepCardTexts(step)
     t:assertNotNil(actionLine, "action line not nil")
     t:assertNotNil(destLine, "dest line not nil")
-    -- Action line should contain destination name (new: included via _TO format)
+    -- Action line should contain destination name (via _TO format)
     t:assertTrue(actionLine:find("Sturmwind") ~= nil, "action line contains localized destination")
-    -- Detail line should contain coordinates
+    -- Detail line should contain zone name, continent, and coordinates
+    t:assertTrue(destLine:find("Stormwind City") ~= nil, "dest line contains zone name")
+    t:assertTrue(destLine:find("Eastern Kingdoms") ~= nil, "dest line contains continent name")
     t:assertTrue(destLine:find("45.2") ~= nil, "dest line contains X coordinate")
     t:assertTrue(destLine:find("63.1") ~= nil, "dest line contains Y coordinate")
 end)
@@ -1253,6 +1258,9 @@ T:run("BuildStepCardTexts returns action and destination for walk", function(t)
         to = "Goldshire",
         localizedTo = "Goldhain",
         time = 60,
+        navMapID = 37,  -- Elwynn Forest
+        navX = 0.423,
+        navY = 0.658,
         destX = 0.423,
         destY = 0.658,
     }
@@ -1263,7 +1271,9 @@ T:run("BuildStepCardTexts returns action and destination for walk", function(t)
     -- Action should include destination (new _TO format)
     local expected = string.format(QR.L["ACTION_TRAVEL_TO"], "Goldhain")
     t:assertEqual(expected, actionLine, "walk step uses ACTION_TRAVEL_TO with destination")
-    -- Detail line should contain coordinates and time
+    -- Detail line should contain zone, continent, and coordinates
+    t:assertTrue(destLine:find("Elwynn Forest") ~= nil, "dest line contains zone name")
+    t:assertTrue(destLine:find("Eastern Kingdoms") ~= nil, "dest line contains continent name")
     t:assertTrue(destLine:find("42.3") ~= nil, "dest line contains X coordinate")
 end)
 
@@ -1334,6 +1344,35 @@ T:run("BuildStepCardTexts handles teleport without teleportID", function(t)
     local expected = string.format(QR.L["ACTION_TELEPORT_TO"], "Sturmwind")
     t:assertEqual(expected, actionLine,
         "teleport without teleportID uses ACTION_TELEPORT_TO")
+end)
+
+T:run("BuildStepCardTexts detail line shows nav zone for portals", function(t)
+    resetState()
+    ensureUIFrame()
+
+    -- Portal to Ironforge: the portal entrance is in Stormwind (navMapID=84),
+    -- but the destination is Ironforge (destMapID=87)
+    local step = {
+        type = "portal",
+        action = "Take portal",
+        to = "Ironforge",
+        localizedTo = "Ironforge",
+        navMapID = 84,   -- Stormwind City (portal entrance)
+        navX = 0.49,
+        navY = 0.87,
+        destMapID = 87,  -- Ironforge (destination)
+        destX = 0.50,
+        destY = 0.50,
+        time = 5,
+    }
+
+    local _, destLine = QR.UI:BuildStepCardTexts(step)
+    -- Detail line should show nav location (Stormwind), not destination (Ironforge)
+    t:assertTrue(destLine:find("Stormwind City") ~= nil,
+        "portal detail line shows source zone (where portal entrance is)")
+    -- Coordinates should be nav coords (49.0, 87.0), not dest coords
+    t:assertTrue(destLine:find("49.0") ~= nil, "portal detail uses nav X coordinate")
+    t:assertTrue(destLine:find("87.0") ~= nil, "portal detail uses nav Y coordinate")
 end)
 
 T:run("BuildStepCardTexts falls back to step.to when localizedTo missing", function(t)

@@ -982,10 +982,12 @@ function PathCalculator:BuildSteps(path, edges)
             end
         end
 
-        -- Get localized display name for destination node
+        -- Get localized display names for source and destination nodes
         -- Uses C_Map API to resolve zone and continent names for the player's locale
         local localizedToNode = GetLocalizedNodeDisplayName(toNode, toNodeData and toNodeData.mapID)
         step.localizedTo = localizedToNode
+        local localizedFromNode = GetLocalizedNodeDisplayName(fromNode, fromNodeData and fromNodeData.mapID)
+        step.localizedFrom = localizedFromNode
 
         -- Build action description based on edge type
         local L = QR.L

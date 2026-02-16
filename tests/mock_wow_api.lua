@@ -99,7 +99,7 @@ MockWoW.mapDatabase = {
     [32]   = { mapID = 32,   name = "Searing Gorge", mapType = 3 },
     [35]   = { mapID = 35,   name = "Blackrock Depths", mapType = 4 },
     [36]   = { mapID = 36,   name = "Loch Modan", mapType = 3 },
-    [37]   = { mapID = 37,   name = "Elwynn Forest", mapType = 3 },
+    [37]   = { mapID = 37,   name = "Elwynn Forest", mapType = 3, parentMapID = 13 },
     [42]   = { mapID = 42,   name = "Deadwind Pass", mapType = 3 },
     [47]   = { mapID = 47,   name = "Duskwood", mapType = 3 },
     [48]   = { mapID = 48,   name = "Redridge Mountains", mapType = 3 },
