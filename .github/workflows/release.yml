@@ -63,7 +63,7 @@ jobs:
           VERSION="${{ steps.version.outputs.version }}"
           mkdir -p dist/QuickRoute
           # Copy addon files (exclude dev/test files)
-          cp -r QuickRoute/Core QuickRoute/Data QuickRoute/Modules QuickRoute/Utils dist/QuickRoute/
+          cp -r QuickRoute/Core QuickRoute/Data QuickRoute/Modules QuickRoute/Textures QuickRoute/Utils dist/QuickRoute/
           cp QuickRoute/QuickRoute.lua QuickRoute/QuickRoute.toc QuickRoute/Localization.lua dist/QuickRoute/
           # Copy pkgmeta for CurseForge packager compatibility
           cp QuickRoute/.pkgmeta dist/QuickRoute/
