@@ -77,10 +77,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          gh release create "$GITHUB_REF_NAME" \
-            "dist/QuickRoute-${VERSION}.zip" \
-            --title "QuickRoute $GITHUB_REF_NAME" \
-            --notes-file /tmp/release-notes.md
+          if gh release view "$GITHUB_REF_NAME" &>/dev/null; then
+            echo "Release $GITHUB_REF_NAME already exists, uploading asset to existing release"
+            gh release upload "$GITHUB_REF_NAME" "dist/QuickRoute-${VERSION}.zip" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              "dist/QuickRoute-${VERSION}.zip" \
+              --title "QuickRoute $GITHUB_REF_NAME" \
+              --notes-file /tmp/release-notes.md
+          fi
 
       - name: Attach screenshots to release
         env:
