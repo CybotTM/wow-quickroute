@@ -87,6 +87,9 @@ globals = {
     "MinimalSliderWithSteppersMixin",
     "CLOSE",
 
+    -- Enum namespace
+    "Enum",
+
     -- Encounter Journal globals
     "EncounterJournal",
     "EncounterJournal_DisplayInstance",
