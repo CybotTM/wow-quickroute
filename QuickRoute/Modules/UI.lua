@@ -542,15 +542,14 @@ function UI:RefreshRoute()
     end
 
     if not waypoint then
-        -- Fallback: try super-tracked quest directly
-        if QR.WaypointIntegration and QR.WaypointIntegration.GetSuperTrackedWaypoint then
-            local questWP = QR.WaypointIntegration:GetSuperTrackedWaypoint()
-            if questWP then
-                waypoint = questWP
-            end
-        end
-        -- Fallback: use saved destination (persists across close/reopen)
-        if not waypoint and QR.db and QR.db.lastDestination then
+        -- Only fall back to saved destination when no quest/waypoint is actively tracked.
+        -- If a super-tracked quest exists but has no coordinates (e.g. Shadowlands quests),
+        -- do NOT show a stale saved destination — show "no route" instead.
+        local hasActiveQuest = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID
+            and C_SuperTrack.GetSuperTrackedQuestID() ~= 0
+        local hasMapPin = C_Map and C_Map.HasUserWaypoint and C_Map.HasUserWaypoint()
+
+        if not hasActiveQuest and not hasMapPin and QR.db and QR.db.lastDestination then
             local dest = QR.db.lastDestination
             if dest.mapID and dest.x and dest.y then
                 waypoint = {
