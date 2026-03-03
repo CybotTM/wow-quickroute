@@ -6,6 +6,7 @@ local ADDON_NAME, QR = ...
 local pairs, type, tostring, pcall = pairs, type, tostring, pcall
 local ipairs = ipairs
 local string_format = string.format
+local string_lower = string.lower
 local table_insert, table_concat = table.insert, table.concat
 local CreateFrame = CreateFrame
 local GetTime = GetTime
@@ -28,6 +29,11 @@ local eventFrame = nil
 -- Quest coordinate cache to avoid repeated expensive zone scans
 local questCoordCache = {} -- { [questID] = { mapID, x, y, time } or { time = t } for "not found" }
 local QUEST_COORD_CACHE_TTL = 30 -- seconds
+
+-- Debounce timer for OnWaypointChanged to prevent rapid-fire recalculations
+-- when quests cycle via SUPER_TRACKING_CHANGED
+local waypointChangedTimer = nil
+local WAYPOINT_DEBOUNCE = 0.3 -- seconds
 
 -------------------------------------------------------------------------------
 -- Waypoint Source Detection
@@ -415,6 +421,160 @@ function WaypointIntegration:GetSuperTrackedWaypoint()
         return { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, title = questTitle }
     end
 
+    -- Method 6: Dungeon/raid quest entrance fallback
+    -- When quest coordinate APIs fail, use Blizzard's quest log header API to identify
+    -- the dungeon/zone and route to its entrance via DungeonData.
+    -- Uses C_QuestLog.GetHeaderIndexForQuest (Blizzard's own API for quest→header mapping)
+    -- followed by C_QuestLog.GetInfo to get the header title.
+    -- Strategies: (a) header→dungeon match, (b) title prefix→dungeon, (c) title prefix→zone
+    if QR.DungeonData and QR.DungeonData.scanned then
+        -- Check if quest is dungeon/raid type via Enum.QuestTag constants
+        local isDungeonQuest = false
+        if C_QuestLog.GetQuestTagInfo then
+            local tagInfo = C_QuestLog.GetQuestTagInfo(questID)
+            if tagInfo and tagInfo.tagID then
+                local DUNGEON_TAGS = {
+                    [Enum.QuestTag.Dungeon] = true,
+                    [Enum.QuestTag.Raid] = true,
+                    [Enum.QuestTag.Raid10] = true,
+                    [Enum.QuestTag.Raid25] = true,
+                    [Enum.QuestTag.Delve] = true,
+                }
+                isDungeonQuest = DUNGEON_TAGS[tagInfo.tagID] or false
+            end
+        end
+
+        -- Inside-dungeon detection: if player is already inside the target dungeon, skip routing
+        if isDungeonQuest and IsInInstance and IsInInstance() then
+            if playerMapID and C_EncounterJournal and C_EncounterJournal.GetInstanceForGameMap then
+                local playerInstanceID = C_EncounterJournal.GetInstanceForGameMap(playerMapID)
+                if playerInstanceID then
+                    QR:Debug(string_format("Quest %d: player is inside instance %d, skipping dungeon entrance routing",
+                        questID, playerInstanceID))
+                    questCoordCache[questID] = { time = now }
+                    return nil
+                end
+            end
+        end
+
+        -- Strategy (6a): GetQuestAdditionalHighlights → GetDungeonEntrancesForMap
+        -- Stronger than header matching: uses Blizzard's quest→map→entrance chain directly
+        if isDungeonQuest and C_QuestLog.GetQuestAdditionalHighlights then
+            local highlightMapID, _, _, dungeons, _ = C_QuestLog.GetQuestAdditionalHighlights(questID)
+            if highlightMapID and dungeons then
+                QR:Debug(string_format("Quest %d: GetQuestAdditionalHighlights -> map %d (dungeons=true)", questID, highlightMapID))
+                if C_EncounterJournal and C_EncounterJournal.GetDungeonEntrancesForMap then
+                    local entrances = C_EncounterJournal.GetDungeonEntrancesForMap(highlightMapID)
+                    if entrances and #entrances > 0 then
+                        local entrance = entrances[1]
+                        local ex, ey
+                        if entrance.position then
+                            if entrance.position.GetXY then
+                                ex, ey = entrance.position:GetXY()
+                            end
+                            if not ex or not ey then
+                                ex, ey = entrance.position.x, entrance.position.y
+                            end
+                        end
+                        if ex and ey then
+                            QR:Debug(string_format("Quest %d: Entrance %q at map %d (%.4f, %.4f)",
+                                questID, entrance.name or "?", highlightMapID, ex, ey))
+                            questCoordCache[questID] = { mapID = highlightMapID, x = ex, y = ey, time = now }
+                            return {
+                                mapID = highlightMapID,
+                                x = ex,
+                                y = ey,
+                                title = questTitle,
+                            }
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Strategy (a): Use GetHeaderIndexForQuest to find the quest's section header
+        -- This is Blizzard's direct API — no manual quest log iteration needed
+        local questHeader = nil
+        if C_QuestLog.GetHeaderIndexForQuest then
+            local headerIndex = C_QuestLog.GetHeaderIndexForQuest(questID)
+            if headerIndex and C_QuestLog.GetInfo then
+                local headerInfo = C_QuestLog.GetInfo(headerIndex)
+                if headerInfo and headerInfo.title then
+                    questHeader = headerInfo.title
+                end
+            end
+        end
+
+        if questHeader then
+            QR:Debug(string_format("Quest %d: quest log header = %q", questID, questHeader))
+
+            -- Search DungeonData for an instance matching the header name
+            for instanceID, inst in pairs(QR.DungeonData.instances) do
+                if inst.name and inst.zoneMapID and inst.x and inst.y then
+                    if string_lower(inst.name) == string_lower(questHeader) then
+                        QR:Debug(string_format("Quest %d: header matches dungeon %q (instance %d) at map %d",
+                            questID, inst.name, instanceID, inst.zoneMapID))
+                        questCoordCache[questID] = { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now }
+                        return {
+                            mapID = inst.zoneMapID,
+                            x = inst.x,
+                            y = inst.y,
+                            title = questTitle,
+                        }
+                    end
+                end
+            end
+        end
+
+        -- Strategy (b): Extract quest title prefix (text before ":") and match
+        -- e.g. "Der Seelenschlund: Vom Sturm gehämmert" → "Der Seelenschlund"
+        if isDungeonQuest or questHeader then
+            local titlePrefix = questTitle and questTitle:match("^([^:]+):")
+            if titlePrefix then
+                titlePrefix = titlePrefix:trim()
+                QR:Debug(string_format("Quest %d: trying title prefix %q", questID, titlePrefix))
+
+                for instanceID, inst in pairs(QR.DungeonData.instances) do
+                    if inst.name and inst.zoneMapID and inst.x and inst.y then
+                        if string_lower(inst.name) == string_lower(titlePrefix) then
+                            QR:Debug(string_format("Quest %d: title prefix matches dungeon %q (instance %d) at map %d",
+                                questID, inst.name, instanceID, inst.zoneMapID))
+                            questCoordCache[questID] = { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now }
+                            return {
+                                mapID = inst.zoneMapID,
+                                x = inst.x,
+                                y = inst.y,
+                                title = questTitle,
+                            }
+                        end
+                    end
+                end
+
+                -- Strategy (c): Match the prefix against known zone names
+                if QR.Continents then
+                    for _, continentData in pairs(QR.Continents) do
+                        for _, zoneID in ipairs(continentData.zones) do
+                            if C_Map and C_Map.GetMapInfo then
+                                local mapInfo = C_Map.GetMapInfo(zoneID)
+                                if mapInfo and mapInfo.name and string_lower(mapInfo.name) == string_lower(titlePrefix) then
+                                    QR:Debug(string_format("Quest %d: title prefix matches zone %q (map %d)",
+                                        questID, mapInfo.name, zoneID))
+                                    questCoordCache[questID] = { mapID = zoneID, x = 0.5, y = 0.5, time = now }
+                                    return {
+                                        mapID = zoneID,
+                                        x = 0.5,
+                                        y = 0.5,
+                                        title = questTitle,
+                                    }
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- No coordinates found from any API - cache negative result to avoid repeated scans
     QR:Debug(string_format("Quest %d (%s): no coordinates found from any API", questID, questTitle))
     questCoordCache[questID] = { time = now }
@@ -581,8 +741,19 @@ end
 -------------------------------------------------------------------------------
 
 --- Called when a waypoint changes (from any source)
--- Updates UI if showing
+-- Debounced to prevent rapid-fire recalculations when quests cycle
 function WaypointIntegration:OnWaypointChanged()
+    if waypointChangedTimer then
+        waypointChangedTimer:Cancel()
+    end
+    waypointChangedTimer = C_Timer.NewTimer(WAYPOINT_DEBOUNCE, function()
+        waypointChangedTimer = nil
+        self:_ProcessWaypointChange()
+    end)
+end
+
+--- Internal: process a waypoint change after debounce
+function WaypointIntegration:_ProcessWaypointChange()
     local waypoint, source = self:GetActiveWaypoint()
 
     if waypoint then
@@ -653,8 +824,11 @@ function WaypointIntegration:RegisterHooks()
                     WaypointIntegration:OnWaypointCleared()
                 end
             elseif event == "SUPER_TRACKING_CHANGED" then
-                -- Clear quest coordinate cache on tracking change
-                wipe(questCoordCache)
+                -- Don't wipe questCoordCache here — per-questID entries are already
+                -- keyed correctly and wiping destroys negative-result caching, causing
+                -- expensive repeated zone scans when quests cycle rapidly.
+                -- Unlock any locked destination so the new quest's waypoint takes effect
+                if QR.db then QR.db.destinationLocked = false end
                 WaypointIntegration:OnWaypointChanged()
             end
         end)

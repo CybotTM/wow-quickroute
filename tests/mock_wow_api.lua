@@ -320,6 +320,9 @@ function MockWoW:Reset()
     self.config.baseTime = 1000000
     self.config.playedSounds = {}
     self.config.bindLocation = "Stormwind City"
+    self.config.questAdditionalHighlights = {}
+    self.config.inInstance = false
+    self.config.instanceType = "none"
     self.eventFrames = {}
 end
 
@@ -1303,6 +1306,23 @@ function MockWoW:Install()
         }
     end
 
+    if not _G.Enum.QuestTag then
+        _G.Enum.QuestTag = {
+            Group     = 1,
+            PvP       = 41,
+            Raid      = 62,
+            Dungeon   = 81,
+            Legendary = 83,
+            Heroic    = 85,
+            Raid10    = 88,
+            Raid25    = 89,
+            Scenario  = 98,
+            Account   = 102,
+            CombatAlly = 266,
+            Delve     = 288,
+        }
+    end
+
     ---------------------------------------------------------------------------
     -- C_SuperTrack Namespace
     ---------------------------------------------------------------------------
@@ -1378,6 +1398,45 @@ function MockWoW:Install()
 
     _G.C_QuestLog.GetQuestIDForQuestWatchIndex = function(index)
         return cfg.questWatches and cfg.questWatches[index] or nil
+    end
+
+    -- Quest tag info: cfg.questTagInfo[questID] = { tagID = 81, tagName = "Dungeon" }
+    _G.C_QuestLog.GetQuestTagInfo = function(questID)
+        return cfg.questTagInfo and cfg.questTagInfo[questID] or nil
+    end
+
+    -- Quest additional highlights: cfg.questAdditionalHighlights[questID] = { uiMapID, x, y, dungeons, raids }
+    _G.C_QuestLog.GetQuestAdditionalHighlights = function(questID)
+        local data = cfg.questAdditionalHighlights and cfg.questAdditionalHighlights[questID]
+        if data then
+            return data.uiMapID, data.x, data.y, data.dungeons, data.raids
+        end
+        return nil
+    end
+
+    -- Quest log entries: cfg.questLogEntries = { { title="Header", isHeader=true }, { title="Quest", questID=123 }, ... }
+    _G.C_QuestLog.GetNumQuestLogEntries = function()
+        return cfg.questLogEntries and #cfg.questLogEntries or 0
+    end
+
+    _G.C_QuestLog.GetInfo = function(index)
+        return cfg.questLogEntries and cfg.questLogEntries[index] or nil
+    end
+
+    -- GetHeaderIndexForQuest: returns the quest log index of the header above a quest
+    -- Uses cfg.questLogEntries to find the header by walking backwards from the quest
+    _G.C_QuestLog.GetHeaderIndexForQuest = function(questID)
+        if not cfg.questLogEntries then return nil end
+        local lastHeaderIndex = nil
+        for i = 1, #cfg.questLogEntries do
+            local entry = cfg.questLogEntries[i]
+            if entry.isHeader then
+                lastHeaderIndex = i
+            elseif entry.questID == questID then
+                return lastHeaderIndex
+            end
+        end
+        return nil
     end
 
     ---------------------------------------------------------------------------

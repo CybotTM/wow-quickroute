@@ -621,3 +621,370 @@ T:run("SetTomTomWaypoint sets _settingWaypoint during native waypoint call", fun
     -- Restore
     _G.C_Map.SetUserWaypoint = origSetUserWaypoint
 end)
+
+-------------------------------------------------------------------------------
+-- Method 6: Dungeon/raid quest entrance fallback
+-------------------------------------------------------------------------------
+
+T:run("Dungeon quest fallback: matches quest log header to dungeon instance", function(t)
+    resetState()
+
+    -- Quest 99001 has no coordinates from any API
+    MockWoW.config.superTrackedQuestID = 99001
+    MockWoW.config.questTitles[99001] = "Sanctum of Domination: Fate of the Primus"
+    -- No questWaypoints entry → GetNextWaypoint returns nil
+
+    -- Mark as dungeon quest (tagID 81)
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99001] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+
+    -- Quest log has a header matching a dungeon name
+    MockWoW.config.questLogEntries = {
+        { title = "Sanctum of Domination", isHeader = true },
+        { title = "Sanctum of Domination: Fate of the Primus", questID = 99001 },
+    }
+
+    -- Ensure DungeonData has the instance (Sanctum of Domination = ID 1193, The Maw = 1543)
+    QR.DungeonData.scanned = true
+    QR.DungeonData.instances[1193] = QR.DungeonData.instances[1193] or {
+        name = "Sanctum of Domination",
+        zoneMapID = 1543,
+        x = 0.6868,
+        y = 0.8540,
+        isRaid = true,
+    }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Waypoint returned via dungeon fallback")
+    t:assertEqual(1543, wp.mapID, "Routes to The Maw (dungeon entrance zone)")
+    t:assertEqual(0.6868, wp.x, "Correct entrance x coordinate")
+    t:assertEqual(0.8540, wp.y, "Correct entrance y coordinate")
+end)
+
+T:run("Dungeon quest fallback: matches title prefix to dungeon instance", function(t)
+    resetState()
+
+    -- Quest 99002 has dungeon name as title prefix
+    MockWoW.config.superTrackedQuestID = 99002
+    MockWoW.config.questTitles[99002] = "Halls of Valor: The Chosen"
+    -- No questWaypoints → all methods fail
+
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99002] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+
+    -- Quest log header doesn't match any dungeon
+    MockWoW.config.questLogEntries = {
+        { title = "Stormheim", isHeader = true },
+        { title = "Halls of Valor: The Chosen", questID = 99002 },
+    }
+
+    -- DungeonData has Halls of Valor (ID 721, Stormheim = 634)
+    QR.DungeonData.scanned = true
+    QR.DungeonData.instances[721] = QR.DungeonData.instances[721] or {
+        name = "Halls of Valor",
+        zoneMapID = 634,
+        x = 0.7270,
+        y = 0.7050,
+        isRaid = false,
+    }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Waypoint returned via title prefix match")
+    t:assertEqual(634, wp.mapID, "Routes to Stormheim (Halls of Valor entrance)")
+end)
+
+T:run("Dungeon quest fallback: title prefix matches zone name", function(t)
+    resetState()
+
+    -- Quest in a zone that has no dungeon match but the title prefix IS a zone name
+    MockWoW.config.superTrackedQuestID = 99003
+    MockWoW.config.questTitles[99003] = "Icecrown: Final Stand"
+    -- No questWaypoints → all methods fail
+
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99003] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+
+    -- Quest log header is generic
+    MockWoW.config.questLogEntries = {
+        { title = "Northrend", isHeader = true },
+        { title = "Icecrown: Final Stand", questID = 99003 },
+    }
+
+    -- Zone 118 = Icecrown (from ZoneAdjacency)
+    QR.DungeonData.scanned = true
+
+    -- Mock C_Map.GetMapInfo for zone matching
+    local origGetMapInfo = _G.C_Map.GetMapInfo
+    _G.C_Map.GetMapInfo = function(mapID)
+        if mapID == 118 then
+            return { mapID = 118, name = "Icecrown", mapType = 3 }
+        end
+        return origGetMapInfo(mapID)
+    end
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    _G.C_Map.GetMapInfo = origGetMapInfo
+
+    t:assertNotNil(wp, "Waypoint returned via zone name match")
+    t:assertEqual(118, wp.mapID, "Routes to Icecrown zone")
+    t:assertEqual(0.5, wp.x, "Zone center x coordinate")
+    t:assertEqual(0.5, wp.y, "Zone center y coordinate")
+end)
+
+T:run("Dungeon quest fallback: non-dungeon quest without coords returns nil", function(t)
+    resetState()
+
+    -- Non-dungeon quest with no coords
+    MockWoW.config.superTrackedQuestID = 99004
+    MockWoW.config.questTitles[99004] = "Random Quest: No Dungeon"
+    -- No tagInfo → not a dungeon quest
+    -- No questLogEntries → no header
+
+    QR.DungeonData.scanned = true
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNil(wp, "Non-dungeon quest with no coords returns nil")
+end)
+
+T:run("Dungeon quest fallback: result is cached", function(t)
+    resetState()
+
+    -- Setup same as first test
+    MockWoW.config.superTrackedQuestID = 99005
+    MockWoW.config.questTitles[99005] = "Halls of Valor: Cached Test"
+
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99005] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+
+    MockWoW.config.questLogEntries = {
+        { title = "Halls of Valor", isHeader = true },
+        { title = "Halls of Valor: Cached Test", questID = 99005 },
+    }
+
+    QR.DungeonData.scanned = true
+    QR.DungeonData.instances[721] = QR.DungeonData.instances[721] or {
+        name = "Halls of Valor",
+        zoneMapID = 634,
+        x = 0.7270,
+        y = 0.7050,
+        isRaid = false,
+    }
+
+    -- First call populates cache
+    local wp1 = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+    t:assertNotNil(wp1, "First call returns waypoint")
+
+    -- Remove the quest log entries to prove second call uses cache
+    MockWoW.config.questLogEntries = {}
+
+    local wp2 = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+    t:assertNotNil(wp2, "Second call returns cached waypoint")
+    t:assertEqual(634, wp2.mapID, "Cached result has correct mapID")
+end)
+
+T:run("Dungeon quest fallback: Delve tag treated as dungeon quest", function(t)
+    resetState()
+
+    -- Quest 99010 is a Delve (tagID 288) with no coordinates
+    MockWoW.config.superTrackedQuestID = 99010
+    MockWoW.config.questTitles[99010] = "The Stonevault: Clear the Depths"
+
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99010] = { tagID = Enum.QuestTag.Delve, tagName = "Delve" }
+
+    -- Quest log header matches a dungeon
+    MockWoW.config.questLogEntries = {
+        { title = "The Stonevault", isHeader = true },
+        { title = "The Stonevault: Clear the Depths", questID = 99010 },
+    }
+
+    QR.DungeonData.scanned = true
+    QR.DungeonData.instances[1267] = QR.DungeonData.instances[1267] or {
+        name = "The Stonevault",
+        zoneMapID = 2248,
+        x = 0.62,
+        y = 0.31,
+        isRaid = false,
+    }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Delve quest returns waypoint via dungeon fallback")
+    t:assertEqual(2248, wp.mapID, "Routes to Isle of Dorn (Stonevault entrance)")
+end)
+
+-------------------------------------------------------------------------------
+-- Method 6a: GetQuestAdditionalHighlights → GetDungeonEntrancesForMap
+-------------------------------------------------------------------------------
+
+T:run("Method 6a: highlights→entrance routes to dungeon entrance", function(t)
+    resetState()
+
+    -- Quest 99020 is a dungeon quest with no standard coords
+    MockWoW.config.superTrackedQuestID = 99020
+    MockWoW.config.questTitles[99020] = "Echoes Below"
+
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99020] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+
+    -- GetQuestAdditionalHighlights returns Isle of Dorn (2248) with dungeons=true
+    MockWoW.config.questAdditionalHighlights[99020] = {
+        uiMapID = 2248,
+        x = 0.5,
+        y = 0.5,
+        dungeons = true,
+        raids = false,
+    }
+
+    QR.DungeonData.scanned = true
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Waypoint returned via highlights→entrance")
+    t:assertEqual(2248, wp.mapID, "Routes to Isle of Dorn")
+    -- Should use the entrance position from GetDungeonEntrancesForMap, not highlights position
+    t:assertEqual(0.62, wp.x, "Uses entrance x from GetDungeonEntrancesForMap")
+    t:assertEqual(0.31, wp.y, "Uses entrance y from GetDungeonEntrancesForMap")
+end)
+
+T:run("Method 6a: highlights without dungeons flag falls through to header match", function(t)
+    resetState()
+
+    -- Quest 99021 has highlights but dungeons=false
+    MockWoW.config.superTrackedQuestID = 99021
+    MockWoW.config.questTitles[99021] = "Halls of Valor: Highlight Test"
+
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99021] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+
+    -- Highlights exist but dungeons=false → should NOT use this path
+    MockWoW.config.questAdditionalHighlights[99021] = {
+        uiMapID = 634,
+        x = 0.5,
+        y = 0.5,
+        dungeons = false,
+        raids = false,
+    }
+
+    -- Fallback: header match should work
+    MockWoW.config.questLogEntries = {
+        { title = "Halls of Valor", isHeader = true },
+        { title = "Halls of Valor: Highlight Test", questID = 99021 },
+    }
+
+    QR.DungeonData.scanned = true
+    QR.DungeonData.instances[721] = QR.DungeonData.instances[721] or {
+        name = "Halls of Valor",
+        zoneMapID = 634,
+        x = 0.7270,
+        y = 0.7050,
+        isRaid = false,
+    }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Falls through to header match")
+    t:assertEqual(634, wp.mapID, "Routes via header match, not highlights")
+    t:assertEqual(0.7270, wp.x, "Uses dungeon entrance x from DungeonData")
+end)
+
+T:run("Method 6a: highlights result is cached", function(t)
+    resetState()
+
+    MockWoW.config.superTrackedQuestID = 99022
+    MockWoW.config.questTitles[99022] = "Cached Highlights Quest"
+
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99022] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+
+    MockWoW.config.questAdditionalHighlights[99022] = {
+        uiMapID = 2248,
+        x = 0.5,
+        y = 0.5,
+        dungeons = true,
+        raids = false,
+    }
+
+    QR.DungeonData.scanned = true
+
+    -- First call populates cache
+    local wp1 = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+    t:assertNotNil(wp1, "First call returns waypoint")
+    t:assertEqual(2248, wp1.mapID, "First call routes to Isle of Dorn")
+
+    -- Remove highlights to prove second call uses cache
+    MockWoW.config.questAdditionalHighlights[99022] = nil
+
+    local wp2 = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+    t:assertNotNil(wp2, "Second call returns cached waypoint")
+    t:assertEqual(2248, wp2.mapID, "Cached result has correct mapID")
+end)
+
+-------------------------------------------------------------------------------
+-- Inside-dungeon detection
+-------------------------------------------------------------------------------
+
+T:run("Inside-dungeon: skips routing when player is inside target instance", function(t)
+    resetState()
+
+    -- Player is inside The Stonevault (instance mapID 2341)
+    MockWoW.config.inInstance = true
+    MockWoW.config.instanceType = "party"
+    MockWoW.config.currentMapID = 2341
+
+    -- Quest 99030 is a dungeon quest
+    MockWoW.config.superTrackedQuestID = 99030
+    MockWoW.config.questTitles[99030] = "The Stonevault: Inside Test"
+
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99030] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+
+    QR.DungeonData.scanned = true
+    QR.DungeonData.instances[1267] = QR.DungeonData.instances[1267] or {
+        name = "The Stonevault",
+        zoneMapID = 2248,
+        x = 0.62,
+        y = 0.31,
+        isRaid = false,
+    }
+
+    -- Highlights would normally route to entrance
+    MockWoW.config.questAdditionalHighlights[99030] = {
+        uiMapID = 2248,
+        dungeons = true,
+    }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNil(wp, "Returns nil when player is already inside the target dungeon")
+end)
+
+T:run("Inside-dungeon: does NOT skip when player is outside instance", function(t)
+    resetState()
+
+    -- Player is NOT in an instance
+    MockWoW.config.inInstance = false
+    MockWoW.config.currentMapID = 84  -- Stormwind
+
+    MockWoW.config.superTrackedQuestID = 99031
+    MockWoW.config.questTitles[99031] = "The Stonevault: Outside Test"
+
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99031] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+
+    MockWoW.config.questAdditionalHighlights[99031] = {
+        uiMapID = 2248,
+        dungeons = true,
+    }
+
+    QR.DungeonData.scanned = true
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Returns waypoint when player is outside instance")
+    t:assertEqual(2248, wp.mapID, "Routes to dungeon entrance normally")
+end)
