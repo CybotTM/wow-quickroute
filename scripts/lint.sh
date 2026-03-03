@@ -7,13 +7,19 @@ set -e
 echo "=== QuickRoute Linting ==="
 echo ""
 
-# Check if luacheck is installed
-if command -v luacheck &> /dev/null; then
+# Run luacheck: native binary, Docker fallback, or skip
+FILES="${*:-QuickRoute/}"
+if command -v luacheck &>/dev/null; then
     echo "Running luacheck..."
-    luacheck QuickRoute/ --config .luacheckrc
+    luacheck $FILES --config .luacheckrc
+    echo "✓ Luacheck passed"
+elif command -v docker &>/dev/null; then
+    echo "Running luacheck via Docker..."
+    docker run --rm -v "$(pwd):/src" -w /src \
+        pipelinecomponents/luacheck:latest luacheck $FILES
     echo "✓ Luacheck passed"
 else
-    echo "⚠ luacheck not installed. Install with: luarocks install luacheck"
+    echo "⚠ luacheck not available (install locally or have Docker running)"
 fi
 
 echo ""
