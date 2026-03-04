@@ -197,6 +197,49 @@ T:run("GetActiveWaypoint: falls through to quest when no map pin", function(t)
     t:assertEqual("quest", source, "Source is quest")
 end)
 
+T:run("GetActiveWaypoint: quest beats TomTom when quest is super-tracked", function(t)
+    resetState()
+
+    -- Super-tracked quest with coordinates
+    MockWoW.config.superTrackedQuestID = 300
+    MockWoW.config.questTitles[300] = "Dungeon Quest"
+    MockWoW.config.questWaypoints[300] = { mapID = 634, x = 0.7, y = 0.7 }
+
+    -- TomTom has a stale waypoint from a different quest
+    _G.TomTom = {
+        GetClosestWaypoint = function(self)
+            return { mapID = 2395, x = 0.5, y = 0.5, title = "Old TomTom WP" }
+        end,
+    }
+
+    local wp, source = QR.WaypointIntegration:GetActiveWaypoint()
+
+    t:assertNotNil(wp, "Active waypoint found")
+    t:assertEqual("quest", source, "Quest beats TomTom when super-tracked")
+    t:assertEqual(634, wp.mapID, "Routes to quest destination, not TomTom")
+    _G.TomTom = nil
+end)
+
+T:run("GetActiveWaypoint: TomTom wins when no quest is super-tracked", function(t)
+    resetState()
+
+    -- No super-tracked quest
+    MockWoW.config.superTrackedQuestID = 0
+
+    -- TomTom has a waypoint
+    _G.TomTom = {
+        GetClosestWaypoint = function(self)
+            return { mapID = 2395, x = 0.5, y = 0.5, title = "TomTom WP" }
+        end,
+    }
+
+    local wp, source = QR.WaypointIntegration:GetActiveWaypoint()
+
+    t:assertNotNil(wp, "Active waypoint found")
+    t:assertEqual("tomtom", source, "TomTom wins when no quest super-tracked")
+    _G.TomTom = nil
+end)
+
 -------------------------------------------------------------------------------
 -- 5. SetTomTomWaypoint
 -------------------------------------------------------------------------------

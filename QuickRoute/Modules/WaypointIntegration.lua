@@ -663,11 +663,19 @@ function WaypointIntegration:GetActiveWaypoint()
     local sources = activeWaypointSources
 
     -- Define order based on priority setting
+    -- When a quest is super-tracked, auto-promote quest above TomTom.
+    -- TomTom's GetClosestWaypoint returns the geographically closest waypoint
+    -- from ALL set waypoints, which is often unrelated to the current quest.
+    local hasSuperTrackedQuest = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID
+        and C_SuperTrack.GetSuperTrackedQuestID() ~= 0
     local order
     if priority == "quest" then
         order = {"quest", "mappin", "tomtom"}
     elseif priority == "tomtom" then
         order = {"tomtom", "mappin", "quest"}
+    elseif hasSuperTrackedQuest then
+        -- Default with super-tracked quest: quest wins over TomTom's random closest
+        order = {"mappin", "quest", "tomtom"}
     else
         -- Default: "mappin"
         order = {"mappin", "tomtom", "quest"}
