@@ -10,7 +10,7 @@ local tostring = tostring
 local pcall = pcall
 
 -- Namespace setup
-QR.version = "1.6.0"
+QR.version = "1.7.0"
 QR.debugMode = false
 
 -- Constants

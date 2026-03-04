@@ -17,6 +17,10 @@ local function resetState()
     -- Re-install C_Map mocks
     _G.C_Map.HasUserWaypoint = function() return MockWoW.config.hasUserWaypoint end
     _G.C_Map.GetUserWaypoint = function() return MockWoW.config.userWaypoint end
+    -- Clear quest coordinate cache (module-level local, exposed via public method)
+    if QR.WaypointIntegration.ClearQuestCoordCache then
+        QR.WaypointIntegration:ClearQuestCoordCache()
+    end
     -- Clear waypoint dedup cache
     QR.WaypointIntegration._lastWpMapID = nil
     QR.WaypointIntegration._lastWpX = nil
@@ -1030,4 +1034,218 @@ T:run("Inside-dungeon: does NOT skip when player is outside instance", function(
 
     t:assertNotNil(wp, "Returns waypoint when player is outside instance")
     t:assertEqual(2248, wp.mapID, "Routes to dungeon entrance normally")
+end)
+
+-------------------------------------------------------------------------------
+-- GetQuestWaypoint (standalone, not just via super-tracked)
+-------------------------------------------------------------------------------
+
+T:run("GetQuestWaypoint: resolves coords for arbitrary quest", function(t)
+    resetState()
+    MockWoW.config.questTitles[50001] = "Test Quest Alpha"
+    MockWoW.config.questWaypoints[50001] = { mapID = 84, x = 0.3, y = 0.7 }
+
+    local wp = QR.WaypointIntegration:GetQuestWaypoint(50001)
+
+    t:assertNotNil(wp, "Returns waypoint")
+    t:assertEqual(84, wp.mapID, "Correct mapID")
+    t:assertEqual(0.3, wp.x, "Correct x")
+    t:assertEqual(0.7, wp.y, "Correct y")
+    t:assertNotNil(wp.title:find("Test Quest Alpha"), "Title contains quest name")
+end)
+
+T:run("GetQuestWaypoint: returns nil for quest without coords", function(t)
+    resetState()
+    MockWoW.config.questTitles[50002] = "No Coords Quest"
+    -- No questWaypoints entry
+
+    local wp = QR.WaypointIntegration:GetQuestWaypoint(50002)
+    t:assertNil(wp, "Returns nil when no coordinates")
+end)
+
+T:run("GetQuestWaypoint: returns nil for nil or zero questID", function(t)
+    resetState()
+    t:assertNil(QR.WaypointIntegration:GetQuestWaypoint(nil), "nil questID")
+    t:assertNil(QR.WaypointIntegration:GetQuestWaypoint(0), "zero questID")
+end)
+
+T:run("GetSuperTrackedWaypoint: delegates to GetQuestWaypoint", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 50003
+    MockWoW.config.questTitles[50003] = "Delegated Quest"
+    MockWoW.config.questWaypoints[50003] = { mapID = 85, x = 0.5, y = 0.5 }
+
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+
+    t:assertNotNil(wp, "Returns waypoint via delegation")
+    t:assertEqual(85, wp.mapID, "Correct mapID via delegation")
+end)
+
+-------------------------------------------------------------------------------
+-- GetWatchedQuestWaypoints
+-------------------------------------------------------------------------------
+
+T:run("GetWatchedQuestWaypoints: returns watched quests with coords", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 60001
+    MockWoW.config.questTitles[60001] = "Super Tracked"
+    MockWoW.config.questWaypoints[60001] = { mapID = 84, x = 0.1, y = 0.1 }
+    MockWoW.config.questTitles[60002] = "Watched Quest A"
+    MockWoW.config.questWaypoints[60002] = { mapID = 85, x = 0.3, y = 0.4 }
+    MockWoW.config.questTitles[60003] = "Watched Quest B"
+    MockWoW.config.questWaypoints[60003] = { mapID = 87, x = 0.6, y = 0.8 }
+    MockWoW.config.questWatches = { 60001, 60002, 60003 }
+
+    local results = QR.WaypointIntegration:GetWatchedQuestWaypoints()
+
+    t:assertEqual(2, #results, "Returns 2 quests (super-tracked excluded)")
+    t:assertEqual(60002, results[1].questID, "First is watched quest A")
+    t:assertEqual(85, results[1].mapID, "Quest A mapID")
+    t:assertEqual(0.3, results[1].x, "Quest A x")
+    t:assertEqual(60003, results[2].questID, "Second is watched quest B")
+    t:assertEqual(87, results[2].mapID, "Quest B mapID")
+end)
+
+T:run("GetWatchedQuestWaypoints: excludes super-tracked quest", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 60010
+    MockWoW.config.questTitles[60010] = "Super Tracked Only"
+    MockWoW.config.questWaypoints[60010] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questWatches = { 60010 }
+
+    local results = QR.WaypointIntegration:GetWatchedQuestWaypoints()
+
+    t:assertEqual(0, #results, "Empty when only super-tracked is watched")
+end)
+
+T:run("GetWatchedQuestWaypoints: skips quests without coords", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[60020] = "Has Coords"
+    MockWoW.config.questWaypoints[60020] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questTitles[60021] = "No Coords"
+    -- No waypoint for 60021
+    MockWoW.config.questWatches = { 60020, 60021 }
+
+    local results = QR.WaypointIntegration:GetWatchedQuestWaypoints()
+
+    t:assertEqual(1, #results, "Only quest with coords returned")
+    t:assertEqual(60020, results[1].questID, "Correct quest returned")
+end)
+
+T:run("GetWatchedQuestWaypoints: returns empty when no watches", function(t)
+    resetState()
+    MockWoW.config.questWatches = {}
+
+    local results = QR.WaypointIntegration:GetWatchedQuestWaypoints()
+
+    t:assertEqual(0, #results, "Empty array when no watches")
+end)
+
+T:run("GetWatchedQuestWaypoints: includes zoneName from C_Map", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[60030] = "Zone Quest"
+    MockWoW.config.questWaypoints[60030] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questWatches = { 60030 }
+
+    local results = QR.WaypointIntegration:GetWatchedQuestWaypoints()
+
+    t:assertEqual(1, #results, "One result")
+    t:assertNotNil(results[1].zoneName, "zoneName present")
+    -- MockWoW returns map name from GetMapInfo
+    t:assertEqual("string", type(results[1].zoneName), "zoneName is string")
+end)
+
+T:run("GetWatchedQuestWaypoints: deduplicates duplicate quest IDs", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[60040] = "Dupe Quest"
+    MockWoW.config.questWaypoints[60040] = { mapID = 84, x = 0.5, y = 0.5 }
+    -- Same quest ID appears twice in watch list
+    MockWoW.config.questWatches = { 60040, 60040 }
+
+    local results = QR.WaypointIntegration:GetWatchedQuestWaypoints()
+
+    t:assertEqual(1, #results, "Dedup: only one result despite duplicate watch entries")
+    t:assertEqual(60040, results[1].questID, "Correct quest ID")
+end)
+
+T:run("GetWatchedQuestWaypoints: sorts results alphabetically", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[60050] = "Zebra Quest"
+    MockWoW.config.questWaypoints[60050] = { mapID = 84, x = 0.1, y = 0.1 }
+    MockWoW.config.questTitles[60051] = "Alpha Quest"
+    MockWoW.config.questWaypoints[60051] = { mapID = 85, x = 0.2, y = 0.2 }
+    MockWoW.config.questTitles[60052] = "Middle Quest"
+    MockWoW.config.questWaypoints[60052] = { mapID = 86, x = 0.3, y = 0.3 }
+    MockWoW.config.questWatches = { 60050, 60051, 60052 }
+
+    local results = QR.WaypointIntegration:GetWatchedQuestWaypoints()
+
+    t:assertEqual(3, #results, "Three results")
+    t:assertEqual("Alpha Quest", results[1].title, "First alphabetically")
+    t:assertEqual("Middle Quest", results[2].title, "Second alphabetically")
+    t:assertEqual("Zebra Quest", results[3].title, "Third alphabetically")
+end)
+
+T:run("GetQuestWaypoint: ignoreNegativeCache bypasses negative cache", function(t)
+    resetState()
+    MockWoW.config.questTitles[60060] = "Neg Cache Quest"
+    -- No waypoint initially → negative cache entry
+    local wp1 = QR.WaypointIntegration:GetQuestWaypoint(60060)
+    t:assertNil(wp1, "First call returns nil (no coords)")
+
+    -- Normal call should hit negative cache and return nil
+    local wp2 = QR.WaypointIntegration:GetQuestWaypoint(60060)
+    t:assertNil(wp2, "Second call hits negative cache")
+
+    -- Now add waypoint data
+    MockWoW.config.questWaypoints[60060] = { mapID = 84, x = 0.5, y = 0.5 }
+
+    -- Without ignoreNegativeCache, still returns nil (cached)
+    local wp3 = QR.WaypointIntegration:GetQuestWaypoint(60060)
+    t:assertNil(wp3, "Third call still hits negative cache")
+
+    -- With ignoreNegativeCache=true, bypasses and resolves
+    local wp4 = QR.WaypointIntegration:GetQuestWaypoint(60060, true)
+    t:assertNotNil(wp4, "Fourth call with ignoreNegativeCache finds coords")
+    t:assertEqual(84, wp4.mapID, "Correct mapID after bypass")
+end)
+
+T:run("GetWatchedQuestWaypoints: handles nil GetNumQuestWatches gracefully", function(t)
+    resetState()
+    -- Simulate GetNumQuestWatches returning nil
+    local origFn = C_QuestLog.GetNumQuestWatches
+    C_QuestLog.GetNumQuestWatches = function() return nil end
+
+    local results = QR.WaypointIntegration:GetWatchedQuestWaypoints()
+    t:assertEqual(0, #results, "Returns empty on nil watch count")
+
+    C_QuestLog.GetNumQuestWatches = origFn
+end)
+
+T:run("GetWatchedQuestWaypoints: per-quest error isolation", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[60070] = "Good Quest"
+    MockWoW.config.questWaypoints[60070] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questTitles[60071] = "Error Quest"
+    MockWoW.config.questWaypoints[60071] = { mapID = 85, x = 0.5, y = 0.5 }
+    MockWoW.config.questWatches = { 60070, 60071 }
+
+    -- Make GetQuestWaypoint error for quest 60071 by injecting a bad title lookup
+    local origGetTitle = C_QuestLog.GetTitleForQuestID
+    C_QuestLog.GetTitleForQuestID = function(qid)
+        if qid == 60071 then error("simulated API crash") end
+        return origGetTitle(qid)
+    end
+
+    local results = QR.WaypointIntegration:GetWatchedQuestWaypoints()
+    -- Quest 60070 should still resolve despite 60071 erroring
+    t:assertEqual(1, #results, "Good quest still resolves despite error in other quest")
+    t:assertEqual(60070, results[1].questID, "Correct quest survived")
+
+    C_QuestLog.GetTitleForQuestID = origGetTitle
 end)

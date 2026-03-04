@@ -198,6 +198,7 @@ QR.Continents = {
         name = "Kul Tiras",
         continentMapID = 876,
         hub = 1161,  -- Boralus
+        hubHorde = 1165,  -- Horde routes through Dazar'alor (boat to Boralus)
         faction = "Alliance",
         zones = {
             895,  -- Tiragarde Sound
@@ -210,6 +211,7 @@ QR.Continents = {
         name = "Zandalar",
         continentMapID = 875,
         hub = 1165,  -- Dazar'alor
+        hubAlliance = 1161,  -- Alliance routes through Boralus (boat to Dazar'alor)
         faction = "Horde",
         zones = {
             862,  -- Zuldazar

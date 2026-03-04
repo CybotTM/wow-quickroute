@@ -15,6 +15,12 @@ local function resetState()
     MockWoW.config.playedSounds = {}
     MockWoW.config.playerFaction = "Alliance"
     QR.PlayerInfo:InvalidateCache()
+    -- Clear quest coordinate cache to prevent cross-test contamination
+    if QR.WaypointIntegration and QR.WaypointIntegration.ClearQuestCoordCache then
+        QR.WaypointIntegration:ClearQuestCoordCache()
+    end
+    -- Clear cached watched quests from previous test
+    QR.DestinationSearch._cachedWatchedQuests = nil
 end
 
 -------------------------------------------------------------------------------
@@ -794,4 +800,193 @@ T:run("DestSearch: new localization keys exist for all service messages", functi
     t:assertNotNil(L["PRIORITY_USAGE"], "PRIORITY_USAGE key exists")
     t:assertNotNil(L["PRIORITY_CURRENT"], "PRIORITY_CURRENT key exists")
     t:assertNotNil(L["SIDEBAR_COLLAPSE_TT"], "SIDEBAR_COLLAPSE_TT key exists")
+end)
+
+-------------------------------------------------------------------------------
+-- Tracked Quests in CollectResults
+-------------------------------------------------------------------------------
+
+T:run("DestSearch: DEST_SEARCH_QUESTS localization key exists", function(t)
+    t:assertNotNil(QR.L["DEST_SEARCH_QUESTS"], "DEST_SEARCH_QUESTS key exists")
+end)
+
+T:run("DestSearch: CollectResults includes quests array", function(t)
+    resetState()
+    QR.DestinationSearch:ResolveWatchedQuests()
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertNotNil(results.quests, "quests group exists in results")
+    t:assertEqual("table", type(results.quests), "quests is a table")
+end)
+
+T:run("DestSearch: CollectResults populates quests from watched quests", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 70001
+    MockWoW.config.questTitles[70001] = "Super Tracked Quest"
+    MockWoW.config.questWaypoints[70001] = { mapID = 84, x = 0.1, y = 0.1 }
+    MockWoW.config.questTitles[70002] = "Watched Alpha"
+    MockWoW.config.questWaypoints[70002] = { mapID = 85, x = 0.3, y = 0.4 }
+    MockWoW.config.questTitles[70003] = "Watched Beta"
+    MockWoW.config.questWaypoints[70003] = { mapID = 87, x = 0.6, y = 0.8 }
+    MockWoW.config.questWatches = { 70001, 70002, 70003 }
+
+    QR.DestinationSearch:ResolveWatchedQuests()
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertEqual(2, #results.quests, "Two tracked quests (super-tracked excluded)")
+    t:assertNotNil(results.quests[1].name:find("Watched Alpha"), "First quest name")
+    t:assertEqual(85, results.quests[1].mapID, "First quest mapID")
+    t:assertNotNil(results.quests[2].name:find("Watched Beta"), "Second quest name")
+end)
+
+T:run("DestSearch: CollectResults filters quests by search query", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[70010] = "Find the Dragon"
+    MockWoW.config.questWaypoints[70010] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questTitles[70011] = "Collect Herbs"
+    MockWoW.config.questWaypoints[70011] = { mapID = 85, x = 0.5, y = 0.5 }
+    MockWoW.config.questWatches = { 70010, 70011 }
+
+    QR.DestinationSearch:ResolveWatchedQuests()
+    local all = QR.DestinationSearch:CollectResults("")
+    t:assertEqual(2, #all.quests, "All quests with no filter")
+
+    -- Filtering uses same cached data, no need to re-resolve
+    local filtered = QR.DestinationSearch:CollectResults("dragon")
+    t:assertEqual(1, #filtered.quests, "Only dragon quest matches")
+    t:assertNotNil(filtered.quests[1].name:find("Dragon"), "Correct quest matched")
+end)
+
+T:run("DestSearch: CollectResults skips quests without coords", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[70020] = "Has Coords"
+    MockWoW.config.questWaypoints[70020] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questTitles[70021] = "No Coords"
+    -- No waypoint
+    MockWoW.config.questWatches = { 70020, 70021 }
+
+    QR.DestinationSearch:ResolveWatchedQuests()
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertEqual(1, #results.quests, "Only quest with coords included")
+end)
+
+T:run("DestSearch: CollectResults quests have tag with zone name", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[70030] = "Zone Quest"
+    MockWoW.config.questWaypoints[70030] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questWatches = { 70030 }
+
+    QR.DestinationSearch:ResolveWatchedQuests()
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertEqual(1, #results.quests, "One quest")
+    t:assertNotNil(results.quests[1].tag, "Tag exists")
+    t:assertEqual("string", type(results.quests[1].tag), "Tag is string")
+end)
+
+T:run("DestSearch: ResolveWatchedQuests caches results for CollectResults", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[70040] = "Cached Quest"
+    MockWoW.config.questWaypoints[70040] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questWatches = { 70040 }
+
+    -- Resolve once
+    QR.DestinationSearch:ResolveWatchedQuests()
+
+    -- Verify cached data exists
+    t:assertNotNil(QR.DestinationSearch._cachedWatchedQuests, "Cache populated")
+    t:assertEqual(1, #QR.DestinationSearch._cachedWatchedQuests, "One cached quest")
+
+    -- CollectResults uses cache (doesn't call GetWatchedQuestWaypoints again)
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertEqual(1, #results.quests, "Quest from cache")
+
+    -- Filtering also uses same cache
+    local filtered = QR.DestinationSearch:CollectResults("cached")
+    t:assertEqual(1, #filtered.quests, "Filtered quest from cache")
+end)
+
+T:run("DestSearch: HideDropdown clears cached quest data", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[70050] = "Temp Quest"
+    MockWoW.config.questWaypoints[70050] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questWatches = { 70050 }
+
+    QR.DestinationSearch:ResolveWatchedQuests()
+    t:assertNotNil(QR.DestinationSearch._cachedWatchedQuests, "Cache exists before hide")
+
+    QR.DestinationSearch:HideDropdown()
+    t:assertNil(QR.DestinationSearch._cachedWatchedQuests, "Cache cleared after hide")
+end)
+
+T:run("DestSearch: CollectResults returns empty quests without ResolveWatchedQuests", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[70060] = "Unreachable Quest"
+    MockWoW.config.questWaypoints[70060] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questWatches = { 70060 }
+
+    -- Don't call ResolveWatchedQuests
+    QR.DestinationSearch._cachedWatchedQuests = nil
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertEqual(0, #results.quests, "No quests without resolve step")
+end)
+
+T:run("DestSearch: ResolveWatchedQuests handles pcall error gracefully", function(t)
+    resetState()
+    -- Temporarily break GetWatchedQuestWaypoints to trigger pcall error
+    local origFn = QR.WaypointIntegration.GetWatchedQuestWaypoints
+    QR.WaypointIntegration.GetWatchedQuestWaypoints = function()
+        error("simulated API error")
+    end
+
+    QR.DestinationSearch:ResolveWatchedQuests()
+    t:assertNotNil(QR.DestinationSearch._cachedWatchedQuests, "Cache set to empty table on error")
+    t:assertEqual(0, #QR.DestinationSearch._cachedWatchedQuests, "Empty cache on error")
+
+    QR.WaypointIntegration.GetWatchedQuestWaypoints = origFn
+end)
+
+T:run("DestSearch: CollectResults filters quests by zone name search", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[70070] = "Kill Bears"
+    MockWoW.config.questWaypoints[70070] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questTitles[70071] = "Find Herbs"
+    MockWoW.config.questWaypoints[70071] = { mapID = 85, x = 0.5, y = 0.5 }
+    MockWoW.config.questWatches = { 70070, 70071 }
+
+    QR.DestinationSearch:ResolveWatchedQuests()
+    local all = QR.DestinationSearch:CollectResults("")
+    t:assertEqual(2, #all.quests, "All quests unfiltered")
+
+    -- MockWoW's GetMapInfo returns a map name based on mapID (e.g. "Map 84")
+    -- Filter by zone name should match the zone tag
+    local mapInfo = C_Map.GetMapInfo(84)
+    local zoneName84 = mapInfo and mapInfo.name or ""
+    if zoneName84 ~= "" then
+        local filtered = QR.DestinationSearch:CollectResults(zoneName84)
+        t:assertTrue(#filtered.quests >= 1, "Zone name search returns at least one quest")
+    end
+end)
+
+T:run("DestSearch: CollectResults preserves alphabetical quest order", function(t)
+    resetState()
+    MockWoW.config.superTrackedQuestID = 0
+    MockWoW.config.questTitles[70080] = "Zebra Hunt"
+    MockWoW.config.questWaypoints[70080] = { mapID = 84, x = 0.1, y = 0.1 }
+    MockWoW.config.questTitles[70081] = "Apple Picking"
+    MockWoW.config.questWaypoints[70081] = { mapID = 85, x = 0.2, y = 0.2 }
+    MockWoW.config.questTitles[70082] = "Murloc Trouble"
+    MockWoW.config.questWaypoints[70082] = { mapID = 86, x = 0.3, y = 0.3 }
+    MockWoW.config.questWatches = { 70080, 70081, 70082 }
+
+    QR.DestinationSearch:ResolveWatchedQuests()
+    local results = QR.DestinationSearch:CollectResults("")
+    t:assertEqual(3, #results.quests, "Three quests")
+    t:assertEqual("Apple Picking", results.quests[1].name, "First alphabetically")
+    t:assertEqual("Murloc Trouble", results.quests[2].name, "Second alphabetically")
+    t:assertEqual("Zebra Hunt", results.quests[3].name, "Third alphabetically")
 end)

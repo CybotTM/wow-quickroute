@@ -35,7 +35,7 @@ recycleContainer:Hide()
 
 --- Collect all destination results, optionally filtered by search query
 -- @param query string Search text (empty = all results)
--- @return table { waypoints = {}, cities = {}, dungeons = {}, services = {} }
+-- @return table { waypoints = {}, quests = {}, cities = {}, dungeons = {}, services = {} }
 function DS:CollectResults(query)
     L = QR.L
     local queryLower = string_lower(query or "")
@@ -43,6 +43,7 @@ function DS:CollectResults(query)
 
     local results = {
         waypoints = {},
+        quests = {},
         cities = {},
         dungeons = {},
         services = {},
@@ -69,6 +70,27 @@ function DS:CollectResults(query)
                         })
                     end
                 end
+            end
+        end
+    end
+
+    -- 1.5. Tracked Quests (watched but not super-tracked)
+    -- Uses cached quest waypoints resolved once on dropdown open (see ResolveWatchedQuests)
+    if self._cachedWatchedQuests then
+        for _, quest in ipairs(self._cachedWatchedQuests) do
+            local title = quest.title or "?"
+            local zoneName = quest.zoneName or ""
+            if not isSearching
+                or string_find(string_lower(title), queryLower, 1, true)
+                or string_find(string_lower(zoneName), queryLower, 1, true) then
+                table_insert(results.quests, {
+                    name = title,
+                    questID = quest.questID,
+                    mapID = quest.mapID,
+                    x = quest.x,
+                    y = quest.y,
+                    tag = zoneName ~= "" and ("|cFF88CC88" .. zoneName .. "|r") or "",
+                })
             end
         end
     end
@@ -231,6 +253,7 @@ function DS:HideDropdown()
         self.frame:Hide()
     end
     self.isShowing = false
+    self._cachedWatchedQuests = nil -- clear stale quest data
 end
 
 -------------------------------------------------------------------------------
@@ -273,9 +296,10 @@ function DS:CreateDropdown()
     -- ESC to close
     table_insert(UISpecialFrames, "QRDestSearchDropdown")
 
-    -- Sync isShowing on hide
+    -- Sync isShowing on hide (also handles ESC-to-close via UISpecialFrames)
     frame:SetScript("OnHide", function()
         DS.isShowing = false
+        DS._cachedWatchedQuests = nil
     end)
 
     frame:Hide()
@@ -439,6 +463,10 @@ function DS:CreateResultRow(entry, yOffset)
                 GameTooltip:AddLine(mapInfo.name, 0.7, 0.7, 0.7)
             end
         end
+        -- Show quest ID in debug mode for troubleshooting
+        if entry.questID and QR.db and QR.db.debugMode then
+            GameTooltip:AddLine(string_format("Quest ID: %d", entry.questID), 0.4, 0.4, 0.4)
+        end
         GameTooltip:AddLine(L and L["DEST_SEARCH_ROUTE_TO_TT"] or "Click to calculate route", 0.5, 0.5, 0.5, true)
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
@@ -484,6 +512,22 @@ function DS:RefreshDropdown(query)
             for _, wp in ipairs(results.waypoints) do
                 wp.tag = wp.source or ""
                 local _, newY2 = self:CreateResultRow(wp, yOffset)
+                yOffset = newY2
+                totalRows = totalRows + 1
+            end
+        end
+    end
+
+    -- 1.5. Tracked Quests section
+    if #results.quests > 0 then
+        local title = L and L["DEST_SEARCH_QUESTS"] or "Tracked Quests"
+        local _, newY = self:CreateSectionHeader("quests", title, yOffset)
+        yOffset = newY
+        totalRows = totalRows + 1
+
+        if not self.collapsedSections["quests"] then
+            for _, quest in ipairs(results.quests) do
+                local _, newY2 = self:CreateResultRow(quest, yOffset)
                 yOffset = newY2
                 totalRows = totalRows + 1
             end
@@ -616,6 +660,24 @@ end
 -- Show / Select / Search
 -------------------------------------------------------------------------------
 
+--- Resolve watched quest waypoints once (expensive), cache for filtering
+-- Called on dropdown open to avoid re-resolving on every keystroke
+function DS:ResolveWatchedQuests()
+    self._cachedWatchedQuests = nil
+    if not (QR.WaypointIntegration and QR.WaypointIntegration.GetWatchedQuestWaypoints) then
+        return
+    end
+    local ok, quests = pcall(function()
+        return QR.WaypointIntegration:GetWatchedQuestWaypoints()
+    end)
+    if ok and quests then
+        self._cachedWatchedQuests = quests
+    else
+        QR:Debug("DestinationSearch: Failed to resolve watched quests: " .. tostring(quests))
+        self._cachedWatchedQuests = {}
+    end
+end
+
 --- Show the dropdown, optionally anchored to a frame
 -- @param anchorFrame Frame|nil The frame to anchor below
 function DS:ShowDropdown(anchorFrame)
@@ -632,6 +694,9 @@ function DS:ShowDropdown(anchorFrame)
     else
         self.frame:SetPoint("CENTER", UIParent, "CENTER")
     end
+
+    -- Resolve watched quest waypoints once (expensive operation)
+    self:ResolveWatchedQuests()
 
     self:RefreshDropdown("")
     self.frame:Show()

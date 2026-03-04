@@ -215,6 +215,7 @@ L["SERVICE_NEAREST_BANK"] = "Nearest Bank"
 L["SERVICE_NEAREST_VOID_STORAGE"] = "Nearest Void Storage"
 L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Nearest Crafting Table"
 L["DEST_SEARCH_SERVICES"] = "Services"
+L["DEST_SEARCH_QUESTS"] = "Tracked Quests"
 
 -- Errors / Hints
 L["UNKNOWN"] = "Unknown"
@@ -526,6 +527,7 @@ if GetLocale() == "deDE" then
     L["SERVICE_NEAREST_VOID_STORAGE"] = "Nächstes Leerenlager"
     L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Nächster Handwerkstisch"
     L["DEST_SEARCH_SERVICES"] = "Dienste"
+    L["DEST_SEARCH_QUESTS"] = "Verfolgte Quests"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Unbekannt"
@@ -836,6 +838,7 @@ if GetLocale() == "frFR" then
     L["SERVICE_NEAREST_VOID_STORAGE"] = "Stockage du Vide le plus proche"
     L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Table d'artisanat la plus proche"
     L["DEST_SEARCH_SERVICES"] = "Services"
+    L["DEST_SEARCH_QUESTS"] = "Quêtes suivies"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Inconnu"
@@ -1147,6 +1150,7 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["SERVICE_NEAREST_VOID_STORAGE"] = "Depósito del Vacío más cercano"
     L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Mesa de artesanía más cercana"
     L["DEST_SEARCH_SERVICES"] = "Servicios"
+    L["DEST_SEARCH_QUESTS"] = "Misiones rastreadas"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Desconocido"
@@ -1457,6 +1461,7 @@ if GetLocale() == "ptBR" then
     L["SERVICE_NEAREST_VOID_STORAGE"] = "Armazém do Vazio mais próximo"
     L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Mesa de Artesanato mais próxima"
     L["DEST_SEARCH_SERVICES"] = "Serviços"
+    L["DEST_SEARCH_QUESTS"] = "Missões rastreadas"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Desconhecido"
@@ -1767,6 +1772,7 @@ if GetLocale() == "ruRU" then
     L["SERVICE_NEAREST_VOID_STORAGE"] = "Ближайшее хранилище Бездны"
     L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Ближайший ремесленный стол"
     L["DEST_SEARCH_SERVICES"] = "Сервисы"
+    L["DEST_SEARCH_QUESTS"] = "Отслеживаемые задания"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Неизвестно"
@@ -2077,6 +2083,7 @@ if GetLocale() == "koKR" then
     L["SERVICE_NEAREST_VOID_STORAGE"] = "가장 가까운 공허 보관소"
     L["SERVICE_NEAREST_CRAFTING_TABLE"] = "가장 가까운 제작대"
     L["DEST_SEARCH_SERVICES"] = "서비스"
+    L["DEST_SEARCH_QUESTS"] = "추적 중인 퀘스트"
 
     -- Errors / Hints
     L["UNKNOWN"] = "알 수 없음"
@@ -2387,6 +2394,7 @@ if GetLocale() == "zhCN" then
     L["SERVICE_NEAREST_VOID_STORAGE"] = "最近的虚空仓库"
     L["SERVICE_NEAREST_CRAFTING_TABLE"] = "最近的制作台"
     L["DEST_SEARCH_SERVICES"] = "服务"
+    L["DEST_SEARCH_QUESTS"] = "追踪的任务"
 
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
@@ -2697,6 +2705,7 @@ if GetLocale() == "zhTW" then
     L["SERVICE_NEAREST_VOID_STORAGE"] = "最近的虛空倉庫"
     L["SERVICE_NEAREST_CRAFTING_TABLE"] = "最近的製作檯"
     L["DEST_SEARCH_SERVICES"] = "服務"
+    L["DEST_SEARCH_QUESTS"] = "追蹤的任務"
 
     -- Errors / Hints
     L["UNKNOWN"] = "未知"
@@ -3007,6 +3016,7 @@ if GetLocale() == "itIT" then
     L["SERVICE_NEAREST_VOID_STORAGE"] = "Deposito del Vuoto più vicino"
     L["SERVICE_NEAREST_CRAFTING_TABLE"] = "Tavolo da artigianato più vicino"
     L["DEST_SEARCH_SERVICES"] = "Servizi"
+    L["DEST_SEARCH_QUESTS"] = "Missioni tracciate"
 
     -- Errors / Hints
     L["UNKNOWN"] = "Sconosciuto"

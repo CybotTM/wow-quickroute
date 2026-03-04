@@ -7,7 +7,7 @@ local pairs, type, tostring, pcall = pairs, type, tostring, pcall
 local ipairs = ipairs
 local string_format = string.format
 local string_lower = string.lower
-local table_insert, table_concat = table.insert, table.concat
+local table_insert, table_concat, table_sort = table.insert, table.concat, table.sort
 local CreateFrame = CreateFrame
 local GetTime = GetTime
 local wipe = wipe
@@ -124,15 +124,12 @@ function WaypointIntegration:GetTomTomWaypoint()
     }
 end
 
---- Get waypoint from super-tracked quest
--- Uses C_SuperTrack and C_QuestLog APIs
--- @return table|nil {mapID, x, y, title} or nil if no tracked quest waypoint
-function WaypointIntegration:GetSuperTrackedWaypoint()
-    -- Get the super-tracked quest ID (with API availability check)
-    if not (C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID) then
-        return nil
-    end
-    local questID = C_SuperTrack.GetSuperTrackedQuestID()
+--- Get waypoint coordinates for a specific quest ID
+-- Uses C_QuestLog APIs (Methods 1-6) with caching and transit hub detection
+-- @param questID number The quest ID to resolve coordinates for
+-- @param ignoreNegativeCache boolean If true, bypass "not found" cache entries (for dropdown queries)
+-- @return table|nil {mapID, x, y, title} or nil if no coordinates found
+function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
     if not questID or questID == 0 then
         return nil
     end
@@ -151,8 +148,8 @@ function WaypointIntegration:GetSuperTrackedWaypoint()
                 y = cached.y,
                 title = questTitle,
             }
-        else
-            -- Cached "not found" result
+        elseif not ignoreNegativeCache then
+            -- Cached "not found" result — skip for dropdown queries which retry
             return nil
         end
     end
@@ -579,6 +576,91 @@ function WaypointIntegration:GetSuperTrackedWaypoint()
     QR:Debug(string_format("Quest %d (%s): no coordinates found from any API", questID, questTitle))
     questCoordCache[questID] = { time = now }
     return nil
+end
+
+--- Clear the quest coordinate cache (used by tests and when quest state changes significantly)
+function WaypointIntegration:ClearQuestCoordCache()
+    wipe(questCoordCache)
+end
+
+--- Get waypoint from super-tracked quest
+-- Thin wrapper around GetQuestWaypoint using C_SuperTrack API
+-- @return table|nil {mapID, x, y, title} or nil if no tracked quest waypoint
+function WaypointIntegration:GetSuperTrackedWaypoint()
+    if not (C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID) then
+        return nil
+    end
+    local questID = C_SuperTrack.GetSuperTrackedQuestID()
+    if not questID or questID == 0 then
+        return nil
+    end
+    return self:GetQuestWaypoint(questID)
+end
+
+--- Get waypoints for all watched (tracked) quests except the super-tracked one
+-- @return table Array of {questID, title, mapID, x, y, zoneName}
+function WaypointIntegration:GetWatchedQuestWaypoints()
+    local results = {}
+
+    if not (C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetQuestIDForQuestWatchIndex) then
+        QR:Debug("GetWatchedQuestWaypoints: C_QuestLog watch APIs not available")
+        return results
+    end
+
+    -- Get the super-tracked quest ID to exclude it (already shown in Active Waypoints)
+    local superTrackedID = 0
+    if C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
+        superTrackedID = C_SuperTrack.GetSuperTrackedQuestID() or 0
+    end
+
+    local numWatches = C_QuestLog.GetNumQuestWatches() or 0
+    QR:Debug(string_format("GetWatchedQuestWaypoints: %d watches, super-tracked=%d", numWatches, superTrackedID))
+
+    local seen = {} -- dedup protection for duplicate quest IDs
+    local skipped = 0
+    local errors = 0
+    for i = 1, numWatches do
+        local questID = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
+        if questID and questID ~= 0 and questID ~= superTrackedID and not seen[questID] then
+            seen[questID] = true
+            -- pcall per-quest so one erroring quest doesn't kill all others
+            local ok, wp = pcall(self.GetQuestWaypoint, self, questID, true)
+            if not ok then
+                errors = errors + 1
+                QR:Debug(string_format("GetWatchedQuestWaypoints: quest %d errored: %s", questID, tostring(wp)))
+            elseif wp and wp.mapID then
+                -- Get localized zone name for the tag
+                local zoneName = ""
+                if C_Map and C_Map.GetMapInfo then
+                    local mapInfo = C_Map.GetMapInfo(wp.mapID)
+                    if mapInfo and mapInfo.name then
+                        zoneName = mapInfo.name
+                    end
+                end
+                table_insert(results, {
+                    questID = questID,
+                    title = wp.title or "?",
+                    mapID = wp.mapID,
+                    x = wp.x,
+                    y = wp.y,
+                    zoneName = zoneName,
+                })
+            else
+                skipped = skipped + 1
+                QR:Debug(string_format("GetWatchedQuestWaypoints: quest %d has no resolvable coords", questID))
+            end
+        end
+    end
+
+    -- Sort alphabetically by title for consistent display
+    table_sort(results, function(a, b) return (a.title or "") < (b.title or "") end)
+
+    if errors > 0 then
+        QR:Debug(string_format("GetWatchedQuestWaypoints: resolved %d quests, skipped %d, errors %d", #results, skipped, errors))
+    else
+        QR:Debug(string_format("GetWatchedQuestWaypoints: resolved %d quests, skipped %d", #results, skipped))
+    end
+    return results
 end
 
 --- Get the user's map pin (manual waypoint)
