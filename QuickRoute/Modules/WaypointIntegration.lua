@@ -422,12 +422,58 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         return { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, title = questTitle }
     end
 
+    -- Resolve quest log header (shared by Methods 5b, 6, and final fallback)
+    local questHeader = nil
+    if C_QuestLog.GetHeaderIndexForQuest then
+        local headerIndex = C_QuestLog.GetHeaderIndexForQuest(questID)
+        if headerIndex and C_QuestLog.GetInfo then
+            local headerInfo = C_QuestLog.GetInfo(headerIndex)
+            if headerInfo and headerInfo.title then
+                questHeader = headerInfo.title
+            end
+        end
+    end
+
+    -- Method 5b: Header → zone name match → GetQuestsOnMap
+    -- The quest log header often IS the zone name (e.g. "Insel von Dorn", "Immersangwald").
+    -- Check GetQuestsOnMap for the matching zone to get precise quest POI coordinates.
+    if questHeader and C_QuestLog.GetQuestsOnMap and QR.Continents then
+        QR:Debug(string_format("Quest %d: quest log header = %q, checking zone match", questID, questHeader))
+        local headerLower = string_lower(questHeader)
+        for _, continentData in pairs(QR.Continents) do
+            for _, zoneID in ipairs(continentData.zones) do
+                if C_Map and C_Map.GetMapInfo then
+                    local mapInfo = C_Map.GetMapInfo(zoneID)
+                    if mapInfo and mapInfo.name and string_lower(mapInfo.name) == headerLower then
+                        local questsOnMap = C_QuestLog.GetQuestsOnMap(zoneID)
+                        if questsOnMap then
+                            for _, questInfo in ipairs(questsOnMap) do
+                                if questInfo.questID == questID then
+                                    local qx, qy = questInfo.x, questInfo.y
+                                    if qx and qy and (qx ~= 0 or qy ~= 0) then
+                                        QR:Debug(string_format("Quest %d: header %q -> zone %d, GetQuestsOnMap (%.4f, %.4f)",
+                                            questID, questHeader, zoneID, qx, qy))
+                                        questCoordCache[questID] = { mapID = zoneID, x = qx, y = qy, time = now }
+                                        return {
+                                            mapID = zoneID,
+                                            x = qx,
+                                            y = qy,
+                                            title = questTitle,
+                                        }
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
     -- Method 6: Dungeon/raid quest entrance fallback
-    -- When quest coordinate APIs fail, use Blizzard's quest log header API to identify
+    -- When quest coordinate APIs fail, use the quest log header to identify
     -- the dungeon/zone and route to its entrance via DungeonData.
-    -- Uses C_QuestLog.GetHeaderIndexForQuest (Blizzard's own API for quest→header mapping)
-    -- followed by C_QuestLog.GetInfo to get the header title.
-    -- Strategies: (a) header→dungeon match, (b) title prefix→dungeon, (c) title prefix→zone
+    -- Strategies: (a) highlights→entrance, (b) header→dungeon, (c) title prefix→dungeon, (d) title prefix→zone
     if QR.DungeonData and QR.DungeonData.scanned then
         -- Check if quest is dungeon/raid type via Enum.QuestTag constants
         local isDungeonQuest = false
@@ -493,22 +539,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             end
         end
 
-        -- Strategy (a): Use GetHeaderIndexForQuest to find the quest's section header
-        -- This is Blizzard's direct API — no manual quest log iteration needed
-        local questHeader = nil
-        if C_QuestLog.GetHeaderIndexForQuest then
-            local headerIndex = C_QuestLog.GetHeaderIndexForQuest(questID)
-            if headerIndex and C_QuestLog.GetInfo then
-                local headerInfo = C_QuestLog.GetInfo(headerIndex)
-                if headerInfo and headerInfo.title then
-                    questHeader = headerInfo.title
-                end
-            end
-        end
-
         if questHeader then
-            QR:Debug(string_format("Quest %d: quest log header = %q", questID, questHeader))
-
             -- Search DungeonData for an instance matching the header name
             for instanceID, inst in pairs(QR.DungeonData.instances) do
                 if inst.name and inst.zoneMapID and inst.x and inst.y then
@@ -567,6 +598,77 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                         y = 0.5,
                                         title = questTitle,
                                     }
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Method 7: Final fallback — broad GetQuestsOnMap scan across all known zones
+    -- Expensive but catches quests that have map POIs but no waypoint data from Methods 1-5.
+    -- Only reaches here when all faster methods failed.
+    if C_QuestLog.GetQuestsOnMap and QR.Continents then
+        QR:Debug(string_format("Quest %d: final fallback — broad GetQuestsOnMap scan", questID))
+        local scannedMaps = {}
+        if playerMapID then scannedMaps[playerMapID] = true end -- already checked in Method 3
+
+        for _, continentData in pairs(QR.Continents) do
+            for _, zoneID in ipairs(continentData.zones) do
+                if not scannedMaps[zoneID] then
+                    scannedMaps[zoneID] = true
+                    local questsOnMap = C_QuestLog.GetQuestsOnMap(zoneID)
+                    if questsOnMap then
+                        for _, questInfo in ipairs(questsOnMap) do
+                            if questInfo.questID == questID then
+                                local qx, qy = questInfo.x, questInfo.y
+                                if qx and qy and (qx ~= 0 or qy ~= 0) then
+                                    QR:Debug(string_format("Quest %d: broad GetQuestsOnMap found on map %d (%.4f, %.4f)",
+                                        questID, zoneID, qx, qy))
+                                    questCoordCache[questID] = { mapID = zoneID, x = qx, y = qy, time = now }
+                                    return {
+                                        mapID = zoneID,
+                                        x = qx,
+                                        y = qy,
+                                        title = questTitle,
+                                    }
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- Phase 2: Dynamic map discovery for zones not in our hardcoded list
+        if C_Map and C_Map.GetMapChildrenInfo then
+            local childMaps = C_Map.GetMapChildrenInfo(947, 3, true) -- world, zones, all descendants
+            if childMaps then
+                for _, childInfo in ipairs(childMaps) do
+                    local childMapID = childInfo.mapID
+                    if childMapID and not scannedMaps[childMapID] then
+                        scannedMaps[childMapID] = true
+                        local questsOnMap = C_QuestLog.GetQuestsOnMap(childMapID)
+                        if questsOnMap then
+                            for _, questInfo in ipairs(questsOnMap) do
+                                if questInfo.questID == questID then
+                                    local qx, qy = questInfo.x, questInfo.y
+                                    if qx and qy and (qx ~= 0 or qy ~= 0) then
+                                        local continent = QR.GetContinentForZone and QR.GetContinentForZone(childMapID)
+                                        if continent then
+                                            QR:Debug(string_format("Quest %d: dynamic scan found on routable map %d (%s) (%.4f, %.4f)",
+                                                questID, childMapID, childInfo.name or "?", qx, qy))
+                                            questCoordCache[questID] = { mapID = childMapID, x = qx, y = qy, time = now }
+                                            return {
+                                                mapID = childMapID,
+                                                x = qx,
+                                                y = qy,
+                                                title = questTitle,
+                                            }
+                                        end
+                                    end
                                 end
                             end
                         end
