@@ -153,6 +153,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             }
         elseif not ignoreNegativeCache then
             -- Cached "not found" result — skip for dropdown queries which retry
+            QR:Debug(string_format("Quest %d: negative cache hit (no coords found previously)", questID))
             return nil
         end
     end
