@@ -1011,6 +1011,17 @@ QR.TeleportItemsData = {
         faction = "both",
         acquisition = "Vendor for 50g",
     },
+    [253629] = {
+        name = "Personal Key to the Arcantina",
+        destination = "Silvermoon City (Arcantina)",
+        mapID = 2393,  -- Silvermoon City (revamped, Midnight)
+        x = 0.5850,
+        y = 0.1920,
+        cooldown = 90,  -- 1.5 minutes
+        type = QR.TeleportTypes.TOY,
+        faction = "both",
+        acquisition = "Quest: The Arcantina (Midnight)",
+    },
     -- Random destination toys
     [64457] = {
         name = "The Last Relic of Argus",

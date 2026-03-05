@@ -874,6 +874,7 @@ T:run("Data: New destination toys exist with correct mapIDs", function(t)
         [140324] = { name = "Mobile Telemancy Beacon", mapID = 680 },
         [129276] = { name = "Beginner's Guide to Dimensional Rifting", mapID = 630 },
         [202046] = { name = "Lucky Tortollan Charm", mapID = 942 },
+        [253629] = { name = "Personal Key to the Arcantina", mapID = 2393 },
     }
     for id, expected in pairs(destToys) do
         local data = QR.TeleportItemsData[id]
