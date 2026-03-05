@@ -21,13 +21,14 @@ local function resetState()
     if QR.WaypointIntegration.ClearQuestCoordCache then
         QR.WaypointIntegration:ClearQuestCoordCache()
     end
-    -- Clear waypoint dedup cache
+    -- Clear waypoint dedup cache and TomTom UID tracking
     QR.WaypointIntegration._lastWpMapID = nil
     QR.WaypointIntegration._lastWpX = nil
     QR.WaypointIntegration._lastWpY = nil
     QR.WaypointIntegration._lastWpTitle = nil
     QR.WaypointIntegration._lastWpTime = nil
     QR.WaypointIntegration._lastWpUID = nil
+    QR.WaypointIntegration._tomtomUIDs = {}
 end
 
 local function setMapPinWaypoint(mapID, x, y)
@@ -1248,4 +1249,259 @@ T:run("GetWatchedQuestWaypoints: per-quest error isolation", function(t)
     t:assertEqual(60070, results[1].questID, "Correct quest survived")
 
     C_QuestLog.GetTitleForQuestID = origGetTitle
+end)
+
+-------------------------------------------------------------------------------
+-- TomTom Waypoint Tracking & Cleanup
+-------------------------------------------------------------------------------
+
+T:run("SetTomTomWaypoint: prefixes title with QR:", function(t)
+    resetState()
+    local passedTitle = nil
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            passedTitle = opts.title
+            return { uid = "wp1" }
+        end,
+    }
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Stormwind")
+
+    t:assertEqual("QR: Stormwind", passedTitle, "Title prefixed with QR:")
+end)
+
+T:run("SetTomTomWaypoint: default title is QR: QuickRoute", function(t)
+    resetState()
+    local passedTitle = nil
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            passedTitle = opts.title
+            return { uid = "wp1" }
+        end,
+    }
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, nil)
+
+    t:assertEqual("QR: QuickRoute", passedTitle, "Default title is QR: QuickRoute")
+end)
+
+T:run("SetTomTomWaypoint: tracks UID in _tomtomUIDs", function(t)
+    resetState()
+    local fakeUID = { uid = "tracked1" }
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            return fakeUID
+        end,
+    }
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Test")
+
+    t:assertEqual(1, #QR.WaypointIntegration._tomtomUIDs, "One UID tracked")
+    t:assertEqual(fakeUID, QR.WaypointIntegration._tomtomUIDs[1], "Correct UID tracked")
+end)
+
+T:run("ClearTomTomWaypoints: calls RemoveWaypoint for each tracked UID", function(t)
+    resetState()
+    local removedUIDs = {}
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            return { uid = mapID }
+        end,
+        RemoveWaypoint = function(self, uid)
+            table.insert(removedUIDs, uid)
+        end,
+    }
+
+    -- Set two waypoints (different coords to avoid dedup)
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.1, 0.1, "A")
+    -- Second call clears previous, so only 1 UID at a time, but let's
+    -- manually add another to test multi-removal
+    local extraUID = { uid = "extra" }
+    table.insert(QR.WaypointIntegration._tomtomUIDs, extraUID)
+
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+
+    t:assertEqual(2, #removedUIDs, "RemoveWaypoint called for each tracked UID")
+    t:assertEqual(0, #QR.WaypointIntegration._tomtomUIDs, "UIDs wiped after clear")
+end)
+
+T:run("ClearTomTomWaypoints: wipes dedup state", function(t)
+    resetState()
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            return { uid = "wp1" }
+        end,
+        RemoveWaypoint = function() end,
+    }
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Test")
+    t:assertNotNil(QR.WaypointIntegration._lastWpMapID, "Dedup state set")
+
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+
+    t:assertNil(QR.WaypointIntegration._lastWpUID, "lastWpUID cleared")
+    t:assertNil(QR.WaypointIntegration._lastWpMapID, "lastWpMapID cleared")
+    t:assertNil(QR.WaypointIntegration._lastWpX, "lastWpX cleared")
+    t:assertNil(QR.WaypointIntegration._lastWpY, "lastWpY cleared")
+    t:assertNil(QR.WaypointIntegration._lastWpTitle, "lastWpTitle cleared")
+    t:assertNil(QR.WaypointIntegration._lastWpTime, "lastWpTime cleared")
+end)
+
+T:run("ClearTomTomWaypoints: wipes UIDs even when TomTom not available", function(t)
+    resetState()
+    _G.TomTom = nil
+
+    -- Manually add fake UIDs — should be wiped even without TomTom
+    QR.WaypointIntegration._tomtomUIDs = { "a", "b" }
+    QR.WaypointIntegration._lastWpMapID = 84
+
+    -- Should not error and should still wipe stale state
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+
+    t:assertEqual(0, #QR.WaypointIntegration._tomtomUIDs, "Stale UIDs wiped when TomTom nil")
+    t:assertNil(QR.WaypointIntegration._lastWpMapID, "Dedup state wiped when TomTom nil")
+end)
+
+T:run("SetTomTomWaypoint: clears previous waypoints before setting new one", function(t)
+    resetState()
+    local removedUIDs = {}
+    local addCount = 0
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            addCount = addCount + 1
+            return { uid = "wp" .. addCount }
+        end,
+        RemoveWaypoint = function(self, uid)
+            table.insert(removedUIDs, uid)
+        end,
+    }
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.1, 0.1, "First")
+    t:assertEqual(1, #QR.WaypointIntegration._tomtomUIDs, "One UID after first set")
+    t:assertEqual(0, #removedUIDs, "No removals on first set")
+
+    QR.WaypointIntegration:SetTomTomWaypoint(85, 0.2, 0.2, "Second")
+    t:assertEqual(1, #removedUIDs, "First waypoint removed before second set")
+    t:assertEqual(1, #QR.WaypointIntegration._tomtomUIDs, "Only one UID after second set")
+end)
+
+T:run("SetTomTomWaypoint: dedup returns cached UID without adding duplicate", function(t)
+    resetState()
+    local addCount = 0
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            addCount = addCount + 1
+            return { uid = "wp" .. addCount }
+        end,
+        RemoveWaypoint = function() end,
+    }
+
+    local uid1 = QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Same")
+    local uid2 = QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Same")
+
+    t:assertEqual(1, addCount, "AddWaypoint only called once (dedup)")
+    t:assertEqual(uid1, uid2, "Same UID returned for duplicate call")
+    t:assertEqual(1, #QR.WaypointIntegration._tomtomUIDs, "Only one UID tracked")
+end)
+
+T:run("SetTomTomWaypoint: nil UID from AddWaypoint is not tracked", function(t)
+    resetState()
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            return nil
+        end,
+        RemoveWaypoint = function() end,
+    }
+
+    local uid = QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Test")
+
+    t:assertNil(uid, "Returns nil when AddWaypoint returns nil")
+    t:assertEqual(0, #QR.WaypointIntegration._tomtomUIDs, "nil UID not tracked")
+end)
+
+T:run("SetTomTomWaypoint: pipe chars escaped AND prefixed", function(t)
+    resetState()
+    local passedTitle = nil
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            passedTitle = opts.title
+            return { uid = "wp1" }
+        end,
+    }
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Go|cFF0000to|r place")
+
+    t:assertEqual("QR: Go||cFF0000to||r place", passedTitle, "Pipe escaped AND prefixed")
+end)
+
+T:run("ClearTomTomWaypoints: idempotent (safe to call twice)", function(t)
+    resetState()
+    local removeCount = 0
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            return { uid = "wp1" }
+        end,
+        RemoveWaypoint = function(self, uid)
+            removeCount = removeCount + 1
+        end,
+    }
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Test")
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+    t:assertEqual(1, removeCount, "First clear removes one UID")
+
+    -- Second call should be no-op (no UIDs left)
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+    t:assertEqual(1, removeCount, "Second clear is no-op")
+    t:assertEqual(0, #QR.WaypointIntegration._tomtomUIDs, "UIDs still empty")
+end)
+
+T:run("SetTomTomWaypoint: native fallback does not track UIDs", function(t)
+    resetState()
+    _G.TomTom = nil
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Test")
+
+    t:assertEqual(0, #QR.WaypointIntegration._tomtomUIDs, "No UIDs tracked for native waypoint")
+end)
+
+T:run("ClearTomTomWaypoints: continues after RemoveWaypoint error", function(t)
+    resetState()
+    local removedUIDs = {}
+    _G.TomTom = {
+        RemoveWaypoint = function(self, uid)
+            if uid.fail then
+                error("simulated removal failure")
+            end
+            table.insert(removedUIDs, uid)
+        end,
+    }
+
+    -- Manually set up UIDs: first one fails, second should still be removed
+    QR.WaypointIntegration._tomtomUIDs = {
+        { fail = true, id = "bad" },
+        { id = "good" },
+    }
+
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+
+    t:assertEqual(1, #removedUIDs, "Good UID was still removed despite earlier error")
+    t:assertEqual("good", removedUIDs[1].id, "Correct UID removed")
+    t:assertEqual(0, #QR.WaypointIntegration._tomtomUIDs, "All UIDs wiped after errors")
+end)
+
+T:run("SetTomTomWaypoint: AddWaypoint error resets _settingWaypoint", function(t)
+    resetState()
+    _G.TomTom = {
+        AddWaypoint = function(self, mapID, x, y, opts)
+            error("TomTom internal error")
+        end,
+    }
+
+    QR.WaypointIntegration._settingWaypoint = false
+    local uid = QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Test")
+
+    t:assertNil(uid, "Returns nil on AddWaypoint error")
+    t:assertFalse(QR.WaypointIntegration._settingWaypoint, "_settingWaypoint reset after error")
+    t:assertEqual(0, #QR.WaypointIntegration._tomtomUIDs, "No UID tracked on error")
 end)

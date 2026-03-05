@@ -19,6 +19,9 @@ QR.WaypointIntegration = {}
 
 local WaypointIntegration = QR.WaypointIntegration
 
+-- Track TomTom waypoint UIDs set by QuickRoute for cleanup
+WaypointIntegration._tomtomUIDs = {}
+
 -- Module-scope source definitions (initialized after methods are defined)
 local waypointSourceDefs
 local activeWaypointSources
@@ -963,6 +966,25 @@ end
 -- Waypoint Setting
 -------------------------------------------------------------------------------
 
+--- Remove all TomTom waypoints previously set by QuickRoute
+function WaypointIntegration:ClearTomTomWaypoints()
+    if TomTom and TomTom.RemoveWaypoint then
+        for i = #self._tomtomUIDs, 1, -1 do
+            local ok, err = pcall(TomTom.RemoveWaypoint, TomTom, self._tomtomUIDs[i])
+            if not ok then
+                QR:Debug("Failed to remove TomTom waypoint: " .. tostring(err))
+            end
+        end
+    end
+    wipe(self._tomtomUIDs)
+    self._lastWpUID = nil
+    self._lastWpMapID = nil
+    self._lastWpX = nil
+    self._lastWpY = nil
+    self._lastWpTitle = nil
+    self._lastWpTime = nil
+end
+
 --- Set a TomTom waypoint or native map pin
 -- @param mapID number The destination map ID
 -- @param x number X coordinate (0-1)
@@ -981,6 +1003,10 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
         and self._lastWpTitle == title and (now - (self._lastWpTime or 0)) < 2 then
         return self._lastWpUID
     end
+
+    -- Remove previous QR waypoints before setting a new one
+    self:ClearTomTomWaypoints()
+
     self._lastWpMapID = mapID
     self._lastWpX = x
     self._lastWpY = y
@@ -990,7 +1016,7 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
     if TomTom then
         -- Use TomTom addon
         -- Sanitize title: escape pipe characters to prevent UI string injection
-        local safeTitle = title and title:gsub("|", "||") or "QuickRoute"
+        local safeTitle = "QR: " .. (title and title:gsub("|", "||") or "QuickRoute")
         local opts = {
             title = safeTitle,
             persistent = false,
@@ -1000,10 +1026,17 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
         }
         -- Guard: prevent TomTom callback from triggering OnWaypointChanged
         self._settingWaypoint = true
-        local uid = TomTom:AddWaypoint(mapID, x, y, opts)
+        local ok, uid = pcall(TomTom.AddWaypoint, TomTom, mapID, x, y, opts)
         self._settingWaypoint = false
+        if not ok then
+            QR:Warn("TomTom:AddWaypoint failed: " .. tostring(uid))
+            return nil
+        end
         self._lastWpUID = uid
-        QR:Print("|cFF00FF00QuickRoute|r: TomTom waypoint set for " .. (safeTitle or "destination"))
+        if uid ~= nil then
+            table_insert(self._tomtomUIDs, uid)
+        end
+        QR:Print("|cFF00FF00QuickRoute|r: TomTom waypoint set for " .. safeTitle)
         return uid
     end
 

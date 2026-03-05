@@ -494,7 +494,7 @@ T:run("B5: SetTomTomWaypoint handles nil title gracefully", function(t)
     QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, nil)
 
     t:assertNotNil(capturedOpts, "TomTom AddWaypoint was called with nil title")
-    t:assertEqual("QuickRoute", capturedOpts.title, "Nil title defaults to QuickRoute")
+    t:assertEqual("QR: QuickRoute", capturedOpts.title, "Nil title defaults to QR: QuickRoute")
 
     _G.TomTom = nil
 end)
@@ -513,7 +513,7 @@ T:run("B5: SetTomTomWaypoint passes clean title unchanged", function(t)
     QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Clean Title")
 
     t:assertNotNil(capturedOpts, "TomTom AddWaypoint was called")
-    t:assertEqual("Clean Title", capturedOpts.title, "Clean title passed unchanged")
+    t:assertEqual("QR: Clean Title", capturedOpts.title, "Clean title prefixed with QR:")
 
     _G.TomTom = nil
 end)

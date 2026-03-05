@@ -1207,6 +1207,9 @@ function UI:ClearRoute()
     end
 
     self:ClearStepLabels()
+
+    -- Remove stale TomTom waypoints set by QuickRoute
+    QR.WaypointIntegration:ClearTomTomWaypoints()
 end
 
 -------------------------------------------------------------------------------
