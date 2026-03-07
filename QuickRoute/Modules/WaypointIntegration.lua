@@ -1129,18 +1129,9 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
         -- Use TomTom addon
         -- Sanitize title: escape pipe characters to prevent UI string injection
         local safeTitle = "QR: " .. (title and title:gsub("|", "||") or "QuickRoute")
-        -- Resolve "from" zone name for TomTom tooltip
-        local fromZone = nil
-        local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
-        if playerMapID and C_Map and C_Map.GetMapInfo then
-            local playerMapInfo = C_Map.GetMapInfo(playerMapID)
-            if playerMapInfo and playerMapInfo.name then
-                fromZone = playerMapInfo.name
-            end
-        end
         local opts = {
             title = safeTitle,
-            from = fromZone or "QuickRoute",
+            from = "QuickRoute",
             persistent = false,
             minimap = true,
             world = true,
@@ -1158,6 +1149,7 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
         if uid ~= nil then
             table_insert(self._tomtomUIDs, uid)
         end
+        QR:Log("INFO", "TomTom waypoint set: " .. safeTitle .. string_format(" at map %d (%.2f, %.2f)", mapID, x, y))
         QR:Print("|cFF00FF00QuickRoute|r: TomTom waypoint set for " .. safeTitle)
         return uid
     end
