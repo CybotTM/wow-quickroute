@@ -491,7 +491,7 @@ QR.StandalonePortals = {
     {
         name = "Eversong Woods to Harandar",
         from = {mapID = 2395, x = 0.50, y = 0.50},    -- Portal in Eversong
-        to = {mapID = 2576, x = 0.50, y = 0.50},      -- Harandar arrival
+        to = {mapID = 2413, x = 0.50, y = 0.50},      -- Harandar arrival
         travelTime = 30,
         faction = "both",
         type = "portal",

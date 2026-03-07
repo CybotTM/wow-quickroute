@@ -151,7 +151,7 @@ local Z = {
     SILVERMOON_CITY_MIDNIGHT     = 2393,
     ISLE_OF_QUELDANAS_MIDNIGHT  = 2424,
     ZULAMANI_MIDNIGHT           = 2437,
-    HARANDAR                    = 2576,
+    HARANDAR                    = 2413,
     VOIDSTORM                   = 2405,
 }
 

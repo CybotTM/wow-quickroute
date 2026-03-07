@@ -51,7 +51,7 @@ QR.Continents = {
             2395, -- Eversong Woods (includes old Ghostlands)
             2424, -- Isle of Quel'Danas
             2437, -- Zul'Aman
-            2576, -- Harandar
+            2413, -- Harandar
             2405, -- Voidstorm
             -- Pre-Midnight legacy zones (classic/TBC dungeon entrances)
             15,   -- Badlands (sub-zone for Uldaman entrance)
@@ -757,7 +757,7 @@ QR.ZoneAdjacencies = {
         {zone = 2395, travelTime = 60},  -- Eversong Woods
         -- Harandar accessed via portal (see StandalonePortals in Portals.lua)
     },
-    [2576] = {  -- Harandar
+    [2413] = {  -- Harandar
         -- Portal-accessed from Eversong/Zul'Aman (see StandalonePortals in Portals.lua)
     },
     [2405] = {  -- Voidstorm
