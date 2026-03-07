@@ -829,11 +829,20 @@ function WaypointIntegration:GetMapPing()
         end
     end
 
+    -- Use zone name as title (more useful than generic "Map Pin")
+    local title = QR.L["SOURCE_MAP_PIN"]
+    if mapID and C_Map and C_Map.GetMapInfo then
+        local mapInfo = C_Map.GetMapInfo(mapID)
+        if mapInfo and mapInfo.name then
+            title = mapInfo.name
+        end
+    end
+
     return {
         mapID = mapID,
         x = position.x,
         y = position.y,
-        title = QR.L["SOURCE_MAP_PIN"],
+        title = title,
     }
 end
 
@@ -1120,8 +1129,18 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
         -- Use TomTom addon
         -- Sanitize title: escape pipe characters to prevent UI string injection
         local safeTitle = "QR: " .. (title and title:gsub("|", "||") or "QuickRoute")
+        -- Resolve "from" zone name for TomTom tooltip
+        local fromZone = nil
+        local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+        if playerMapID and C_Map and C_Map.GetMapInfo then
+            local playerMapInfo = C_Map.GetMapInfo(playerMapID)
+            if playerMapInfo and playerMapInfo.name then
+                fromZone = playerMapInfo.name
+            end
+        end
         local opts = {
             title = safeTitle,
+            from = fromZone or "QuickRoute",
             persistent = false,
             minimap = true,
             world = true,

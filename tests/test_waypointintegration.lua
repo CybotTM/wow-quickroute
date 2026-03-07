@@ -71,14 +71,14 @@ T:run("GetMapPing: returns waypoint when set", function(t)
     t:assertNotNil(wp.y, "y coordinate present")
 end)
 
-T:run("GetMapPing: title is 'Map Pin'", function(t)
+T:run("GetMapPing: title uses zone name instead of generic label", function(t)
     resetState()
     setMapPinWaypoint(84, 0.5, 0.5)
 
     local wp = QR.WaypointIntegration:GetMapPing()
 
     t:assertNotNil(wp, "Waypoint returned")
-    t:assertEqual("Map Pin", wp.title, "Title is Map Pin")
+    t:assertEqual("Stormwind City", wp.title, "Title is zone name")
 end)
 
 -------------------------------------------------------------------------------

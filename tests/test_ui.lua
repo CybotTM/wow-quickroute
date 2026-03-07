@@ -953,11 +953,11 @@ T:run("RefreshRoute subtitle shows destination when waypoint found", function(t)
     QR.UI.isCalculating = false
     QR.UI:RefreshRoute()
 
-    -- Subtitle should contain "Map Pin" (the waypoint title)
+    -- Subtitle should contain the zone name (resolved from mapID 84 = "Stormwind City")
     local subtitle = QR.MainFrame.subtitle:GetText()
     t:assertNotNil(subtitle, "Subtitle has text after RefreshRoute")
-    t:assertTrue(subtitle:find("Map Pin") ~= nil,
-        "Subtitle contains waypoint title after route found")
+    t:assertTrue(subtitle:find("Stormwind") ~= nil,
+        "Subtitle contains zone name after route found")
 
     -- Restore
     C_Timer.After = origTimerAfter
