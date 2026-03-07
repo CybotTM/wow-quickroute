@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Pre-push hook: verify pushed tags match QuickRoute.toc version
+
+TOC_FILE="QuickRoute/QuickRoute.toc"
+
+while read local_ref local_sha remote_ref remote_sha; do
+    # Only check tag pushes
+    if [[ "$local_ref" != refs/tags/v* ]]; then
+        continue
+    fi
+
+    tag="${local_ref#refs/tags/}"
+    tag_version="${tag#v}"
+
+    # Read version from TOC at the tagged commit
+    toc_version=$(git show "${local_sha}:${TOC_FILE}" 2>/dev/null | grep -oP '## Version: \K.*')
+
+    if [ -z "$toc_version" ]; then
+        echo "ERROR: Cannot read version from ${TOC_FILE} at ${tag}"
+        exit 1
+    fi
+
+    if [ "$tag_version" != "$toc_version" ]; then
+        echo "ERROR: Tag ${tag} (${tag_version}) does not match ${TOC_FILE} version (${toc_version})"
+        echo "  Update '## Version:' in ${TOC_FILE} to ${tag_version} before tagging."
+        exit 1
+    fi
+
+    echo "Tag ${tag} matches ${TOC_FILE} version ${toc_version}"
+done
+
+exit 0

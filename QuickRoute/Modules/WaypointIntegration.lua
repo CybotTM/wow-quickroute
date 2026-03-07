@@ -1131,7 +1131,6 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
         local safeTitle = "QR: " .. (title and title:gsub("|", "||") or "QuickRoute")
         local opts = {
             title = safeTitle,
-            from = "QuickRoute",
             persistent = false,
             minimap = true,
             world = true,

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run luacheck on staged Lua files
+
+# Get staged .lua files (only in QuickRoute/)
+STAGED_LUA=$(git diff --cached --name-only --diff-filter=ACM -- 'QuickRoute/*.lua' 'QuickRoute/**/*.lua')
+
+if [ -z "$STAGED_LUA" ]; then
+    exit 0
+fi
+
+echo "Running luacheck on staged files..."
+exec bash scripts/lint.sh $STAGED_LUA
