@@ -233,7 +233,12 @@ local function GetTeleportStatus(id, data, isSpell)
     local sourceType = "item"
 
     if isSpell then
-        owned = IsSpellKnown and IsSpellKnown(id) or false
+        if data.useSpellUsable and C_Spell and C_Spell.IsSpellUsable then
+            local ok, usable = pcall(C_Spell.IsSpellUsable, id)
+            owned = ok and usable or false
+        else
+            owned = IsSpellKnown and IsSpellKnown(id) or false
+        end
         sourceType = "spell"
     elseif data.type == QR.TeleportTypes.TOY then
         owned = PlayerHasToy and PlayerHasToy(id) or false
