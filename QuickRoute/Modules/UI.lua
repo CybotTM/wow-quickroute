@@ -2462,33 +2462,28 @@ local function ExtractTeleportVerification(lines)
         end
     end
 
-    -- Scan for housing-related spells in common ID ranges
-    table_insert(lines, "**Housing Spell Search** (scanning for `Grundstück`/`Homestead`/`Home`)")
+    -- Check specific candidate spell IDs for housing teleport
+    table_insert(lines, "**Housing Spell Candidates**")
+    local candidates = {
+        1233637, -- Our current data entry
+        442341, 442890, 444738, 446540, 448691, 449935, 450514,
+        451324, 453027, 453975, 456710, 457822, 458133, 459000,
+    }
     local found = false
     if C_Spell and C_Spell.GetSpellInfo then
-        -- Check known common ranges for housing spells
-        local ranges = {
-            {450000, 460000}, {1233600, 1233700}, {440000, 445000},
-        }
-        for _, range in ipairs(ranges) do
-            for id = range[1], range[2] do
-                local ok, info = pcall(C_Spell.GetSpellInfo, id)
-                if ok and info and info.name then
-                    local n = info.name:lower()
-                    if n:find("grundst") or n:find("homestead") or n:find("teleport home")
-                        or n:find("housing") or n:find("heimstätte") then
-                        local known = IsSpellKnown and IsSpellKnown(id)
-                        table_insert(lines, string_format(
-                            "  - **[%d]** `%s` — known: %s",
-                            id, info.name, known and "YES" or "no"))
-                        found = true
-                    end
-                end
+        for _, id in ipairs(candidates) do
+            local ok, info = pcall(C_Spell.GetSpellInfo, id)
+            if ok and info and info.name then
+                local known = IsSpellKnown and IsSpellKnown(id)
+                table_insert(lines, string_format(
+                    "  - [%d] `%s` — known: %s",
+                    id, info.name, known and "YES" or "no"))
+                found = true
             end
         end
     end
     if not found then
-        table_insert(lines, "  (none found in scanned ranges)")
+        table_insert(lines, "  (no candidates resolved)")
     end
     table_insert(lines, "")
 
@@ -2527,13 +2522,42 @@ function UI:GenerateExtractData(subcommand)
         local mapInfo = SafeGetMapInfo(playerMapID)
         table_insert(lines, string_format("| Zone | %s (MapID %d) |", mapInfo and mapInfo.name or "?", playerMapID))
     end
+
+    -- Always include spell diagnostics in header
+    if QR.GeneralTeleportSpells then
+        for spellID, data in pairs(QR.GeneralTeleportSpells) do
+            local known = IsSpellKnown and IsSpellKnown(spellID) and "YES" or "no"
+            local apiName = "?"
+            if C_Spell and C_Spell.GetSpellInfo then
+                local ok2, info = pcall(C_Spell.GetSpellInfo, spellID)
+                if ok2 and info and info.name then apiName = info.name end
+            end
+            table_insert(lines, string_format("| Spell %d | %s known=%s api=`%s` |", spellID, data.name or "?", known, apiName))
+        end
+    end
+
+    -- Show total detected teleports
+    if QR.PlayerInventory then
+        local ok3, all = pcall(QR.PlayerInventory.GetAllTeleports, QR.PlayerInventory)
+        if ok3 and all then
+            local count = 0
+            for _ in pairs(all) do count = count + 1 end
+            table_insert(lines, string_format("| Teleports | %d detected |", count))
+        end
+    end
+
     table_insert(lines, "")
 
     if not subcommand or subcommand == "" or subcommand == "all" then
         ExtractCurrentZoneData(lines)
         ExtractQuestData(lines)
         ExtractPortalVerification(lines)
-        ExtractTeleportVerification(lines)
+        local ok, err = pcall(ExtractTeleportVerification, lines)
+        if not ok then
+            table_insert(lines, "### Teleport Spell Verification")
+            table_insert(lines, string_format("**ERROR**: %s", tostring(err)))
+            table_insert(lines, "")
+        end
 
         -- Extract continent tree for player's current continent
         if playerMapID then
@@ -2555,7 +2579,45 @@ function UI:GenerateExtractData(subcommand)
     elseif subcommand == "portals" then
         ExtractPortalVerification(lines)
     elseif subcommand == "teleports" then
-        ExtractTeleportVerification(lines)
+        table_insert(lines, "### Teleport Spell Verification")
+        table_insert(lines, "")
+
+        -- GeneralTeleportSpells
+        table_insert(lines, "**GeneralTeleportSpells**")
+        if QR.GeneralTeleportSpells then
+            for spellID, data in pairs(QR.GeneralTeleportSpells) do
+                local known = IsSpellKnown and IsSpellKnown(spellID) and "YES" or "no"
+                local apiName = "?"
+                if C_Spell and C_Spell.GetSpellInfo then
+                    local ok2, info = pcall(C_Spell.GetSpellInfo, spellID)
+                    if ok2 and info then apiName = info.name or "?" end
+                end
+                table_insert(lines, string_format("  - [%d] %s dest=%s known=%s api=`%s`",
+                    spellID, data.name or "?", data.destination or "?", known, apiName))
+            end
+        else
+            table_insert(lines, "  (nil)")
+        end
+        table_insert(lines, "")
+
+        -- Detected teleports
+        table_insert(lines, "**Detected Teleports**")
+        if QR.PlayerInventory then
+            local all = QR.PlayerInventory:GetAllTeleports()
+            if all then
+                local count = 0
+                for id, entry in pairs(all) do
+                    count = count + 1
+                    local d = entry.data
+                    table_insert(lines, string_format("  - [%d] %s: %s mapID=%s",
+                        id, entry.sourceType or "?",
+                        d and d.name or "?",
+                        d and tostring(d.mapID) or "nil"))
+                end
+                table_insert(lines, string_format("  **Total: %d**", count))
+            end
+        end
+        table_insert(lines, "")
     elseif subcommand == "continent" then
         -- Extract ALL continent trees
         if QR.Continents then
