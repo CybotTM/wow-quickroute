@@ -27,6 +27,7 @@ globals = {
     "GameFontHighlightSmall",
 
     -- WoW API namespaces
+    "C_AddOns",
     "C_Map",
     "C_Container",
     "C_Spell",
@@ -133,6 +134,7 @@ globals = {
     "SLASH_QRSCAN1",
     "SLASH_QRTELEPORTS1",
     "SLASH_QRSCREENSHOT1",
+    "SLASH_QREXTRACT1",
 
     -- Addon compartment functions (referenced in TOC)
     "QuickRoute_OnAddonCompartmentClick",

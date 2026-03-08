@@ -25,11 +25,11 @@ end
 -- 1. DB Defaults
 -------------------------------------------------------------------------------
 
-T:run("DB defaults: autoDestination exists and is false", function(t)
+T:run("DB defaults: autoDestination exists and is true", function(t)
     -- Re-initialize to apply defaults
     _G.QuickRouteDB = {}
     QR:Initialize()
-    t:assertEqual(false, QR.db.autoDestination, "autoDestination defaults to false")
+    t:assertEqual(true, QR.db.autoDestination, "autoDestination defaults to true")
 end)
 
 T:run("DB defaults: maxCooldownHours exists and is 24", function(t)

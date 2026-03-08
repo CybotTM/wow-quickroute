@@ -253,10 +253,12 @@ T:run("SetTomTomWaypoint: uses TomTom when available", function(t)
     resetState()
     local addWaypointCalled = false
     local addedMapID = nil
+    local capturedOpts = nil
     _G.TomTom = {
         AddWaypoint = function(self, mapID, x, y, opts)
             addWaypointCalled = true
             addedMapID = mapID
+            capturedOpts = opts
             return {}  -- uid
         end,
     }
@@ -265,6 +267,10 @@ T:run("SetTomTomWaypoint: uses TomTom when available", function(t)
 
     t:assertTrue(addWaypointCalled, "TomTom:AddWaypoint called")
     t:assertEqual(84, addedMapID, "Correct mapID passed to TomTom")
+    t:assertEqual("QuickRoute", capturedOpts.from, "from identifies QuickRoute")
+    t:assertEqual(true, capturedOpts.silent, "silent suppresses TomTom chat message")
+    t:assertEqual(10, capturedOpts.cleardistance, "cleardistance auto-removes on arrival")
+    t:assertEqual(false, capturedOpts.persistent, "not persistent across reloads")
 end)
 
 T:run("SetTomTomWaypoint: falls back to native when no TomTom", function(t)
@@ -1213,6 +1219,65 @@ T:run("GetQuestWaypoint: ignoreNegativeCache bypasses negative cache", function(
     local wp4 = QR.WaypointIntegration:GetQuestWaypoint(60060, true)
     t:assertNotNil(wp4, "Fourth call with ignoreNegativeCache finds coords")
     t:assertEqual(84, wp4.mapID, "Correct mapID after bypass")
+end)
+
+T:run("GetQuestWaypoint: portal-through resolves to destination zone", function(t)
+    resetState()
+    -- Quest 86912 resolves to Eversong (2395) but has objectives on Harandar (2413)
+    -- via portal "Eversong Woods to Harandar"
+    local questID = 86912
+    MockWoW.config.questTitles[questID] = "Die Wurzelpfade hinunter"
+    MockWoW.config.questWaypoints[questID] = { mapID = 2395, x = 0.52, y = 0.25 }
+
+    -- Set up StandalonePortals with Eversong → Harandar portal
+    QR.StandalonePortals = {
+        {
+            name = "Eversong Woods to Harandar",
+            from = { mapID = 2395, x = 0.50, y = 0.50 },
+            to = { mapID = 2413, x = 0.50, y = 0.50 },
+            travelTime = 30,
+            type = "portal",
+            bidirectional = true,
+        },
+    }
+
+    -- Set up GetQuestsOnMap to return quest 86912 on Harandar (2413)
+    MockWoW.config.questsOnMap = MockWoW.config.questsOnMap or {}
+    MockWoW.config.questsOnMap[2413] = {
+        { questID = 86912, x = 0.47, y = 0.38 },
+    }
+
+    local wp = QR.WaypointIntegration:GetQuestWaypoint(questID)
+    t:assertNotNil(wp, "Quest waypoint resolved")
+    t:assertEqual(2413, wp.mapID, "Resolved to Harandar (portal destination), not Eversong")
+    t:assertEqual(0.47, wp.x, "x from Harandar POI")
+    t:assertEqual(0.38, wp.y, "y from Harandar POI")
+end)
+
+T:run("GetQuestWaypoint: portal-through skipped when no quest POI on destination", function(t)
+    resetState()
+    local questID = 99999
+    MockWoW.config.questTitles[questID] = "Some Eversong Quest"
+    MockWoW.config.questWaypoints[questID] = { mapID = 2395, x = 0.30, y = 0.40 }
+
+    QR.StandalonePortals = {
+        {
+            name = "Eversong Woods to Harandar",
+            from = { mapID = 2395, x = 0.50, y = 0.50 },
+            to = { mapID = 2413, x = 0.50, y = 0.50 },
+            travelTime = 30,
+            type = "portal",
+            bidirectional = true,
+        },
+    }
+
+    -- No quest POIs on Harandar
+    MockWoW.config.questsOnMap = MockWoW.config.questsOnMap or {}
+    MockWoW.config.questsOnMap[2413] = {}
+
+    local wp = QR.WaypointIntegration:GetQuestWaypoint(questID)
+    t:assertNotNil(wp, "Quest waypoint resolved")
+    t:assertEqual(2395, wp.mapID, "Stays on Eversong (no portal-through)")
 end)
 
 T:run("GetWatchedQuestWaypoints: handles nil GetNumQuestWatches gracefully", function(t)

@@ -127,6 +127,51 @@ function WaypointIntegration:GetTomTomWaypoint()
     }
 end
 
+--- Check if a quest has objectives beyond a portal from the resolved zone.
+-- When a quest resolves to zone A but the actual objective is in zone B
+-- (accessible only via portal from A), route to B instead.
+-- Example: quest in underground Harandar resolves to Eversong (surface entrance),
+-- but we should route to Harandar so the pathfinder includes the portal step.
+-- @param questID number The quest ID
+-- @param resolvedMapID number The map ID the quest initially resolved to
+-- @return number|nil portalDestMapID if quest has objectives beyond a portal, nil otherwise
+-- @return number|nil x coordinate on destination map
+-- @return number|nil y coordinate on destination map
+local function CheckPortalThroughZone(questID, resolvedMapID)
+    if not (QR.StandalonePortals and C_QuestLog and C_QuestLog.GetQuestsOnMap) then
+        return nil
+    end
+
+    for _, portal in ipairs(QR.StandalonePortals) do
+        -- Check portals FROM the resolved zone
+        local destMapID = nil
+        if portal.from and portal.from.mapID == resolvedMapID and portal.to then
+            destMapID = portal.to.mapID
+        elseif portal.bidirectional and portal.to and portal.to.mapID == resolvedMapID and portal.from then
+            destMapID = portal.from.mapID
+        end
+
+        if destMapID then
+            -- Check if the quest has objectives on the portal destination map
+            local questsOnDest = C_QuestLog.GetQuestsOnMap(destMapID)
+            if questsOnDest then
+                for _, questInfo in ipairs(questsOnDest) do
+                    if questInfo.questID == questID then
+                        -- Quest has objectives beyond the portal — route there instead
+                        local x = (questInfo.x and questInfo.x ~= 0) and questInfo.x or 0.5
+                        local y = (questInfo.y and questInfo.y ~= 0) and questInfo.y or 0.5
+                        QR:Debug(string_format(
+                            "Quest %d: portal-through detected! %d -> %d (quest has POI at %.4f, %.4f)",
+                            questID, resolvedMapID, destMapID, x, y))
+                        return destMapID, x, y
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 --- Get waypoint coordinates for a specific quest ID
 -- Uses C_QuestLog APIs (Methods 1-6) with caching and transit hub detection
 -- @param questID number The quest ID to resolve coordinates for
@@ -215,6 +260,17 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                         QR:Debug(string_format("Quest %d: zone %d is intermediate/transit, scanning for final destination", questID, childInfo.mapID))
                                         transitFallback = { mapID = childInfo.mapID, x = zoneX, y = zoneY }
                                     else
+                                        -- Check portal-through before returning
+                                        local throughMapID, throughX, throughY = CheckPortalThroughZone(questID, childInfo.mapID)
+                                        if throughMapID then
+                                            questCoordCache[questID] = { mapID = throughMapID, x = throughX, y = throughY, time = now }
+                                            return {
+                                                mapID = throughMapID,
+                                                x = throughX,
+                                                y = throughY,
+                                                title = questTitle,
+                                            }
+                                        end
                                         questCoordCache[questID] = { mapID = childInfo.mapID, x = zoneX, y = zoneY, time = now }
                                         return {
                                             mapID = childInfo.mapID,
@@ -241,6 +297,17 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     transitFallback = { mapID = wpMapID, x = wpX, y = wpY }
                     -- Fall through to Methods 2-5 to find actual objective
                 else
+                    -- Check if quest has objectives beyond a portal from this zone
+                    local throughMapID, throughX, throughY = CheckPortalThroughZone(questID, wpMapID)
+                    if throughMapID then
+                        questCoordCache[questID] = { mapID = throughMapID, x = throughX, y = throughY, time = now }
+                        return {
+                            mapID = throughMapID,
+                            x = throughX,
+                            y = throughY,
+                            title = questTitle,
+                        }
+                    end
                     questCoordCache[questID] = { mapID = wpMapID, x = wpX, y = wpY, time = now }
                     return {
                         mapID = wpMapID,
@@ -262,6 +329,17 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         local wpX, wpY = C_QuestLog.GetNextWaypointForMap(questID, playerMapID)
         if wpX and wpY and not (transitFallback and transitHubMapIDs[playerMapID]) then
             QR:Debug(string_format("Quest %d: GetNextWaypointForMap -> (%.4f, %.4f) on map %d", questID, wpX, wpY, playerMapID))
+            -- Check if quest has objectives beyond a portal from this zone
+            local throughMapID, throughX, throughY = CheckPortalThroughZone(questID, playerMapID)
+            if throughMapID then
+                questCoordCache[questID] = { mapID = throughMapID, x = throughX, y = throughY, time = now }
+                return {
+                    mapID = throughMapID,
+                    x = throughX,
+                    y = throughY,
+                    title = questTitle,
+                }
+            end
             questCoordCache[questID] = { mapID = playerMapID, x = wpX, y = wpY, time = now }
             return {
                 mapID = playerMapID,
@@ -1136,6 +1214,8 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
             minimap = true,
             world = true,
             crazy = true,
+            silent = true,
+            cleardistance = 10,
         }
         -- Guard: prevent TomTom callback from triggering OnWaypointChanged
         self._settingWaypoint = true

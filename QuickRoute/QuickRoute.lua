@@ -10,7 +10,7 @@ local tostring = tostring
 local pcall = pcall
 
 -- Namespace setup
-QR.version = "1.7.0"
+QR.version = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("QuickRoute", "Version") or "dev"
 QR.debugMode = false
 
 -- Constants
@@ -144,7 +144,7 @@ function QR:Initialize()
         considerCooldowns = true,
         waypointPriority = "mappin",  -- "mappin", "quest", "tomtom"
         autoWaypoint = false,  -- Auto-set TomTom/native waypoint for first route step
-        autoDestination = false,      -- Auto-show route on quest tracking change
+        autoDestination = true,       -- Auto-show route on quest tracking change
         maxCooldownHours = 24,        -- Max cooldown filter (24 = no limit)
         loadingScreenTime = 5,        -- Loading screen time in seconds
         windowScale = 1.0,            -- Window scale (1.0 = 100%)
@@ -320,6 +320,7 @@ local function PrintHelp()
     print("  /qr void - Route to nearest Void Storage")
     print("  /qr craft - Route to nearest Crafting Table")
     print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
+    print("  /qrextract [zones|quests|portals|continent] - Extract data for development")
     print("  /qrtest graph - Run graph unit tests")
 end
 

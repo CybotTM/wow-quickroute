@@ -2197,3 +2197,320 @@ SlashCmdList["QRSCREENSHOT"] = function(msg)
         QR:Print("Usage: /qrscreenshot [all|route|teleport|search|mini]")
     end
 end
+
+-------------------------------------------------------------------------------
+-- /qrextract — Structured data extraction for development
+-------------------------------------------------------------------------------
+
+--- Safe wrapper for C_Map.GetMapInfo that handles invalid mapIDs
+local function SafeGetMapInfo(mapID)
+    if not mapID or type(mapID) ~= "number" or not (C_Map and C_Map.GetMapInfo) then return nil end
+    local ok, info = pcall(C_Map.GetMapInfo, mapID)
+    return ok and info or nil
+end
+
+--- Generate structured zone map data for the player's current continent
+-- Enumerates all child zones with mapID, name, mapType, and parent
+local function ExtractZoneTree(lines, rootMapID, depth, maxDepth)
+    if depth > (maxDepth or 3) then return end
+    if not (C_Map and C_Map.GetMapChildrenInfo) then return end
+
+    local children = C_Map.GetMapChildrenInfo(rootMapID)
+    if not children then return end
+
+    for _, child in ipairs(children) do
+        local indent = string.rep("  ", depth)
+        local typeName = ({
+            [0] = "Cosmic", [1] = "World", [2] = "Continent",
+            [3] = "Zone", [4] = "Dungeon", [5] = "Micro", [6] = "Orphan",
+        })[child.mapType] or tostring(child.mapType)
+
+        table_insert(lines, string_format("%s[%d] %s (type=%s)", indent, child.mapID, child.name or "?", typeName))
+        ExtractZoneTree(lines, child.mapID, depth + 1, maxDepth)
+    end
+end
+
+--- Extract data about standalone portals: verify coordinates against live game
+local function ExtractPortalVerification(lines)
+    if not QR.StandalonePortals then return end
+    table_insert(lines, "")
+    table_insert(lines, "### Standalone Portals (from our data)")
+    table_insert(lines, "")
+    table_insert(lines, "| Name | From MapID | From XY | To MapID | To XY | Bidir | Type |")
+    table_insert(lines, "|---|---|---|---|---|---|---|")
+
+    for _, p in ipairs(QR.StandalonePortals) do
+        local fromXY = p.from and string_format("%.2f, %.2f", p.from.x or 0, p.from.y or 0) or "?"
+        local toXY = p.to and string_format("%.2f, %.2f", p.to.x or 0, p.to.y or 0) or "?"
+        table_insert(lines, string_format("| %s | %s | %s | %s | %s | %s | %s |",
+            p.name or "?",
+            p.from and p.from.mapID or "?", fromXY,
+            p.to and p.to.mapID or "?", toXY,
+            p.bidirectional and "yes" or "no",
+            p.type or "?"))
+    end
+end
+
+--- Extract current quest tracking data for all tracked quests
+local function ExtractQuestData(lines)
+    if not (C_QuestLog and C_QuestLog.GetNumQuestWatches) then return end
+
+    table_insert(lines, "")
+    table_insert(lines, "### Tracked Quest Data")
+    table_insert(lines, "")
+
+    local superTracked = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID() or 0
+
+    local numWatches = C_QuestLog.GetNumQuestWatches() or 0
+    for i = 1, numWatches do
+        local questID = C_QuestLog.GetQuestIDForQuestWatchIndex(i)
+        if questID and questID ~= 0 then
+            local title = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID) or "?"
+            local isSuperTracked = (questID == superTracked) and " **[SUPER-TRACKED]**" or ""
+
+            table_insert(lines, string_format("**Quest %d**: %s%s", questID, title, isSuperTracked))
+
+            -- Quest log header (section name)
+            if C_QuestLog.GetQuestLogIndexByID then
+                local logIndex = C_QuestLog.GetQuestLogIndexByID(questID)
+                if logIndex then
+                    local info = C_QuestLog.GetInfo and C_QuestLog.GetInfo(logIndex)
+                    if info then
+                        table_insert(lines, string_format("  - Log section: `%s`", info.header and "header" or "quest"))
+                    end
+                    -- Walk backward to find header
+                    for j = logIndex - 1, 1, -1 do
+                        local hInfo = C_QuestLog.GetInfo(j)
+                        if hInfo and hInfo.isHeader then
+                            table_insert(lines, string_format("  - Quest header: `%s`", hInfo.title or "?"))
+                            break
+                        end
+                    end
+                end
+            end
+
+            -- Method 1: GetNextWaypoint
+            if C_QuestLog.GetNextWaypoint then
+                local wpM, wpX, wpY = C_QuestLog.GetNextWaypoint(questID)
+                if wpM then
+                    local mapInfo = SafeGetMapInfo(wpM)
+                    local mapName = mapInfo and mapInfo.name or "?"
+                    local mapType = mapInfo and mapInfo.mapType or "?"
+                    table_insert(lines, string_format("  - GetNextWaypoint: map %d (%s, type=%s) at (%.4f, %.4f)",
+                        wpM, mapName, tostring(mapType), wpX or 0, wpY or 0))
+                else
+                    table_insert(lines, "  - GetNextWaypoint: nil")
+                end
+            end
+
+            -- GetNextWaypointText
+            if C_QuestLog.GetNextWaypointText then
+                local wpText = C_QuestLog.GetNextWaypointText(questID)
+                if wpText and wpText ~= "" then
+                    table_insert(lines, string_format("  - GetNextWaypointText: `%s`", wpText))
+                end
+            end
+
+            -- GetNextWaypointForMap on player's map
+            local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+            if playerMapID and C_QuestLog.GetNextWaypointForMap then
+                local fmX, fmY = C_QuestLog.GetNextWaypointForMap(questID, playerMapID)
+                if fmX then
+                    table_insert(lines, string_format("  - GetNextWaypointForMap(%d): (%.4f, %.4f)", playerMapID, fmX, fmY))
+                end
+            end
+
+            -- GetQuestsOnMap for nearby zones — check portal destinations
+            if C_QuestLog.GetQuestsOnMap and QR.StandalonePortals then
+                local checkedMaps = {}
+                -- Check player map
+                if playerMapID then
+                    local qom = C_QuestLog.GetQuestsOnMap(playerMapID)
+                    if qom then
+                        for _, qi in ipairs(qom) do
+                            if qi.questID == questID then
+                                table_insert(lines, string_format("  - QuestsOnMap(%d): POI at (%.4f, %.4f)",
+                                    playerMapID, qi.x or 0, qi.y or 0))
+                            end
+                        end
+                    end
+                    checkedMaps[playerMapID] = true
+                end
+                -- Check all portal destination maps
+                for _, portal in ipairs(QR.StandalonePortals) do
+                    local maps = {}
+                    if portal.from and portal.from.mapID then maps[portal.from.mapID] = true end
+                    if portal.to and portal.to.mapID then maps[portal.to.mapID] = true end
+                    for mapID in pairs(maps) do
+                        if not checkedMaps[mapID] then
+                            checkedMaps[mapID] = true
+                            local qom = C_QuestLog.GetQuestsOnMap(mapID)
+                            if qom then
+                                for _, qi in ipairs(qom) do
+                                    if qi.questID == questID then
+                                        local mn = SafeGetMapInfo(mapID)
+                                        table_insert(lines, string_format("  - QuestsOnMap(%d/%s): POI at (%.4f, %.4f)",
+                                            mapID, mn and mn.name or "?", qi.x or 0, qi.y or 0))
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+
+            -- QuickRoute resolution result
+            QR.WaypointIntegration:ClearQuestCoordCache()
+            local wp = QR.WaypointIntegration:GetQuestWaypoint(questID, true)
+            if wp then
+                table_insert(lines, string_format("  - **QR resolves to**: map %d at (%.4f, %.4f)", wp.mapID, wp.x, wp.y))
+            else
+                table_insert(lines, "  - **QR resolves to**: nil (no coords found)")
+            end
+
+            table_insert(lines, "")
+        end
+    end
+end
+
+--- Extract zone adjacency data for current zone
+local function ExtractCurrentZoneData(lines)
+    local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if not playerMapID then return end
+
+    local mapInfo = SafeGetMapInfo(playerMapID)
+    table_insert(lines, "")
+    table_insert(lines, "### Current Zone Details")
+    table_insert(lines, "")
+    table_insert(lines, string_format("- **MapID**: %d", playerMapID))
+    table_insert(lines, string_format("- **Name**: %s", mapInfo and mapInfo.name or "?"))
+    table_insert(lines, string_format("- **MapType**: %s", mapInfo and tostring(mapInfo.mapType) or "?"))
+    if mapInfo and mapInfo.parentMapID then
+        local parentInfo = SafeGetMapInfo(mapInfo.parentMapID)
+        table_insert(lines, string_format("- **Parent**: %d (%s)", mapInfo.parentMapID, parentInfo and parentInfo.name or "?"))
+    end
+
+    -- Continent
+    local continent = QR.GetContinentForZone and QR.GetContinentForZone(playerMapID)
+    table_insert(lines, string_format("- **QR Continent**: %s", continent or "nil (NOT IN OUR DATA!)"))
+
+    -- Adjacent zones from our data
+    local adjacent = QR.GetAdjacentZones and QR.GetAdjacentZones(playerMapID)
+    if adjacent and #adjacent > 0 then
+        table_insert(lines, string_format("- **Adjacent zones** (%d):", #adjacent))
+        for _, adj in ipairs(adjacent) do
+            local adjMapID = type(adj) == "table" and (adj.zone or adj.mapID) or adj
+            if adjMapID and type(adjMapID) == "number" then
+                local adjInfo = SafeGetMapInfo(adjMapID)
+                table_insert(lines, string_format("  - %d (%s)", adjMapID, adjInfo and adjInfo.name or "?"))
+            end
+        end
+    else
+        table_insert(lines, "- **Adjacent zones**: NONE in our data")
+    end
+
+    -- Child zones from WoW API
+    table_insert(lines, "- **Child zones** (from C_Map):")
+    ExtractZoneTree(lines, playerMapID, 1, 2)
+end
+
+--- Extract continent zone tree (for identifying missing zones)
+local function ExtractContinentTree(lines, continentMapID)
+    if not continentMapID then return end
+    local mapInfo = SafeGetMapInfo(continentMapID)
+    table_insert(lines, "")
+    table_insert(lines, string_format("### Continent Zone Tree: %s (MapID %d)",
+        mapInfo and mapInfo.name or "?", continentMapID))
+    table_insert(lines, "")
+    table_insert(lines, "```")
+    ExtractZoneTree(lines, continentMapID, 0, 3)
+    table_insert(lines, "```")
+end
+
+--- Main extraction function
+function UI:GenerateExtractData(subcommand)
+    local lines = {}
+
+    table_insert(lines, "## QuickRoute Data Extract")
+    table_insert(lines, "")
+    table_insert(lines, "| | |")
+    table_insert(lines, "|---|---|")
+    table_insert(lines, string_format("| QuickRoute | v%s |", QR.version or "?"))
+    table_insert(lines, string_format("| Date | %s |", date("%Y-%m-%d %H:%M:%S")))
+
+    local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if playerMapID then
+        local mapInfo = SafeGetMapInfo(playerMapID)
+        table_insert(lines, string_format("| Zone | %s (MapID %d) |", mapInfo and mapInfo.name or "?", playerMapID))
+    end
+    table_insert(lines, "")
+
+    if not subcommand or subcommand == "" or subcommand == "all" then
+        ExtractCurrentZoneData(lines)
+        ExtractQuestData(lines)
+        ExtractPortalVerification(lines)
+
+        -- Extract continent tree for player's current continent
+        if playerMapID then
+            local continent = QR.GetContinentForZone and QR.GetContinentForZone(playerMapID)
+            if continent and QR.Continents and QR.Continents[continent] then
+                ExtractContinentTree(lines, QR.Continents[continent].mapID)
+            end
+        end
+    elseif subcommand == "zones" then
+        ExtractCurrentZoneData(lines)
+        if playerMapID then
+            local continent = QR.GetContinentForZone and QR.GetContinentForZone(playerMapID)
+            if continent and QR.Continents and QR.Continents[continent] then
+                ExtractContinentTree(lines, QR.Continents[continent].mapID)
+            end
+        end
+    elseif subcommand == "quests" then
+        ExtractQuestData(lines)
+    elseif subcommand == "portals" then
+        ExtractPortalVerification(lines)
+    elseif subcommand == "continent" then
+        -- Extract ALL continent trees
+        if QR.Continents then
+            for name, data in pairs(QR.Continents) do
+                if data.mapID then
+                    ExtractContinentTree(lines, data.mapID)
+                end
+            end
+        end
+    end
+
+    return table_concat(lines, "\n")
+end
+
+SLASH_QREXTRACT1 = "/qrextract"
+SlashCmdList["QREXTRACT"] = function(msg)
+    local cmd = msg and msg:lower():trim() or ""
+
+    if cmd == "help" then
+        QR:Print("Usage: /qrextract [subcommand]")
+        QR:Print("  (empty) or all - Extract everything")
+        QR:Print("  zones - Current zone details + continent tree")
+        QR:Print("  quests - Tracked quest waypoint data")
+        QR:Print("  portals - Standalone portal verification table")
+        QR:Print("  continent - All continent zone trees")
+        return
+    end
+
+    local success, data = pcall(function()
+        return QR.UI:GenerateExtractData(cmd)
+    end)
+
+    if not success then
+        QR:Error("Extract failed: " .. tostring(data))
+        return
+    end
+
+    -- Reuse the copy-to-clipboard popup
+    QR.UI:CopyDebugToClipboard()
+    -- Override the editbox content with extract data
+    if QR.UI.copyFrame and QR.UI.copyFrame.editBox then
+        QR.UI.copyFrame.editBox:SetText(data)
+        QR.UI.copyFrame.editBox:HighlightText()
+    end
+end

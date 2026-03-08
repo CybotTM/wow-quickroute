@@ -1118,14 +1118,15 @@ function PathCalculator:AbsorbRedundantWalkSteps(steps)
             local merged = {}
             for k, v in pairs(step) do merged[k] = v end
             merged.time = (step.time or 0) + (nextStep.time or 0)
-            -- Use the walk step's final destination and navigation coordinates
+            -- Use the walk step's final destination but keep transport's nav coords
             merged.destX = nextStep.destX or step.destX
             merged.destY = nextStep.destY or step.destY
             merged.to = nextStep.to or step.to
             merged.localizedTo = nextStep.localizedTo or step.localizedTo
-            merged.navX = nextStep.navX or nextStep.destX or step.navX
-            merged.navY = nextStep.navY or nextStep.destY or step.navY
-            merged.navTitle = nextStep.navTitle or step.navTitle
+            -- Keep the transport step's nav coords (portal entrance), not the walk destination
+            merged.navX = step.navX or nextStep.navX or nextStep.destX
+            merged.navY = step.navY or nextStep.navY or nextStep.destY
+            merged.navTitle = step.navTitle or nextStep.navTitle
             table_insert(result, merged)
             i = i + 2  -- skip the absorbed walk step
         else

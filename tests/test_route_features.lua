@@ -175,11 +175,11 @@ T:run("AbsorbWalk: teleport + walk to same map absorbed", function(t)
     t:assertEqual(0.6, result[1].destX, "destX from walk step")
     t:assertEqual(0.7, result[1].destY, "destY from walk step")
     t:assertEqual("SW-dest", result[1].to, "to from walk step")
-    -- Verify localized/nav fields are preserved from walk step
+    -- Verify localized fields from walk step, nav fields from transport step
     t:assertEqual("SW-Ziel", result[1].localizedTo, "localizedTo from walk step")
-    t:assertEqual("WalkNav", result[1].navTitle, "navTitle from walk step")
-    t:assertEqual(0.6, result[1].navX, "navX from walk step")
-    t:assertEqual(0.7, result[1].navY, "navY from walk step")
+    t:assertEqual("TeleportNav", result[1].navTitle, "navTitle from transport step (portal entrance)")
+    t:assertEqual(0.5, result[1].navX, "navX from transport step (portal entrance)")
+    t:assertEqual(0.5, result[1].navY, "navY from transport step (portal entrance)")
 end)
 
 T:run("AbsorbWalk: portal + walk to same map absorbed", function(t)
