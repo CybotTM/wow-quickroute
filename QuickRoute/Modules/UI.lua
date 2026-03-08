@@ -2427,6 +2427,90 @@ local function ExtractContinentTree(lines, continentMapID)
     table_insert(lines, "```")
 end
 
+local function ExtractTeleportVerification(lines)
+    table_insert(lines, "### Teleport Spell Verification")
+    table_insert(lines, "")
+
+    local spellSources = {
+        { name = "GeneralTeleportSpells", tbl = QR.GeneralTeleportSpells },
+        { name = "ClassTeleportSpells",   tbl = QR.ClassTeleportSpells },
+        { name = "RacialTeleportSpells",  tbl = QR.RacialTeleportSpells },
+    }
+
+    for _, source in ipairs(spellSources) do
+        if source.tbl then
+            table_insert(lines, string_format("**%s**", source.name))
+            local any = false
+            for spellID, data in pairs(source.tbl) do
+                any = true
+                local known = IsSpellKnown and IsSpellKnown(spellID)
+                local spellName = "?"
+                if C_Spell and C_Spell.GetSpellInfo then
+                    local info = C_Spell.GetSpellInfo(spellID)
+                    if info then spellName = info.name or "?" end
+                end
+                table_insert(lines, string_format(
+                    "  - [%d] %s → dest: %s, mapID: %s, known: %s, API name: `%s`",
+                    spellID, data.name or "?",
+                    data.destination or "?", tostring(data.mapID),
+                    known and "YES" or "no", spellName))
+            end
+            if not any then
+                table_insert(lines, "  (empty)")
+            end
+            table_insert(lines, "")
+        end
+    end
+
+    -- Scan for housing-related spells in common ID ranges
+    table_insert(lines, "**Housing Spell Search** (scanning for `Grundstück`/`Homestead`/`Home`)")
+    local found = false
+    if C_Spell and C_Spell.GetSpellInfo then
+        -- Check known common ranges for housing spells
+        local ranges = {
+            {450000, 460000}, {1233600, 1233700}, {440000, 445000},
+        }
+        for _, range in ipairs(ranges) do
+            for id = range[1], range[2] do
+                local ok, info = pcall(C_Spell.GetSpellInfo, id)
+                if ok and info and info.name then
+                    local n = info.name:lower()
+                    if n:find("grundst") or n:find("homestead") or n:find("teleport home")
+                        or n:find("housing") or n:find("heimstätte") then
+                        local known = IsSpellKnown and IsSpellKnown(id)
+                        table_insert(lines, string_format(
+                            "  - **[%d]** `%s` — known: %s",
+                            id, info.name, known and "YES" or "no"))
+                        found = true
+                    end
+                end
+            end
+        end
+    end
+    if not found then
+        table_insert(lines, "  (none found in scanned ranges)")
+    end
+    table_insert(lines, "")
+
+    -- Also show /qrscan results
+    table_insert(lines, "**Detected Teleports** (`/qrscan` results)")
+    local all = QR.PlayerInventory and QR.PlayerInventory:GetAllTeleports()
+    if all then
+        local count = 0
+        for id, entry in pairs(all) do
+            count = count + 1
+            local d = entry.data
+            table_insert(lines, string_format("  - [%d] %s: %s → %s (mapID %s)",
+                id, entry.sourceType or "?",
+                d and d.name or "?",
+                d and d.destination or "?",
+                d and tostring(d.mapID) or "nil"))
+        end
+        table_insert(lines, string_format("  **Total: %d teleports**", count))
+    end
+    table_insert(lines, "")
+end
+
 --- Main extraction function
 function UI:GenerateExtractData(subcommand)
     local lines = {}
@@ -2449,6 +2533,7 @@ function UI:GenerateExtractData(subcommand)
         ExtractCurrentZoneData(lines)
         ExtractQuestData(lines)
         ExtractPortalVerification(lines)
+        ExtractTeleportVerification(lines)
 
         -- Extract continent tree for player's current continent
         if playerMapID then
@@ -2469,6 +2554,8 @@ function UI:GenerateExtractData(subcommand)
         ExtractQuestData(lines)
     elseif subcommand == "portals" then
         ExtractPortalVerification(lines)
+    elseif subcommand == "teleports" then
+        ExtractTeleportVerification(lines)
     elseif subcommand == "continent" then
         -- Extract ALL continent trees
         if QR.Continents then
