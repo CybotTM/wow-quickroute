@@ -1230,6 +1230,7 @@ T:run("GetQuestWaypoint: portal-through resolves to destination zone", function(
     MockWoW.config.questWaypoints[questID] = { mapID = 2395, x = 0.52, y = 0.25 }
 
     -- Set up StandalonePortals with Eversong → Harandar portal
+    local origPortals = QR.StandalonePortals
     QR.StandalonePortals = {
         {
             name = "Eversong Woods to Harandar",
@@ -1252,6 +1253,7 @@ T:run("GetQuestWaypoint: portal-through resolves to destination zone", function(
     t:assertEqual(2413, wp.mapID, "Resolved to Harandar (portal destination), not Eversong")
     t:assertEqual(0.47, wp.x, "x from Harandar POI")
     t:assertEqual(0.38, wp.y, "y from Harandar POI")
+    QR.StandalonePortals = origPortals
 end)
 
 T:run("GetQuestWaypoint: portal-through skipped when no quest POI on destination", function(t)
@@ -1260,6 +1262,7 @@ T:run("GetQuestWaypoint: portal-through skipped when no quest POI on destination
     MockWoW.config.questTitles[questID] = "Some Eversong Quest"
     MockWoW.config.questWaypoints[questID] = { mapID = 2395, x = 0.30, y = 0.40 }
 
+    local origPortals = QR.StandalonePortals
     QR.StandalonePortals = {
         {
             name = "Eversong Woods to Harandar",
@@ -1278,6 +1281,7 @@ T:run("GetQuestWaypoint: portal-through skipped when no quest POI on destination
     local wp = QR.WaypointIntegration:GetQuestWaypoint(questID)
     t:assertNotNil(wp, "Quest waypoint resolved")
     t:assertEqual(2395, wp.mapID, "Stays on Eversong (no portal-through)")
+    QR.StandalonePortals = origPortals
 end)
 
 T:run("GetWatchedQuestWaypoints: handles nil GetNumQuestWatches gracefully", function(t)
