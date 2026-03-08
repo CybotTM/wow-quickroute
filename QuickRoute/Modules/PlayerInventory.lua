@@ -229,7 +229,14 @@ function PlayerInventory:ScanSpells()
     -- Check general spells (housing, etc.)
     if QR.GeneralTeleportSpells then
         for spellID, data in pairs(QR.GeneralTeleportSpells) do
-            if IsSpellKnown(spellID) then
+            local detected = false
+            if data.useSpellUsable and C_Spell and C_Spell.IsSpellUsable then
+                local ok, usable = pcall(C_Spell.IsSpellUsable, spellID)
+                detected = ok and usable
+            else
+                detected = IsSpellKnown(spellID)
+            end
+            if detected then
                 self.spells[spellID] = {
                     id = spellID,
                     data = data,

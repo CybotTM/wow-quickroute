@@ -2526,13 +2526,50 @@ function UI:GenerateExtractData(subcommand)
     -- Always include spell diagnostics in header
     if QR.GeneralTeleportSpells then
         for spellID, data in pairs(QR.GeneralTeleportSpells) do
-            local known = IsSpellKnown and IsSpellKnown(spellID) and "YES" or "no"
-            local apiName = "?"
-            if C_Spell and C_Spell.GetSpellInfo then
-                local ok2, info = pcall(C_Spell.GetSpellInfo, spellID)
-                if ok2 and info and info.name then apiName = info.name end
+            local checks = {}
+            -- IsSpellKnown
+            if IsSpellKnown then
+                checks[#checks + 1] = "IsSpellKnown=" .. tostring(IsSpellKnown(spellID))
+                checks[#checks + 1] = "IsSpellKnown2=" .. tostring(IsSpellKnown(spellID, true))
             end
-            table_insert(lines, string_format("| Spell %d | %s known=%s api=`%s` |", spellID, data.name or "?", known, apiName))
+            -- C_Spell checks
+            if C_Spell then
+                if C_Spell.GetSpellInfo then
+                    local ok2, info = pcall(C_Spell.GetSpellInfo, spellID)
+                    checks[#checks + 1] = "api=" .. (ok2 and info and info.name or "nil")
+                end
+                if C_Spell.IsSpellUsable then
+                    local ok2, usable = pcall(C_Spell.IsSpellUsable, spellID)
+                    checks[#checks + 1] = "usable=" .. (ok2 and tostring(usable) or "err")
+                end
+                if C_Spell.DoesSpellExist then
+                    local ok2, exists = pcall(C_Spell.DoesSpellExist, spellID)
+                    checks[#checks + 1] = "exists=" .. (ok2 and tostring(exists) or "err")
+                end
+            end
+            -- C_Housing API
+            local housingInfo = {}
+            if _G.C_Housing then
+                housingInfo[#housingInfo + 1] = "C_Housing=YES"
+                if _G.C_Housing.IsOwner then
+                    local ok2, v = pcall(_G.C_Housing.IsOwner)
+                    housingInfo[#housingInfo + 1] = "IsOwner=" .. (ok2 and tostring(v) or "err")
+                end
+                if _G.C_Housing.HasHouse then
+                    local ok2, v = pcall(_G.C_Housing.HasHouse)
+                    housingInfo[#housingInfo + 1] = "HasHouse=" .. (ok2 and tostring(v) or "err")
+                end
+                if _G.C_Housing.IsHousingUnlocked then
+                    local ok2, v = pcall(_G.C_Housing.IsHousingUnlocked)
+                    housingInfo[#housingInfo + 1] = "IsUnlocked=" .. (ok2 and tostring(v) or "err")
+                end
+            else
+                housingInfo[#housingInfo + 1] = "C_Housing=nil"
+            end
+            table_insert(lines, string_format("| Spell %d | %s |",
+                spellID, table.concat(checks, ", ")))
+            table_insert(lines, string_format("| Housing API | %s |",
+                table.concat(housingInfo, ", ")))
         end
     end
 

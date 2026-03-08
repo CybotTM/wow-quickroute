@@ -1213,6 +1213,7 @@ QR.GeneralTeleportSpells = {
         type = QR.TeleportTypes.SPELL,
         faction = "both",
         isDynamic = true,
+        useSpellUsable = true,  -- Not in spellbook; detect via C_Spell.IsSpellUsable
     },
 }
 
