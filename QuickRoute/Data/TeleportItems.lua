@@ -1119,17 +1119,11 @@ QR.ClassTeleportSpells = {
         class = "DRUID",
     },
 
-    -- Demon Hunter
-    [204587] = {
-        name = "Fel Retreat",
-        destination = "Illidari Camp",
-        mapID = nil,  -- Variable based on progression
-        cooldown = 60,
-        type = QR.TeleportTypes.SPELL,
-        faction = "both",
-        class = "DEMONHUNTER",
-        isDynamic = true,
-    },
+    -- Demon Hunter: none.
+    -- The entry here declared spell 204587 as "Fel Retreat" to the Illidari
+    -- Camp. On 12.1.0.69497 the client reports 204587 as "Naga Harpoon", an
+    -- unrelated spell, and no ability by that name exists. Removed rather than
+    -- repointed: there is no Demon Hunter teleport to point it at.
 
     -- Shaman
     [556] = {
@@ -1143,18 +1137,11 @@ QR.ClassTeleportSpells = {
         isDynamic = true,
     },
 
-    -- Evoker
-    [368229] = {
-        name = "Path of the Bronze",
-        destination = "Valdrakken",
-        mapID = 2112,  -- Valdrakken
-        x = 0.5810,
-        y = 0.3550,
-        cooldown = 300,  -- 5 minutes
-        type = QR.TeleportTypes.SPELL,
-        faction = "both",
-        class = "EVOKER",
-    },
+    -- Evoker: none.
+    -- The entry here declared spell 368229 as "Path of the Bronze" to
+    -- Valdrakken. On 12.1.0.69497 the client reports 368229 as "Disintegrate
+    -- Wreath", an unrelated spell. Removed for the same reason as the Demon
+    -- Hunter entry above.
 }
 
 -------------------------------------------------------------------------------
@@ -1165,13 +1152,15 @@ QR.RacialTeleportSpells = {
     [265225] = {
         name = "Mole Machine",
         destination = "Shadowforge City",
-        mapID = 1584,  -- Blackrock Depths
-        x = 0.3800,
-        y = 0.3300,
+        -- uiMapID 1584 does not exist on 12.1.0.69497 — C_Map.GetMapInfo(1584)
+        -- returns nothing. The Mole Machine also has several destinations, so
+        -- it is modelled as dynamic rather than repointed at a guess.
+        mapID = nil,
         cooldown = 1800,  -- 30 minutes
         type = QR.TeleportTypes.SPELL,
         faction = "Alliance",
         race = "DarkIronDwarf",
+        isDynamic = true,
     },
 
     -- Vulpera - Return to Camp
@@ -1298,7 +1287,9 @@ QR.MageTeleports = {
             class = "MAGE",
         },
         -- Warlords of Draenor
-        [176242] = {
+        -- 176248, not 176242: the client reports 176242 as "Teleport: Warspear",
+        -- which is the Horde base. Verified against 12.1.0.69497.
+        [176248] = {
             name = "Teleport: Stormshield",
             destination = "Stormshield, Ashran",
             mapID = 622,  -- Stormshield
@@ -1397,7 +1388,10 @@ QR.MageTeleports = {
             class = "MAGE",
         },
         -- Warlords of Draenor
-        [176244] = {
+        -- 176242, not 176244: the client reports 176244 as "Portal: Warspear",
+        -- a group portal rather than a personal teleport. Verified against
+        -- 12.1.0.69497.
+        [176242] = {
             name = "Teleport: Warspear",
             destination = "Warspear, Ashran",
             mapID = 624,  -- Warspear

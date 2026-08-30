@@ -46,6 +46,10 @@ globals = {
     -- 12.0+ secret-value probe (absent on older clients)
     "issecretvalue",
 
+    -- Encounter Journal, load-on-demand: nil until Blizzard_EncounterJournal loads
+    "EJ_GetInstanceInfo",
+    "LoadAddOn",
+
     -- WoW API functions
     "GetItemInfo",
     "GetItemIcon",

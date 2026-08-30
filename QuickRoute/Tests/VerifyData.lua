@@ -108,12 +108,40 @@ local function MapRow(id, note)
         id, tostring(info.name), tostring(info.mapType), tostring(info.parentMapID), note)
 end
 
-local function InstanceRow(id, note)
-    if not (C_EncounterJournal and C_EncounterJournal.GetInstanceInfo) then
-        return string_format("| %d | _EJ not loaded_ | %s |", id, note)
+--- Make sure the Encounter Journal's data is available.
+-- EJ_GetInstanceInfo lives in the load-on-demand Blizzard_EncounterJournal
+-- addon, so it is nil until something opens the journal. Loading it here means
+-- the report does not depend on the user having pressed Shift-J first.
+-- @return string A short note on what was available, for the report header
+local function EnsureEncounterJournal()
+    if type(EJ_GetInstanceInfo) == "function" then
+        return "EJ_GetInstanceInfo available"
     end
-    local ok, name = pcall(C_EncounterJournal.GetInstanceInfo, id)
-    if not ok or not name then
+
+    local loader = (C_AddOns and C_AddOns.LoadAddOn) or LoadAddOn
+    if not loader then
+        return "no LoadAddOn available"
+    end
+
+    local ok, err = pcall(loader, "Blizzard_EncounterJournal")
+    if not ok then
+        return "LoadAddOn failed: " .. tostring(err)
+    end
+    if type(EJ_GetInstanceInfo) == "function" then
+        return "Blizzard_EncounterJournal loaded on demand"
+    end
+    return "loaded, but EJ_GetInstanceInfo is still nil"
+end
+
+local function InstanceRow(id, note)
+    if type(EJ_GetInstanceInfo) ~= "function" then
+        return string_format("| %d | _EJ_GetInstanceInfo missing_ | %s |", id, note)
+    end
+    local ok, name = pcall(EJ_GetInstanceInfo, id)
+    if not ok then
+        return string_format("| %d | **error: %s** | %s |", id, tostring(name), note)
+    end
+    if not name then
         return string_format("| %d | **nil** | %s |", id, note)
     end
     return string_format("| %d | %s | %s |", id, tostring(name), note)
@@ -177,10 +205,8 @@ function QR:BuildVerifyReport()
 
     add("### Encounter Journal instances")
     add("")
-    if not (C_EncounterJournal and C_EncounterJournal.GetInstanceInfo) then
-        add("_Encounter Journal not loaded — open it once (Shift-J) and run /qrverify again._")
-        add("")
-    end
+    add("_" .. EnsureEncounterJournal() .. "_")
+    add("")
     add("| journalInstanceID | name | claim |")
     add("|---|---|---|")
     for _, row in ipairs(INSTANCES) do
