@@ -67,13 +67,15 @@ T:run("A1: GetPlayerMapPosition pcall - error returns nil position", function(t)
     local success, err = pcall(function()
         QR.PathCalculator:AddPlayerTeleportEdges()
     end)
-    t:assertTrue(success, "AddPlayerTeleportEdges does not crash when GetPlayerMapPosition errors")
+    t:assertTrue(success, "AddPlayerTeleportEdges does not crash when GetPlayerMapPosition errors: "
+        .. tostring(err))
 
     -- UpdatePlayerLocation also uses pcall
     success, err = pcall(function()
         QR.PathCalculator:UpdatePlayerLocation()
     end)
-    t:assertTrue(success, "UpdatePlayerLocation does not crash when GetPlayerMapPosition errors")
+    t:assertTrue(success, "UpdatePlayerLocation does not crash when GetPlayerMapPosition errors: "
+        .. tostring(err))
 
     -- Restore original
     _G.C_Map.GetPlayerMapPosition = original
@@ -819,6 +821,7 @@ T:run("B1: ConfigureButton dispatches to correct handler", function(t)
     local result = QR.SecureButtons:ConfigureButton(btn, 12345, "spell")
     t:assertTrue(result, "ConfigureButton dispatches spell correctly")
     t:assertEqual("spell", attrs["type"], "ConfigureButton spell sets type=spell")
+    t:assertNotNil(scripts["PostClick"], "ConfigureButton wires the PostClick handler")
 
     -- Test toy dispatch
     attrs = {}

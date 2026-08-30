@@ -261,11 +261,33 @@ function QR:RegisterCombatCallback(enterCallback, leaveCallback)
     }
 end
 
+--- True while the client is withholding data from addons.
+-- Patch 12.0 introduced restriction states: under combat, an encounter, a
+-- Mythic+ run, a PvP match, or map and chat restrictions, APIs marked
+-- SecretWhenCooldownsRestricted hand back secret values instead of numbers.
+-- Anything derived from them while a restriction is active is not to be
+-- trusted once it lifts.
+-- @return boolean, string|nil active, the restriction that is active
+function QR:AreActionsRestricted()
+    if not (C_RestrictedActions and C_RestrictedActions.IsAddOnRestrictionActive
+        and Enum and Enum.AddOnRestrictionType) then
+        return false, nil
+    end
+    for name, value in pairs(Enum.AddOnRestrictionType) do
+        local ok, active = pcall(C_RestrictedActions.IsAddOnRestrictionActive, value)
+        if ok and active then
+            return true, name
+        end
+    end
+    return false, nil
+end
+
 -- Create and register the single combat event frame
 do
     local combatFrame = CreateFrame("Frame")
     combatFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
     combatFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    combatFrame:RegisterEvent("ADDON_RESTRICTION_STATE_CHANGED")
     combatFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_REGEN_DISABLED" then
             QR.inCombat = true
@@ -286,6 +308,18 @@ do
                         QR:Error("Combat leave callback error: " .. tostring(err))
                     end
                 end
+            end
+        elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
+            -- Cooldown data read while a restriction was active came back as
+            -- secret values, so whatever the graph priced from it is stale the
+            -- moment the restriction lifts. Marking the graph dirty re-reads it
+            -- on the next route request rather than leaving wrong weights in
+            -- place.
+            local restricted, which = QR:AreActionsRestricted()
+            QR:Debug("Addon restriction state changed: " ..
+                (restricted and ("active (" .. tostring(which) .. ")") or "clear"))
+            if not restricted and QR.PathCalculator then
+                QR.PathCalculator.graphDirty = true
             end
         end
     end)
@@ -311,6 +345,7 @@ local function PrintHelp()
     print("  /qr autowaypoint - Toggle auto-waypoint")
     print("  /qrdebug - Show waypoint detection info")
     print("  /qrdebug copy - Copy full debug info (markdown for bug reports)")
+    print("  /qrteleports - Toggle the teleport inventory")
     print("  /qrinv - Show available teleports")
     print("  /qrcd - Show teleport cooldowns")
     print("  /qrwp - Calculate path to current waypoint")
@@ -321,7 +356,7 @@ local function PrintHelp()
     print("  /qr craft - Route to nearest Crafting Table")
     print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
     print("  /qrextract [zones|quests|portals|continent] - Extract data for development")
-    print("  /qrtest graph - Run graph unit tests")
+    print("  Development: /qrscan, /qrgraph, /qrzone, /qrdebugpath, /qrtest graph")
 end
 
 SLASH_QRHELP1 = "/qrhelp"

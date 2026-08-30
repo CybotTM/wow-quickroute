@@ -302,8 +302,16 @@ function MiniTeleportPanel:CreateFrame()
     -- ESC to close
     table_insert(UISpecialFrames, "QRMiniTeleportPanel")
 
-    -- Sync isShowing on hide
-    frame:SetScript("OnHide", function()
+    -- Sync isShowing on hide. OnHide also fires when an ancestor is hidden
+    -- (Alt+Z, a cinematic) and that is not a close: the panel comes back on its
+    -- own with its rows and secure buttons intact. Clearing isShowing there
+    -- disarmed the enter-combat callback, which is gated on it, so the panel
+    -- and its overlay buttons stayed on screen for the whole next fight. The
+    -- frame's own IsShown() is still true when an ancestor did the hiding.
+    frame:SetScript("OnHide", function(f)
+        if f:IsShown() then
+            return
+        end
         self.isShowing = false
     end)
 
@@ -370,8 +378,15 @@ end
 
 --- Release all rows back to pool
 function MiniTeleportPanel:ReleaseAllRows()
-    -- Release secure buttons
-    if QR.SecureButtons and not InCombatLockdown() then
+    if self.separator then
+        self.separator:Hide()
+    end
+    -- Release secure buttons. No lockdown guard here: ReleaseButton queues the
+    -- button in pendingReleases when it cannot touch it, and the leave-combat
+    -- handler flushes that queue. Skipping the call under lockdown and then
+    -- dropping self.secureButtons anyway lost the only reference to each held
+    -- button, leaking two pool slots per combat start until all 60 were gone.
+    if QR.SecureButtons then
         for _, btn in ipairs(self.secureButtons) do
             QR.SecureButtons:ReleaseButton(btn)
         end
@@ -521,15 +536,21 @@ function MiniTeleportPanel:RefreshList()
         yOffset = yOffset + ROW_HEIGHT
     end
 
-    -- Separator line before mount button
-    local separator = CreateFrame("Frame", nil, self.frame.scrollChild)
-    separator:SetHeight(1)
-    separator:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 4, -yOffset - 3)
-    separator:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", -4, 0)
-    local sepTex = separator:CreateTexture(nil, "ARTWORK")
-    sepTex:SetAllPoints()
-    sepTex:SetColorTexture(0.5, 0.5, 0.5, 0.5)
-    table_insert(self.rows, separator)
+    -- Separator line before mount button. Created once and re-anchored: this
+    -- used to build a fresh Frame on every refresh and never hide or reuse it,
+    -- so each refresh left another 1px line behind in the scroll child.
+    if not self.separator then
+        local separator = CreateFrame("Frame", nil, self.frame.scrollChild)
+        separator:SetHeight(1)
+        local sepTex = separator:CreateTexture(nil, "ARTWORK")
+        sepTex:SetAllPoints()
+        sepTex:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+        self.separator = separator
+    end
+    self.separator:ClearAllPoints()
+    self.separator:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 4, -yOffset - 3)
+    self.separator:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", -4, 0)
+    self.separator:Show()
     yOffset = yOffset + 7  -- 3px gap + 1px line + 3px gap
 
     -- Mount button row
@@ -640,15 +661,19 @@ end
 --- Initialize combat callbacks for auto-hide
 function MiniTeleportPanel:RegisterCombat()
     QR:RegisterCombatCallback(
-        -- Enter combat: hide panel
+        -- Enter combat: release the rows, then hide the panel.
+        -- Hiding the frame does not hide the secure overlay buttons: those are
+        -- parented to UIParent, not to this panel, so they stayed on screen at
+        -- alpha 0 for the whole fight and kept their slots in the 60-button
+        -- pool. Lockdown is already active here -- PLAYER_REGEN_DISABLED marks
+        -- its start -- so the releases queue and are flushed on leave.
         function()
             if MiniTeleportPanel.isShowing and MiniTeleportPanel.frame then
+                MiniTeleportPanel:ReleaseAllRows()
                 MiniTeleportPanel.frame:Hide()
                 MiniTeleportPanel.isShowing = false
             end
-        end,
-        -- Leave combat: no action needed
-        nil
+        end
     )
 end
 

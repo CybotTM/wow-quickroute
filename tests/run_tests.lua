@@ -54,8 +54,15 @@ local QR = AddonLoader:Load(MockWoW, {
     quiet = true,
 })
 
+-- A file that fails to load makes every assertion about it meaningless, so the
+-- failures are carried to the final report and turn the exit code non-zero.
+local loadFailures = {}
 if not AddonLoader:AllFilesLoaded() then
-    print("[RUNNER] WARNING: " .. AddonLoader:GetStatus())
+    print("[RUNNER] FAILURE: " .. AddonLoader:GetStatus())
+    for _, failure in ipairs(AddonLoader.failedFiles) do
+        loadFailures[#loadFailures + 1] =
+            "Addon file failed to load: " .. tostring(failure.path) .. " - " .. tostring(failure.error)
+    end
 else
     print("[RUNNER] " .. AddonLoader:GetStatus())
 end
@@ -423,6 +430,12 @@ end
 -------------------------------------------------------------------------------
 -- Report and exit
 -------------------------------------------------------------------------------
+
+for _, msg in ipairs(loadFailures) do
+    TestFramework.failedTests = TestFramework.failedTests + 1
+    TestFramework.totalTests = TestFramework.totalTests + 1
+    TestFramework.failures[#TestFramework.failures + 1] = msg
+end
 
 local exitCode = TestFramework:report()
 os.exit(exitCode)

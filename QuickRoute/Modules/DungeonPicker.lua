@@ -267,7 +267,7 @@ function DungeonPicker:CreateInstanceRow(inst, yOffset)
         if inst.zoneMapID and inst.x and inst.y then
             GameTooltip:AddLine(L and L["DUNGEON_ROUTE_TO_TT"] or "Calculate the fastest route to this dungeon entrance", 0.5, 0.5, 0.5, true)
         else
-            GameTooltip:AddLine("No entrance coordinates available", 0.8, 0.2, 0.2, true)
+            GameTooltip:AddLine(L and L["DUNGEON_NO_ENTRANCE_COORDS"] or "No entrance coordinates available", 0.8, 0.2, 0.2, true)
         end
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
@@ -292,7 +292,9 @@ function DungeonPicker:SelectInstance(inst)
     if inst.zoneMapID and inst.x and inst.y and QR.POIRouting then
         QR.POIRouting:RouteToMapPosition(inst.zoneMapID, inst.x, inst.y)
     else
-        QR:Print(L and L["DUNGEON_PICKER_NO_RESULTS"] or "No entrance coordinates available")
+        -- Not "no matching instances": the instance matched, it just has no
+        -- entrance coordinates, which is a different thing to tell the player.
+        QR:Print(L and L["DUNGEON_NO_ENTRANCE_COORDS"] or "No entrance coordinates available")
     end
 
     self:Hide()

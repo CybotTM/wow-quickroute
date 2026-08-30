@@ -493,6 +493,12 @@ function MapSidebar:UpdateForMap(mapID, force)
                     end)
 
                     table_insert(self.overlayButtons, iconBtn)
+                else
+                    -- ConfigureButton failed, so the button was never attached
+                    -- and nothing would ever release it. The four sibling call
+                    -- sites all release here; this one did not, so each failure
+                    -- leaked one of the 60 pooled buttons.
+                    QR.SecureButtons:ReleaseButton(iconBtn)
                 end
             end
         end

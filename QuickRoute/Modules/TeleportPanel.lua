@@ -73,6 +73,7 @@ QR.DEST_L_KEYS = {
     ["Garrison Shipyard"]          = "DEST_GARRISON_SHIPYARD",
     ["Camp Location"]              = "DEST_CAMP_LOCATION",
     ["Random location"]            = "DEST_RANDOM",
+    ["Random Delve"]               = "DEST_RANDOM_DELVE",
     ["Illidari Camp"]              = "DEST_ILLIDARI_CAMP",
     ["Random Northrend Location"]  = "DEST_RANDOM_NORTHREND",
     ["Random Pandaria Location"]   = "DEST_RANDOM_PANDARIA",
@@ -830,15 +831,27 @@ end
 -- @return number|string Icon texture ID or fallback path
 local function GetIconTexture(entry)
     if entry.isSpell then
+        -- C_Spell.GetSpellInfo is MayReturnNothing: uncached spell data yields
+        -- nil, which is the common state right after login. The global
+        -- GetSpellInfo was removed in 11.0.2, so fall back to
+        -- C_Spell.GetSpellTexture the way MapSidebar.lua:64 does.
         local spellInfo = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(entry.id)
-        if spellInfo then
+        if spellInfo and spellInfo.iconID then
             return spellInfo.iconID
         end
-        local _, _, spellIcon = GetSpellInfo(entry.id)
-        if spellIcon then return spellIcon end
+        if C_Spell and C_Spell.GetSpellTexture then
+            local tex = C_Spell.GetSpellTexture(entry.id)
+            if tex then return tex end
+        end
     else
-        local itemIcon = GetItemIcon(entry.id)
-        if itemIcon then return itemIcon end
+        if C_Item and C_Item.GetItemIconByID then
+            local tex = C_Item.GetItemIconByID(entry.id)
+            if tex then return tex end
+        end
+        if GetItemIcon then
+            local tex = GetItemIcon(entry.id)
+            if tex then return tex end
+        end
     end
     return "Interface\\Icons\\INV_Misc_QuestionMark"
 end

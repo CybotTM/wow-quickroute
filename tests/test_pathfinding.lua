@@ -1148,3 +1148,402 @@ T:run("Horde: faction-specific portal filtering excludes Alliance-only portals",
     -- Restore
     MockWoW.config.playerFaction = "Alliance"
 end)
+
+-------------------------------------------------------------------------------
+-- Continent routing must not destroy in-city walk edges
+-------------------------------------------------------------------------------
+
+-- Regression: ConnectNearbyNodes writes correct same-map walk edges and then
+-- calls ConnectViaContinentRouting, whose hub strategy iterated every node
+-- sharing the hub's mapID. For a destination on the hub map itself,
+-- EstimateSameContinentTravel(hub, hub) returns 0, AddEdge clamps that to the
+-- 0.001 epsilon, and the assignment overwrote the walk edge written moments
+-- earlier. The final in-city approach then cost nothing, so the ETA was short
+-- by the whole walk and Dijkstra treated every node on the map as the target.
+T:run("ConnectNearbyNodes: hub routing does not overwrite the in-city walk edge", function(t)
+    resetState()
+    local graph = QR.PathCalculator:BuildGraph()
+
+    local anchor = graph.nodes["Stormwind City"]
+    t:assertNotNil(anchor, "Stormwind City node exists")
+
+    -- A destination on the far side of the same map (Stormwind, uiMapID 84),
+    -- which is also the Alliance continent hub for the Eastern Kingdoms.
+    graph:AddNode("QR Test Target", { mapID = 84, x = 0.95, y = 0.95 })
+    QR.PathCalculator:ConnectNearbyNodes("QR Test Target", 84, 0.95, 0.95)
+
+    local edge = graph:GetEdge("QR Test Target", "Stormwind City")
+        or graph:GetEdge("Stormwind City", "QR Test Target")
+    t:assertNotNil(edge, "An edge to Stormwind City exists")
+
+    t:assertEqual("walk", edge.edgeType,
+        "Edge to a node on the same map stays a walk edge (got: " .. tostring(edge.edgeType) .. ")")
+    t:assertTrue(edge.weight > 1,
+        "In-city walk keeps its real cost instead of the 0.001 epsilon (got: " .. tostring(edge.weight) .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- The player node must not keep walk edges from the map it was built on
+-------------------------------------------------------------------------------
+
+-- Regression: UpdatePlayerLocation rewrote only the node's coordinates, while
+-- its walk edges were created once in BuildGraph against the map the player
+-- stood on then. Nothing marks the graph dirty on movement, so every route
+-- computed between arriving in a new zone and the next bag update started with
+-- a walk into the zone the player had just left.
+T:run("UpdatePlayerLocation: zone change drops the old map's walk edges", function(t)
+    resetState()
+    MockWoW.config.currentMapID = 84  -- Stormwind
+    local graph = QR.PathCalculator:BuildGraph()
+
+    -- Find a node the player node is connected to by a walk edge on map 84.
+    local staleNeighbour
+    for otherName, edge in pairs(graph.edges["Player Location"] or {}) do
+        local other = graph.nodes[otherName]
+        if other and other.mapID == 84 and edge.edgeType == "walk" then
+            staleNeighbour = otherName
+            break
+        end
+    end
+    t:assertNotNil(staleNeighbour, "Player node starts with a walk edge on map 84")
+
+    -- The player hearths to another continent.
+    MockWoW.config.currentMapID = 2339  -- Dornogal, Khaz Algar
+    QR.PathCalculator:UpdatePlayerLocation()
+
+    t:assertEqual(2339, graph.nodes["Player Location"].mapID, "Player node follows the move")
+
+    local stale = graph.edges["Player Location"][staleNeighbour]
+    t:assertNil(stale,
+        "Walk edge to the old map's node is gone (kept: " .. tostring(stale and stale.edgeType) .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- Teleport edge weights must follow live cooldown state
+-------------------------------------------------------------------------------
+
+-- Regression: AddPlayerTeleportEdges bakes the remaining cooldown into the edge
+-- weight and only runs inside BuildGraph. No cooldown event marks the graph
+-- dirty, so a teleport used after the build stayed priced as ready and kept
+-- being chosen as step 1 — the "consider cooldowns" setting silently did
+-- nothing after the first build.
+T:run("CalculatePath: teleport edges are re-priced against live cooldowns", function(t)
+    resetState()
+    QR.db = QR.db or {}
+    QR.db.considerCooldowns = true
+    QR.db.loadingScreenTime = 0
+
+    local spellID = 3565  -- a known teleport spell in the fixtures
+    MockWoW.config.knownSpells[spellID] = true
+    QR.PlayerInventory:ScanAll()
+
+    local graph = QR.PathCalculator:BuildGraph()
+
+    -- Find any teleport edge out of the player node and remember its weight.
+    local edgeName, before
+    for otherName, edge in pairs(graph.edges["Player Location"] or {}) do
+        if edge.edgeType == "teleport" and edge.data and edge.data.teleportID then
+            edgeName, before = otherName, edge
+            break
+        end
+    end
+    t:assertNotNil(edgeName, "Player node has at least one teleport edge")
+
+    local weightWhenReady = before.weight
+    local teleportID = before.data.teleportID
+
+    -- The teleport goes on a long cooldown after the graph was built.
+    MockWoW.config.spellCooldowns[teleportID] = { start = GetTime(), duration = 1800 }
+    MockWoW.config.itemCooldowns[teleportID] = { start = GetTime(), duration = 1800 }
+
+    -- Drive CalculatePath rather than calling RefreshTeleportEdgeWeights
+    -- directly: the wiring into CalculatePath is the fix, and calling the method
+    -- by hand guards the method while leaving the wiring untested. Deleting the
+    -- call site used to keep this test green.
+    MockWoW.config.currentMapID = 84
+    QR.PathCalculator:CalculatePath(85, 0.5, 0.5, "Repricing Target")
+
+    local after = graph.edges["Player Location"][edgeName]
+    t:assertTrue(after.weight > weightWhenReady,
+        "Weight rises once the teleport is on cooldown (was " .. tostring(weightWhenReady)
+            .. ", now " .. tostring(after.weight) .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- Continent routing must not fall through to the cross-continent last resort
+-------------------------------------------------------------------------------
+
+-- Regression: the guard that stops coarse "travel" estimates from overwriting
+-- measured walk edges was applied after a candidate had been chosen, and a
+-- refusal left connectedSomething false. The node then reached Strategy 4,
+-- where GetCrossContinentTravel returns 0 for a continent to itself and
+-- baseTime - 60 goes negative, which AddEdge clamps to the 0.001 epsilon. A
+-- destination inside a capital looked one free hop away: Ironforge to a point
+-- in Stormwind came back as a single 19s step with the Deeprun Tram gone.
+T:run("CalculatePath: a destination inside a capital keeps its real legs", function(t)
+    resetState()
+    MockWoW.config.currentMapID = 87  -- Ironforge
+    QR.PathCalculator.graph = nil
+    QR.PathCalculator.graphDirty = true
+
+    local result = QR.PathCalculator:CalculatePath(84, 0.60, 0.75, "Stormwind Target")
+    t:assertNotNil(result, "a route from Ironforge to Stormwind exists")
+    if not result then return end
+
+    t:assertGreaterThan(#(result.steps or {}), 1,
+        "the route has more than one step (got " .. tostring(#(result.steps or {})) .. ")")
+    t:assertGreaterThan(result.totalTime or 0, 60,
+        "crossing between two capitals is not priced under a minute (got "
+            .. tostring(result.totalTime) .. "s)")
+end)
+
+T:run("BuildGraph: no travel edge is cheaper than a second", function(t)
+    resetState()
+    QR.PathCalculator.graph = nil
+    QR.PathCalculator.graphDirty = true
+    local graph = QR.PathCalculator:BuildGraph()
+
+    local offenders = {}
+    for from, targets in pairs(graph.edges) do
+        for to, edge in pairs(targets) do
+            if edge.edgeType == "travel" and edge.weight < 1 then
+                offenders[#offenders + 1] = from .. " -> " .. to
+            end
+        end
+    end
+    t:assertEqual(0, #offenders,
+        "no sub-second travel edge (" .. table.concat(offenders, ", ") .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- The node index must not survive the graph it describes
+-------------------------------------------------------------------------------
+
+-- Regression: BuildGraph replaced self.graph but left self.nodeIndex in place.
+-- The index then handed back node names belonging to a discarded graph object,
+-- Graph:AddEdge refused them, and the edges vanished with no error.
+T:run("BuildGraph: a build that skips the index rebuild still produces every edge", function(t)
+    resetState()
+    local function build()
+        QR.PathCalculator.graph = nil
+        QR.PathCalculator.graphDirty = true
+        local g = QR.PathCalculator:BuildGraph()
+        local edges = 0
+        for _, targets in pairs(g.edges) do
+            for _ in pairs(targets) do edges = edges + 1 end
+        end
+        return edges
+    end
+
+    local wasScanned = QR.DungeonData and QR.DungeonData.scanned
+
+    -- First build populates the index.
+    build()
+
+    -- AddDungeonNodes returns early when the Encounter Journal has not been
+    -- scanned, and BuildNodeIndex sits after that return, so this build never
+    -- refreshes the index. If the previous one is left in place it names nodes
+    -- belonging to a graph object that no longer exists, Graph:AddEdge refuses
+    -- them, and the edges disappear with no error.
+    if QR.DungeonData then QR.DungeonData.scanned = false end
+    local withPossiblyStaleIndex = build()
+
+    -- The same build again with the index explicitly cleared: this is what the
+    -- edge count has to be.
+    QR.PathCalculator.graph = nil
+    QR.PathCalculator.graphDirty = true
+    QR.PathCalculator.nodeIndex = nil
+    local withFreshIndex = build()
+
+    if QR.DungeonData then QR.DungeonData.scanned = wasScanned end
+
+    t:assertEqual(withFreshIndex, withPossiblyStaleIndex,
+        "a build following a different graph loses no edges ("
+            .. withPossiblyStaleIndex .. " vs " .. withFreshIndex .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- Moving must not destroy the player's teleport edges
+-------------------------------------------------------------------------------
+
+-- Regression: ReconnectPlayerNode drops the player node's walk and travel edges
+-- when the player moves and keeps the teleport edges on purpose -- its own
+-- docstring says so. It then calls ConnectNearbyNodes, which wrote a walk edge
+-- to every node on the player's map and in every adjacent zone with no check,
+-- and the graph holds one edge per node pair. So a mage standing in Elwynn
+-- Forest lost "Teleport: Stormwind" after a single step: the edge became a walk
+-- edge, the route step became type=walk with no teleportID, and it therefore
+-- got no secure Use button either. Nothing rebuilds the graph on movement --
+-- only bag, toy, spell, equipment and restriction events do -- so it stayed
+-- gone until one of those happened to fire.
+T:run("Movement does not overwrite the player's teleport edges", function(t)
+    resetState()
+    MockWoW.config.playerClass = "MAGE"
+    MockWoW.config.playerClassName = "Mage"
+    MockWoW.config.knownSpells = { [3561] = true }  -- Teleport: Stormwind
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 37                -- Elwynn Forest
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.40, 0.60
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+
+    local function playerEdgeType()
+        local graph = QR.PathCalculator.graph
+        local edge = graph and graph:GetEdge("Player Location", "Stormwind City")
+        return edge and edge.edgeType or "no edge"
+    end
+
+    t:assertEqual("teleport", playerEdgeType(),
+        "the teleport edge exists as built (got: " .. playerEdgeType() .. ")")
+
+    local before = QR.PathCalculator:CalculatePath(84, 0.4965, 0.8725, "Stormwind City")
+    t:assertNotNil(before, "a route is found before moving")
+    if before then
+        t:assertEqual("teleport", before.steps[1].type, "and it starts with the teleport")
+        t:assertEqual(3561, before.steps[1].teleportID,
+            "carrying the spell ID the Use button needs")
+    end
+
+    -- One step. Only the reported position changes; nothing marks the graph
+    -- dirty, which is the whole point.
+    MockWoW.config.playerX = 0.4001
+    QR.PathCalculator:UpdatePlayerLocation()
+    t:assertFalse(QR.PathCalculator.graphDirty,
+        "movement alone does not mark the graph for a rebuild")
+
+    t:assertEqual("teleport", playerEdgeType(),
+        "the teleport edge survives the move (got: " .. playerEdgeType() .. ")")
+
+    local after = QR.PathCalculator:CalculatePath(84, 0.4965, 0.8725, "Stormwind City")
+    t:assertNotNil(after, "a route is still found after moving")
+    if after then
+        t:assertEqual("teleport", after.steps[1].type,
+            "and it still starts with the teleport, not a walk")
+        t:assertEqual(3561, after.steps[1].teleportID,
+            "still carrying the spell ID, so the step keeps its Use button")
+    end
+end)
+
+-- The same defect through the other writer. Standing in Elwynn Forest reaches
+-- the Stormwind node through the adjacent-zone pass; standing INSIDE Stormwind
+-- reaches it through the same-map pass, which is a separate call site with its
+-- own guard. Removing that one alone left the suite green while reinstating the
+-- whole regression for any player in a city they can teleport to.
+T:run("Movement inside a city does not overwrite its teleport edge", function(t)
+    resetState()
+    MockWoW.config.playerClass = "MAGE"
+    MockWoW.config.playerClassName = "Mage"
+    MockWoW.config.knownSpells = { [3561] = true }  -- Teleport: Stormwind
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 84                -- Stormwind City itself
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.60, 0.40
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+
+    local function playerEdgeType()
+        local graph = QR.PathCalculator.graph
+        local edge = graph and graph:GetEdge("Player Location", "Stormwind City")
+        return edge and edge.edgeType or "no edge"
+    end
+
+    t:assertEqual("teleport", playerEdgeType(),
+        "the teleport edge exists as built (got: " .. playerEdgeType() .. ")")
+
+    MockWoW.config.playerX = 0.6001
+    QR.PathCalculator:UpdatePlayerLocation()
+
+    t:assertEqual("teleport", playerEdgeType(),
+        "the same-map pass does not overwrite it (got: " .. playerEdgeType() .. ")")
+
+    local after = QR.PathCalculator:CalculatePath(84, 0.4965, 0.8725, "Stormwind City")
+    t:assertNotNil(after, "a route is still found")
+    if after then
+        t:assertEqual("teleport", after.steps[1].type,
+            "and it still starts with the teleport")
+        t:assertEqual(3561, after.steps[1].teleportID, "carrying its spell ID")
+    end
+end)
+
+-------------------------------------------------------------------------------
+-- Continent routing must never manufacture a near-free edge
+-------------------------------------------------------------------------------
+
+-- Graph:AddEdge clamps a weight of zero or less to a 0.001 epsilon, which
+-- Dijkstra then reads as free -- that is how the original zone-graph errors
+-- stayed invisible. Three guards in ConnectViaContinentRouting exist to keep
+-- that from happening; these drive the strategies directly on a hand-built
+-- graph, because a full route rarely reaches the last-resort ones.
+local function scratchGraph()
+    QR.PathCalculator.graph = QR.Graph:New()
+    QR.PathCalculator.nodeIndex = nil
+    return QR.PathCalculator.graph
+end
+
+T:run("Strategy 2 does not replace measured walk edges on the hub's own map", function(t)
+    -- A node standing ON the continent hub map already has measured walk edges
+    -- from the same-map pass. EstimateSameContinentTravel(hub, hub) is 0, so
+    -- running strategy 2 here would overwrite each of them with a free edge.
+    local graph = scratchGraph()
+    graph:AddNode("Here", { mapID = 84, x = 0.10, y = 0.10, nodeType = "zone" })
+    graph:AddNode("Stormwind City", { mapID = 84, x = 0.4965, y = 0.8725, nodeType = "city" })
+    graph:AddBidirectionalEdge("Here", "Stormwind City", 42, "walk", {})
+    QR.PathCalculator:BuildNodeIndex()
+
+    QR.PathCalculator:ConnectViaContinentRouting("Here", 84, 0.10, 0.10)
+
+    local edge = graph:GetEdge("Here", "Stormwind City")
+    t:assertNotNil(edge, "the edge is still there")
+    if not edge then return end
+    t:assertEqual("walk", edge.edgeType,
+        "the measured walk edge survives (got: " .. tostring(edge.edgeType) .. ")")
+    t:assertEqual(42, edge.weight,
+        "with its measured weight (got: " .. tostring(edge.weight) .. ")")
+end)
+
+T:run("A travel estimate never replaces a measured walk edge", function(t)
+    -- The same rule from the other side: the node is on a map with no continent
+    -- of its own, so strategy 4 runs and reaches for every hub -- including one
+    -- this node already has a measured edge to.
+    local graph = scratchGraph()
+    graph:AddNode("Orphan", { mapID = 99999, x = 0.5, y = 0.5, nodeType = "zone" })
+    graph:AddNode("Stormwind City", { mapID = 84, x = 0.4965, y = 0.8725, nodeType = "city" })
+    graph:AddBidirectionalEdge("Orphan", "Stormwind City", 7, "walk", {})
+    QR.PathCalculator:BuildNodeIndex()
+
+    QR.PathCalculator:ConnectViaContinentRouting("Orphan", 99999, 0.5, 0.5)
+
+    local edge = graph:GetEdge("Orphan", "Stormwind City")
+    t:assertNotNil(edge, "the edge is still there")
+    if not edge then return end
+    t:assertEqual("walk", edge.edgeType,
+        "the measured walk edge survives (got: " .. tostring(edge.edgeType) .. ")")
+    t:assertEqual(7, edge.weight, "with its measured weight")
+end)
+
+T:run("Strategy 4 connects an unreachable node without a sub-second edge", function(t)
+    -- The last resort connects to every hub and city at baseTime - 60. This
+    -- pins the reachable property: the node gets edges, and none of them is
+    -- near-free. It does NOT reach the sub-second case -- that needs
+    -- baseTime = 0, which only happens for a continent to itself, and the
+    -- continent check above this write makes that state unreachable from a
+    -- built graph. The floor behind it is documented as uncovered where it
+    -- stands rather than pinned here.
+    local graph = scratchGraph()
+    graph:AddNode("Orphan", { mapID = 99999, x = 0.5, y = 0.5, nodeType = "zone" })
+    graph:AddNode("Stormwind City", { mapID = 84, x = 0.4965, y = 0.8725, nodeType = "city" })
+    graph:AddNode("Orgrimmar", { mapID = 85, x = 0.469, y = 0.387, nodeType = "city" })
+    QR.PathCalculator:BuildNodeIndex()
+
+    QR.PathCalculator:ConnectViaContinentRouting("Orphan", 99999, 0.5, 0.5)
+
+    local written, tooCheap = 0, {}
+    for to, edge in pairs(graph.edges["Orphan"] or {}) do
+        written = written + 1
+        if edge.weight < 1 then
+            tooCheap[#tooCheap + 1] = to .. " w=" .. tostring(edge.weight)
+        end
+    end
+    t:assertGreaterThan(written, 0, "the last resort connected the node to something")
+    t:assertEqual(0, #tooCheap,
+        "no edge is under a second (" .. table.concat(tooCheap, ", ") .. ")")
+end)

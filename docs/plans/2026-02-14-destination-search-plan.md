@@ -1,5 +1,7 @@
 # Unified Destination Search Implementation Plan
 
+**Status:** Shipped. Kept as a record of the design, not as a plan to follow.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Replace the Route tab's waypoint source dropdown + dungeon picker button with a unified search box that provides access to auto-detected waypoints, cities, and dungeons/raids in a single grouped dropdown.
@@ -16,7 +18,7 @@
 - Addon code: `QuickRoute/` — loaded in order defined by `QuickRoute.toc`
 - Tests: `tests/` — run via `~/.local/bin/lua5.1 tests/run_tests.lua`
 - Test loader: `tests/addon_loader.lua` — mirrors .toc file list, loads all addon files in order
-- Test framework: `tests/test_framework.lua` — provides `T:run(name, fn)`, `t:assertEqual`, `t:assertNotNil`, etc.
+- Test framework: `tests/run_tests.lua` — provides `T:run(name, fn)`, `t:assertEqual`, `t:assertNotNil`, etc.
 - Mock WoW API: `tests/mock_wow_api.lua` — provides `CreateFrame`, `C_Map`, `GameTooltip`, `PlaySound`, etc.
 
 ### Key patterns to follow

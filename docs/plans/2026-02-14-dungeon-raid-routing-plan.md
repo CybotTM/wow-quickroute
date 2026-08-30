@@ -1,5 +1,7 @@
 # Dungeon & Raid Routing Implementation Plan
 
+**Status:** Shipped. Kept as a record of the design, not as a plan to follow.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Route players to any dungeon or raid entrance via three entry points: Route tab picker, Encounter Journal button, world map pin click.

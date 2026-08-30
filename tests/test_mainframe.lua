@@ -548,3 +548,70 @@ T:run("MainFrame: position saved to DB on drag stop", function(t)
         t:assertTrue(true, "OnDragStop handler not accessible in test")
     end
 end)
+
+-------------------------------------------------------------------------------
+-- Closing the window must give its rows and secure buttons back
+-------------------------------------------------------------------------------
+
+-- Regression: the secure overlay buttons are SecureActionButtonTemplate frames
+-- parented to UIParent, not to the window, so hiding the window left them on
+-- screen and marked inUse. Closing with ESC never refreshed, so the 60-button
+-- pool drained one window at a time. Releasing now happens in the frame's
+-- OnHide, which is the one path ESC, the close button and the combat
+-- auto-hide all take.
+T:run("MainFrame: closing the window clears the teleport rows it was holding", function(t)
+    resetState()
+    ensureMainFrame()
+
+    QR.MainFrame:Show()
+    QR.MainFrame:SetActiveTab("teleports")
+    QR.TeleportPanel:RefreshList()
+
+    local populated = #QR.TeleportPanel.teleportRows
+    t:assertGreaterThan(populated, 0, "the teleport tab holds rows while shown")
+
+    QR.MainFrame:Hide()
+
+    t:assertEqual(0, #QR.TeleportPanel.teleportRows,
+        "rows are released when the window closes (still held: "
+            .. tostring(#QR.TeleportPanel.teleportRows) .. ")")
+end)
+
+-- Regression: OnHide also fires when an ancestor is hidden -- Alt+Z, a
+-- cinematic -- and that is not a close. The window comes back on its own,
+-- without MainFrame:Show() or SetActiveTab() running, so releasing the tab
+-- content there returned an empty window that only a manual toggle repaired.
+-- The frame's own IsShown() is still true in that case.
+T:run("MainFrame: hiding UIParent does not release the tab content", function(t)
+    resetState()
+    ensureMainFrame()
+
+    QR.MainFrame:Show()
+    QR.MainFrame:SetActiveTab("teleports")
+    QR.TeleportPanel:RefreshList()
+
+    local populated = #QR.TeleportPanel.teleportRows
+    t:assertGreaterThan(populated, 0, "the teleport tab holds rows while shown")
+
+    -- An ancestor was hidden: OnHide runs, this frame's shown state does not
+    -- change. Driven through the real handler rather than a reimplementation.
+    local frame = QR.MainFrame.frame
+    local onHide = frame:GetScript("OnHide")
+    t:assertNotNil(onHide, "the window has an OnHide handler")
+    if not onHide then return end
+    frame._shown = true
+    onHide(frame)
+
+    t:assertEqual(populated, #QR.TeleportPanel.teleportRows,
+        "the rows survive an ancestor hide (held: "
+            .. tostring(#QR.TeleportPanel.teleportRows) .. ")")
+    t:assertTrue(QR.MainFrame.isShowing,
+        "the window still counts as showing after an ancestor hide")
+
+    -- A real close: the frame's own shown state is false.
+    frame._shown = false
+    onHide(frame)
+    t:assertEqual(0, #QR.TeleportPanel.teleportRows,
+        "a real close still releases the rows")
+    t:assertFalse(QR.MainFrame.isShowing, "a real close clears isShowing")
+end)

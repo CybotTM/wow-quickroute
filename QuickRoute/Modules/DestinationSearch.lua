@@ -7,6 +7,7 @@ local string_format = string.format
 local string_lower = string.lower
 local string_find = string.find
 local table_insert, table_sort = table.insert, table.sort
+local table_remove = table.remove
 local CreateFrame = CreateFrame
 local InCombatLockdown = InCombatLockdown
 
@@ -15,7 +16,8 @@ QR.DestinationSearch = {
     searchBox = nil,
     isShowing = false,
     rows = {},
-    rowPool = {},
+    rowPool = {},   -- every row ever created, for teardown
+    freeRows = {},  -- stack of rows ready to hand out
     collapsedSections = {},
 }
 
@@ -314,18 +316,26 @@ end
 --- Create or recycle a row frame
 -- @return Frame A row frame
 function DS:GetRow()
-    -- Recycle from pool
-    for _, row in ipairs(self.rowPool) do
-        if not row.inUse then
-            row.inUse = true
-            row:SetParent(self.frame.scrollChild)
-            row:Show()
-            return row
+    -- Recycle from the free list. This used to scan the whole pool for the
+    -- first row with inUse false, which made rendering a list O(N^2): the Nth
+    -- row walked past N-1 busy ones. The free list is a stack, matching the
+    -- convention TeleportPanel already uses.
+    local row = table_remove(self.freeRows)
+    if row then
+        row.inUse = true
+        row:SetParent(self.frame.scrollChild)
+        -- A row that was a section header keeps its height and label width
+        -- otherwise, so a recycled result row overlaps the one below it.
+        row:SetHeight(ROW_HEIGHT)
+        if row.nameLabel then
+            row.nameLabel:SetWidth(220)
         end
+        row:Show()
+        return row
     end
 
     -- Create new row
-    local row = CreateFrame("Button", nil, self.frame.scrollChild)
+    row = CreateFrame("Button", nil, self.frame.scrollChild)
     row:SetHeight(ROW_HEIGHT)
 
     -- Name label
@@ -358,6 +368,7 @@ function DS:ReleaseAllRows()
     for _, row in ipairs(self.rowPool) do
         if row.inUse then
             row.inUse = false
+            table_insert(self.freeRows, row)
             row:Hide()
             row:SetParent(recycleContainer)
             row:SetScript("OnClick", nil)
@@ -728,9 +739,22 @@ end
 -- @param text string The current search text
 function DS:OnSearchTextChanged(text)
     if self._suppressTextChanged then return end
-    if self.isShowing then
-        self:RefreshDropdown(text)
+    if not self.isShowing then return end
+
+    -- Debounced: every keystroke used to re-collect and re-render the whole
+    -- result set, so typing a six-letter zone name rebuilt the list six times.
+    -- Same pattern TeleportPanel uses for its own refresh, with a shorter
+    -- interval because this one runs while the user is still typing.
+    if self._searchTimer then
+        self._searchTimer:Cancel()
+        self._searchTimer = nil
     end
+    self._searchTimer = C_Timer.NewTimer(0.15, function()
+        DS._searchTimer = nil
+        if DS.isShowing then
+            DS:RefreshDropdown(text)
+        end
+    end)
 end
 
 --- Set search box text programmatically (suppresses OnTextChanged re-entrancy)

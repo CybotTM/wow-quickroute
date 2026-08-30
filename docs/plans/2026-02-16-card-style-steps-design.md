@@ -1,5 +1,7 @@
 # Card-Style Route Steps Design
 
+**Status:** Shipped. Kept as a record of the design, not as a plan to follow.
+
 ## Goal
 Replace the current single-line route step rendering (24px, cramped) with a card-style
 two-line layout featuring larger icons and better-spaced buttons for improved readability.

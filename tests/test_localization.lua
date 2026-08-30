@@ -172,17 +172,8 @@ T:run("German locale: deDE translations exist in source", function(t)
     -- Temporarily set locale to deDE
     MockWoW.config.locale = "deDE"
 
-    -- Save current English values for keys we will test
-    local savedValues = {}
-    local keysToTest = {
-        "DESTINATION", "NO_WAYPOINT", "REFRESH", "CLOSE",
-        "STATUS_READY", "STATUS_ON_CD",
-        "STEP_GO_TO", "STEP_TAKE_PORTAL",
-        "ACTION_WALK", "ACTION_FLY",
-    }
-    for _, key in ipairs(keysToTest) do
-        savedValues[key] = QR.L[key]
-    end
+    -- English values are not saved here: the restore at the end re-executes
+    -- Localization.lua under enUS, which rebuilds QR.L wholesale.
 
     -- Re-execute Localization.lua with deDE locale
     -- This will overwrite QR.L with German strings

@@ -187,6 +187,7 @@ T:run("RefreshRoute logs error when UpdateRoute fails", function(t)
     QR.UI:RefreshRoute()
 
     t:assertTrue(errorLogged, "Error was logged when UpdateRoute failed")
+    t:assertTrue(errorMsg ~= "", "The logged error carries a message (got: " .. tostring(errorMsg) .. ")")
 
     -- Restore
     QR.UI.UpdateRoute = originalUpdateRoute
@@ -1459,4 +1460,139 @@ T:run("/qrscreenshot all cycles through panels", function(t)
     -- C_Timer.After executes immediately in mock, so all 4 panels fire
     t:assertTrue(MockWoW.config.screenshotsTaken >= 4,
         "Screenshot() called for each panel")
+end)
+
+-------------------------------------------------------------------------------
+-- A route rendered during combat has no Use buttons
+-------------------------------------------------------------------------------
+
+-- Regression: ConfigureStepUseButton refuses to take a secure button under
+-- lockdown, so a route rendered during a fight -- the window opened with /qr
+-- mid-combat, or the waypoint changed while it was open -- gets none. Nothing
+-- rebuilt it afterwards: MainFrame only restores a window that combat itself
+-- hid, and UI:OnCombatEnd restored alpha on a list nothing ever fills. The
+-- buttons stayed missing until the player toggled the window by hand.
+T:run("UI: a route rendered in combat gets its Use buttons back afterwards", function(t)
+    resetState()
+    ensureUIFrame()
+    QR.SecureButtons:Initialize()
+    for _, btn in ipairs(QR.SecureButtons.pool or {}) do
+        btn.inUse = false
+    end
+
+    -- A teleport step needs an owned teleport and a destination it serves.
+    MockWoW.config.ownedToys[140192] = true  -- Dalaran Hearthstone
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 84         -- Stormwind
+    setMapPinWaypoint(627, 0.5, 0.5)         -- Dalaran (Broken Isles)
+
+    QR.MainFrame.isShowing = true
+    QR.MainFrame.activeTab = "route"
+
+    local function stepsWithButtons()
+        local n = 0
+        for _, stepFrame in ipairs(QR.UI.stepLabels or {}) do
+            if stepFrame.useButton then n = n + 1 end
+        end
+        return n
+    end
+
+    MockWoW.config.inCombatLockdown = true
+    QR.UI:RefreshRoute()
+    local rendered = #(QR.UI.stepLabels or {})
+    t:assertGreaterThan(rendered, 0, "the route rendered its steps in combat")
+    -- Precondition, not a guard: three layers enforce this independently
+    -- (ConfigureStepUseButton, GetButton and ConfigureButton), so neutralising
+    -- any one of them leaves it green. It establishes the starting state the
+    -- assertion below measures against; the regression is caught there.
+    t:assertEqual(0, stepsWithButtons(),
+        "no step got a secure button under lockdown (got: "
+            .. tostring(stepsWithButtons()) .. ")")
+
+    MockWoW.config.inCombatLockdown = false
+    local handler = QR.combatFrame and QR.combatFrame:GetScript("OnEvent")
+    t:assertNotNil(handler, "the combat manager is reachable")
+    if not handler then return end
+    handler(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+
+    t:assertGreaterThan(stepsWithButtons(), 0,
+        "the route is re-rendered with its Use buttons once combat ends "
+            .. "(steps with a button: " .. tostring(stepsWithButtons()) .. ")")
+
+    QR.MainFrame.isShowing = false
+    QR.UI:ClearStepLabels()
+end)
+
+-- Regression: the fix above first refreshed unconditionally. MainFrame's
+-- leave-combat callback is registered before UI's and already rebuilds a window
+-- that combat hid, so the common case -- window open, fight starts, fight ends
+-- -- ran pathfinding twice and released and re-acquired every secure button in
+-- the same frame.
+T:run("UI: combat exit re-renders the route once, not twice", function(t)
+    resetState()
+    ensureUIFrame()
+    QR.SecureButtons:Initialize()
+    MockWoW.config.ownedToys[140192] = true
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 84
+    setMapPinWaypoint(627, 0.5, 0.5)
+
+    local handler = QR.combatFrame and QR.combatFrame:GetScript("OnEvent")
+    t:assertNotNil(handler, "the combat manager is reachable")
+    if not handler then return end
+
+    -- Open before the fight, let combat hide it: this is the path where
+    -- MainFrame restores the window itself.
+    MockWoW.config.inCombatLockdown = false
+    QR.MainFrame:Show("route")
+    MockWoW.config.inCombatLockdown = true
+    handler(QR.combatFrame, "PLAYER_REGEN_DISABLED")
+    t:assertTrue(QR.MainFrame.wasShowingBeforeCombat,
+        "combat hid the window, so MainFrame will restore it")
+
+    local original = QR.UI.RefreshRoute
+    local calls = 0
+    QR.UI.RefreshRoute = function(self, ...)
+        calls = calls + 1
+        return original(self, ...)
+    end
+
+    MockWoW.config.inCombatLockdown = false
+    handler(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+
+    QR.UI.RefreshRoute = original
+
+    t:assertEqual(1, calls,
+        "the route is rendered exactly once on combat exit (rendered "
+            .. tostring(calls) .. " times)")
+
+    QR.MainFrame:Hide()
+end)
+
+-------------------------------------------------------------------------------
+-- Item info that is not cached yet
+-------------------------------------------------------------------------------
+
+-- The mock grew an `uncachedItems` flag alongside `uncachedSpells` so the
+-- "item info is not available immediately" branch could be exercised, but
+-- nothing ever set it: the branch never ran, and the flag was decoration.
+-- Right after login is exactly when that branch is live.
+T:run("GetLocalizedItemInfo: an item that is not cached yet returns nil, uncached", function(t)
+    resetState()
+    local itemID = 6948  -- Hearthstone
+    MockWoW.config.uncachedItems[itemID] = true
+    QR.UI.itemInfoCache = {}
+    QR.UI.itemInfoAccessOrder = {}
+
+    local name, link = QR.UI:GetLocalizedItemInfo(itemID)
+    t:assertNil(name, "no name while the client has not cached the item")
+    t:assertNil(link, "and no link either")
+    t:assertNil(QR.UI.itemInfoCache[itemID],
+        "and the miss is not cached, so a later call can still succeed")
+
+    -- The client answers on a later frame; the same call must now work.
+    MockWoW.config.uncachedItems[itemID] = nil
+    local name2 = QR.UI:GetLocalizedItemInfo(itemID)
+    t:assertNotNil(name2, "the second call gets the name once the client has it")
+    t:assertNotNil(QR.UI.itemInfoCache[itemID], "and that one is cached")
 end)

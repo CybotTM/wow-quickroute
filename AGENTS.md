@@ -1,6 +1,6 @@
 # AGENTS.md — QuickRoute
 
-> Last updated: 2026-02-12
+> Last updated: 2026-08-30
 
 World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, portals, spells, and items. Uses Dijkstra's algorithm. Namespace: `QR`.
 
@@ -8,9 +8,11 @@ World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, po
 
 | Command | What it does | ~Time |
 |---------|-------------|-------|
-| `~/.local/bin/lua5.1 tests/run_tests.lua` | Run all 7754 assertions (27 test files) | ~5s |
-| `./scripts/lint.sh` | Luacheck + Lua 5.1 syntax check | ~3s |
-| `luacheck QuickRoute/ --config .luacheckrc` | Lint only | ~2s |
+| `~/.local/bin/lua5.1 tests/run_tests.lua` | Run the suite (33 test files). Compare the assertion count to the previous run rather than to a number written down here | ~5s |
+| `./scripts/lint.sh` | Luacheck over `QuickRoute/` and `tests/`, native or via Docker. Fails when no linter is available | ~3s |
+| `luacheck QuickRoute/ tests/ --config .luacheckrc` | Lint only, native luacheck 1.2.0 | ~2s |
+| `docker run --rm -v "$(pwd):/src" -w /src ghcr.io/lunarmodules/luacheck:v1.2.0 QuickRoute/ tests/ --config .luacheckrc` | Lint without a native luacheck — same version CI pins | ~5s |
+| `git config core.hooksPath scripts/hooks` | Install the pre-commit and pre-push hooks (one-time, per clone) | — |
 | `cp -r QuickRoute/* "/mnt/f/World of Warcraft/_retail_/Interface/AddOns/QuickRoute/"` | Deploy to WoW | ~1s |
 
 Tests run standalone outside WoW via `tests/mock_wow_api.lua` (full WoW API mock).
@@ -22,7 +24,6 @@ QuickRoute/
   QuickRoute.lua          → Entry point, namespace setup, combat callbacks, slash commands
   QuickRoute.toc          → Load order manifest
   Localization.lua        → L10n for 10 locales (enUS, deDE, frFR, esES, esMX, ptBR, ruRU, koKR, zhCN, zhTW, itIT)
-  embeds.xml              → Library includes (LibStub, HereBeDragons, CallbackHandler)
   Core/
     Graph.lua             → Dijkstra pathfinding graph (nodes, edges, shortest path)
     PathCalculator.lua    → Route calculation orchestrator (builds graph, finds path)
@@ -31,6 +32,8 @@ QuickRoute/
     TeleportItems.lua     → All teleport data (items, toys, spells, racials, class, general)
     Portals.lua           → Portal hub connections (boats, zeppelins, portals)
     ZoneAdjacency.lua     → Zone neighbor graph for overland travel
+    DungeonEntrances.lua  → Static dungeon/raid entrance coordinates
+    ServicePOIs.lua       → Vendor, bank, auction house and other service points
   Modules/
     MainFrame.lua         → Unified tabbed container (Route + Teleports tabs)
     UI.lua                → Route display tab (step list, use buttons, progress)
@@ -45,7 +48,12 @@ QuickRoute/
     MapTeleportButton.lua → World map teleport button overlay
     QuestTeleportButtons.lua → Quest tracker teleport buttons
     POIRouting.lua        → Ctrl+Right-click map routing
-    SettingsPanel.lua     → Settings UI (Interface Options)
+    DungeonData.lua       → Encounter Journal scan, instance list
+    DungeonPicker.lua     → Dungeon/raid destination picker
+    DestinationSearch.lua → Destination search dropdown (zones, dungeons, quests)
+    ServiceRouter.lua     → Routing to service POIs
+    EncounterJournalButton.lua → Teleport button in the Encounter Journal
+    SettingsPanel.lua     → Settings UI (native Settings API, vertical layout)
   Utils/
     Colors.lua            → Color constants (QR.Colors)
     PlayerInfo.lua        → Cached player info (faction, class, engineering)
@@ -62,7 +70,12 @@ tests/
 ## Architecture
 
 ### Load Order
-Defined in `QuickRoute.toc`. Libraries → Localization → Utils → Data → Core → Modules → QuickRoute.lua → Tests.
+Defined in `QuickRoute.toc`. Localization → Utils → Data → Core → Modules → QuickRoute.lua → Tests.
+
+A module loaded before `QuickRoute.lua` must not call into the `QR` namespace at
+file scope — `QR:RegisterCombatCallback` and friends do not exist yet. Register
+from `Initialize()` instead. The test runner fails the run when a file does not
+load, which is what catches this.
 
 ### Key Patterns
 
@@ -91,8 +104,19 @@ Single unified window with portrait header and tab bar. `UI.lua` and `TeleportPa
 - **UX enforcement**: `test_ux_consistency.lua` verifies 10 UX patterns across all modules
 - **Layout tests**: `MockWoW:ComputeFrameBounds()` resolves anchor chains to absolute positions
 
-### Test Naming
-Files: `tests/test_<module>.lua`. Functions: descriptive strings passed to `assert()`.
+### Test Contract
+Files: `tests/test_<module>.lua`, discovered by the runner. Each file receives
+`(T, QR, MockWoW)` as varargs — `local T, QR, MockWoW = ...` on the first line.
+
+Register a test with `T:run("Module: behaviour", function(t) ... end)` and assert
+through the `t` handle: `t:assert`, `t:assertEqual`, `t:assertNotNil`, `t:assertNil`,
+`t:assertTrue`, `t:assertFalse`, `t:assertGreaterThan`, `t:assertTableCount`.
+
+Never use bare `assert()`. It raises instead of recording, which aborts the rest
+of the file and takes every later test in it with it.
+
+Every assertion carries a message that names the observed value, so a failure
+reads as a fact rather than a boolean.
 
 ### PlayerInfo in Tests
 After changing `MockWoW.config.playerFaction`, call `QR.PlayerInfo:InvalidateCache()`.
@@ -145,9 +169,11 @@ After changing `MockWoW.config.playerFaction`, call `QR.PlayerInfo:InvalidateCac
 ## Codebase State
 
 - **SavedVariables**: `QuickRouteDB` (DB_VERSION = 1)
-- **Dependencies**: LibStub (required), CallbackHandler-1.0 (required), HereBeDragons-2.0 (optional), TomTom (optional)
-- **CI**: GitHub Actions — luacheck + Lua 5.1 syntax check on push/PR to main
-- **Planned features**: Dungeon/raid routing, city quick-pick, NPC/vendor routing, world events (see `docs/VISION.md`)
+- **Interface**: `120100` (WoW 12.1.0). The live retail build is the authority — check https://wago.tools/api/builds, not the wiki, which lags.
+- **Dependencies**: none required. TomTom optional (`## OptionalDeps`). No libraries are vendored and there is no `embeds.xml`.
+- **CI**: GitHub Actions — luacheck 1.2.0 over `QuickRoute/` and `tests/`, plus the full Lua 5.1 test suite, on push/PR to main. Actions are SHA-pinned and maintained by Dependabot.
+- **Shipped since the last VISION revision**: dungeon/raid routing, destination search, service-POI routing, Encounter Journal button.
+- **Planned features**: NPC/vendor routing, world events (see `docs/VISION.md`)
 
 ## Terminology
 

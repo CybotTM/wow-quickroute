@@ -1,5 +1,7 @@
 # Service POI Routing Design
 
+**Status:** Shipped. Kept as a record of the design, not as a plan to follow.
+
 ## Goal
 
 Route the player to the nearest Auction House, Bank, Void Storage, or Crafting Table across all capital cities, using Dijkstra-optimal travel time (not geographic distance).

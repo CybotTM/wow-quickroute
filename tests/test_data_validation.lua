@@ -979,3 +979,396 @@ T:run("Data: Signet of the Kirin Tor (40585) base ring exists", function(t)
         t:assertEqual(11, data.equipSlot, "equipSlot is finger (11)")
     end
 end)
+
+-------------------------------------------------------------------------------
+-- journalInstanceID to name, checked against the live client
+-------------------------------------------------------------------------------
+
+-- Regression: twelve entries bound a journalInstanceID to the wrong dungeon.
+-- The Nexus carried The Oculus's id, Atal'Dazar carried Kings' Rest's, and the
+-- Caverns of Time and Icecrown groups were rotated. Nothing noticed, because no
+-- test ever compared an id against the name the game gives it.
+--
+-- The expected pairs below were read off a live 12.1.0.69497 client with
+-- EJ_GetInstanceInfo. Extend this table whenever an entrance is added: an entry
+-- whose id and name disagree is the defect this guards against.
+local EXPECTED_INSTANCE_NAMES = {
+    [184]  = "End Time",
+    [185]  = "Well of Eternity",
+    [186]  = "Hour of Twilight",
+    [251]  = "Old Hillsbrad",
+    [255]  = "Black Morass",
+    [276]  = "Halls of Reflection",
+    [278]  = "Pit of Saron",
+    [280]  = "The Forge of Souls",
+    [281]  = "The Nexus",
+    [282]  = "The Oculus",
+    [968]  = "Atal'Dazar",
+    [1041] = "Kings' Rest",
+    -- 12.0.7 and 12.1.0 content, added in the same pass
+    [1298] = "Operation: Floodgate",
+    [1299] = "Windrunner Spire",
+    [1302] = "Manaforge Omega",
+    [1303] = "Eco-Dome Al'dani",
+    [1305] = "Sporefall",
+    [1311] = "Den of Nalorakk",
+    [1317] = "The Tidebound Grotto",
+    [1320] = "The Venomous Abyss",
+    [1322] = "Altar of Fangs",
+}
+
+T:run("StaticDungeonEntrances: journalInstanceIDs carry the name the client gives them", function(t)
+    local seen = {}
+
+    for mapID, entries in pairs(QR.StaticDungeonEntrances) do
+        for _, entry in ipairs(entries) do
+            local journalID, name = entry[1], entry[4]
+            local expected = EXPECTED_INSTANCE_NAMES[journalID]
+            if expected then
+                seen[journalID] = true
+                t:assertNotNil(string.find(name, expected, 1, true),
+                    string.format("journalInstanceID %d on map %s is %s, repo says %q",
+                        journalID, tostring(mapID), expected, tostring(name)))
+            end
+        end
+    end
+
+    local missing = {}
+    for journalID in pairs(EXPECTED_INSTANCE_NAMES) do
+        if not seen[journalID] then
+            missing[#missing + 1] = journalID
+        end
+    end
+    t:assertEqual(0, #missing,
+        "every verified journalInstanceID still has an entrance entry (missing: "
+            .. table.concat(missing, ", ") .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- Maps that are not zones must never appear as graph or entrance keys
+-------------------------------------------------------------------------------
+
+-- Regression: the data files used dungeon, raid and continent uiMapIDs as if
+-- they were zones — 67 and 68 are Maraudon, 11 is Wailing Caverns, 261 is the
+-- Blood Furnace, 700 is Icecrown Citadel, 101 is the Outland continent, 378 is
+-- the Wandering Isle. Each was then papered over with a 0.001s bridge edge to
+-- the id that was actually meant, which hid the mistake from every existing
+-- test while quietly registering content on the wrong map.
+--
+-- Identities confirmed with C_Map.GetMapInfo on a live 12.1.0.69497 client.
+local NOT_ZONES = {
+    [11]  = "Wailing Caverns (dungeon) -- Ashenvale is 63",
+    [67]  = "Maraudon (dungeon) -- Feralas is 69",
+    [68]  = "Maraudon (dungeon) -- Dustwallow Marsh is 70",
+    [261] = "Blood Furnace (dungeon) -- Uldum is 249",
+    [378] = "The Wandering Isle -- Kun-Lai Summit is 379",
+    [700] = "Icecrown Citadel (raid) -- Twilight Highlands is 241",
+    [809] = "Karazhan (dungeon)",
+}
+
+-- Every cosmic, world and continent map in the client's UiMap table, taken
+-- from the 12.1.0 build rather than listed by hand. The hand-written list
+-- above had caught 101 (Outland) and stopped there, so 876 -- the Kul Tiras
+-- CONTINENT -- sat in the adjacency table labelled "Zandalar" and carried the
+-- Crucible of Storms entrance until this sweep. The exhaustive set closes the
+-- class instead of one member of it. As of this build no map here is used as
+-- a zone anywhere in the addon, so an addition is a real finding: if a future
+-- patch makes one of these genuinely walkable, move it out with a comment
+-- saying so rather than deleting the check.
+local CONTINENT_MAPS = {
+    [12] = "Kalimdor (continent)",
+    [13] = "Eastern Kingdoms (continent)",
+    [101] = "Outland (continent)",
+    [113] = "Northrend (continent)",
+    [424] = "Pandaria (continent)",
+    [572] = "Draenor (continent)",
+    [619] = "Broken Isles (continent)",
+    [875] = "Zandalar (continent)",
+    [876] = "Kul Tiras (continent)",
+    [905] = "Argus (continent)",
+    [946] = "Cosmic (cosmic)",
+    [947] = "Azeroth (world)",
+    [948] = "The Maelstrom (continent)",
+    [985] = "Eastern Kingdoms (continent)",
+    [986] = "Kalimdor (continent)",
+    [987] = "Outland (continent)",
+    [988] = "Northrend (continent)",
+    [989] = "Pandaria (continent)",
+    [990] = "Draenor (continent)",
+    [991] = "Zandalar (continent)",
+    [992] = "Kul Tiras (continent)",
+    [993] = "Broken Isles (continent)",
+    [994] = "Argus (continent)",
+    [1011] = "Zandalar (continent)",
+    [1014] = "Kul Tiras (continent)",
+    [1208] = "Eastern Kingdoms (continent)",
+    [1209] = "Kalimdor (continent)",
+    [1384] = "Northrend (continent)",
+    [1467] = "Outland (continent)",
+    [1504] = "Nazjatar (continent)",
+    [1550] = "The Shadowlands (continent)",
+    [1645] = "Torghast (continent)",
+    [1647] = "The Shadowlands (continent)",
+    [1922] = "Draenor (continent)",
+    [1923] = "Pandaria (continent)",
+    [1978] = "Dragon Isles (continent)",
+    [2046] = "Zereth Mortis (continent)",
+    [2055] = "Sepulcher of the First Ones (continent)",
+    [2057] = "Dragon Isles (continent)",
+    [2059] = "Resonant Peaks (continent)",
+    [2147] = "Azeroth (continent)",
+    [2149] = "Ohn'ahran Plains (continent)",
+    [2252] = "Dragon Isles (continent)",
+    [2274] = "Khaz Algar (continent)",
+    [2276] = "Khaz Algar (continent)",
+    [2481] = "Eastern Kingdoms (continent)",
+    [2537] = "Quel'Thalas (continent)",
+    [2561] = "Quel'Thalas (continent)",
+}
+
+for mapID, name in pairs(CONTINENT_MAPS) do
+    if not NOT_ZONES[mapID] then
+        NOT_ZONES[mapID] = name
+    end
+end
+
+T:run("ZoneAdjacency: no dungeon, raid or continent map is used as a zone", function(t)
+    for zoneID in pairs(QR.ZoneAdjacencies or {}) do
+        t:assertNil(NOT_ZONES[zoneID],
+            string.format("adjacency key %d is %s", zoneID, tostring(NOT_ZONES[zoneID])))
+    end
+
+    for zoneID, neighbours in pairs(QR.ZoneAdjacencies or {}) do
+        for _, adj in ipairs(neighbours) do
+            t:assertNil(NOT_ZONES[adj.zone],
+                string.format("zone %d has an edge to %d, which is %s",
+                    zoneID, adj.zone, tostring(NOT_ZONES[adj.zone])))
+        end
+    end
+
+    for _, continent in pairs(QR.Continents or {}) do
+        for _, zoneID in ipairs(continent.zones or {}) do
+            t:assertNil(NOT_ZONES[zoneID],
+                string.format("continent zone list carries %d, which is %s",
+                    zoneID, tostring(NOT_ZONES[zoneID])))
+        end
+    end
+end)
+
+T:run("StaticDungeonEntrances: no dungeon, raid or continent map is used as a zone", function(t)
+    for mapID in pairs(QR.StaticDungeonEntrances or {}) do
+        t:assertNil(NOT_ZONES[mapID],
+            string.format("entrance table is keyed on %d, which is %s",
+                mapID, tostring(NOT_ZONES[mapID])))
+    end
+end)
+
+-------------------------------------------------------------------------------
+-- One zone per entrance table
+-------------------------------------------------------------------------------
+
+-- Regression: correcting one zone constant during this pass silently collided
+-- it with a neighbour that already held the corrected value, so two zones'
+-- entrances registered on the same map and one zone got none. Lua accepts two
+-- keys holding the same number without complaint, which is why nothing noticed
+-- until the table was read by eye.
+T:run("StaticDungeonEntrances: no two zones share an entrance table", function(t)
+    local count = 0
+    for _ in pairs(QR.StaticDungeonEntrances) do
+        count = count + 1
+    end
+    t:assertGreaterThan(count, 50, "the entrance table is populated")
+
+    -- Every key is a distinct map by construction (they are table keys), so the
+    -- collision shows up as a zone that lost its entries entirely. Check the
+    -- zones this pass corrected still have their own.
+    local mustHaveEntries = {
+        [63]  = "Ashenvale",
+        [70]  = "Dustwallow Marsh",
+        [69]  = "Feralas",
+        [71]  = "Tanaris",
+        [102] = "Zangarmarsh",
+        [108] = "Terokkar Forest",
+        [104] = "Shadowmoon Valley (Outland)",
+        [109] = "Netherstorm",
+        [241] = "Twilight Highlands",
+        [249] = "Uldum",
+        [15]  = "Badlands",
+    }
+    for mapID, name in pairs(mustHaveEntries) do
+        local entries = QR.StaticDungeonEntrances[mapID]
+        t:assertNotNil(entries,
+            string.format("%s (map %d) has an entrance table", name, mapID))
+        if entries then
+            t:assertGreaterThan(#entries, 0,
+                string.format("%s (map %d) has at least one entrance", name, mapID))
+        end
+    end
+end)
+
+-------------------------------------------------------------------------------
+-- The test loader must load exactly what the game loads
+-------------------------------------------------------------------------------
+
+-- Regression risk: tests/addon_loader.lua repeats the .toc's file list by hand.
+-- The runner's load-failure guard only fires for files the loader knows about,
+-- so a file added to the .toc and forgotten here is never loaded at all — and
+-- the file-scope-QR bug class that guard exists to catch would be invisible for
+-- it. The two lists are compared rather than trusted.
+T:run("addon_loader: its file list matches QuickRoute.toc", function(t)
+    local function readLines(path)
+        local f = io.open(path, "r")
+        if not f then return nil end
+        local content = f:read("*a")
+        f:close()
+        return content
+    end
+
+    local toc = readLines("QuickRoute/QuickRoute.toc")
+    t:assertNotNil(toc, "QuickRoute.toc is readable")
+    if not toc then return end
+
+    local tocFiles = {}
+    for line in toc:gmatch("[^\r\n]+") do
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed:match("%.lua$") and not trimmed:match("^#") then
+            -- The in-game test runner is deliberately not loaded by the suite.
+            local normalized = trimmed:gsub("\\", "/")
+            if not normalized:match("^Tests/") then
+                tocFiles[#tocFiles + 1] = normalized
+            end
+        end
+    end
+    t:assertGreaterThan(#tocFiles, 20, "the .toc lists a plausible number of files")
+
+    local loaderSource = readLines("tests/addon_loader.lua")
+    t:assertNotNil(loaderSource, "addon_loader.lua is readable")
+    if not loaderSource then return end
+
+    local missing = {}
+    for _, file in ipairs(tocFiles) do
+        if not loaderSource:find('"' .. file .. '"', 1, true) then
+            missing[#missing + 1] = file
+        end
+    end
+    t:assertEqual(0, #missing,
+        "every .toc file is in the loader list (missing: " .. table.concat(missing, ", ") .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- Teleport destinations must be routable
+-------------------------------------------------------------------------------
+
+-- A teleport whose mapID is in no continent list cannot be reached by the
+-- continent-routing strategies at all. It falls through to the flat 240s
+-- cross-continent fallback, which links it to every hub on every continent
+-- with no geographic meaning, and it never connects to anything physically at
+-- the same place. Four Tol Barad teleports pointed at 773, an orphan UiMap,
+-- while the graph modelled Tol Barad as 244.
+T:run("Teleports: every destination map belongs to a continent", function(t)
+    local tables = {
+        TeleportItemsData = QR.TeleportItemsData,
+        ClassTeleportSpells = QR.ClassTeleportSpells,
+        RacialTeleportSpells = QR.RacialTeleportSpells,
+        GeneralTeleportSpells = QR.GeneralTeleportSpells,
+        MageTeleports = QR.MageTeleports,
+    }
+    -- Maps that are deliberately off the walking graph. Each is an instanced
+    -- or orphan UiMap you arrive in and leave again by portal, so having no
+    -- continent is correct for them rather than a data error.
+    local OFF_GRAPH = {
+        [734] = "Hall of the Guardian -- mage class hall, instanced",
+        [715] = "Emerald Dreamway -- orphan UiMap, portal hub",
+        [809] = "KNOWN WRONG: the client calls 809 Karazhan. Where Zen " ..
+                "Pilgrimage actually lands is not settled -- issue #5. " ..
+                "Listed here so a NEW orphan destination still fails.",
+    }
+
+    local orphans = {}
+    local checked = 0
+
+    local function visit(source, entry)
+        if type(entry) ~= "table" then return end
+        if type(entry.mapID) == "number" then
+            checked = checked + 1
+            if not QR.GetContinentForZone(entry.mapID) and not OFF_GRAPH[entry.mapID] then
+                orphans[#orphans + 1] = string.format("%s: %s -> %d", source,
+                    tostring(entry.destination or entry.name or "?"), entry.mapID)
+            end
+        end
+        -- Faction and class tables nest one level deeper.
+        for _, nested in pairs(entry) do
+            if type(nested) == "table" and type(nested.mapID) == "number" then
+                visit(source, nested)
+            end
+        end
+    end
+
+    for source, data in pairs(tables) do
+        for _, entry in pairs(data or {}) do
+            visit(source, entry)
+        end
+    end
+
+    t:assertGreaterThan(checked, 50, "the sweep saw a plausible number of destinations")
+    t:assertEqual(0, #orphans,
+        "no teleport lands on a map outside every continent (" ..
+        table.concat(orphans, ", ") .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- Dungeon entrances sit on the map the client reports for their zone
+-------------------------------------------------------------------------------
+
+-- Verified against the live 12.1.0 UiMap table. Two zone constants held their
+-- neighbour's id: Blackrock Mountain was registered on Hillsbrad Foothills (25)
+-- instead of Burning Steppes (36), Stratholme on Redridge Mountains (49)
+-- instead of Eastern Plaguelands (23). Whenever the Encounter Journal has not
+-- supplied an entrance and the static fallback is used, routing to Molten Core
+-- put its waypoint on the wrong map.
+T:run("DungeonEntrances: landmark dungeons sit on the right map", function(t)
+    local entrances = QR.StaticDungeonEntrances
+    t:assertNotNil(entrances, "the static entrance table exists")
+    if not entrances then return end
+
+    local function namesOn(mapID)
+        local found = {}
+        -- Rows are { journalInstanceID, x, y, name, isRaid }.
+        for _, entry in ipairs(entrances[mapID] or {}) do
+            if entry[4] then
+                found[entry[4]] = true
+            end
+        end
+        return found
+    end
+
+    local burningSteppes = namesOn(36)
+    local hillsbrad = namesOn(25)
+    t:assertTrue(burningSteppes["Blackrock Depths"] or false,
+        "Blackrock Depths is on Burning Steppes (36)")
+    t:assertTrue(burningSteppes["Molten Core"] or false,
+        "Molten Core is on Burning Steppes (36)")
+    t:assertFalse(hillsbrad["Molten Core"] or false,
+        "Molten Core is not on Hillsbrad Foothills (25)")
+
+    local easternPlaguelands = namesOn(23)
+    local redridge = namesOn(49)
+    t:assertTrue(easternPlaguelands["Stratholme"] or false,
+        "Stratholme is on Eastern Plaguelands (23)")
+    t:assertFalse(redridge["Stratholme"] or false,
+        "Stratholme is not on Redridge Mountains (49)")
+end)
+
+-- Reverting PathCalculator's Silvermoon entry to the map Midnight left behind
+-- kept the suite green, so the value is asserted directly. 2393 sits under
+-- Quel'Thalas (2537); 110 is the pre-revamp city.
+T:run("PathCalculator: Silvermoon City uses the revamped map", function(t)
+    local cities = QR.CAPITAL_CITIES
+    t:assertNotNil(cities, "CAPITAL_CITIES is exported")
+    if not cities then return end
+    local silvermoon = cities["Silvermoon City"]
+    t:assertNotNil(silvermoon, "Silvermoon City is a capital")
+    if not silvermoon then return end
+    t:assertEqual(2393, silvermoon.mapID,
+        "Silvermoon City is uiMapID 2393, not the pre-revamp 110")
+end)

@@ -235,15 +235,28 @@ T:run("MiniTP: separator exists before mount button", function(t)
     QR.MiniTeleportPanel:CreateFrame()
     QR.MiniTeleportPanel:RefreshList()
 
-    -- The row before the mount row should be the separator (has no nameLabel)
-    local rows = QR.MiniTeleportPanel.rows
-    t:assertGreaterThan(#rows, 2, "Has at least 3 rows (teleport + separator + mount)")
-
-    -- Second-to-last row is the separator frame (no nameLabel)
-    local separator = rows[#rows - 1]
+    -- The separator is kept on the module rather than pushed into rows: it used
+    -- to be a fresh Frame per refresh that nothing ever hid, so each refresh
+    -- left another line behind. Same visual contract, one frame.
+    local separator = QR.MiniTeleportPanel.separator
     t:assertNotNil(separator, "Separator frame exists")
-    -- Separator doesn't have nameLabel (it's a plain frame)
     t:assertNil(separator.nameLabel, "Separator has no nameLabel (plain frame)")
+    t:assertTrue(separator:IsShown(), "Separator is shown while the panel has content")
+end)
+
+T:run("MiniTP: refreshing does not create a second separator", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    setupOwnedToys({ 140192 })
+
+    QR.MiniTeleportPanel:CreateFrame()
+    QR.MiniTeleportPanel:RefreshList()
+    local first = QR.MiniTeleportPanel.separator
+    QR.MiniTeleportPanel:RefreshList()
+    QR.MiniTeleportPanel:RefreshList()
+
+    t:assertEqual(first, QR.MiniTeleportPanel.separator,
+        "the same separator frame is reused across refreshes")
 end)
 
 -------------------------------------------------------------------------------
@@ -334,4 +347,161 @@ T:run("MiniTP: C_MountJournal.SummonByID is available", function(t)
     t:assertNotNil(C_MountJournal, "C_MountJournal exists")
     t:assertNotNil(C_MountJournal.SummonByID, "SummonByID function exists")
     t:assertEqual(type(C_MountJournal.SummonByID), "function", "SummonByID is a function")
+end)
+
+-------------------------------------------------------------------------------
+-- Entering combat must not lose the secure buttons the panel holds
+-------------------------------------------------------------------------------
+
+-- Regression: ReleaseAllRows skipped every ReleaseButton under lockdown and
+-- then wiped self.secureButtons anyway, dropping the only reference to each
+-- held button while its inUse flag stayed true. PLAYER_REGEN_DISABLED marks the
+-- START of lockdown, so that branch is the one the enter-combat callback takes,
+-- and the pool drained a little on every fight until GetButton returned nil
+-- everywhere. ReleaseButton queues under lockdown; the outer guard prevented it.
+T:run("MiniTeleportPanel: repeated combat cycles do not drain the button pool", function(t)
+    resetState()
+    setupOwnedToys({ 64488, 184353, 183716, 140192 })
+    QR.SecureButtons:Initialize()
+    QR.SecureButtons.pendingReleases = nil
+
+    -- Identify the panel's own buttons rather than counting the shared pool.
+    -- The pool is 60 buttons for the whole addon, the combat callbacks are
+    -- global and never cleared, and the leave-combat event fires every module's
+    -- handler -- so a pool-wide count answers for MapSidebar and TeleportPanel
+    -- too, and passes or fails on their work instead of this panel's.
+    local function inUseSet()
+        local set = {}
+        for _, btn in ipairs(QR.SecureButtons.pool or {}) do
+            if btn.inUse then set[btn] = true end
+        end
+        return set
+    end
+
+    local handler = QR.combatFrame and QR.combatFrame:GetScript("OnEvent")
+    t:assertNotNil(handler, "the combat manager is reachable")
+    if not handler then return end
+    -- No RegisterCombat() here: MiniTeleportPanel:Initialize already called it
+    -- during addon load, and it has no idempotence guard, so a second call
+    -- would run this panel's handler twice per event.
+
+    local taken = 0
+
+    for cycle = 1, 4 do
+        MockWoW.config.inCombatLockdown = false
+        local before = inUseSet()
+        QR.MiniTeleportPanel:Show()
+
+        -- Whatever became in-use across Show() is this panel's.
+        local mine = {}
+        for btn in pairs(inUseSet()) do
+            if not before[btn] then
+                mine[#mine + 1] = btn
+            end
+        end
+        if cycle == 1 then
+            taken = #mine
+        end
+
+        -- Enter combat: lockdown is already active when the event arrives.
+        MockWoW.config.inCombatLockdown = true
+        handler(QR.combatFrame, "PLAYER_REGEN_DISABLED")
+
+        -- Leave combat: the queued releases are flushed.
+        MockWoW.config.inCombatLockdown = false
+        handler(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+
+        local stillHeld = 0
+        for _, btn in ipairs(mine) do
+            if btn.inUse then stillHeld = stillHeld + 1 end
+        end
+        t:assertEqual(0, stillHeld,
+            "cycle " .. cycle .. ": the panel gave back every button it took "
+                .. "(took " .. tostring(#mine) .. ", still held: "
+                .. tostring(stillHeld) .. ")")
+    end
+
+    t:assertGreaterThan(taken, 0,
+        "the panel really did take buttons out of the pool")
+end)
+
+-- Regression: OnHide also fires when an ancestor is hidden (Alt+Z, a
+-- cinematic), and the handler cleared isShowing there. The enter-combat
+-- callback is gated on isShowing, so after an Alt+Z the panel's auto-hide never
+-- ran: the panel and its secure overlay buttons stayed on screen for the whole
+-- fight and the buttons stayed checked out of the pool. MainFrame got this
+-- guard when the same defect was found there; this module needs it more,
+-- because its combat release is what hands the buttons back.
+T:run("MiniTeleportPanel: an ancestor hide does not disarm the combat release", function(t)
+    resetState()
+    setupOwnedToys({ 64488, 184353, 183716, 140192 })
+    QR.SecureButtons:Initialize()
+    QR.SecureButtons.pendingReleases = nil
+
+    local handler = QR.combatFrame and QR.combatFrame:GetScript("OnEvent")
+    t:assertNotNil(handler, "the combat manager is reachable")
+    if not handler then return end
+
+    MockWoW.config.inCombatLockdown = false
+    local before = {}
+    for _, btn in ipairs(QR.SecureButtons.pool or {}) do
+        if btn.inUse then before[btn] = true end
+    end
+    QR.MiniTeleportPanel:Show()
+
+    local mine = {}
+    for _, btn in ipairs(QR.SecureButtons.pool or {}) do
+        if btn.inUse and not before[btn] then mine[#mine + 1] = btn end
+    end
+    t:assertGreaterThan(#mine, 0, "the panel took buttons out of the pool")
+
+    -- An ancestor was hidden: OnHide runs, this frame's shown state does not
+    -- change. Driven through the real handler, not a reimplementation.
+    local frame = QR.MiniTeleportPanel.frame
+    local onHide = frame:GetScript("OnHide")
+    t:assertNotNil(onHide, "the panel has an OnHide handler")
+    if not onHide then return end
+    frame._shown = true
+    onHide(frame)
+    t:assertTrue(QR.MiniTeleportPanel.isShowing,
+        "the panel still counts as showing after an ancestor hide")
+
+    MockWoW.config.inCombatLockdown = true
+    handler(QR.combatFrame, "PLAYER_REGEN_DISABLED")
+    MockWoW.config.inCombatLockdown = false
+    handler(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+
+    local stillHeld = 0
+    for _, btn in ipairs(mine) do
+        if btn.inUse then stillHeld = stillHeld + 1 end
+    end
+    t:assertEqual(0, stillHeld,
+        "the combat release still ran after the ancestor hide (took "
+            .. tostring(#mine) .. ", still held: " .. tostring(stillHeld) .. ")")
+
+    -- A real close: the frame's own shown state is false.
+    frame._shown = false
+    onHide(frame)
+    t:assertFalse(QR.MiniTeleportPanel.isShowing, "a real close clears isShowing")
+end)
+
+-- The separator is pooled on the module rather than pushed into self.rows,
+-- which ReleaseAllRows does not iterate. Being pooled is not enough on its own:
+-- closing the panel has to hide it too, or a 1px line stays on the scroll child
+-- after the rows around it are gone.
+T:run("MiniTP: closing the panel hides the separator", function(t)
+    resetState()
+    setupOwnedToys({ 64488, 184353, 183716, 140192 })
+
+    MockWoW.config.inCombatLockdown = false
+    QR.MiniTeleportPanel:Show()
+    local separator = QR.MiniTeleportPanel.separator
+    t:assertNotNil(separator, "the panel built its separator")
+    if not separator then return end
+    t:assertTrue(separator:IsShown(), "which is shown while the panel has content")
+
+    QR.MiniTeleportPanel:ReleaseAllRows()
+
+    t:assertFalse(separator:IsShown(),
+        "and hidden once the rows around it are released")
 end)

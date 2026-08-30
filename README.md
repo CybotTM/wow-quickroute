@@ -55,13 +55,21 @@ Install from CurseForge or WoWUp - dependencies are resolved automatically.
 - `/qr settings` - Open settings panel
 - `/qr minimap` - Toggle minimap button
 - `/qr debug` - Toggle debug mode
+- `/qr priority mappin|quest|tomtom` - Set the waypoint source priority
+- `/qr autowaypoint` - Toggle the automatic waypoint for the first step
+- `/qr ah` / `/qr bank` / `/qr void` / `/qr craft` - Route to the nearest auction house, bank, void storage or crafting table
 - `/qrhelp` - Show all commands
 - `/qrwp` - Calculate path to current waypoint
 - `/qrpath <mapID> <x> <y>` - Calculate path to coordinates
 - `/qrteleports` - Toggle teleport panel
 - `/qrinv` - Show available teleports
 - `/qrcd` - Show teleport cooldowns
+- `/qrdebug` - Show waypoint detection info (`/qrdebug copy` yields markdown for bug reports)
 - `/qrscreenshot` - Take UI screenshots (`all`, `route`, `teleport`, `search`, `mini`)
+- `/qrextract` - Extract data for development (`zones`, `quests`, `portals`, `continent`)
+
+Development commands, not part of the supported surface: `/qrscan`, `/qrgraph`,
+`/qrzone`, `/qrdebugpath`, `/qrtest graph`.
 
 ### How to Use
 1. Set a waypoint on your map (right-click) or use TomTom

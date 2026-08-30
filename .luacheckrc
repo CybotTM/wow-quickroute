@@ -38,6 +38,21 @@ globals = {
     "C_Timer",
     "C_TaskQuest",
     "C_EncounterJournal",
+    -- Reached through _G / a macrotext string, so a plain grep does not find
+    -- the call sites; declared here so the linter does not flag the tests.
+    "C_Housing",
+    "C_MountJournal",
+
+    -- 12.0+ secret-value probe (absent on older clients)
+    "issecretvalue",
+
+    -- Encounter Journal, load-on-demand: nil until Blizzard_EncounterJournal loads
+    "EJ_GetInstanceInfo",
+    "LoadAddOn",
+    -- 11.0+ spell book namespace
+    "C_SpellBook",
+    -- 12.0+ addon restriction states
+    "C_RestrictedActions",
 
     -- WoW API functions
     "GetItemInfo",
@@ -67,7 +82,6 @@ globals = {
     "GetAchievementLink",
     "GetNumFactions",
     "GetFactionInfo",
-    "SetPortraitToTexture",
     "PlaySound",
     "Screenshot",
     "hooksecurefunc",

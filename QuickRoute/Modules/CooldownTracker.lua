@@ -56,9 +56,20 @@ function CooldownTracker:GetItemCooldown(itemID)
     return itemCooldownResult
 end
 
+--- True when a value can be compared and used in arithmetic.
+-- type() reports the real type of a 12.0+ "secret" value, so it is useless as a
+-- guard on its own: a secret number passes type(v) == "number" and then raises
+-- an immediate Lua error on the first comparison. issecretvalue is the
+-- documented probe and is absent before 12.0, where no value is secret.
+local function IsUsableNumber(value)
+    if type(value) ~= "number" then return false end
+    if issecretvalue and issecretvalue(value) then return false end
+    return true
+end
+
 --- Get cooldown info for a spell
--- Uses C_Spell.GetSpellCooldownDuration (12.0+), C_Spell.GetSpellCooldown (11.0+),
--- or GetSpellCooldown (legacy) to retrieve cooldown state.
+-- Uses C_Spell.GetSpellCooldown (11.0+) or GetSpellCooldown (legacy) to
+-- retrieve cooldown state.
 -- @param spellID number The spell ID to check
 -- @return table {ready=bool, remaining=seconds, start=number, duration=number}
 function CooldownTracker:GetSpellCooldown(spellID)
@@ -67,18 +78,20 @@ function CooldownTracker:GetSpellCooldown(spellID)
     local remaining = 0
     local ready = true
 
-    -- 12.0+ DurationObject API (secret-value safe)
+    -- 12.0+ C_Spell.GetSpellCooldownDuration returns a DurationObject, not a
+    -- number, and its accessors are not publicly documented — no numeric
+    -- remaining time can be read off it. Only take this path when the client
+    -- hands back a plain number; otherwise fall through to the table API below
+    -- instead of reporting every spell ready.
     if C_Spell and C_Spell.GetSpellCooldownDuration then
         local durationObj = C_Spell.GetSpellCooldownDuration(spellID)
-        if durationObj and type(durationObj) == "number" and durationObj > 0 then
-            remaining = durationObj
-            ready = false
+        if IsUsableNumber(durationObj) and durationObj > 0 then
+            spellCooldownResult.ready = false
+            spellCooldownResult.remaining = durationObj
+            spellCooldownResult.start = 0
+            spellCooldownResult.duration = 0
+            return spellCooldownResult
         end
-        spellCooldownResult.ready = ready
-        spellCooldownResult.remaining = remaining
-        spellCooldownResult.start = 0
-        spellCooldownResult.duration = 0
-        return spellCooldownResult
     end
 
     -- 11.0+ C_Spell.GetSpellCooldown
@@ -88,9 +101,11 @@ function CooldownTracker:GetSpellCooldown(spellID)
             start = cooldownInfo.startTime or 0
             duration = cooldownInfo.duration or 0
 
-            -- Guard against Blizzard "secret" values that can't be compared numerically
-            if type(start) ~= "number" then start = 0 end
-            if type(duration) ~= "number" then duration = 0 end
+            -- C_Spell.GetSpellCooldown is SecretWhenCooldownsRestricted: under
+            -- combat or encounter restrictions these come back as secret values,
+            -- which raise an immediate error on comparison.
+            if not IsUsableNumber(start) then start = 0 end
+            if not IsUsableNumber(duration) then duration = 0 end
 
             if start > 0 and duration > 0 then
                 remaining = (start + duration) - GetTime()

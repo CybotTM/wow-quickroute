@@ -1717,3 +1717,216 @@ T:run("Negative cache hit: logs debug message", function(t)
 
     QR.Debug = origDebug
 end)
+
+-------------------------------------------------------------------------------
+-- The waypointPriority setting must actually decide the order
+-------------------------------------------------------------------------------
+
+-- Regression: the setting could be inverted with zero test failures. The
+-- settings tests only asserted that the dropdown exists, and nothing ever
+-- called GetActiveWaypoint with more than one source available, so the order
+-- itself was never checked.
+local function populateAllThreeSources()
+    -- Map pin
+    MockWoW.config.hasUserWaypoint = true
+    MockWoW.config.userWaypoint = { uiMapID = 84, position = { x = 0.10, y = 0.10 } }
+    -- Super-tracked quest
+    MockWoW.config.superTrackedQuestID = 12345
+    -- TomTom, in the shape the existing GetTomTomWaypoint tests use
+    _G.TomTom = {
+        GetClosestWaypoint = function(self)
+            return { mapID = 85, x = 0.40, y = 0.60, title = "Priority TomTom WP" }
+        end,
+    }
+    -- Quest: super-tracking alone is not enough, the quest needs coordinates
+    MockWoW.config.questWaypoints = MockWoW.config.questWaypoints or {}
+    MockWoW.config.questWaypoints[12345] = { mapID = 84, x = 0.50, y = 0.50 }
+end
+
+T:run("GetActiveWaypoint: priority 'tomtom' puts TomTom first", function(t)
+    resetState()
+    populateAllThreeSources()
+    QR.db = QR.db or {}
+    QR.db.waypointPriority = "tomtom"
+
+    local _, source = QR.WaypointIntegration:GetActiveWaypoint()
+    t:assertEqual("tomtom", source,
+        "TomTom wins when it is the configured priority (got: " .. tostring(source) .. ")")
+
+    _G.TomTom = nil
+end)
+
+T:run("GetActiveWaypoint: priority 'quest' puts the quest first", function(t)
+    resetState()
+    populateAllThreeSources()
+    QR.db = QR.db or {}
+    QR.db.waypointPriority = "quest"
+
+    local _, source = QR.WaypointIntegration:GetActiveWaypoint()
+    t:assertEqual("quest", source,
+        "the quest wins when it is the configured priority (got: " .. tostring(source) .. ")")
+
+    _G.TomTom = nil
+end)
+
+T:run("GetActiveWaypoint: priority 'mappin' puts the map pin first", function(t)
+    resetState()
+    populateAllThreeSources()
+    QR.db = QR.db or {}
+    QR.db.waypointPriority = "mappin"
+
+    local _, source = QR.WaypointIntegration:GetActiveWaypoint()
+    t:assertEqual("mappin", source,
+        "the map pin wins when it is the configured priority (got: " .. tostring(source) .. ")")
+
+    _G.TomTom = nil
+    QR.db.waypointPriority = "mappin"
+end)
+
+-------------------------------------------------------------------------------
+-- The native pin QuickRoute sets has to be taken back
+-------------------------------------------------------------------------------
+
+-- Regression: the cleanup removed TomTom's waypoints and left the native one in
+-- place. A native user waypoint outranks the player's super-tracked quest in
+-- GetActiveWaypoint -- mappin is first in every default priority order -- so a
+-- pin QuickRoute set silently hijacked their quest tracking until they cleared
+-- it by hand. The test could not exist before: the mock had no
+-- C_Map.ClearUserWaypoint, so the addon's own `and C_Map.ClearUserWaypoint`
+-- guard short-circuited and the branch never ran.
+T:run("Native waypoints QuickRoute set are cleared with the rest", function(t)
+    resetState()
+    MockWoW.config.userWaypointClears = 0
+    QR.WaypointIntegration._lastWpNative = nil
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Somewhere")
+    t:assertTrue(QR.WaypointIntegration._lastWpNative or false,
+        "the native fallback ran and recorded that it set a pin")
+    t:assertTrue(MockWoW.config.hasUserWaypoint, "and the client has a pin")
+
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+
+    t:assertEqual(1, MockWoW.config.userWaypointClears,
+        "the native pin is cleared exactly once (cleared: "
+            .. tostring(MockWoW.config.userWaypointClears) .. ")")
+    t:assertFalse(MockWoW.config.hasUserWaypoint, "so the client has none left")
+    t:assertNil(QR.WaypointIntegration._lastWpNative,
+        "and the flag is reset, so a second clear does not fire again")
+
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+    t:assertEqual(1, MockWoW.config.userWaypointClears,
+        "clearing again does not touch a pin the player may have set since")
+end)
+
+T:run("A pin QuickRoute did not set is left alone", function(t)
+    -- The flag is the whole point: without it the cleanup would remove the
+    -- player's own map pin every time a route was recalculated.
+    resetState()
+    MockWoW.config.userWaypointClears = 0
+    QR.WaypointIntegration._lastWpNative = nil
+    MockWoW.config.hasUserWaypoint = true
+
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+
+    t:assertEqual(0, MockWoW.config.userWaypointClears,
+        "a pin QuickRoute never set is not cleared")
+    t:assertTrue(MockWoW.config.hasUserWaypoint, "and it is still there")
+end)
+
+-- Both confirmations printed English literals while L["WAYPOINT_SET"] sat
+-- translated in all ten locale blocks, referenced by nothing. The template is
+-- swapped for a sentinel rather than compared to its enUS text: on enUS a
+-- hardcoded literal and the template read the same, so comparing text would
+-- pass for the very defect this guards. The title is not asserted -- the TomTom
+-- branch prefixes it with "QR: " on purpose.
+local function withSentinelTemplate(fn)
+    local original = QR.L["WAYPOINT_SET"]
+    QR.L["WAYPOINT_SET"] = "SENTINEL-WAYPOINT-TEMPLATE %s"
+    local printed = {}
+    local originalPrint = QR.Print
+    QR.Print = function(_, msg) printed[#printed + 1] = msg end
+    local ok, err = pcall(fn)
+    QR.Print = originalPrint
+    QR.L["WAYPOINT_SET"] = original
+    if not ok then error(err, 0) end
+    return printed
+end
+
+local function usedTemplate(printed)
+    for _, msg in ipairs(printed) do
+        if msg:find("SENTINEL-WAYPOINT-TEMPLATE", 1, true) then return true end
+    end
+    return false
+end
+
+T:run("The native waypoint confirmation uses the translated string", function(t)
+    resetState()
+    local printed = withSentinelTemplate(function()
+        QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Testort")
+    end)
+
+    t:assertGreaterThan(#printed, 0, "the confirmation was printed")
+    t:assertEqual(1, MockWoW.config.userWaypointSets,
+        "the native branch was taken, not TomTom's")
+    t:assertTrue(usedTemplate(printed),
+        "the message comes from the template, not a literal (got: "
+            .. table.concat(printed, " | ") .. ")")
+end)
+
+T:run("The TomTom confirmation uses the translated string too", function(t)
+    -- The test above reaches only the native branch, because resetState()
+    -- clears _G.TomTom -- and TomTom is the common case for a routing addon, so
+    -- a literal reintroduced there would reach more players, not fewer.
+    resetState()
+    _G.TomTom = {
+        AddWaypoint = function() return "uid-1" end,
+        RemoveWaypoint = function() end,
+    }
+
+    local printed = withSentinelTemplate(function()
+        QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Testort")
+    end)
+    _G.TomTom = nil
+
+    t:assertEqual(0, MockWoW.config.userWaypointSets,
+        "the TomTom branch was taken, not the native fallback")
+    t:assertTrue(usedTemplate(printed),
+        "the TomTom confirmation comes from the template too (got: "
+            .. table.concat(printed, " | ") .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- The transit-hub fallback is a last resort, not a first answer
+-------------------------------------------------------------------------------
+
+-- Regression: the fallback used to return as soon as it was set, above the
+-- dungeon-entrance resolution and two other methods. Any quest whose next
+-- waypoint pointed at a portal hub therefore routed to the hub, and the
+-- entrance lookup below it was unreachable for exactly the quests that need it.
+T:run("A dungeon quest routes to the entrance, not to the transit hub", function(t)
+    resetState()
+    QR.WaypointIntegration:ClearQuestCoordCache()
+
+    local questID = 9001
+    -- Blizzard's next waypoint for this quest is Stormwind (84), which is a
+    -- PortalHubs entry and therefore a transit hub: this sets the fallback.
+    MockWoW.config.currentMapID = 84
+    MockWoW.config.questWaypoints = { [questID] = { mapID = 84, x = 0.55, y = 0.60 } }
+    MockWoW.config.questTitles = { [questID] = "Into the Stonevault" }
+    MockWoW.config.questTagInfo = { [questID] = { tagID = Enum.QuestTag.Dungeon } }
+    -- And the quest highlights Isle of Dorn, which has entrance data.
+    MockWoW.config.questAdditionalHighlights = {
+        [questID] = { uiMapID = 2248, dungeons = true },
+    }
+    QR.DungeonData.scanned = true
+
+    local result = QR.WaypointIntegration:GetQuestWaypoint(questID)
+
+    t:assertNotNil(result, "a destination was resolved")
+    if not result then return end
+    t:assertEqual(2248, result.mapID,
+        "the dungeon entrance wins over the transit hub (got map "
+            .. tostring(result.mapID) .. ")")
+    t:assertTrue(result.mapID ~= 84,
+        "and it is not the portal hub the next waypoint pointed at")
+end)

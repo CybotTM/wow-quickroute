@@ -41,6 +41,18 @@ MockWoW.config = {
     -- Spells the player knows: { [spellID] = true }
     knownSpells = {},
 
+    -- Real world size per map in yards: { [uiMapID] = width }.
+    -- Empty means the API answers nothing and callers fall back to MAP_SCALE.
+    mapWorldSizes = {},
+
+    -- Items whose data is not cached client-side: { [itemID] = true }.
+    uncachedItems = {},
+
+    -- Spells whose data is not cached client-side: { [spellID] = true }.
+    -- C_Spell.GetSpellInfo is MayReturnNothing and yields nil for these, which
+    -- is the common state right after login.
+    uncachedSpells = {},
+
     -- Item counts: { [itemID] = count }
     itemCounts = {},
 
@@ -81,15 +93,26 @@ MockWoW.config = {
 }
 
 -- Map name database (mapID -> info table)
--- Covers all the key maps referenced by the addon
+-- Covers the maps referenced by the addon, not the client's full UiMap table.
+--
+-- Every `name` here was checked against the 12.1.0 UiMap table and 21 were
+-- wrong, among them [49] = "Eastern Plaguelands" and [36] = "Loch Modan" --
+-- verbatim the beliefs the zone-graph corrections had just deleted from
+-- DungeonEntrances.lua, still live in the fixture that validates it. A test
+-- resolving a display name through C_Map.GetMapInfo would have been told the
+-- wrong thing and would have cemented the error. Correct names before adding
+-- an entry; the client's table is the source, not the surrounding entries.
+--
+-- mapType is deliberately not always the client's: several maps the addon
+-- routes through as zones are instances or orphans there.
 MockWoW.mapDatabase = {
     -- Eastern Kingdoms (continent mapID 13)
     [13]   = { mapID = 13,   name = "Eastern Kingdoms", mapType = 2 },
     [14]   = { mapID = 14,   name = "Arathi Highlands", mapType = 3 },
     [15]   = { mapID = 15,   name = "Badlands", mapType = 3 },
-    [17]   = { mapID = 17,   name = "Badlands", mapType = 3 },
+    [17]   = { mapID = 17,   name = "Blasted Lands", mapType = 3 },
     [18]   = { mapID = 18,   name = "Tirisfal Glades", mapType = 3 },
-    [19]   = { mapID = 19,   name = "Blasted Lands", mapType = 3 },
+    [19]   = { mapID = 19,   name = "Scarlet Monastery Entrance", mapType = 3 },
     [21]   = { mapID = 21,   name = "Silverpine Forest", mapType = 3 },
     [22]   = { mapID = 22,   name = "Western Plaguelands", mapType = 3 },
     [23]   = { mapID = 23,   name = "Eastern Plaguelands", mapType = 3 },
@@ -97,13 +120,13 @@ MockWoW.mapDatabase = {
     [26]   = { mapID = 26,   name = "The Hinterlands", mapType = 3 },
     [27]   = { mapID = 27,   name = "Dun Morogh", mapType = 3 },
     [32]   = { mapID = 32,   name = "Searing Gorge", mapType = 3 },
-    [35]   = { mapID = 35,   name = "Blackrock Depths", mapType = 4 },
-    [36]   = { mapID = 36,   name = "Loch Modan", mapType = 3 },
+    [35]   = { mapID = 35,   name = "Blackrock Mountain", mapType = 4 },
+    [36]   = { mapID = 36,   name = "Burning Steppes", mapType = 3 },
     [37]   = { mapID = 37,   name = "Elwynn Forest", mapType = 3, parentMapID = 13 },
     [42]   = { mapID = 42,   name = "Deadwind Pass", mapType = 3 },
     [47]   = { mapID = 47,   name = "Duskwood", mapType = 3 },
-    [48]   = { mapID = 48,   name = "Redridge Mountains", mapType = 3 },
-    [49]   = { mapID = 49,   name = "Eastern Plaguelands", mapType = 3 },
+    [48]   = { mapID = 48,   name = "Loch Modan", mapType = 3 },
+    [49]   = { mapID = 49,   name = "Redridge Mountains", mapType = 3 },
     [50]   = { mapID = 50,   name = "Northern Stranglethorn", mapType = 3 },
     [51]   = { mapID = 51,   name = "Swamp of Sorrows", mapType = 3 },
     [52]   = { mapID = 52,   name = "Westfall", mapType = 3 },
@@ -122,22 +145,22 @@ MockWoW.mapDatabase = {
     [1]    = { mapID = 1,    name = "Durotar", mapType = 3 },
     [7]    = { mapID = 7,    name = "Mulgore", mapType = 3 },
     [10]   = { mapID = 10,   name = "Northern Barrens", mapType = 3 },
-    [11]   = { mapID = 11,   name = "Ashenvale", mapType = 3 },
+    [11]   = { mapID = 11,   name = "Wailing Caverns", mapType = 3 },
     [57]   = { mapID = 57,   name = "Teldrassil", mapType = 3 },
     [62]   = { mapID = 62,   name = "Darkshore", mapType = 3 },
-    [67]   = { mapID = 67,   name = "Feralas", mapType = 3 },
-    [68]   = { mapID = 68,   name = "Dustwallow Marsh", mapType = 3 },
-    [69]   = { mapID = 69,   name = "Tanaris", mapType = 3 },
+    [67]   = { mapID = 67,   name = "Maraudon", mapType = 3 },
+    [68]   = { mapID = 68,   name = "Maraudon", mapType = 3 },
+    [69]   = { mapID = 69,   name = "Feralas", mapType = 3 },
     [70]   = { mapID = 70,   name = "Dustwallow Marsh", mapType = 3 },
     [71]   = { mapID = 71,   name = "Tanaris", mapType = 3 },
     [76]   = { mapID = 76,   name = "Azshara", mapType = 3 },
     [80]   = { mapID = 80,   name = "Moonglade", mapType = 3 },
     [81]   = { mapID = 81,   name = "Silithus", mapType = 3 },
     [83]   = { mapID = 83,   name = "Winterspring", mapType = 3 },
-    [106]  = { mapID = 106,  name = "Felwood", mapType = 3 },
+    [106]  = { mapID = 106,  name = "Bloodmyst Isle", mapType = 3 },
     [198]  = { mapID = 198,  name = "Mount Hyjal", mapType = 3 },
     [199]  = { mapID = 199,  name = "Southern Barrens", mapType = 3 },
-    [261]  = { mapID = 261,  name = "Uldum", mapType = 3 },
+    [261]  = { mapID = 261,  name = "The Blood Furnace", mapType = 3 },
 
     -- Outland (continent mapID 101)
     [100]  = { mapID = 100,  name = "Hellfire Peninsula", mapType = 3 },
@@ -159,7 +182,7 @@ MockWoW.mapDatabase = {
     [117]  = { mapID = 117,  name = "Howling Fjord", mapType = 3 },
     [118]  = { mapID = 118,  name = "Icecrown", mapType = 3 },
     [119]  = { mapID = 119,  name = "Sholazar Basin", mapType = 3 },
-    [120]  = { mapID = 120,  name = "Storm Peaks", mapType = 3 },
+    [120]  = { mapID = 120,  name = "The Storm Peaks", mapType = 3 },
     [121]  = { mapID = 121,  name = "Zul'Drak", mapType = 3 },
     [123]  = { mapID = 123,  name = "Wintergrasp", mapType = 3 },
     [125]  = { mapID = 125,  name = "Dalaran", mapType = 3, parentMapID = 113 },
@@ -168,12 +191,12 @@ MockWoW.mapDatabase = {
     -- Pandaria
     [371]  = { mapID = 371,  name = "The Jade Forest", mapType = 3 },
     [376]  = { mapID = 376,  name = "Valley of the Four Winds", mapType = 3 },
-    [378]  = { mapID = 378,  name = "Kun-Lai Summit", mapType = 3 },
+    [378]  = { mapID = 378,  name = "The Wandering Isle", mapType = 3 },
     [390]  = { mapID = 390,  name = "Vale of Eternal Blossoms", mapType = 3 },
     [418]  = { mapID = 418,  name = "Krasarang Wilds", mapType = 3 },
     [422]  = { mapID = 422,  name = "Dread Wastes", mapType = 3 },
     [424]  = { mapID = 424,  name = "Pandaria", mapType = 2 },
-    [433]  = { mapID = 433,  name = "Isle of Thunder", mapType = 3 },
+    [433]  = { mapID = 433,  name = "The Veiled Stair", mapType = 3 },
     [504]  = { mapID = 504,  name = "Isle of Thunder", mapType = 3 },
 
     -- Draenor
@@ -201,8 +224,8 @@ MockWoW.mapDatabase = {
     [680]  = { mapID = 680,  name = "Suramar", mapType = 3 },
     [715]  = { mapID = 715,  name = "Emerald Dreamway", mapType = 3 },
     [747]  = { mapID = 747,  name = "The Dreamgrove", mapType = 3 },
-    [773]  = { mapID = 773,  name = "Tol Barad Peninsula", mapType = 3 },
-    [809]  = { mapID = 809,  name = "Peak of Serenity", mapType = 3 },
+    [773]  = { mapID = 773,  name = "Tol Barad", mapType = 3 },
+    [809]  = { mapID = 809,  name = "Karazhan", mapType = 3 },
 
     -- BFA
     [862]  = { mapID = 862,  name = "Zuldazar", mapType = 3, parentMapID = 875 },
@@ -216,14 +239,14 @@ MockWoW.mapDatabase = {
     [1161] = { mapID = 1161, name = "Boralus", mapType = 3, parentMapID = 876 },
     [1165] = { mapID = 1165, name = "Dazar'alor", mapType = 3, parentMapID = 875 },
     [1355] = { mapID = 1355, name = "Nazjatar", mapType = 3 },
-    [1462] = { mapID = 1462, name = "Mechagon", mapType = 3 },
+    [1462] = { mapID = 1462, name = "Mechagon Island", mapType = 3 },
 
     -- Shadowlands
     [1525] = { mapID = 1525, name = "Revendreth", mapType = 3 },
     [1533] = { mapID = 1533, name = "Bastion", mapType = 3 },
     [1536] = { mapID = 1536, name = "Maldraxxus", mapType = 3 },
     [1543] = { mapID = 1543, name = "The Maw", mapType = 3 },
-    [1550] = { mapID = 1550, name = "Shadowlands", mapType = 2 },
+    [1550] = { mapID = 1550, name = "The Shadowlands", mapType = 2 },
     [1565] = { mapID = 1565, name = "Ardenweald", mapType = 3 },
     [1670] = { mapID = 1670, name = "Oribos", mapType = 3, parentMapID = 1550 },
     [1961] = { mapID = 1961, name = "Korthia", mapType = 3 },
@@ -235,12 +258,12 @@ MockWoW.mapDatabase = {
     [2023] = { mapID = 2023, name = "Ohn'ahran Plains", mapType = 3 },
     [2024] = { mapID = 2024, name = "The Azure Span", mapType = 3 },
     [2025] = { mapID = 2025, name = "Thaldraszus", mapType = 3 },
-    [2107] = { mapID = 2107, name = "Forbidden Reach", mapType = 3 },
+    [2107] = { mapID = 2107, name = "The Forbidden Reach", mapType = 3 },
     [2112] = { mapID = 2112, name = "Valdrakken", mapType = 3, parentMapID = 1978 },
     [2133] = { mapID = 2133, name = "Zaralek Cavern", mapType = 3 },
     [2151] = { mapID = 2151, name = "The Forbidden Reach", mapType = 3 },
     [2200] = { mapID = 2200, name = "Emerald Dream", mapType = 3 },
-    [2239] = { mapID = 2239, name = "Bel'ameth", mapType = 3 },
+    [2239] = { mapID = 2239, name = "Amirdrassil", mapType = 3 },
 
     -- Khaz Algar
     [2213] = { mapID = 2213, name = "City of Threads", mapType = 3 },
@@ -303,6 +326,11 @@ function MockWoW:Reset()
     self.config.bagItems = {}
     self.config.ownedToys = {}
     self.config.knownSpells = {}
+    self.config.uncachedSpells = {}
+    self.config.uncachedItems = {}
+    self.config.userWaypointSets = 0
+    self.config.userWaypointClears = 0
+    self.config.mapWorldSizes = {}
     self.config.itemCounts = {}
     self.config.equippedItems = {}
     self.config.professions = {}
@@ -342,6 +370,7 @@ local function CreateMockTexture(parent)
         _desaturated = false,
     }
     function tex:SetTexture(t) self._texture = t end
+    function tex:AddMaskTexture(mask) self._masks = self._masks or {}; self._masks[#self._masks + 1] = mask end
     function tex:GetTexture() return self._texture end
     function tex:SetColorTexture() end
     function tex:SetSize() end
@@ -602,6 +631,12 @@ local function CreateMockFrame(frameType, name, parent, template)
     function frame:CreateFontString(name, layer, template)
         return CreateMockFontString(self)
     end
+    -- Mask textures: the replacement for the removed SetPortraitToTexture.
+    -- Modelled so the code path that applies a round portrait mask actually
+    -- runs in tests instead of being skipped by a nil check.
+    function frame:CreateMaskTexture(name, layer)
+        return CreateMockTexture(self)
+    end
 
     -- Scroll frame methods (for UIPanelScrollFrameTemplate)
     function frame:SetScrollChild(child)
@@ -736,11 +771,13 @@ function MockWoW:Install()
     ---------------------------------------------------------------------------
 
     -- string.trim (WoW adds this to string metatable)
+    -- luacheck: push ignore string
     if not string.trim then
         string.trim = function(s)
             return s:match("^%s*(.-)%s*$")
         end
     end
+    -- luacheck: pop
 
     -- date (WoW exposes os.date as global 'date')
     _G.date = os.date
@@ -897,11 +934,11 @@ function MockWoW:Install()
     -- Spell Functions
     ---------------------------------------------------------------------------
 
-    _G.GetSpellInfo = function(spellID)
-        -- Returns: name, rank, icon, castTime, minRange, maxRange, spellID
-        local name = "Spell " .. tostring(spellID)
-        return name, "", 134400, 0, 0, 0, spellID
-    end
+    -- The global GetSpellInfo was removed in 11.0.2 and does not exist on a
+    -- 12.x client. It is deliberately left undefined so that an unguarded call
+    -- errors here instead of in the game. Call sites must either guard with
+    -- `if GetSpellInfo then` or use C_Spell.GetSpellInfo / C_Spell.GetSpellTexture.
+    _G.GetSpellInfo = nil
 
     _G.GetSpellLink = function(spellID)
         local name = "Spell " .. tostring(spellID)
@@ -979,6 +1016,18 @@ function MockWoW:Install()
 
     _G.C_Map = {}
 
+    -- Real map dimensions in yards. Static per map in the game, which is why
+    -- TravelTime caches the answer.
+    -- Returns width, height in yards. A plain number in the config means a
+    -- square map; a table { width, height } models a rectangular one.
+    _G.C_Map.GetMapWorldSize = function(uiMapID)
+        local size = cfg.mapWorldSizes[uiMapID]
+        if type(size) == "table" then
+            return size[1], size[2]
+        end
+        return size, size
+    end
+
     _G.C_Map.GetBestMapForUnit = function(unit)
         if unit == "player" then
             return cfg.currentMapID
@@ -1021,6 +1070,16 @@ function MockWoW:Install()
     _G.C_Map.SetUserWaypoint = function(uiMapPoint)
         cfg.hasUserWaypoint = true
         cfg.userWaypoint = uiMapPoint
+        cfg.userWaypointSets = (cfg.userWaypointSets or 0) + 1
+    end
+
+    -- The real API. Its absence here used to make the addon's cleanup guard
+    -- (`... and C_Map.ClearUserWaypoint`) short-circuit, so the branch that
+    -- takes back a native pin never ran in any test.
+    _G.C_Map.ClearUserWaypoint = function()
+        cfg.hasUserWaypoint = false
+        cfg.userWaypoint = nil
+        cfg.userWaypointClears = (cfg.userWaypointClears or 0) + 1
     end
 
     _G.C_Map.GetMapInfoAtPosition = function(mapID, x, y)
@@ -1096,6 +1155,8 @@ function MockWoW:Install()
 
     _G.C_Spell.GetSpellInfo = function(spellID)
         if not spellID then return nil end
+        -- MayReturnNothing: uncached spell data yields nothing.
+        if cfg.uncachedSpells[spellID] then return nil end
         return {
             name = "Spell " .. tostring(spellID),
             iconID = 134400,
@@ -1119,6 +1180,24 @@ function MockWoW:Install()
         }
     end
 
+    -- 12.0+: returns a DurationObject, not a number, and nothing when the spell
+    -- is ready (predicate MayReturnNothing). The object's accessors are not
+    -- publicly documented, so the mock models only what is documented: that it
+    -- is an object rather than a number, and that it is absent when ready.
+    _G.C_Spell.GetSpellCooldownDuration = function(spellID, ignoreGCD)
+        local cd = cfg.spellCooldowns[spellID]
+        if cd and cd.duration and cd.duration > 0 then
+            return setmetatable({}, { __metatable = "DurationObject" })
+        end
+        return nil
+    end
+
+    -- 12.0+ secret-value probe. Tests run as an unrestricted client, so nothing
+    -- is secret here; the restricted-cooldown case is not modelled.
+    _G.issecretvalue = function(value)
+        return false
+    end
+
     _G.C_Spell.GetSpellTexture = function(spellID)
         return 134400  -- Generic spell icon
     end
@@ -1131,6 +1210,17 @@ function MockWoW:Install()
 
     _G.C_Item.GetItemIconByID = function(itemID)
         return 134400
+    end
+
+    -- Current namespace for item info. Honours cfg.uncachedItems so the
+    -- "not cached yet" branch runs too: GetItemInfo is documented to return
+    -- nothing until the client has the item's data, which is the common state
+    -- right after login.
+    _G.C_Item.GetItemInfo = function(itemID)
+        if cfg.uncachedItems[itemID] then return nil end
+        local name = "Item " .. tostring(itemID)
+        local link = "|cff0070dd|Hitem:" .. tostring(itemID) .. "::::::::80:::::|h[" .. name .. "]|h|r"
+        return name, link, 3, 1, 1, "Miscellaneous", "Junk", 1, "", 134400, 0
     end
 
     ---------------------------------------------------------------------------

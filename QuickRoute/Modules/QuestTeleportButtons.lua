@@ -434,6 +434,88 @@ end
 
 --- OnUpdate handler: position buttons relative to ObjectiveTracker quest blocks
 -- @param elapsed number Time since last frame
+--- Collect the objective-tracker blocks keyed by questID.
+-- The tracker's shape has changed more than once and is Blizzard's own UI
+-- code, not a documented API, so all three known shapes are tried in turn and
+-- an unknown one yields an empty table rather than an error:
+--   * modules + EnumerateActiveBlocks(callback)  -- current mixin surface
+--   * modules + nested usedBlocks[template][id]  -- intermediate shape
+--   * MODULES + flat usedBlocks[questID]         -- what this file assumed
+-- @return table { [questID] = block }
+-- @return boolean Whether every block provider present was read successfully.
+--   An empty table with recognised = true means the tracker really has no
+--   blocks. recognised = false means either an unknown shape or a provider
+--   that raised -- in both cases the block set is incomplete and the caller
+--   must not conclude a quest's block is gone. One provider failing is enough:
+--   its blocks are missing from an otherwise plausible-looking result.
+function QTB:CollectQuestBlocks()
+    local blocks = {}
+    local recognised = false
+    local failed = false
+
+    local function record(id, block)
+        if type(id) == "number" and type(block) == "table" and block.HeaderText then
+            blocks[id] = block
+        end
+    end
+
+    local modules = ObjectiveTrackerFrame and
+        (ObjectiveTrackerFrame.modules or ObjectiveTrackerFrame.MODULES)
+    if type(modules) ~= "table" then
+        return blocks, false
+    end
+
+    for _, module in pairs(modules) do
+        if type(module) == "table" then
+            local hasEnumerator = type(module.EnumerateActiveBlocks) == "function"
+            local hasUsedBlocks = type(module.usedBlocks) == "table"
+            local handled = false
+
+            if hasEnumerator then
+                -- Only a call that returned counts as read. An enumerator that
+                -- errors tells us nothing about how many blocks there are, and
+                -- reporting "read it, none there" would hide every button --
+                -- exactly what the caller's guard exists to prevent.
+                handled = pcall(module.EnumerateActiveBlocks, module, function(block)
+                    if type(block) == "table" then
+                        record(block.id, block)
+                    end
+                end)
+            end
+
+            -- Fall through to the older shape when the enumerator is absent OR
+            -- raised. This was an elseif, so a module carrying both fields got
+            -- no fallback at all.
+            if not handled and hasUsedBlocks then
+                for key, value in pairs(module.usedBlocks) do
+                    if type(value) == "table" and value.HeaderText then
+                        -- Flat: usedBlocks[questID] = block
+                        record(key, value)
+                    elseif type(value) == "table" then
+                        -- Nested: usedBlocks[template][id] = block
+                        for id, block in pairs(value) do
+                            record(id, block)
+                        end
+                    end
+                end
+                handled = true
+            end
+
+            if handled then
+                recognised = true
+            elseif hasEnumerator or hasUsedBlocks then
+                -- A block provider we could not read. A module carrying
+                -- neither field is simply not one -- the tracker has many
+                -- module types -- and must not count as a failure.
+                failed = true
+            end
+        end
+    end
+
+    return blocks, recognised and not failed
+end
+
+
 function QTB:OnUpdate(elapsed)
     self.updateElapsed = self.updateElapsed + elapsed
     if self.updateElapsed < UPDATE_THROTTLE then return end
@@ -446,19 +528,14 @@ function QTB:OnUpdate(elapsed)
         return
     end
 
-    -- WoW 11.x uses the MODULES system
-    -- Try to find quest header blocks to position buttons next to
-    local questBlocks = {}
-    if ObjectiveTrackerFrame.MODULES then
-        for _, module in ipairs(ObjectiveTrackerFrame.MODULES) do
-            if module.usedBlocks then
-                for questID, block in pairs(module.usedBlocks) do
-                    if type(questID) == "number" and block.HeaderText then
-                        questBlocks[questID] = block
-                    end
-                end
-            end
-        end
+    local questBlocks, recognised = self:CollectQuestBlocks()
+    if not recognised then
+        -- The tracker's shape is one this code does not know. Leaving the
+        -- buttons where they are beats hiding every one of them: that is a
+        -- positioning problem, not a reason to take working teleports off the
+        -- screen. An empty table from a shape that IS recognised falls through
+        -- to the loop below, which hides the buttons whose block is gone.
+        return
     end
 
     -- Position each active button next to its quest block

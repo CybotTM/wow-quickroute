@@ -751,3 +751,27 @@ T:run("New zones: complete DRAGON_ISLES zone count", function(t)
     -- Emerald Dream, Bel'ameth = 10
     t:assertEqual(10, #zones, "DRAGON_ISLES has 10 zones")
 end)
+
+-------------------------------------------------------------------------------
+-- No zone lists the same neighbour twice
+-------------------------------------------------------------------------------
+
+-- Regression: renumbering the graph by text substitution mapped two old ids
+-- onto one new one, so five zones listed the same neighbour twice. Graph:AddEdge
+-- writes into a keyed table, so routing was unaffected — but the debug dumps
+-- report inflated neighbour counts, and the second entry carried a comment that
+-- was no longer true.
+T:run("ZoneAdjacencies: no zone lists a neighbour more than once", function(t)
+    local offenders = {}
+    for zoneID, neighbours in pairs(QR.ZoneAdjacencies or {}) do
+        local seen = {}
+        for _, adj in ipairs(neighbours) do
+            if seen[adj.zone] then
+                offenders[#offenders + 1] = string.format("%d -> %d", zoneID, adj.zone)
+            end
+            seen[adj.zone] = true
+        end
+    end
+    t:assertEqual(0, #offenders,
+        "no duplicate neighbours (" .. table.concat(offenders, ", ") .. ")")
+end)

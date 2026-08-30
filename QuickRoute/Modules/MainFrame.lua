@@ -85,9 +85,26 @@ function MainFrame:CreateFrame()
     -- ESC to close
     table_insert(UISpecialFrames, "QuickRouteMainFrame")
 
-    -- Sync isShowing when hidden by any means (ESC, frame:Hide(), etc.)
-    frame:SetScript("OnHide", function()
+    -- Sync isShowing when hidden by any means (ESC, frame:Hide(), etc.) and
+    -- give the secure overlay buttons back.
+    --
+    -- The buttons are SecureActionButtonTemplate frames parented to UIParent,
+    -- not to this window, so hiding the window does not hide them: they stayed
+    -- on screen and kept their slots in the 60-button pool until the next
+    -- refresh, which for a window closed with ESC never comes. Releasing here
+    -- covers ESC and the close button with one path.
+    --
+    -- OnHide also fires when an ancestor is hidden -- Alt+Z, a cinematic --
+    -- and that is not a close: the window comes back on its own, without
+    -- MainFrame:Show() or SetActiveTab() running, so releasing there returned
+    -- an empty window. IsShown() is still true in that case, because this
+    -- frame's own shown state never changed.
+    frame:SetScript("OnHide", function(self)
+        if self:IsShown() then
+            return
+        end
         MainFrame.isShowing = false
+        MainFrame:ReleaseTabContent()
     end)
 
     -- Backdrop
@@ -241,6 +258,25 @@ function MainFrame:Show(tabName)
     self.frame:Show()
     self.isShowing = true
     self:SetActiveTab(tab)  -- SetActiveTab handles content refresh + subtitle
+end
+
+--- Release the secure buttons held by whichever tab is showing.
+-- Outside combat only. The enter-combat auto-hide reaches this too, and there
+-- lockdown is already active, so it returns without doing anything: the
+-- buttons stay on screen for the fight, which the game leaves no way around --
+-- a secure frame cannot be hidden or reparented under lockdown. They are given
+-- back on the way out, when the leave-combat callback calls Show() and the
+-- rebuild clears them first.
+function MainFrame:ReleaseTabContent()
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
+    if QR.UI and QR.UI.ClearStepLabels then
+        QR.UI:ClearStepLabels()
+    end
+    if QR.TeleportPanel and QR.TeleportPanel.ClearRows then
+        QR.TeleportPanel:ClearRows()
+    end
 end
 
 --- Hide the main frame

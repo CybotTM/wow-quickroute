@@ -18,39 +18,36 @@ local Z = {
     SILVERPINE_FOREST           = 21,
     TIRISFAL_GLADES             = 18,
     WESTERN_PLAGUELANDS         = 22,
-    EASTERN_PLAGUELANDS         = 49,
+    EASTERN_PLAGUELANDS         = 23,
     GHOSTLANDS                  = 95,
     DUN_MOROGH                  = 27,
     STORMWIND_CITY              = 84,
     WESTFALL                    = 52,
-    BADLANDS_SUBZONE            = 15,
-    BADLANDS                    = 17,
+    BADLANDS            = 15,
     SWAMP_OF_SORROWS            = 51,
     NORTHERN_STRANGLETHORN      = 50,
-    BURNING_STEPPES             = 25,
-    DUSTWALLOW_MARSH            = 68,
+    BURNING_STEPPES             = 36,
+    DUSTWALLOW_MARSH            = 70,
     DEADWIND_PASS               = 42,
 
     -- Classic: Kalimdor
     NORTHERN_BARRENS            = 10,
-    ASHENVALE                   = 11,
-    ASHENVALE_ALT               = 63,
+    ASHENVALE               = 63,
     DESOLACE                    = 66,
     SOUTHERN_BARRENS            = 199,
     THOUSAND_NEEDLES            = 64,
-    FERALAS                     = 67,
-    TANARIS                     = 69,
+    FERALAS                     = 69,
+    TANARIS                     = 71,
     SILITHUS                    = 81,
     CAVERNS_OF_TIME             = 75,
 
     -- The Burning Crusade
     HELLFIRE_PENINSULA          = 100,
-    ZANGARMARSH                 = 101,
-    TEROKKAR_FOREST             = 102,
-    NETHERSTORM                 = 107,
-    NETHERSTORM_ALT             = 109,
+    ZANGARMARSH                 = 102,
+    TEROKKAR_FOREST             = 108,
+    NETHERSTORM             = 109,
     BLADES_EDGE_MOUNTAINS       = 105,
-    SHADOWMOON_VALLEY_OUTLAND   = 108,
+    SHADOWMOON_VALLEY_OUTLAND   = 104,
     ISLE_OF_QUELDANAS           = 122,
 
     -- Wrath of the Lich King
@@ -68,10 +65,8 @@ local Z = {
     DEEPHOLM                    = 207,
     MOUNT_HYJAL                 = 198,
     TOL_BARAD_PENINSULA         = 244,
-    TWILIGHT_HIGHLANDS          = 35,
-    TWILIGHT_HIGHLANDS_ALT      = 241,
-    ULDUM_CATA                  = 249,
-    ULDUM_PARENT                = 261,
+    TWILIGHT_HIGHLANDS      = 241,
+    ULDUM                  = 249,
     ABYSSAL_DEPTHS              = 204,
 
     -- Mists of Pandaria
@@ -117,7 +112,6 @@ local Z = {
     NAZJATAR                    = 1355,
     MECHAGON                    = 1462,
     DAZARALOR                   = 1165,
-    STORMSONG_CRUCIBLE          = 876,
     ULDUM_NZOTH_ASSAULT         = 1527,
 
     -- Shadowlands
@@ -153,6 +147,10 @@ local Z = {
     ZULAMANI_MIDNIGHT           = 2437,
     HARANDAR                    = 2413,
     VOIDSTORM                   = 2405,
+    -- uiMapIDs confirmed with C_Map.GetMapInfo on 12.1.0.69497
+    KARESH                      = 2371,
+    COILED_ISLE                 = 2512,
+    VAULTS_OF_ATAL_UTEK         = 2509,
 }
 
 QR.StaticDungeonEntrances = {
@@ -176,9 +174,6 @@ QR.StaticDungeonEntrances = {
 
     -- Ashenvale (primary and alternate mapIDs)
     [Z.ASHENVALE] = {
-        { 227, 0.1386, 0.1370, "Blackfathom Deeps", false },
-    },
-    [Z.ASHENVALE_ALT] = {
         { 227, 0.1386, 0.1370, "Blackfathom Deeps", false },
     },
 
@@ -250,11 +245,8 @@ QR.StaticDungeonEntrances = {
     },
 
     -- Badlands (sub-zone and zone-level maps)
-    [Z.BADLANDS_SUBZONE] = {
-        { 239, 0.4140, 0.1080, "Uldaman", false },
-    },
     [Z.BADLANDS] = {
-        { 239, 0.4180, 0.1130, "Uldaman", false },
+        { 239, 0.4140, 0.1080, "Uldaman", false },
     },
 
     -- Swamp of Sorrows
@@ -329,12 +321,6 @@ QR.StaticDungeonEntrances = {
         { 254, 0.8230, 0.5960, "The Arcatraz", false },
         { 749, 0.7380, 0.6380, "The Eye", true },
     },
-    [Z.NETHERSTORM_ALT] = {
-        { 257, 0.7260, 0.6000, "The Botanica", false },
-        { 258, 0.6960, 0.7060, "The Mechanar", false },
-        { 254, 0.8230, 0.5960, "The Arcatraz", false },
-        { 749, 0.7380, 0.6380, "The Eye", true },
-    },
 
     -- Blade's Edge Mountains (Gruul's Lair)
     [Z.BLADES_EDGE_MOUNTAINS] = {
@@ -358,8 +344,8 @@ QR.StaticDungeonEntrances = {
 
     -- Borean Tundra (Nexus complex)
     [Z.BOREAN_TUNDRA] = {
-        { 282, 0.2700, 0.2596, "The Nexus", false },
-        { 281, 0.2700, 0.2596, "The Oculus", false },
+        { 281, 0.2700, 0.2596, "The Nexus", false },
+        { 282, 0.2700, 0.2596, "The Oculus", false },
         { 756, 0.2700, 0.2596, "Eye of Eternity", true },
     },
 
@@ -390,9 +376,9 @@ QR.StaticDungeonEntrances = {
 
     -- Icecrown
     [Z.ICECROWN] = {
-        { 276, 0.5140, 0.8830, "The Forge of Souls", false },
-        { 278, 0.5140, 0.8830, "Halls of Reflection", false },
-        { 280, 0.5140, 0.8830, "Pit of Saron", false },
+        { 280, 0.5140, 0.8830, "The Forge of Souls", false },
+        { 276, 0.5140, 0.8830, "Halls of Reflection", false },
+        { 278, 0.5140, 0.8830, "Pit of Saron", false },
         { 284, 0.7400, 0.2090, "Trial of the Champion", false },
         { 757, 0.7520, 0.2180, "Trial of the Crusader", true },
         { 758, 0.5380, 0.8720, "Icecrown Citadel", true },
@@ -439,19 +425,9 @@ QR.StaticDungeonEntrances = {
         { 71, 0.1986, 0.5372, "Grim Batol", false },
         { 72, 0.3400, 0.7800, "The Bastion of Twilight", true },
     },
-    [Z.TWILIGHT_HIGHLANDS_ALT] = {
-        { 71, 0.1986, 0.5372, "Grim Batol", false },
-        { 72, 0.3400, 0.7800, "The Bastion of Twilight", true },
-    },
 
     -- Uldum (Cataclysm-era map and parent zone map)
-    [Z.ULDUM_CATA] = {
-        { 68, 0.7640, 0.8416, "The Vortex Pinnacle", false },
-        { 69, 0.6160, 0.6920, "Lost City of the Tol'vir", false },
-        { 70, 0.7000, 0.5260, "Halls of Origination", false },
-        { 74, 0.3830, 0.8060, "Throne of the Four Winds", true },
-    },
-    [Z.ULDUM_PARENT] = {
+    [Z.ULDUM] = {
         { 68, 0.7640, 0.8416, "The Vortex Pinnacle", false },
         { 69, 0.6160, 0.6920, "Lost City of the Tol'vir", false },
         { 70, 0.7000, 0.5260, "Halls of Origination", false },
@@ -465,12 +441,12 @@ QR.StaticDungeonEntrances = {
 
     -- Caverns of Time (Tanaris sub-zone)
     [Z.CAVERNS_OF_TIME] = {
-        { 251, 0.2649, 0.3304, "The Black Morass", false },
-        { 255, 0.3454, 0.8531, "Old Hillsbrad Foothills", false },
+        { 255, 0.2649, 0.3304, "The Black Morass", false },
+        { 251, 0.3454, 0.8531, "Old Hillsbrad Foothills", false },
         { 279, 0.6070, 0.8300, "The Culling of Stratholme", false },
-        { 185, 0.2215, 0.6387, "End Time", false },
-        { 186, 0.6849, 0.2959, "Well of Eternity", false },
-        { 184, 0.5726, 0.2615, "Hour of Twilight", false },
+        { 184, 0.2215, 0.6387, "End Time", false },
+        { 185, 0.6849, 0.2959, "Well of Eternity", false },
+        { 186, 0.5726, 0.2615, "Hour of Twilight", false },
         { 750, 0.5572, 0.5333, "Hyjal Summit", true },
         { 187, 0.5572, 0.5333, "Dragon Soul", true },
     },
@@ -646,6 +622,11 @@ QR.StaticDungeonEntrances = {
     -- Stormsong Valley (Kul Tiras)
     [Z.STORMSONG_VALLEY] = {
         { 1036, 0.7893, 0.2647, "Shrine of the Storm", false },
+        -- Crucible of Storms was registered on 876, which is the Kul Tiras
+        -- CONTINENT map, so coordinates surveyed for a zone map landed on the
+        -- continent. UiMap gives all three Crucible maps parent 942.
+        -- Coordinates carried over unchanged and not re-surveyed for 942.
+        { 1177, 0.6716, 0.2482, "Crucible of Storms", true },
     },
 
     -- Boralus (Kul Tiras city)
@@ -660,8 +641,10 @@ QR.StaticDungeonEntrances = {
 
     -- Zuldazar (Zandalar)
     [Z.ZULDAZAR] = {
-        { 1041, 0.3746, 0.3948, "Atal'Dazar", false },
-        { 968,  0.5000, 0.6500, "King's Rest", false },
+        { 968,  0.3746, 0.3948, "Atal'Dazar", false },
+        -- 0.5000/0.6500 is a placeholder the original author left in; the real
+        -- Kings' Rest entrance has not been surveyed.
+        { 1041, 0.5000, 0.6500, "Kings' Rest", false },
         { 1012, 0.3922, 0.7137, "The MOTHERLODE!!", false },
     },
 
@@ -689,11 +672,6 @@ QR.StaticDungeonEntrances = {
     -- Dazar'alor (Zandalar city)
     [Z.DAZARALOR] = {
         { 1176, 0.5500, 0.5350, "Battle of Dazar'alor", true },
-    },
-
-    -- Crucible of Storms (near Stormsong)
-    [Z.STORMSONG_CRUCIBLE] = {
-        { 1177, 0.6716, 0.2482, "Crucible of Storms", true },
     },
 
     -- Uldum (N'Zoth assault version — same dungeons + Ny'alotha)
@@ -810,7 +788,9 @@ QR.StaticDungeonEntrances = {
     [Z.RINGING_DEEPS] = {
         { 1269, 0.4680, 0.0860, "The Stonevault", false },
         { 1210, 0.5960, 0.2180, "Darkflame Cleft", false },
-        -- Operation: Floodgate (Patch 11.1) — journalInstanceID TBD; runtime API resolves it
+        -- journalInstanceID 1298 confirmed with EJ_GetInstanceInfo on
+        -- 12.1.0.69497; the coordinates are not surveyed.
+        { 1298, 0.4208, 0.3949, "Operation: Floodgate", false },
     },
 
     -- Hallowfall
@@ -861,19 +841,50 @@ QR.StaticDungeonEntrances = {
     -- Zul'Aman (Midnight)
     [Z.ZULAMANI_MIDNIGHT] = {
         { 1315, 0.4440, 0.4030, "Maisara Caverns", false },
+        { 1311, 0.2983, 0.8450, "Den of Nalorakk", false },
     },
 
     -- Harandar
     [Z.HARANDAR] = {
         { 1309, 0.2780, 0.7790, "The Blinding Vale", false },
         { 1314, 0.6100, 0.6420, "The Dreamrift", true },
+        { 1305, 0.7356, 0.6636, "Sporefall", true },
     },
 
     -- Voidstorm
     [Z.VOIDSTORM] = {
         { 1307, 0.4540, 0.6400, "The Voidspire", true },
         { 1313, 0.5370, 0.3480, "Voidscar Arena", false },
+        -- SUSPECT: these coordinates are byte-identical to Windrunner Spire's
+        -- on Eversong Woods above. One of the two is a copy; neither has been
+        -- surveyed, so the value is flagged rather than replaced with a guess.
         { 1316, 0.6440, 0.6180, "Nexus Point Xenas", false },
+    },
+
+    ---------------------------------------------------------------------------
+    -- MIDNIGHT (Patch 12.0.7 and 12.1.0)
+    ---------------------------------------------------------------------------
+    -- The uiMapIDs below are confirmed against a live 12.1.0.69497 client and
+    -- the journalInstanceIDs against EJ_GetInstanceInfo. The COORDINATES are
+    -- not surveyed — they place each entrance in the right zone but not
+    -- necessarily on the right spot. Surveying one means standing at the
+    -- entrance and reading C_Map.GetPlayerMapPosition.
+
+    -- K'aresh
+    [Z.KARESH] = {
+        { 1302, 0.4166, 0.2153, "Manaforge Omega", true },
+        { 1303, 0.6525, 0.6842, "Eco-Dome Al'dani", false },
+    },
+
+    -- The Coiled Isle (12.1.0)
+    [Z.COILED_ISLE] = {
+        { 1317, 0.6010, 0.6640, "The Tidebound Grotto", true },
+    },
+
+    -- Vaults of Atal'Utek (12.1.0), inside The Coiled Isle
+    [Z.VAULTS_OF_ATAL_UTEK] = {
+        { 1322, 0.4724, 0.6813, "Altar of Fangs", false },
+        { 1320, 0.4723, 0.2286, "The Venomous Abyss", true },
     },
 }
 
@@ -882,11 +893,12 @@ QR.StaticDungeonEntrances = {
 -------------------------------------------------------------------------------
 -- Inserting directly avoids overwriting the entries above.
 -- (Classic Uldaman is jid 239, DF version is jid 1197, same coordinates)
-for _, mapID in ipairs({Z.BADLANDS_SUBZONE, Z.BADLANDS}) do
-    local zone = QR.StaticDungeonEntrances[mapID]
-    if zone then
-        zone[#zone + 1] = { 1197, 0.4140, 0.1080, "Uldaman: Legacy of Tyr", false }
-    end
+-- This used to loop over two constants holding 15 and 17. Only 15 is the
+-- Badlands; 17 is the Blasted Lands, so the second pass registered Uldaman in
+-- a zone it is not in.
+local badlandsZone = QR.StaticDungeonEntrances[Z.BADLANDS]
+if badlandsZone then
+    badlandsZone[#badlandsZone + 1] = { 1197, 0.4140, 0.1080, "Uldaman: Legacy of Tyr", false }
 end
 
 -------------------------------------------------------------------------------

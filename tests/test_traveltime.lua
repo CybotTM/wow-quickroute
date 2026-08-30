@@ -45,22 +45,26 @@ T:run("CalculateDistance: fractional coordinates", function(t)
 end)
 
 -------------------------------------------------------------------------------
--- 2. EstimateDistanceTime
+-- 2. YardsToTime
 -------------------------------------------------------------------------------
 
-T:run("EstimateDistanceTime: zero distance returns 0", function(t)
-    local time = QR.TravelTime:EstimateDistanceTime(0, false)
+-- These covered EstimateDistanceTime, which lost its last production caller
+-- when EstimateWalkingTime was rewritten to scale each axis separately. They
+-- now exercise YardsToTime, the shared step both remaining callers go through.
+
+T:run("YardsToTime: zero distance returns 0", function(t)
+    local time = QR.TravelTime:YardsToTime(0, false)
     t:assertEqual(0, time, "Zero distance = 0 time")
 end)
 
-T:run("EstimateDistanceTime: flying is faster than ground", function(t)
-    local groundTime = QR.TravelTime:EstimateDistanceTime(1.0, false)
-    local flyTime = QR.TravelTime:EstimateDistanceTime(1.0, true)
+T:run("YardsToTime: flying is faster than ground", function(t)
+    local groundTime = QR.TravelTime:YardsToTime(1000, false)
+    local flyTime = QR.TravelTime:YardsToTime(1000, true)
     t:assertGreaterThan(groundTime, flyTime, "Ground time > fly time")
 end)
 
-T:run("EstimateDistanceTime: returns positive for positive distance", function(t)
-    local time = QR.TravelTime:EstimateDistanceTime(0.5, false)
+T:run("YardsToTime: returns positive for positive distance", function(t)
+    local time = QR.TravelTime:YardsToTime(500, false)
     t:assertGreaterThan(time, 0, "Positive distance gives positive time")
 end)
 
@@ -191,4 +195,65 @@ end)
 
 T:run("MAP_SCALE: is positive", function(t)
     t:assertGreaterThan(QR.TravelTime.MAP_SCALE, 0, "MAP_SCALE > 0")
+end)
+
+-------------------------------------------------------------------------------
+-- Per-map scale
+-------------------------------------------------------------------------------
+
+-- Regression: every map used one hard-coded 1000-yard scale, so a walk across
+-- a city and a walk across a continent-sized zone were priced the same per
+-- coordinate unit. C_Map.GetMapWorldSize reports the real size.
+T:run("GetMapScale: uses the map's real world size when the client reports one", function(t)
+    MockWoW:Reset()
+    QR.TravelTime:ClearMapScaleCache()
+    MockWoW.config.mapWorldSizes[84] = 2400
+
+    t:assertEqual(2400, QR.TravelTime:GetMapScale(84),
+        "the reported world size wins over MAP_SCALE")
+    t:assertEqual(QR.TravelTime.MAP_SCALE, QR.TravelTime:GetMapScale(9999),
+        "an unknown map falls back to MAP_SCALE")
+    t:assertEqual(QR.TravelTime.MAP_SCALE, QR.TravelTime:GetMapScale(nil),
+        "no map at all falls back to MAP_SCALE")
+end)
+
+T:run("EstimateWalkingTime: a larger map costs more time for the same distance", function(t)
+    MockWoW:Reset()
+    QR.TravelTime:ClearMapScaleCache()
+    MockWoW.config.mapWorldSizes[84] = 500     -- small city map
+    MockWoW.config.mapWorldSizes[85] = 4000    -- large zone
+
+    local small = QR.TravelTime:EstimateWalkingTime(0.0, 0.0, 0.5, 0.0, false, 84)
+    local large = QR.TravelTime:EstimateWalkingTime(0.0, 0.0, 0.5, 0.0, false, 85)
+
+    t:assertGreaterThan(large, small,
+        "the same coordinate distance takes longer on the bigger map ("
+            .. tostring(small) .. " vs " .. tostring(large) .. ")")
+end)
+
+T:run("EstimateWalkingTime: each axis is scaled by its own extent", function(t)
+    MockWoW:Reset()
+    QR.TravelTime:ClearMapScaleCache()
+    -- A map three times wider than it is tall.
+    MockWoW.config.mapWorldSizes[84] = { 3000, 1000 }
+
+    local eastWest   = QR.TravelTime:EstimateWalkingTime(0.0, 0.5, 1.0, 0.5, false, 84)
+    local northSouth = QR.TravelTime:EstimateWalkingTime(0.5, 0.0, 0.5, 1.0, false, 84)
+
+    t:assertGreaterThan(eastWest, northSouth,
+        "crossing the long axis takes longer than the short one ("
+            .. tostring(eastWest) .. " vs " .. tostring(northSouth) .. ")")
+end)
+
+T:run("GetMapScale: a size the client does not report is not cached", function(t)
+    MockWoW:Reset()
+    QR.TravelTime:ClearMapScaleCache()
+
+    local before = QR.TravelTime:GetMapScale(4242)
+    t:assertEqual(QR.TravelTime.MAP_SCALE, before, "falls back while the client says nothing")
+
+    MockWoW.config.mapWorldSizes[4242] = 2000
+    local after = QR.TravelTime:GetMapScale(4242)
+    t:assertEqual(2000, after,
+        "and picks the real size up once it is available (got " .. tostring(after) .. ")")
 end)
