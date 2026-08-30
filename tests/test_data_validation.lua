@@ -1005,6 +1005,16 @@ local EXPECTED_INSTANCE_NAMES = {
     [282]  = "The Oculus",
     [968]  = "Atal'Dazar",
     [1041] = "Kings' Rest",
+    -- 12.0.7 and 12.1.0 content, added in the same pass
+    [1298] = "Operation: Floodgate",
+    [1299] = "Windrunner Spire",
+    [1302] = "Manaforge Omega",
+    [1303] = "Eco-Dome Al'dani",
+    [1305] = "Sporefall",
+    [1311] = "Den of Nalorakk",
+    [1317] = "The Tidebound Grotto",
+    [1320] = "The Venomous Abyss",
+    [1322] = "Altar of Fangs",
 }
 
 T:run("StaticDungeonEntrances: journalInstanceIDs carry the name the client gives them", function(t)

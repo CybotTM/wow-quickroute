@@ -148,6 +148,10 @@ local Z = {
     ZULAMANI_MIDNIGHT           = 2437,
     HARANDAR                    = 2413,
     VOIDSTORM                   = 2405,
+    -- uiMapIDs confirmed with C_Map.GetMapInfo on 12.1.0.69497
+    KARESH                      = 2371,
+    COILED_ISLE                 = 2512,
+    VAULTS_OF_ATAL_UTEK         = 2509,
 }
 
 QR.StaticDungeonEntrances = {
@@ -785,7 +789,9 @@ QR.StaticDungeonEntrances = {
     [Z.RINGING_DEEPS] = {
         { 1269, 0.4680, 0.0860, "The Stonevault", false },
         { 1210, 0.5960, 0.2180, "Darkflame Cleft", false },
-        -- Operation: Floodgate (Patch 11.1) — journalInstanceID TBD; runtime API resolves it
+        -- journalInstanceID 1298 confirmed with EJ_GetInstanceInfo on
+        -- 12.1.0.69497; the coordinates are not surveyed.
+        { 1298, 0.4208, 0.3949, "Operation: Floodgate", false },
     },
 
     -- Hallowfall
@@ -836,19 +842,50 @@ QR.StaticDungeonEntrances = {
     -- Zul'Aman (Midnight)
     [Z.ZULAMANI_MIDNIGHT] = {
         { 1315, 0.4440, 0.4030, "Maisara Caverns", false },
+        { 1311, 0.2983, 0.8450, "Den of Nalorakk", false },
     },
 
     -- Harandar
     [Z.HARANDAR] = {
         { 1309, 0.2780, 0.7790, "The Blinding Vale", false },
         { 1314, 0.6100, 0.6420, "The Dreamrift", true },
+        { 1305, 0.7356, 0.6636, "Sporefall", true },
     },
 
     -- Voidstorm
     [Z.VOIDSTORM] = {
         { 1307, 0.4540, 0.6400, "The Voidspire", true },
         { 1313, 0.5370, 0.3480, "Voidscar Arena", false },
+        -- SUSPECT: these coordinates are byte-identical to Windrunner Spire's
+        -- on Eversong Woods above. One of the two is a copy; neither has been
+        -- surveyed, so the value is flagged rather than replaced with a guess.
         { 1316, 0.6440, 0.6180, "Nexus Point Xenas", false },
+    },
+
+    ---------------------------------------------------------------------------
+    -- MIDNIGHT (Patch 12.0.7 and 12.1.0)
+    ---------------------------------------------------------------------------
+    -- The uiMapIDs below are confirmed against a live 12.1.0.69497 client and
+    -- the journalInstanceIDs against EJ_GetInstanceInfo. The COORDINATES are
+    -- not surveyed — they place each entrance in the right zone but not
+    -- necessarily on the right spot. Standing at an entrance and running
+    -- /qrverify prints the real position.
+
+    -- K'aresh
+    [Z.KARESH] = {
+        { 1302, 0.4166, 0.2153, "Manaforge Omega", true },
+        { 1303, 0.6525, 0.6842, "Eco-Dome Al'dani", false },
+    },
+
+    -- The Coiled Isle (12.1.0)
+    [Z.COILED_ISLE] = {
+        { 1317, 0.6010, 0.6640, "The Tidebound Grotto", true },
+    },
+
+    -- Vaults of Atal'Utek (12.1.0), inside The Coiled Isle
+    [Z.VAULTS_OF_ATAL_UTEK] = {
+        { 1322, 0.4724, 0.6813, "Altar of Fangs", false },
+        { 1320, 0.4723, 0.2286, "The Venomous Abyss", true },
     },
 }
 
