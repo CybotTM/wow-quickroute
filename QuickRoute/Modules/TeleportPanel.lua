@@ -73,6 +73,7 @@ QR.DEST_L_KEYS = {
     ["Garrison Shipyard"]          = "DEST_GARRISON_SHIPYARD",
     ["Camp Location"]              = "DEST_CAMP_LOCATION",
     ["Random location"]            = "DEST_RANDOM",
+    ["Random Delve"]               = "DEST_RANDOM_DELVE",
     ["Illidari Camp"]              = "DEST_ILLIDARI_CAMP",
     ["Random Northrend Location"]  = "DEST_RANDOM_NORTHREND",
     ["Random Pandaria Location"]   = "DEST_RANDOM_PANDARIA",

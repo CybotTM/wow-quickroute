@@ -761,6 +761,18 @@ QR.TeleportItemsData = {
         faction = "both",
         acquisition = "Delver's Bounty Tier 7 (War Within Season 3)",
     },
+    [230850] = {
+        name = "Delve-O-Bot 7001",
+        destination = "Random Delve",
+        -- Lands at a random Bountiful Delve, or a random Delve when none are
+        -- Bountiful, so there is no fixed destination to route to.
+        mapID = nil,
+        cooldown = 3600,  -- 1 hour, reset by completing a Bountiful Delve
+        type = QR.TeleportTypes.TOY,
+        faction = "both",
+        isDynamic = true,
+        acquisition = "Naleidea Rivergleam for 500 Undercoin, or Reno Jackson for 5,000 Resonance Crystals",
+    },
 
     -- =========================================================================
     -- ENGINEERING ITEMS
