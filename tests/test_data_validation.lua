@@ -1189,3 +1189,120 @@ T:run("addon_loader: its file list matches QuickRoute.toc", function(t)
     t:assertEqual(0, #missing,
         "every .toc file is in the loader list (missing: " .. table.concat(missing, ", ") .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- Teleport destinations must be routable
+-------------------------------------------------------------------------------
+
+-- A teleport whose mapID is in no continent list cannot be reached by the
+-- continent-routing strategies at all. It falls through to the flat 240s
+-- cross-continent fallback, which links it to every hub on every continent
+-- with no geographic meaning, and it never connects to anything physically at
+-- the same place. Four Tol Barad teleports pointed at 773, an orphan UiMap,
+-- while the graph modelled Tol Barad as 244.
+T:run("Teleports: every destination map belongs to a continent", function(t)
+    local tables = {
+        TeleportItemsData = QR.TeleportItemsData,
+        ClassTeleportSpells = QR.ClassTeleportSpells,
+        RacialTeleportSpells = QR.RacialTeleportSpells,
+        GeneralTeleportSpells = QR.GeneralTeleportSpells,
+        MageTeleports = QR.MageTeleports,
+    }
+    -- Maps that are deliberately off the walking graph. Each is an instanced
+    -- or orphan UiMap you arrive in and leave again by portal, so having no
+    -- continent is correct for them rather than a data error.
+    local OFF_GRAPH = {
+        [734] = "Hall of the Guardian -- mage class hall, instanced",
+        [715] = "Emerald Dreamway -- orphan UiMap, portal hub",
+        [809] = "KNOWN WRONG: the client calls 809 Karazhan. Where Zen " ..
+                "Pilgrimage actually lands is not settled -- issue #5. " ..
+                "Listed here so a NEW orphan destination still fails.",
+    }
+
+    local orphans = {}
+    local checked = 0
+
+    local function visit(source, entry)
+        if type(entry) ~= "table" then return end
+        if type(entry.mapID) == "number" then
+            checked = checked + 1
+            if not QR.GetContinentForZone(entry.mapID) and not OFF_GRAPH[entry.mapID] then
+                orphans[#orphans + 1] = string.format("%s: %s -> %d", source,
+                    tostring(entry.destination or entry.name or "?"), entry.mapID)
+            end
+        end
+        -- Faction and class tables nest one level deeper.
+        for _, nested in pairs(entry) do
+            if type(nested) == "table" and type(nested.mapID) == "number" then
+                visit(source, nested)
+            end
+        end
+    end
+
+    for source, data in pairs(tables) do
+        for _, entry in pairs(data or {}) do
+            visit(source, entry)
+        end
+    end
+
+    t:assertGreaterThan(checked, 50, "the sweep saw a plausible number of destinations")
+    t:assertEqual(0, #orphans,
+        "no teleport lands on a map outside every continent (" ..
+        table.concat(orphans, ", ") .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- Dungeon entrances sit on the map the client reports for their zone
+-------------------------------------------------------------------------------
+
+-- Verified against the live 12.1.0 UiMap table. Two zone constants held their
+-- neighbour's id: Blackrock Mountain was registered on Hillsbrad Foothills (25)
+-- instead of Burning Steppes (36), Stratholme on Redridge Mountains (49)
+-- instead of Eastern Plaguelands (23). Whenever the Encounter Journal has not
+-- supplied an entrance and the static fallback is used, routing to Molten Core
+-- put its waypoint on the wrong map.
+T:run("DungeonEntrances: landmark dungeons sit on the right map", function(t)
+    local entrances = QR.StaticDungeonEntrances
+    t:assertNotNil(entrances, "the static entrance table exists")
+    if not entrances then return end
+
+    local function namesOn(mapID)
+        local found = {}
+        -- Rows are { journalInstanceID, x, y, name, isRaid }.
+        for _, entry in ipairs(entrances[mapID] or {}) do
+            if entry[4] then
+                found[entry[4]] = true
+            end
+        end
+        return found
+    end
+
+    local burningSteppes = namesOn(36)
+    local hillsbrad = namesOn(25)
+    t:assertTrue(burningSteppes["Blackrock Depths"] or false,
+        "Blackrock Depths is on Burning Steppes (36)")
+    t:assertTrue(burningSteppes["Molten Core"] or false,
+        "Molten Core is on Burning Steppes (36)")
+    t:assertFalse(hillsbrad["Molten Core"] or false,
+        "Molten Core is not on Hillsbrad Foothills (25)")
+
+    local easternPlaguelands = namesOn(23)
+    local redridge = namesOn(49)
+    t:assertTrue(easternPlaguelands["Stratholme"] or false,
+        "Stratholme is on Eastern Plaguelands (23)")
+    t:assertFalse(redridge["Stratholme"] or false,
+        "Stratholme is not on Redridge Mountains (49)")
+end)
+
+-- Reverting PathCalculator's Silvermoon entry to the pre-11.1 map 110 left the
+-- suite green, so the value is asserted directly.
+T:run("PathCalculator: Silvermoon City uses the 11.1+ map", function(t)
+    local cities = QR.CAPITAL_CITIES
+    t:assertNotNil(cities, "CAPITAL_CITIES is exported")
+    if not cities then return end
+    local silvermoon = cities["Silvermoon City"]
+    t:assertNotNil(silvermoon, "Silvermoon City is a capital")
+    if not silvermoon then return end
+    t:assertEqual(2393, silvermoon.mapID,
+        "Silvermoon City is uiMapID 2393, not the pre-11.1 110")
+end)

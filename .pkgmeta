@@ -2,6 +2,9 @@
 # inside the addon folder. The ignore paths below are root-relative,
 # which is why they never matched while this file lived in QuickRoute/.
 # enable-nolib-creation is omitted: nothing here declares an external.
+# QuickRoute/Tests is NOT ignored: QuickRoute.toc references
+# Tests\TestGraph.lua, so stripping it ships a .toc entry that
+# points at a file the package does not contain.
 package-as: QuickRoute
 
 ignore:
@@ -14,6 +17,5 @@ ignore:
   - docs
   - scripts
   - tests
-  - Tests
   - "*.png"
 

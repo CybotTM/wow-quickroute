@@ -103,20 +103,16 @@ function TravelTime:EstimateDistanceTime(distance, canFly, mapID)
     -- Convert coordinate distance to approximate yards. Callers that know both
     -- axes should use EstimateWalkingTime, which scales each one separately.
     local width = self:GetMapScale(mapID)
-    local yards = distance * width
+    return self:YardsToTime(distance * width, canFly)
+end
 
-    -- Select speed based on flight capability
-    local speed
-    if canFly then
-        speed = self.SPEEDS.mounted_flying
-    else
-        speed = self.SPEEDS.mounted_ground
-    end
-
-    -- Calculate time = distance / speed
-    local time = yards / speed
-
-    return math_ceil(time)
+--- Convert a distance in yards to travel time at the appropriate mount speed.
+-- @param yards number Distance in yards
+-- @param canFly boolean Whether the player can fly there
+-- @return number Travel time in seconds, rounded up
+function TravelTime:YardsToTime(yards, canFly)
+    local speed = canFly and self.SPEEDS.mounted_flying or self.SPEEDS.mounted_ground
+    return math_ceil(yards / speed)
 end
 
 --- Get teleport time based on teleport type
@@ -235,6 +231,5 @@ function TravelTime:EstimateWalkingTime(x1, y1, x2, y2, canFly, mapID)
     local dy = (y2 - y1) * height
     local yards = math_sqrt(dx * dx + dy * dy)
 
-    local speed = canFly and self.SPEEDS.mounted_flying or self.SPEEDS.mounted_ground
-    return math_ceil(yards / speed)
+    return self:YardsToTime(yards, canFly)
 end

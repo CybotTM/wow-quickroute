@@ -263,10 +263,12 @@ T:run("DungeonData: MergeStaticFallback fills coordinates for API-discovered ins
 
     DD:MergeStaticFallback()
 
-    -- Static data has MC in Burning Steppes (25)
+    -- Static data has MC in Burning Steppes, which is uiMapID 36. This test
+    -- asserted 25 and passed, because the constant it was written from held
+    -- Hillsbrad Foothills' id.
     mc = DD.instances[741]
     t:assertNotNil(mc.zoneMapID, "MC has zoneMapID after merge")
-    t:assertEqual(25, mc.zoneMapID, "MC zoneMapID = 25 (Burning Steppes)")
+    t:assertEqual(36, mc.zoneMapID, "MC zoneMapID = 36 (Burning Steppes)")
     t:assertNotNil(mc.x, "MC has x after merge")
     t:assertNotNil(mc.y, "MC has y after merge")
 end)
@@ -278,9 +280,9 @@ T:run("DungeonData: MergeStaticFallback populates byZone", function(t)
     DD:ScanInstances()
     DD:MergeStaticFallback()
 
-    -- Burning Steppes (25) has many instances in static data
-    t:assertNotNil(DD.byZone[25], "byZone[25] exists after merge")
-    t:assertGreaterThan(#DD.byZone[25], 0, "Burning Steppes has instances")
+    -- Burning Steppes (36) has many instances in static data
+    t:assertNotNil(DD.byZone[36], "byZone[36] exists after merge")
+    t:assertGreaterThan(#DD.byZone[36], 0, "Burning Steppes has instances")
 end)
 
 T:run("DungeonData: MergeStaticFallback does not overwrite API coordinates", function(t)

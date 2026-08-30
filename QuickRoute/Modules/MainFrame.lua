@@ -92,8 +92,17 @@ function MainFrame:CreateFrame()
     -- not to this window, so hiding the window does not hide them: they stayed
     -- on screen and kept their slots in the 60-button pool until the next
     -- refresh, which for a window closed with ESC never comes. Releasing here
-    -- covers ESC, the close button and the combat auto-hide with one path.
-    frame:SetScript("OnHide", function()
+    -- covers ESC and the close button with one path.
+    --
+    -- OnHide also fires when an ancestor is hidden -- Alt+Z, a cinematic --
+    -- and that is not a close: the window comes back on its own, without
+    -- MainFrame:Show() or SetActiveTab() running, so releasing there returned
+    -- an empty window. IsShown() is still true in that case, because this
+    -- frame's own shown state never changed.
+    frame:SetScript("OnHide", function(self)
+        if self:IsShown() then
+            return
+        end
         MainFrame.isShowing = false
         MainFrame:ReleaseTabContent()
     end)
@@ -252,8 +261,12 @@ function MainFrame:Show(tabName)
 end
 
 --- Release the secure buttons held by whichever tab is showing.
--- Safe to call outside combat only; the OnHide path that uses it runs from the
--- enter-combat callback, which fires before lockdown starts.
+-- Outside combat only. The enter-combat auto-hide reaches this too, and there
+-- lockdown is already active, so it returns without doing anything: the
+-- buttons stay on screen for the fight, which the game leaves no way around --
+-- a secure frame cannot be hidden or reparented under lockdown. They are given
+-- back on the way out, when the leave-combat callback calls Show() and the
+-- rebuild clears them first.
 function MainFrame:ReleaseTabContent()
     if InCombatLockdown and InCombatLockdown() then
         return

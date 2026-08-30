@@ -484,3 +484,24 @@ T:run("CollectQuestBlocks: an empty tracker of a known shape is not 'unrecognise
         t:assertTrue(recognised, "but its shape was recognised")
     end)
 end)
+
+T:run("CollectQuestBlocks: an enumerator that errors is not 'recognised'", function(t)
+    -- The pcall around EnumerateActiveBlocks swallows the error, so an API
+    -- change that makes it raise looks exactly like an empty tracker. Reporting
+    -- that as recognised sent the caller into the loop that hides every button
+    -- whose block is missing -- which, with no blocks collected, is all of them.
+    withTracker({
+        modules = {
+            {
+                EnumerateActiveBlocks = function()
+                    error("tracker API changed")
+                end,
+            },
+        },
+    }, function()
+        local blocks, recognised = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertNil(next(blocks), "an erroring enumerator yields no blocks")
+        t:assertFalse(recognised,
+            "and an error is not evidence that the tracker is empty")
+    end)
+end)

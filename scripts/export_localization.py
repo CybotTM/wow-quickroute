@@ -160,6 +160,8 @@ def upload_to_curseforge(locales):
 
     url = f"https://wow.curseforge.com/api/projects/{CF_PROJECT_ID}/localization/import"
 
+    failures = []
+
     for locale in sorted(locales.keys()):
         strings = locales[locale]
         if not strings:
@@ -206,6 +208,9 @@ def upload_to_curseforge(locales):
         except urllib.error.HTTPError as e:
             print(f"  {cf_locale}: FAILED (HTTP {e.code}: {e.read().decode()})",
                   file=sys.stderr)
+            failures.append(cf_locale)
+
+    return failures
 
 
 def main():
@@ -213,7 +218,14 @@ def main():
 
     if "--upload" in sys.argv:
         print("Uploading localization to CurseForge...")
-        upload_to_curseforge(locales)
+        # A failed upload has to reach the exit code. Printing to stderr and
+        # returning 0 made the release workflow and the manual localization
+        # workflow both report success while nothing had been uploaded.
+        failures = upload_to_curseforge(locales)
+        if failures:
+            print(f"Localization upload failed for: {', '.join(failures)}",
+                  file=sys.stderr)
+            sys.exit(1)
     elif "--export" in sys.argv:
         print("Exporting localization files...")
         export_files(locales)

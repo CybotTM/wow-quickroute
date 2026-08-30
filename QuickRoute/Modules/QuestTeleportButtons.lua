@@ -464,12 +464,18 @@ function QTB:CollectQuestBlocks()
     for _, module in pairs(modules) do
         if type(module) == "table" then
             if type(module.EnumerateActiveBlocks) == "function" then
-                recognised = true
-                pcall(module.EnumerateActiveBlocks, module, function(block)
+                -- Only a call that returned counts as a recognised shape. An
+                -- enumerator that errors tells us nothing about how many blocks
+                -- there are, and reporting "recognised, none" would hide every
+                -- button -- exactly what the caller's guard exists to prevent.
+                local ok = pcall(module.EnumerateActiveBlocks, module, function(block)
                     if type(block) == "table" then
                         record(block.id, block)
                     end
                 end)
+                if ok then
+                    recognised = true
+                end
             elseif type(module.usedBlocks) == "table" then
                 recognised = true
                 for key, value in pairs(module.usedBlocks) do

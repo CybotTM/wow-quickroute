@@ -373,8 +373,12 @@ function MiniTeleportPanel:ReleaseAllRows()
     if self.separator then
         self.separator:Hide()
     end
-    -- Release secure buttons
-    if QR.SecureButtons and not InCombatLockdown() then
+    -- Release secure buttons. No lockdown guard here: ReleaseButton queues the
+    -- button in pendingReleases when it cannot touch it, and the leave-combat
+    -- handler flushes that queue. Skipping the call under lockdown and then
+    -- dropping self.secureButtons anyway lost the only reference to each held
+    -- button, leaking two pool slots per combat start until all 60 were gone.
+    if QR.SecureButtons then
         for _, btn in ipairs(self.secureButtons) do
             QR.SecureButtons:ReleaseButton(btn)
         end
@@ -653,20 +657,14 @@ function MiniTeleportPanel:RegisterCombat()
         -- Hiding the frame does not hide the secure overlay buttons: those are
         -- parented to UIParent, not to this panel, so they stayed on screen at
         -- alpha 0 for the whole fight and kept their slots in the 60-button
-        -- pool. The callback runs before lockdown, so releasing is legal here.
+        -- pool. Lockdown is already active here -- PLAYER_REGEN_DISABLED marks
+        -- its start -- so the releases queue and are flushed on leave.
         function()
             if MiniTeleportPanel.isShowing and MiniTeleportPanel.frame then
                 MiniTeleportPanel:ReleaseAllRows()
                 MiniTeleportPanel.frame:Hide()
                 MiniTeleportPanel.isShowing = false
             end
-        end,
-        -- Leave combat: release again. The enter-combat callback is expected to
-        -- run before lockdown starts, but if that assumption is wrong on a live
-        -- client its ReleaseAllRows is a no-op and the buttons stay held. This
-        -- second pass costs nothing when the first one worked.
-        function()
-            MiniTeleportPanel:ReleaseAllRows()
         end
     )
 end

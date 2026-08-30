@@ -18,7 +18,7 @@ local Z = {
     SILVERPINE_FOREST           = 21,
     TIRISFAL_GLADES             = 18,
     WESTERN_PLAGUELANDS         = 22,
-    EASTERN_PLAGUELANDS         = 49,
+    EASTERN_PLAGUELANDS         = 23,
     GHOSTLANDS                  = 95,
     DUN_MOROGH                  = 27,
     STORMWIND_CITY              = 84,
@@ -26,7 +26,7 @@ local Z = {
     BADLANDS            = 15,
     SWAMP_OF_SORROWS            = 51,
     NORTHERN_STRANGLETHORN      = 50,
-    BURNING_STEPPES             = 25,
+    BURNING_STEPPES             = 36,
     DUSTWALLOW_MARSH            = 70,
     DEADWIND_PASS               = 42,
 

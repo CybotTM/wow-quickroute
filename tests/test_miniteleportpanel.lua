@@ -348,3 +348,65 @@ T:run("MiniTP: C_MountJournal.SummonByID is available", function(t)
     t:assertNotNil(C_MountJournal.SummonByID, "SummonByID function exists")
     t:assertEqual(type(C_MountJournal.SummonByID), "function", "SummonByID is a function")
 end)
+
+-------------------------------------------------------------------------------
+-- Entering combat must not lose the secure buttons the panel holds
+-------------------------------------------------------------------------------
+
+-- Regression: ReleaseAllRows skipped every ReleaseButton under lockdown and
+-- then wiped self.secureButtons anyway, dropping the only reference to each
+-- held button while its inUse flag stayed true. PLAYER_REGEN_DISABLED marks the
+-- START of lockdown, so that branch is the one the enter-combat callback takes,
+-- and the pool drained a little on every fight until GetButton returned nil
+-- everywhere. ReleaseButton queues under lockdown; the outer guard prevented it.
+T:run("MiniTeleportPanel: repeated combat cycles do not drain the button pool", function(t)
+    resetState()
+    setupOwnedToys({ 64488, 184353, 183716, 140192 })
+    QR.SecureButtons:Initialize()
+    -- Earlier tests leave buttons checked out; start from a clean pool so the
+    -- count below measures this panel and nothing else.
+    for _, btn in ipairs(QR.SecureButtons.pool or {}) do
+        btn.inUse = false
+    end
+    QR.SecureButtons.pendingReleases = nil
+
+    local function inUseCount()
+        local n = 0
+        for _, btn in ipairs(QR.SecureButtons.pool or {}) do
+            if btn.inUse then n = n + 1 end
+        end
+        return n
+    end
+
+    local handler = QR.combatFrame and QR.combatFrame:GetScript("OnEvent")
+    t:assertNotNil(handler, "the combat manager is reachable")
+    if not handler then return end
+
+    QR.MiniTeleportPanel:RegisterCombat()
+
+    local baseline = inUseCount()
+    local afterFirstShow
+
+    for cycle = 1, 4 do
+        MockWoW.config.inCombatLockdown = false
+        QR.MiniTeleportPanel:Show()
+        if cycle == 1 then
+            afterFirstShow = inUseCount()
+        end
+
+        -- Enter combat: lockdown is already active when the event arrives.
+        MockWoW.config.inCombatLockdown = true
+        handler(QR.combatFrame, "PLAYER_REGEN_DISABLED")
+
+        -- Leave combat: the queued releases are flushed.
+        MockWoW.config.inCombatLockdown = false
+        handler(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+
+        t:assertEqual(baseline, inUseCount(),
+            "cycle " .. cycle .. ": every button is back in the pool (in use: "
+                .. tostring(inUseCount()) .. ")")
+    end
+
+    t:assertGreaterThan(afterFirstShow or 0, baseline,
+        "the panel really did take buttons out of the pool")
+end)
