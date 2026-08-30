@@ -85,9 +85,17 @@ function MainFrame:CreateFrame()
     -- ESC to close
     table_insert(UISpecialFrames, "QuickRouteMainFrame")
 
-    -- Sync isShowing when hidden by any means (ESC, frame:Hide(), etc.)
+    -- Sync isShowing when hidden by any means (ESC, frame:Hide(), etc.) and
+    -- give the secure overlay buttons back.
+    --
+    -- The buttons are SecureActionButtonTemplate frames parented to UIParent,
+    -- not to this window, so hiding the window does not hide them: they stayed
+    -- on screen and kept their slots in the 60-button pool until the next
+    -- refresh, which for a window closed with ESC never comes. Releasing here
+    -- covers ESC, the close button and the combat auto-hide with one path.
     frame:SetScript("OnHide", function()
         MainFrame.isShowing = false
+        MainFrame:ReleaseTabContent()
     end)
 
     -- Backdrop
@@ -241,6 +249,21 @@ function MainFrame:Show(tabName)
     self.frame:Show()
     self.isShowing = true
     self:SetActiveTab(tab)  -- SetActiveTab handles content refresh + subtitle
+end
+
+--- Release the secure buttons held by whichever tab is showing.
+-- Safe to call outside combat only; the OnHide path that uses it runs from the
+-- enter-combat callback, which fires before lockdown starts.
+function MainFrame:ReleaseTabContent()
+    if InCombatLockdown and InCombatLockdown() then
+        return
+    end
+    if QR.UI and QR.UI.ClearStepLabels then
+        QR.UI:ClearStepLabels()
+    end
+    if QR.TeleportPanel and QR.TeleportPanel.ClearRows then
+        QR.TeleportPanel:ClearRows()
+    end
 end
 
 --- Hide the main frame

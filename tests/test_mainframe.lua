@@ -548,3 +548,31 @@ T:run("MainFrame: position saved to DB on drag stop", function(t)
         t:assertTrue(true, "OnDragStop handler not accessible in test")
     end
 end)
+
+-------------------------------------------------------------------------------
+-- Closing the window must give its rows and secure buttons back
+-------------------------------------------------------------------------------
+
+-- Regression: the secure overlay buttons are SecureActionButtonTemplate frames
+-- parented to UIParent, not to the window, so hiding the window left them on
+-- screen and marked inUse. Closing with ESC never refreshed, so the 60-button
+-- pool drained one window at a time. Releasing now happens in the frame's
+-- OnHide, which is the one path ESC, the close button and the combat
+-- auto-hide all take.
+T:run("MainFrame: closing the window clears the teleport rows it was holding", function(t)
+    resetState()
+    ensureMainFrame()
+
+    QR.MainFrame:Show()
+    QR.MainFrame:SetActiveTab("teleports")
+    QR.TeleportPanel:RefreshList()
+
+    local populated = #QR.TeleportPanel.teleportRows
+    t:assertGreaterThan(populated, 0, "the teleport tab holds rows while shown")
+
+    QR.MainFrame:Hide()
+
+    t:assertEqual(0, #QR.TeleportPanel.teleportRows,
+        "rows are released when the window closes (still held: "
+            .. tostring(#QR.TeleportPanel.teleportRows) .. ")")
+end)

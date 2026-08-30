@@ -640,9 +640,14 @@ end
 --- Initialize combat callbacks for auto-hide
 function MiniTeleportPanel:RegisterCombat()
     QR:RegisterCombatCallback(
-        -- Enter combat: hide panel
+        -- Enter combat: release the rows, then hide the panel.
+        -- Hiding the frame does not hide the secure overlay buttons: those are
+        -- parented to UIParent, not to this panel, so they stayed on screen at
+        -- alpha 0 for the whole fight and kept their slots in the 60-button
+        -- pool. The callback runs before lockdown, so releasing is legal here.
         function()
             if MiniTeleportPanel.isShowing and MiniTeleportPanel.frame then
+                MiniTeleportPanel:ReleaseAllRows()
                 MiniTeleportPanel.frame:Hide()
                 MiniTeleportPanel.isShowing = false
             end
