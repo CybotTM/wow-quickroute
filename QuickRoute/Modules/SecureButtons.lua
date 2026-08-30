@@ -461,6 +461,9 @@ function SecureButtons:RegisterCombatEvents()
             end
         end
     )
+
+    -- Defined further down, after the equipment-restore upvalues exist.
+    self:RegisterEquipmentRestoreCallback()
 end
 
 -------------------------------------------------------------------------------
@@ -566,15 +569,25 @@ restoreFrame:SetScript("OnEvent", function(self, event)
     end
 end)
 
--- Also restore when leaving combat (in case teleport happened during combat)
-QR:RegisterCombatCallback(nil, function()
-    if pendingRestore then
-        if restoreTimer then
-            restoreTimer:Cancel()
-        end
-        restoreTimer = C_Timer.NewTimer(0.5, function()
-            restoreTimer = nil
-            RestoreEquipment()
-        end)
+--- Also restore when leaving combat (in case teleport happened during combat).
+-- Defined here rather than called at file scope: QR:RegisterCombatCallback is
+-- declared in QuickRoute.lua, which the .toc loads after this file. Called from
+-- RegisterCombatEvents() during Initialize(), by which point it exists.
+function SecureButtons:RegisterEquipmentRestoreCallback()
+    if self.equipmentRestoreRegistered then
+        return
     end
-end)
+    self.equipmentRestoreRegistered = true
+
+    QR:RegisterCombatCallback(nil, function()
+        if pendingRestore then
+            if restoreTimer then
+                restoreTimer:Cancel()
+            end
+            restoreTimer = C_Timer.NewTimer(0.5, function()
+                restoreTimer = nil
+                RestoreEquipment()
+            end)
+        end
+    end)
+end
