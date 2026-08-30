@@ -16,7 +16,6 @@ QR.Continents = {
             -- Major Cities
             84,   -- Stormwind City
             87,   -- Ironforge
-            89,   -- Darnassus (portal from here)
             90,   -- Undercity
             110,  -- Silvermoon City
             -- Zones (uiMapIDs verified via warcraft.wiki.gg)
@@ -45,7 +44,6 @@ QR.Continents = {
             210,  -- Cape of Stranglethorn
             224,  -- Stranglethorn Vale
             241,  -- Twilight Highlands
-            700,  -- Twilight Highlands (Cataclysm)
             -- Midnight Expansion (12.0)
             2393, -- Silvermoon City (revamped)
             2395, -- Eversong Woods (includes old Ghostlands)
@@ -53,8 +51,16 @@ QR.Continents = {
             2437, -- Zul'Aman
             2413, -- Harandar
             2405, -- Voidstorm
+            -- Added in 12.0.7 and 12.1.0. uiMapIDs and parents read off a live
+            -- 12.1.0.69497 client: 2512 and 2437 hang off Quel'Thalas (2537),
+            -- 2509 off 2512, 2599 and 2600 off Voidstorm (2405), 2352 off
+            -- Eastern Kingdoms (13).
+            2512, -- The Coiled Isle (12.1.0)
+            2509, -- Vaults of Atal'Utek (12.1.0), inside The Coiled Isle
+            2599, -- Val (12.0.7), inside Voidstorm
+            2600, -- Naigtal (12.0.7), inside Voidstorm
+            2352, -- Founder's Point (player housing)
             -- Pre-Midnight legacy zones (classic/TBC dungeon entrances)
-            15,   -- Badlands (sub-zone for Uldaman entrance)
             95,   -- Ghostlands (Zul'Aman entrance, pre-Midnight)
             122,  -- Isle of Quel'Danas (TBC, Magisters' Terrace/Sunwell)
             244,  -- Tol Barad Peninsula (Baradin Hold)
@@ -71,6 +77,7 @@ QR.Continents = {
             85,   -- Orgrimmar
             88,   -- Thunder Bluff
             89,   -- Darnassus
+            2351, -- Razorwind Shores (player housing)
             103,  -- Exodar
             -- Zones (uiMapIDs verified via warcraft.wiki.gg)
             1,    -- Durotar
@@ -82,10 +89,9 @@ QR.Continents = {
             64,   -- Thousand Needles
             65,   -- Stonetalon Mountains
             66,   -- Desolace
-            67,   -- Feralas
-            69,   -- Tanaris
+            69,   -- Feralas
             70,   -- Dustwallow Marsh
-            71,   -- Tanaris (Caverns of Time area)
+            71,   -- Tanaris
             76,   -- Azshara
             77,   -- Felwood
             80,   -- Moonglade
@@ -94,9 +100,8 @@ QR.Continents = {
             106,  -- Bloodmyst Isle
             199,  -- Southern Barrens
             198,  -- Mount Hyjal
-            203,  -- Un'Goro Crater
+            78,   -- Un'Goro Crater
             204,  -- Vashj'ir / Abyssal Depths
-            261,  -- Uldum
             -- Dungeon entrance zones
             75,   -- Caverns of Time (Tanaris sub-zone)
             249,  -- Uldum (Cataclysm-era map)
@@ -109,7 +114,6 @@ QR.Continents = {
         hub = 111,  -- Shattrath City
         zones = {
             100,  -- Hellfire Peninsula
-            101,  -- Outland (continent overview)
             102,  -- Zangarmarsh
             104,  -- Shadowmoon Valley (Outland)
             105,  -- Blade's Edge Mountains
@@ -144,7 +148,6 @@ QR.Continents = {
         zones = {
             371,  -- Jade Forest
             376,  -- Valley of the Four Winds
-            378,  -- Kun-Lai Summit
             379,  -- Kun-Lai Summit (alternate ID)
             388,  -- Townlong Steppes
             390,  -- Vale of Eternal Blossoms
@@ -420,7 +423,7 @@ QR.ZoneAdjacencies = {
     },
 
     -- Pandaria connections
-    [378] = {  -- Kun-Lai Summit
+    [379] = {  -- Kun-Lai Summit
         {zone = 371, travelTime = 90},  -- Jade Forest
         {zone = 376, travelTime = 90},  -- Valley of Four Winds
         {zone = 388, travelTime = 90},  -- Townlong Steppes
@@ -428,27 +431,21 @@ QR.ZoneAdjacencies = {
         {zone = 504, travelTime = 120}, -- Isle of Giants (boat)
         {zone = 1530, travelTime = 60}, -- Vale N'Zoth Assault (same as Vale)
     },
-    [379] = {  -- Kun-Lai Summit (alternate ID)
-        {zone = 371, travelTime = 90},
-        {zone = 376, travelTime = 90},
-        {zone = 388, travelTime = 90},
-        {zone = 390, travelTime = 60},
-    },
     [390] = {  -- Vale of Eternal Blossoms
-        {zone = 378, travelTime = 60},  -- Kun-Lai Summit
+        {zone = 379, travelTime = 60},  -- Kun-Lai Summit
         {zone = 379, travelTime = 60},  -- Kun-Lai Summit (alt)
         {zone = 388, travelTime = 60},  -- Townlong Steppes
         {zone = 422, travelTime = 60},  -- Dread Wastes
     },
     [371] = {  -- Jade Forest
-        {zone = 378, travelTime = 90},  -- Kun-Lai Summit
+        {zone = 379, travelTime = 90},  -- Kun-Lai Summit
         {zone = 379, travelTime = 90},  -- Kun-Lai Summit (alt)
         {zone = 376, travelTime = 60},  -- Valley of Four Winds
         {zone = 418, travelTime = 60},  -- Krasarang Wilds
     },
     [376] = {  -- Valley of the Four Winds
         {zone = 371, travelTime = 60},  -- Jade Forest
-        {zone = 378, travelTime = 90},  -- Kun-Lai Summit
+        {zone = 379, travelTime = 90},  -- Kun-Lai Summit
         {zone = 379, travelTime = 90},  -- Kun-Lai Summit (alternate ID)
         {zone = 418, travelTime = 60},  -- Krasarang Wilds
     },
@@ -761,7 +758,32 @@ QR.ZoneAdjacencies = {
         -- Portal-accessed from Eversong/Zul'Aman (see StandalonePortals in Portals.lua)
     },
     [2405] = {  -- Voidstorm
+        {zone = 2599, travelTime = 60},   -- Val (sub-zone of Voidstorm)
+        {zone = 2600, travelTime = 60},   -- Naigtal (sub-zone of Voidstorm)
         -- Portal-accessed, final campaign zone (see StandalonePortals in Portals.lua)
+    },
+    -- Added in 12.0.7 and 12.1.0. The parent relations below are the ones
+    -- C_Map.GetMapInfo reports on 12.1.0.69497; the travel times are the file's
+    -- usual 60s for a neighbouring zone rather than measured values.
+    [2599] = {  -- Val (inside Voidstorm)
+        {zone = 2405, travelTime = 60},   -- Voidstorm
+    },
+    [2600] = {  -- Naigtal (inside Voidstorm)
+        {zone = 2405, travelTime = 60},   -- Voidstorm
+    },
+    [2512] = {  -- The Coiled Isle
+        {zone = 2509, travelTime = 60},   -- Vaults of Atal'Utek (sub-zone)
+        -- Reached by portal; the geographic neighbour has not been confirmed,
+        -- so no overland edge is claimed here.
+    },
+    [2509] = {  -- Vaults of Atal'Utek (inside The Coiled Isle)
+        {zone = 2512, travelTime = 60},   -- The Coiled Isle
+    },
+    [2352] = {  -- Founder's Point (player housing)
+        -- Reached by the Homestead teleport only.
+    },
+    [2351] = {  -- Razorwind Shores (player housing)
+        -- Reached by the Homestead teleport only.
     },
 
     [50] = {  -- Northern Stranglethorn
@@ -810,10 +832,6 @@ QR.ZoneAdjacencies = {
         {zone = 65, travelTime = 60},    -- Stonetalon Mountains
         {zone = 62, travelTime = 60},    -- Darkshore
         {zone = 77, travelTime = 90},    -- Felwood
-        {zone = 11, travelTime = 0.001}, -- Ashenvale (old mapID, used in DungeonEntrances)
-    },
-    [11] = {  -- Ashenvale (old mapID, used in DungeonEntrances for Blackfathom Deeps)
-        {zone = 63, travelTime = 0.001}, -- Ashenvale (correct mapID)
     },
     [77] = {  -- Felwood (uiMapID 77)
         {zone = 63, travelTime = 90},    -- Ashenvale
@@ -849,40 +867,35 @@ QR.ZoneAdjacencies = {
     },
     [66] = {  -- Desolace
         {zone = 65, travelTime = 90},    -- Stonetalon Mountains
-        {zone = 67, travelTime = 90},    -- Feralas
+        {zone = 69, travelTime = 90},    -- Feralas
     },
-    [67] = {  -- Feralas
+    [69] = {  -- Feralas
         {zone = 66, travelTime = 90},    -- Desolace
         {zone = 64, travelTime = 60},    -- Thousand Needles
     },
     [64] = {  -- Thousand Needles
         {zone = 199, travelTime = 60},   -- Southern Barrens
-        {zone = 67, travelTime = 60},    -- Feralas
-        {zone = 69, travelTime = 60},    -- Tanaris
+        {zone = 69, travelTime = 60},    -- Feralas
+        {zone = 71, travelTime = 60},    -- Tanaris
     },
     [70] = {  -- Dustwallow Marsh (uiMapID 70)
         {zone = 10, travelTime = 90},    -- Northern Barrens
         {zone = 199, travelTime = 60},   -- Southern Barrens
-        {zone = 68, travelTime = 0.001}, -- Dustwallow (old mapID, used in DungeonEntrances)
     },
-    [68] = {  -- Dustwallow Marsh (old mapID, used in DungeonEntrances for Onyxia's Lair)
-        {zone = 70, travelTime = 0.001}, -- Dustwallow Marsh (correct mapID)
-    },
-    [69] = {  -- Tanaris
+    [71] = {  -- Tanaris
         {zone = 64, travelTime = 60},    -- Thousand Needles
-        {zone = 203, travelTime = 60},   -- Un'Goro Crater
-        {zone = 261, travelTime = 90},   -- Uldum
-        {zone = 71, travelTime = 0.001}, -- Tanaris (Caverns of Time area, alternate)
+        {zone = 78, travelTime = 60},   -- Un'Goro Crater
+        {zone = 249, travelTime = 90},   -- Uldum
         {zone = 75, travelTime = 30},    -- Caverns of Time (sub-zone)
         {zone = 249, travelTime = 90},   -- Uldum (Cataclysm-era map)
         {zone = 1527, travelTime = 90},  -- Uldum (N'Zoth Assault version)
     },
-    [203] = {  -- Un'Goro Crater
-        {zone = 69, travelTime = 60},    -- Tanaris
+    [78] = {  -- Un'Goro Crater
+        {zone = 71, travelTime = 60},    -- Tanaris
         {zone = 81, travelTime = 60},    -- Silithus
     },
     [81] = {  -- Silithus
-        {zone = 203, travelTime = 60},   -- Un'Goro Crater
+        {zone = 78, travelTime = 60},   -- Un'Goro Crater
     },
     [106] = {  -- Bloodmyst Isle (uiMapID 106, NOT Felwood)
         -- Accessed via Exodar/continent routing; no direct zone adjacency needed
@@ -891,27 +904,19 @@ QR.ZoneAdjacencies = {
         {zone = 80, travelTime = 60},    -- Moonglade
         {zone = 77, travelTime = 60},    -- Felwood
     },
-    [261] = {  -- Uldum
-        {zone = 69, travelTime = 90},    -- Tanaris
-        {zone = 249, travelTime = 0.001},-- Uldum (Cataclysm-era, same zone)
+    [249] = {  -- Uldum
+        {zone = 71, travelTime = 90},    -- Tanaris
         {zone = 1527, travelTime = 0.001},-- Uldum (N'Zoth version, same zone)
     },
     [198] = {  -- Mount Hyjal
         {zone = 80, travelTime = 60},    -- Moonglade (via world tree portal)
     },
-    [71] = {  -- Tanaris (Caverns of Time area, alternate mapID for 69)
-        {zone = 69, travelTime = 0.001}, -- Tanaris (primary mapID)
-    },
     [75] = {  -- Caverns of Time (Tanaris sub-zone)
-        {zone = 69, travelTime = 30},    -- Tanaris (entrance portal in Tanaris)
-    },
-    [249] = {  -- Uldum (Cataclysm-era map, same physical zone as 261)
-        {zone = 69, travelTime = 90},    -- Tanaris
-        {zone = 261, travelTime = 0.001},-- Uldum (parent zone map)
+        {zone = 71, travelTime = 30},    -- Tanaris (entrance portal in Tanaris)
     },
     [1527] = {  -- Uldum (N'Zoth Assault version, same physical zone)
-        {zone = 69, travelTime = 90},    -- Tanaris
-        {zone = 261, travelTime = 0.001},-- Uldum (parent zone map)
+        {zone = 71, travelTime = 90},    -- Tanaris
+        {zone = 249, travelTime = 0.001},-- Uldum (parent zone map)
     },
     [204] = {  -- Vashj'ir / Abyssal Depths (boat from Stormwind/Orgrimmar)
         -- Accessed via boat from Eastern Kingdoms (see StandalonePortals)
@@ -928,10 +933,6 @@ QR.ZoneAdjacencies = {
         {zone = 108, travelTime = 90},   -- Terokkar Forest
         {zone = 107, travelTime = 90},   -- Nagrand
         {zone = 105, travelTime = 90},   -- Blade's Edge Mountains
-        {zone = 101, travelTime = 0.001},-- Zangarmarsh (old mapID, used in DungeonEntrances)
-    },
-    [101] = {  -- Zangarmarsh (old mapID 101, used in DungeonEntrances for Coilfang)
-        {zone = 102, travelTime = 0.001},-- Zangarmarsh (correct mapID)
     },
     [107] = {  -- Nagrand (uiMapID 107)
         {zone = 102, travelTime = 90},   -- Zangarmarsh
@@ -1019,7 +1020,7 @@ QR.ZoneAdjacencies = {
     -- Pandaria - additional inter-zone connections (Tier 4.6)
     ---------------------------------------------------------------------------
     [388] = {  -- Townlong Steppes
-        {zone = 378, travelTime = 90},   -- Kun-Lai Summit
+        {zone = 379, travelTime = 90},   -- Kun-Lai Summit
         {zone = 379, travelTime = 90},   -- Kun-Lai Summit (alternate ID)
         {zone = 390, travelTime = 60},   -- Vale of Eternal Blossoms
         {zone = 422, travelTime = 60},   -- Dread Wastes
@@ -1038,10 +1039,10 @@ QR.ZoneAdjacencies = {
         {zone = 388, travelTime = 120},  -- Townlong Steppes (portal/boat)
     },
     [504] = {  -- Isle of Giants
-        {zone = 378, travelTime = 120},  -- Kun-Lai Summit (boat)
+        {zone = 379, travelTime = 120},  -- Kun-Lai Summit (boat)
     },
     [1530] = {  -- Vale of Eternal Blossoms (N'Zoth Assault version)
-        {zone = 378, travelTime = 60},   -- Kun-Lai Summit
+        {zone = 379, travelTime = 60},   -- Kun-Lai Summit
         {zone = 388, travelTime = 60},   -- Townlong Steppes
     },
 

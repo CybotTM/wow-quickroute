@@ -1033,3 +1033,57 @@ T:run("StaticDungeonEntrances: journalInstanceIDs carry the name the client give
         "every verified journalInstanceID still has an entrance entry (missing: "
             .. table.concat(missing, ", ") .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- Maps that are not zones must never appear as graph or entrance keys
+-------------------------------------------------------------------------------
+
+-- Regression: the data files used dungeon, raid and continent uiMapIDs as if
+-- they were zones — 67 and 68 are Maraudon, 11 is Wailing Caverns, 261 is the
+-- Blood Furnace, 700 is Icecrown Citadel, 101 is the Outland continent, 378 is
+-- the Wandering Isle. Each was then papered over with a 0.001s bridge edge to
+-- the id that was actually meant, which hid the mistake from every existing
+-- test while quietly registering content on the wrong map.
+--
+-- Identities confirmed with C_Map.GetMapInfo on a live 12.1.0.69497 client.
+local NOT_ZONES = {
+    [11]  = "Wailing Caverns (dungeon) — Ashenvale is 63",
+    [67]  = "Maraudon (dungeon) — Feralas is 69",
+    [68]  = "Maraudon (dungeon) — Dustwallow Marsh is 70",
+    [101] = "Outland (continent) — Zangarmarsh is 102",
+    [261] = "Blood Furnace (dungeon) — Uldum is 249",
+    [378] = "The Wandering Isle — Kun-Lai Summit is 379",
+    [700] = "Icecrown Citadel (raid) — Twilight Highlands is 241",
+    [809] = "Karazhan (dungeon)",
+}
+
+T:run("ZoneAdjacency: no dungeon, raid or continent map is used as a zone", function(t)
+    for zoneID in pairs(QR.ZoneAdjacencies or {}) do
+        t:assertNil(NOT_ZONES[zoneID],
+            string.format("adjacency key %d is %s", zoneID, tostring(NOT_ZONES[zoneID])))
+    end
+
+    for zoneID, neighbours in pairs(QR.ZoneAdjacencies or {}) do
+        for _, adj in ipairs(neighbours) do
+            t:assertNil(NOT_ZONES[adj.zone],
+                string.format("zone %d has an edge to %d, which is %s",
+                    zoneID, adj.zone, tostring(NOT_ZONES[adj.zone])))
+        end
+    end
+
+    for _, continent in pairs(QR.Continents or {}) do
+        for _, zoneID in ipairs(continent.zones or {}) do
+            t:assertNil(NOT_ZONES[zoneID],
+                string.format("continent zone list carries %d, which is %s",
+                    zoneID, tostring(NOT_ZONES[zoneID])))
+        end
+    end
+end)
+
+T:run("StaticDungeonEntrances: no dungeon, raid or continent map is used as a zone", function(t)
+    for mapID in pairs(QR.StaticDungeonEntrances or {}) do
+        t:assertNil(NOT_ZONES[mapID],
+            string.format("entrance table is keyed on %d, which is %s",
+                mapID, tostring(NOT_ZONES[mapID])))
+    end
+end)

@@ -23,32 +23,29 @@ local Z = {
     DUN_MOROGH                  = 27,
     STORMWIND_CITY              = 84,
     WESTFALL                    = 52,
-    BADLANDS_SUBZONE            = 15,
-    BADLANDS                    = 17,
+    BADLANDS            = 15,
     SWAMP_OF_SORROWS            = 51,
     NORTHERN_STRANGLETHORN      = 50,
     BURNING_STEPPES             = 25,
-    DUSTWALLOW_MARSH            = 68,
+    DUSTWALLOW_MARSH            = 70,
     DEADWIND_PASS               = 42,
 
     -- Classic: Kalimdor
     NORTHERN_BARRENS            = 10,
-    ASHENVALE                   = 11,
-    ASHENVALE_ALT               = 63,
+    ASHENVALE               = 63,
     DESOLACE                    = 66,
     SOUTHERN_BARRENS            = 199,
     THOUSAND_NEEDLES            = 64,
-    FERALAS                     = 67,
-    TANARIS                     = 69,
+    FERALAS                     = 69,
+    TANARIS                     = 71,
     SILITHUS                    = 81,
     CAVERNS_OF_TIME             = 75,
 
     -- The Burning Crusade
     HELLFIRE_PENINSULA          = 100,
-    ZANGARMARSH                 = 101,
+    ZANGARMARSH                 = 102,
     TEROKKAR_FOREST             = 102,
-    NETHERSTORM                 = 107,
-    NETHERSTORM_ALT             = 109,
+    NETHERSTORM             = 109,
     BLADES_EDGE_MOUNTAINS       = 105,
     SHADOWMOON_VALLEY_OUTLAND   = 108,
     ISLE_OF_QUELDANAS           = 122,
@@ -68,10 +65,8 @@ local Z = {
     DEEPHOLM                    = 207,
     MOUNT_HYJAL                 = 198,
     TOL_BARAD_PENINSULA         = 244,
-    TWILIGHT_HIGHLANDS          = 35,
-    TWILIGHT_HIGHLANDS_ALT      = 241,
-    ULDUM_CATA                  = 249,
-    ULDUM_PARENT                = 261,
+    TWILIGHT_HIGHLANDS      = 241,
+    ULDUM                  = 249,
     ABYSSAL_DEPTHS              = 204,
 
     -- Mists of Pandaria
@@ -178,9 +173,6 @@ QR.StaticDungeonEntrances = {
     [Z.ASHENVALE] = {
         { 227, 0.1386, 0.1370, "Blackfathom Deeps", false },
     },
-    [Z.ASHENVALE_ALT] = {
-        { 227, 0.1386, 0.1370, "Blackfathom Deeps", false },
-    },
 
     -- Desolace
     [Z.DESOLACE] = {
@@ -250,11 +242,8 @@ QR.StaticDungeonEntrances = {
     },
 
     -- Badlands (sub-zone and zone-level maps)
-    [Z.BADLANDS_SUBZONE] = {
-        { 239, 0.4140, 0.1080, "Uldaman", false },
-    },
     [Z.BADLANDS] = {
-        { 239, 0.4180, 0.1130, "Uldaman", false },
+        { 239, 0.4140, 0.1080, "Uldaman", false },
     },
 
     -- Swamp of Sorrows
@@ -324,12 +313,6 @@ QR.StaticDungeonEntrances = {
 
     -- Netherstorm (Tempest Keep complex; primary and alternate mapIDs)
     [Z.NETHERSTORM] = {
-        { 257, 0.7260, 0.6000, "The Botanica", false },
-        { 258, 0.6960, 0.7060, "The Mechanar", false },
-        { 254, 0.8230, 0.5960, "The Arcatraz", false },
-        { 749, 0.7380, 0.6380, "The Eye", true },
-    },
-    [Z.NETHERSTORM_ALT] = {
         { 257, 0.7260, 0.6000, "The Botanica", false },
         { 258, 0.6960, 0.7060, "The Mechanar", false },
         { 254, 0.8230, 0.5960, "The Arcatraz", false },
@@ -439,19 +422,9 @@ QR.StaticDungeonEntrances = {
         { 71, 0.1986, 0.5372, "Grim Batol", false },
         { 72, 0.3400, 0.7800, "The Bastion of Twilight", true },
     },
-    [Z.TWILIGHT_HIGHLANDS_ALT] = {
-        { 71, 0.1986, 0.5372, "Grim Batol", false },
-        { 72, 0.3400, 0.7800, "The Bastion of Twilight", true },
-    },
 
     -- Uldum (Cataclysm-era map and parent zone map)
-    [Z.ULDUM_CATA] = {
-        { 68, 0.7640, 0.8416, "The Vortex Pinnacle", false },
-        { 69, 0.6160, 0.6920, "Lost City of the Tol'vir", false },
-        { 70, 0.7000, 0.5260, "Halls of Origination", false },
-        { 74, 0.3830, 0.8060, "Throne of the Four Winds", true },
-    },
-    [Z.ULDUM_PARENT] = {
+    [Z.ULDUM] = {
         { 68, 0.7640, 0.8416, "The Vortex Pinnacle", false },
         { 69, 0.6160, 0.6920, "Lost City of the Tol'vir", false },
         { 70, 0.7000, 0.5260, "Halls of Origination", false },
@@ -884,11 +857,12 @@ QR.StaticDungeonEntrances = {
 -------------------------------------------------------------------------------
 -- Inserting directly avoids overwriting the entries above.
 -- (Classic Uldaman is jid 239, DF version is jid 1197, same coordinates)
-for _, mapID in ipairs({Z.BADLANDS_SUBZONE, Z.BADLANDS}) do
-    local zone = QR.StaticDungeonEntrances[mapID]
-    if zone then
-        zone[#zone + 1] = { 1197, 0.4140, 0.1080, "Uldaman: Legacy of Tyr", false }
-    end
+-- This used to loop over two constants holding 15 and 17. Only 15 is the
+-- Badlands; 17 is the Blasted Lands, so the second pass registered Uldaman in
+-- a zone it is not in.
+local badlandsZone = QR.StaticDungeonEntrances[Z.BADLANDS]
+if badlandsZone then
+    badlandsZone[#badlandsZone + 1] = { 1197, 0.4140, 0.1080, "Uldaman: Legacy of Tyr", false }
 end
 
 -------------------------------------------------------------------------------
