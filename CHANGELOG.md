@@ -20,13 +20,15 @@
 - North-south distances priced by the map's east-west extent
 - Quest teleport buttons hidden whenever the objective tracker had a shape this code did not know
 - Use buttons missing from a route rendered during combat, with nothing to restore them
+- Quest waypoints: the native map pin QuickRoute set was never taken back, so it kept outranking the player's tracked quest; the transit-hub fallback ran before the dungeon-entrance lookup and hid it; and both confirmations printed English regardless of locale
+- The minimap teleport panel left one separator frame behind on every refresh
 - Secure buttons never returned when a window closed, and the minimap teleport panel keeping its buttons on screen for the whole fight
 - Calls to APIs removed in 11.0.2 and 12.0.0 for item names, quest log lookups and window portraits
 - Releases published without having been linted, and store uploads that failed silently
 
 ### Added
 - The Coiled Isle, Vaults of Atal'Utek, Val, Naigtal and the two housing zones
-- Nine dungeon and raid entrances from patches 11.1 through 12.1.0
+- Eight dungeon and raid entrances from patches 11.1 through 12.1.0
 - Delve-O-Bot 7001
 
 ## [1.10.1] - 2026-03-08
