@@ -2011,7 +2011,12 @@ end
 -------------------------------------------------------------------------------
 
 --- Called when combat ends (PLAYER_REGEN_ENABLED)
--- Re-enables any Use buttons that were disabled during combat
+-- Re-renders the route so its Use buttons come back. ConfigureStepUseButton
+-- refuses to take a secure button under lockdown, so a route rendered during a
+-- fight -- the window opened with /qr mid-combat, or a waypoint changed while
+-- it was open -- has none, and nothing else rebuilds it: MainFrame only
+-- restores a window that combat itself hid. TeleportPanel covers its own tab
+-- through SecureButtons:RegisterCombatEndCallback; this is the route tab.
 function UI:OnCombatEnd()
     for _, btn in ipairs(self.combatDisabledButtons) do
         if btn and btn.SetAlpha then
@@ -2022,6 +2027,11 @@ function UI:OnCombatEnd()
         end
     end
     wipe(self.combatDisabledButtons)
+
+    if QR.MainFrame and QR.MainFrame.isShowing
+        and QR.MainFrame.activeTab == "route" and self.frame then
+        self:RefreshRoute()
+    end
 end
 
 -------------------------------------------------------------------------------

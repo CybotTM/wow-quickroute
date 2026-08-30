@@ -1461,3 +1461,60 @@ T:run("/qrscreenshot all cycles through panels", function(t)
     t:assertTrue(MockWoW.config.screenshotsTaken >= 4,
         "Screenshot() called for each panel")
 end)
+
+-------------------------------------------------------------------------------
+-- A route rendered during combat has no Use buttons
+-------------------------------------------------------------------------------
+
+-- Regression: ConfigureStepUseButton refuses to take a secure button under
+-- lockdown, so a route rendered during a fight -- the window opened with /qr
+-- mid-combat, or the waypoint changed while it was open -- gets none. Nothing
+-- rebuilt it afterwards: MainFrame only restores a window that combat itself
+-- hid, and UI:OnCombatEnd restored alpha on a list nothing ever fills. The
+-- buttons stayed missing until the player toggled the window by hand.
+T:run("UI: a route rendered in combat gets its Use buttons back afterwards", function(t)
+    resetState()
+    ensureUIFrame()
+    QR.SecureButtons:Initialize()
+    for _, btn in ipairs(QR.SecureButtons.pool or {}) do
+        btn.inUse = false
+    end
+
+    -- A teleport step needs an owned teleport and a destination it serves.
+    MockWoW.config.ownedToys[140192] = true  -- Dalaran Hearthstone
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 84         -- Stormwind
+    setMapPinWaypoint(627, 0.5, 0.5)         -- Dalaran (Broken Isles)
+
+    QR.MainFrame.isShowing = true
+    QR.MainFrame.activeTab = "route"
+
+    local function stepsWithButtons()
+        local n = 0
+        for _, stepFrame in ipairs(QR.UI.stepLabels or {}) do
+            if stepFrame.useButton then n = n + 1 end
+        end
+        return n
+    end
+
+    MockWoW.config.inCombatLockdown = true
+    QR.UI:RefreshRoute()
+    local rendered = #(QR.UI.stepLabels or {})
+    t:assertGreaterThan(rendered, 0, "the route rendered its steps in combat")
+    t:assertEqual(0, stepsWithButtons(),
+        "no step got a secure button under lockdown (got: "
+            .. tostring(stepsWithButtons()) .. ")")
+
+    MockWoW.config.inCombatLockdown = false
+    local handler = QR.combatFrame and QR.combatFrame:GetScript("OnEvent")
+    t:assertNotNil(handler, "the combat manager is reachable")
+    if not handler then return end
+    handler(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+
+    t:assertGreaterThan(stepsWithButtons(), 0,
+        "the route is re-rendered with its Use buttons once combat ends "
+            .. "(steps with a button: " .. tostring(stepsWithButtons()) .. ")")
+
+    QR.MainFrame.isShowing = false
+    QR.UI:ClearStepLabels()
+end)
