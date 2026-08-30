@@ -203,8 +203,15 @@ function UI:GetLocalizedItemInfo(itemID)
         updateLRUOrder(self.itemInfoAccessOrder, itemPosTracker, self.itemInfoCache, itemID)
         return cached.name, cached.link
     end
-    -- Fetch from API
-    local name, link = GetItemInfo(itemID)
+    -- Fetch from API. C_Item is the current namespace; the global GetItemInfo
+    -- only still exists behind Blizzard's deprecation shim and is kept as a
+    -- guarded last resort, matching MapSidebar.lua:64-78.
+    local name, link
+    if C_Item and C_Item.GetItemInfo then
+        name, link = C_Item.GetItemInfo(itemID)
+    elseif GetItemInfo then
+        name, link = GetItemInfo(itemID)
+    end
     -- Only cache if we got valid data (item info may not be available immediately)
     if name then
         self.itemInfoCache[itemID] = { name = name, link = link }
@@ -1623,7 +1630,11 @@ function UI:AppendAPIDebugInfo(lines)
         { "C_QuestLog.GetNextWaypointForMap", C_QuestLog and C_QuestLog.GetNextWaypointForMap },
         { "C_Spell.GetSpellInfo",        C_Spell and C_Spell.GetSpellInfo },
         { "UiMapPoint",                  UiMapPoint and UiMapPoint.CreateFromCoordinates },
-        { "GetItemInfo",                 GetItemInfo },
+        { "C_Item.GetItemInfo",          C_Item and C_Item.GetItemInfo },
+        { "C_Item.GetItemIconByID",      C_Item and C_Item.GetItemIconByID },
+        { "C_Spell.GetSpellTexture",     C_Spell and C_Spell.GetSpellTexture },
+        { "C_Spell.GetSpellCooldown",    C_Spell and C_Spell.GetSpellCooldown },
+        { "C_QuestLog.GetLogIndexForQuestID", C_QuestLog and C_QuestLog.GetLogIndexForQuestID },
         { "PlayerHasToy",               PlayerHasToy },
         { "IsSpellKnown",               IsSpellKnown },
     }
@@ -2271,8 +2282,11 @@ local function ExtractQuestData(lines)
             table_insert(lines, string_format("**Quest %d**: %s%s", questID, title, isSuperTracked))
 
             -- Quest log header (section name)
-            if C_QuestLog.GetQuestLogIndexByID then
-                local logIndex = C_QuestLog.GetQuestLogIndexByID(questID)
+            -- Renamed: GetQuestLogIndexByID no longer exists, so this branch
+            -- was permanently dead and the debug dump silently omitted the
+            -- quest-log context it claims to print.
+            if C_QuestLog.GetLogIndexForQuestID then
+                local logIndex = C_QuestLog.GetLogIndexForQuestID(questID)
                 if logIndex then
                     local info = C_QuestLog.GetInfo and C_QuestLog.GetInfo(logIndex)
                     if info then

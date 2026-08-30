@@ -347,10 +347,17 @@ function QR.CreatePortraitHeader(frame, options)
     local portrait = frame:CreateTexture(nil, "ARTWORK")
     portrait:SetSize(42, 42)
     portrait:SetPoint("TOPLEFT", 10, -8)
-    if SetPortraitToTexture then
-        SetPortraitToTexture(portrait, iconPath)
-    else
-        portrait:SetTexture(iconPath)
+    portrait:SetTexture(iconPath)
+    -- SetPortraitToTexture was removed in 12.0.0, so the guarded branch that
+    -- used it never ran and the portrait was square anyway. A MaskTexture is
+    -- the replacement; if the mask cannot be created the square icon is what
+    -- remains, which is what shipped before this.
+    if frame.CreateMaskTexture then
+        local mask = frame:CreateMaskTexture()
+        mask:SetAllPoints(portrait)
+        mask:SetTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask",
+            "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+        portrait:AddMaskTexture(mask)
     end
 
     -- Title

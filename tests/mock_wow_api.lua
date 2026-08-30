@@ -41,6 +41,9 @@ MockWoW.config = {
     -- Spells the player knows: { [spellID] = true }
     knownSpells = {},
 
+    -- Items whose data is not cached client-side: { [itemID] = true }.
+    uncachedItems = {},
+
     -- Spells whose data is not cached client-side: { [spellID] = true }.
     -- C_Spell.GetSpellInfo is MayReturnNothing and yields nil for these, which
     -- is the common state right after login.
@@ -309,6 +312,7 @@ function MockWoW:Reset()
     self.config.ownedToys = {}
     self.config.knownSpells = {}
     self.config.uncachedSpells = {}
+    self.config.uncachedItems = {}
     self.config.itemCounts = {}
     self.config.equippedItems = {}
     self.config.professions = {}
@@ -348,6 +352,7 @@ local function CreateMockTexture(parent)
         _desaturated = false,
     }
     function tex:SetTexture(t) self._texture = t end
+    function tex:AddMaskTexture(mask) self._masks = self._masks or {}; self._masks[#self._masks + 1] = mask end
     function tex:GetTexture() return self._texture end
     function tex:SetColorTexture() end
     function tex:SetSize() end
@@ -607,6 +612,12 @@ local function CreateMockFrame(frameType, name, parent, template)
     end
     function frame:CreateFontString(name, layer, template)
         return CreateMockFontString(self)
+    end
+    -- Mask textures: the replacement for the removed SetPortraitToTexture.
+    -- Modelled so the code path that applies a round portrait mask actually
+    -- runs in tests instead of being skipped by a nil check.
+    function frame:CreateMaskTexture(name, layer)
+        return CreateMockTexture(self)
     end
 
     -- Scroll frame methods (for UIPanelScrollFrameTemplate)
@@ -1159,6 +1170,17 @@ function MockWoW:Install()
 
     _G.C_Item.GetItemIconByID = function(itemID)
         return 134400
+    end
+
+    -- Current namespace for item info. Honours cfg.uncachedItems so the
+    -- "not cached yet" branch runs too: GetItemInfo is documented to return
+    -- nothing until the client has the item's data, which is the common state
+    -- right after login.
+    _G.C_Item.GetItemInfo = function(itemID)
+        if cfg.uncachedItems[itemID] then return nil end
+        local name = "Item " .. tostring(itemID)
+        local link = "|cff0070dd|Hitem:" .. tostring(itemID) .. "::::::::80:::::|h[" .. name .. "]|h|r"
+        return name, link, 3, 1, 1, "Miscellaneous", "Junk", 1, "", 134400, 0
     end
 
     ---------------------------------------------------------------------------
