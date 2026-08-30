@@ -171,6 +171,32 @@ T:run("GetRowFrame: returns a frame", function(t)
     t:assertNotNil(row, "GetRowFrame returns a frame")
 end)
 
+-- Regression: the icon lookup fell through to the global GetSpellInfo, removed
+-- in 11.0.2, whenever C_Spell.GetSpellInfo returned nothing for an uncached
+-- spell. On a 12.x client that is a nil call that aborts the row's icon setup.
+T:run("ConfigureRowIcon: uncached spell falls back without calling a removed global", function(t)
+    resetState()
+    local spellID = 3565
+    MockWoW.config.uncachedSpells[spellID] = true
+    MockWoW.config.knownSpells[spellID] = true
+
+    t:assertNil(_G.GetSpellInfo, "Global GetSpellInfo does not exist on a 12.x client")
+
+    local row = QR.TeleportPanel:GetRowFrame()
+    local entry = {
+        id = spellID,
+        isSpell = true,
+        data = { name = "Uncached Spell", destination = "Somewhere" },
+    }
+
+    local ok, err = pcall(function()
+        QR.TeleportPanel:ConfigureRowIcon(row, entry)
+    end)
+    t:assertTrue(ok, "ConfigureRowIcon survives an uncached spell (got: " .. tostring(err) .. ")")
+
+    QR.TeleportPanel:ReleaseRowFrame(row)
+end)
+
 T:run("ReleaseRowFrame and reuse: pool recycles frames", function(t)
     resetState()
     -- Drain pool first

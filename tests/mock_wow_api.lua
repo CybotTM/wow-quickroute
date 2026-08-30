@@ -41,6 +41,11 @@ MockWoW.config = {
     -- Spells the player knows: { [spellID] = true }
     knownSpells = {},
 
+    -- Spells whose data is not cached client-side: { [spellID] = true }.
+    -- C_Spell.GetSpellInfo is MayReturnNothing and yields nil for these, which
+    -- is the common state right after login.
+    uncachedSpells = {},
+
     -- Item counts: { [itemID] = count }
     itemCounts = {},
 
@@ -303,6 +308,7 @@ function MockWoW:Reset()
     self.config.bagItems = {}
     self.config.ownedToys = {}
     self.config.knownSpells = {}
+    self.config.uncachedSpells = {}
     self.config.itemCounts = {}
     self.config.equippedItems = {}
     self.config.professions = {}
@@ -897,11 +903,11 @@ function MockWoW:Install()
     -- Spell Functions
     ---------------------------------------------------------------------------
 
-    _G.GetSpellInfo = function(spellID)
-        -- Returns: name, rank, icon, castTime, minRange, maxRange, spellID
-        local name = "Spell " .. tostring(spellID)
-        return name, "", 134400, 0, 0, 0, spellID
-    end
+    -- The global GetSpellInfo was removed in 11.0.2 and does not exist on a
+    -- 12.x client. It is deliberately left undefined so that an unguarded call
+    -- errors here instead of in the game. Call sites must either guard with
+    -- `if GetSpellInfo then` or use C_Spell.GetSpellInfo / C_Spell.GetSpellTexture.
+    _G.GetSpellInfo = nil
 
     _G.GetSpellLink = function(spellID)
         local name = "Spell " .. tostring(spellID)
@@ -1096,6 +1102,8 @@ function MockWoW:Install()
 
     _G.C_Spell.GetSpellInfo = function(spellID)
         if not spellID then return nil end
+        -- MayReturnNothing: uncached spell data yields nothing.
+        if cfg.uncachedSpells[spellID] then return nil end
         return {
             name = "Spell " .. tostring(spellID),
             iconID = 134400,
