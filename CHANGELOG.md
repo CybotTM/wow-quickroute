@@ -8,11 +8,11 @@
 - SecureButtons failed to load, raising a Lua error on every login
 - Twelve dungeon entrances bound to the wrong Encounter Journal instance
 - Twelve dungeon-entrance zone constants pointing at the wrong map
-- Nine dungeon, raid and continent maps used as if they were walkable zones
+- Nine maps that are not walkable zones -- dungeons, raids, continents and an orphan duplicate -- used as if they were
 - The Veiled Stair modelled as an island reached by boat, its adjacency block holding Isle of Thunder's neighbours
 - Crucible of Storms registered on the Kul Tiras continent map instead of Stormsong Valley
 - Four Tol Barad teleports pointing at a map with no continent and no neighbours
-- Silvermoon services and portals on the map the city left behind in 11.1
+- Silvermoon services and portals on the map the city left behind when Midnight revamped it
 - Teleport entries the live client contradicts
 - Routes computed after a zone change started in the zone the player had just left
 - Continent routing erasing the measured walk edges inside a city
@@ -23,7 +23,7 @@
 - Quest waypoints: the native map pin QuickRoute set was never taken back, so it kept outranking the player's tracked quest; the transit-hub fallback ran before the dungeon-entrance lookup and hid it; and both confirmations printed English regardless of locale
 - The minimap teleport panel left one separator frame behind on every refresh
 - Secure buttons never returned when a window closed, and the minimap teleport panel keeping its buttons on screen for the whole fight
-- Calls to APIs removed in 11.0.2 and 12.0.0 for item names, quest log lookups and window portraits
+- Calls to APIs removed in 11.0.2 and 12.0.0 for teleport icons, item names, quest log lookups and window portraits
 - Releases published without having been linted, and store uploads that failed silently
 
 ### Added

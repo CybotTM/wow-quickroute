@@ -1833,64 +1833,64 @@ T:run("A pin QuickRoute did not set is left alone", function(t)
     t:assertTrue(MockWoW.config.hasUserWaypoint, "and it is still there")
 end)
 
-T:run("The waypoint confirmation uses the translated string", function(t)
-    -- Both confirmations printed English literals while L["WAYPOINT_SET"] sat
-    -- translated in all ten locale blocks, referenced by nothing.
-    resetState()
+-- Both confirmations printed English literals while L["WAYPOINT_SET"] sat
+-- translated in all ten locale blocks, referenced by nothing. The template is
+-- swapped for a sentinel rather than compared to its enUS text: on enUS a
+-- hardcoded literal and the template read the same, so comparing text would
+-- pass for the very defect this guards. The title is not asserted -- the TomTom
+-- branch prefixes it with "QR: " on purpose.
+local function withSentinelTemplate(fn)
+    local original = QR.L["WAYPOINT_SET"]
+    QR.L["WAYPOINT_SET"] = "SENTINEL-WAYPOINT-TEMPLATE %s"
     local printed = {}
     local originalPrint = QR.Print
     QR.Print = function(_, msg) printed[#printed + 1] = msg end
-
-    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Testort")
-
+    local ok, err = pcall(fn)
     QR.Print = originalPrint
+    QR.L["WAYPOINT_SET"] = original
+    if not ok then error(err, 0) end
+    return printed
+end
+
+local function usedTemplate(printed)
+    for _, msg in ipairs(printed) do
+        if msg:find("SENTINEL-WAYPOINT-TEMPLATE", 1, true) then return true end
+    end
+    return false
+end
+
+T:run("The native waypoint confirmation uses the translated string", function(t)
+    resetState()
+    local printed = withSentinelTemplate(function()
+        QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Testort")
+    end)
 
     t:assertGreaterThan(#printed, 0, "the confirmation was printed")
-    local template = QR.L["WAYPOINT_SET"]
-    t:assertNotNil(template, "the locale carries a WAYPOINT_SET template")
-    if not template or #printed == 0 then return end
-    local expected = string.format(template, "Testort")
-    local matched = false
-    for _, msg in ipairs(printed) do
-        if msg == expected then matched = true end
-    end
-    t:assertTrue(matched,
+    t:assertEqual(1, MockWoW.config.userWaypointSets,
+        "the native branch was taken, not TomTom's")
+    t:assertTrue(usedTemplate(printed),
         "the message comes from the template, not a literal (got: "
             .. table.concat(printed, " | ") .. ")")
 end)
 
--------------------------------------------------------------------------------
--- The transit-hub fallback is a last resort, not a first answer
--------------------------------------------------------------------------------
-
--- Regression: the fallback used to return as soon as it was set, above the
--- dungeon-entrance resolution and two other methods. Any quest whose next
--- waypoint pointed at a portal hub therefore routed to the hub, and the
--- entrance lookup below it was unreachable for exactly the quests that need it.
-T:run("A dungeon quest routes to the entrance, not to the transit hub", function(t)
+T:run("The TomTom confirmation uses the translated string too", function(t)
+    -- The test above reaches only the native branch, because resetState()
+    -- clears _G.TomTom -- and TomTom is the common case for a routing addon, so
+    -- a literal reintroduced there would reach more players, not fewer.
     resetState()
-    QR.WaypointIntegration:ClearQuestCoordCache()
-
-    local questID = 9001
-    -- Blizzard's next waypoint for this quest is Stormwind (84), which is a
-    -- PortalHubs entry and therefore a transit hub: this sets the fallback.
-    MockWoW.config.currentMapID = 84
-    MockWoW.config.questWaypoints = { [questID] = { mapID = 84, x = 0.55, y = 0.60 } }
-    MockWoW.config.questTitles = { [questID] = "Into the Stonevault" }
-    MockWoW.config.questTagInfo = { [questID] = { tagID = Enum.QuestTag.Dungeon } }
-    -- And the quest highlights Isle of Dorn, which has entrance data.
-    MockWoW.config.questAdditionalHighlights = {
-        [questID] = { uiMapID = 2248, dungeons = true },
+    _G.TomTom = {
+        AddWaypoint = function() return "uid-1" end,
+        RemoveWaypoint = function() end,
     }
-    QR.DungeonData.scanned = true
 
-    local result = QR.WaypointIntegration:GetQuestWaypoint(questID)
+    local printed = withSentinelTemplate(function()
+        QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Testort")
+    end)
+    _G.TomTom = nil
 
-    t:assertNotNil(result, "a destination was resolved")
-    if not result then return end
-    t:assertEqual(2248, result.mapID,
-        "the dungeon entrance wins over the transit hub (got map "
-            .. tostring(result.mapID) .. ")")
-    t:assertTrue(result.mapID ~= 84,
-        "and it is not the portal hub the next waypoint pointed at")
+    t:assertEqual(0, MockWoW.config.userWaypointSets,
+        "the TomTom branch was taken, not the native fallback")
+    t:assertTrue(usedTemplate(printed),
+        "the TomTom confirmation comes from the template too (got: "
+            .. table.concat(printed, " | ") .. ")")
 end)

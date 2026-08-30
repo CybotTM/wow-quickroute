@@ -1359,9 +1359,10 @@ T:run("DungeonEntrances: landmark dungeons sit on the right map", function(t)
         "Stratholme is not on Redridge Mountains (49)")
 end)
 
--- Reverting PathCalculator's Silvermoon entry to the pre-11.1 map 110 left the
--- suite green, so the value is asserted directly.
-T:run("PathCalculator: Silvermoon City uses the 11.1+ map", function(t)
+-- Reverting PathCalculator's Silvermoon entry to the map Midnight left behind
+-- kept the suite green, so the value is asserted directly. 2393 sits under
+-- Quel'Thalas (2537); 110 is the pre-revamp city.
+T:run("PathCalculator: Silvermoon City uses the revamped map", function(t)
     local cities = QR.CAPITAL_CITIES
     t:assertNotNil(cities, "CAPITAL_CITIES is exported")
     if not cities then return end
@@ -1369,5 +1370,5 @@ T:run("PathCalculator: Silvermoon City uses the 11.1+ map", function(t)
     t:assertNotNil(silvermoon, "Silvermoon City is a capital")
     if not silvermoon then return end
     t:assertEqual(2393, silvermoon.mapID,
-        "Silvermoon City is uiMapID 2393, not the pre-11.1 110")
+        "Silvermoon City is uiMapID 2393, not the pre-revamp 110")
 end)
