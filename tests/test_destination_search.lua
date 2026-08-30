@@ -184,6 +184,7 @@ T:run("DestSearch: CreateDropdown creates frame", function(t)
     QR.DestinationSearch.frame = nil
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
     QR.DestinationSearch.isShowing = false
 
     local DS = QR.DestinationSearch
@@ -209,6 +210,7 @@ T:run("DestSearch: ShowDropdown shows frame", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
 
@@ -224,6 +226,7 @@ T:run("DestSearch: HideDropdown hides frame", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
 
@@ -239,6 +242,7 @@ T:run("DestSearch: OnHide syncs isShowing", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
 
@@ -254,6 +258,7 @@ T:run("DestSearch: combat hides dropdown", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
 
@@ -277,6 +282,7 @@ T:run("DestSearch: selecting city routes via POIRouting", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
 
     local routedTo = nil
     local origRoute = QR.POIRouting.RouteToMapPosition
@@ -304,6 +310,7 @@ T:run("DestSearch: row OnClick plays sound", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
     MockWoW.config.playedSounds = {}
 
     -- Create dropdown so CreateResultRow works
@@ -330,6 +337,7 @@ T:run("DestSearch: OnSearchTextChanged filters dropdown", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
 
@@ -360,6 +368,7 @@ T:run("DestSearch: section headers use gold color", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
     QR.DestinationSearch.collapsedSections = {}
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
@@ -444,6 +453,7 @@ T:run("DestSearch: OnEditFocusLost closes dropdown", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
     QR.DestinationSearch.searchBox = nil
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
@@ -475,6 +485,7 @@ T:run("DestSearch: OnMouseDown toggles dropdown closed", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
     QR.DestinationSearch.searchBox = nil
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
@@ -506,6 +517,7 @@ T:run("DestSearch: OnMouseDown reopens dropdown when closed", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
     QR.DestinationSearch.searchBox = nil
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
@@ -536,6 +548,7 @@ T:run("DestSearch: OnEditFocusGained does not reopen if already showing", functi
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
     QR.DestinationSearch.searchBox = nil
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
@@ -620,6 +633,7 @@ T:run("DestSearch: services dropdown renders rows", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
     QR.DestinationSearch.collapsedSections = {}
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
@@ -647,6 +661,7 @@ T:run("DestSearch: service nearest row has blue text color", function(t)
     QR.DestinationSearch.isShowing = false
     QR.DestinationSearch.rows = {}
     QR.DestinationSearch.rowPool = {}
+    QR.DestinationSearch.freeRows = {}
     QR.DestinationSearch.collapsedSections = {}
 
     if QR.DungeonData then QR.DungeonData:Initialize() end
