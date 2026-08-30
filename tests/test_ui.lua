@@ -1501,6 +1501,10 @@ T:run("UI: a route rendered in combat gets its Use buttons back afterwards", fun
     QR.UI:RefreshRoute()
     local rendered = #(QR.UI.stepLabels or {})
     t:assertGreaterThan(rendered, 0, "the route rendered its steps in combat")
+    -- Precondition, not a guard: three layers enforce this independently
+    -- (ConfigureStepUseButton, GetButton and ConfigureButton), so neutralising
+    -- any one of them leaves it green. It establishes the starting state the
+    -- assertion below measures against; the regression is caught there.
     t:assertEqual(0, stepsWithButtons(),
         "no step got a secure button under lockdown (got: "
             .. tostring(stepsWithButtons()) .. ")")
@@ -1517,4 +1521,50 @@ T:run("UI: a route rendered in combat gets its Use buttons back afterwards", fun
 
     QR.MainFrame.isShowing = false
     QR.UI:ClearStepLabels()
+end)
+
+-- Regression: the fix above first refreshed unconditionally. MainFrame's
+-- leave-combat callback is registered before UI's and already rebuilds a window
+-- that combat hid, so the common case -- window open, fight starts, fight ends
+-- -- ran pathfinding twice and released and re-acquired every secure button in
+-- the same frame.
+T:run("UI: combat exit re-renders the route once, not twice", function(t)
+    resetState()
+    ensureUIFrame()
+    QR.SecureButtons:Initialize()
+    MockWoW.config.ownedToys[140192] = true
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 84
+    setMapPinWaypoint(627, 0.5, 0.5)
+
+    local handler = QR.combatFrame and QR.combatFrame:GetScript("OnEvent")
+    t:assertNotNil(handler, "the combat manager is reachable")
+    if not handler then return end
+
+    -- Open before the fight, let combat hide it: this is the path where
+    -- MainFrame restores the window itself.
+    MockWoW.config.inCombatLockdown = false
+    QR.MainFrame:Show("route")
+    MockWoW.config.inCombatLockdown = true
+    handler(QR.combatFrame, "PLAYER_REGEN_DISABLED")
+    t:assertTrue(QR.MainFrame.wasShowingBeforeCombat,
+        "combat hid the window, so MainFrame will restore it")
+
+    local original = QR.UI.RefreshRoute
+    local calls = 0
+    QR.UI.RefreshRoute = function(self, ...)
+        calls = calls + 1
+        return original(self, ...)
+    end
+
+    MockWoW.config.inCombatLockdown = false
+    handler(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+
+    QR.UI.RefreshRoute = original
+
+    t:assertEqual(1, calls,
+        "the route is rendered exactly once on combat exit (rendered "
+            .. tostring(calls) .. " times)")
+
+    QR.MainFrame:Hide()
 end)

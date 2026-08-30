@@ -112,7 +112,6 @@ local Z = {
     NAZJATAR                    = 1355,
     MECHAGON                    = 1462,
     DAZARALOR                   = 1165,
-    STORMSONG_CRUCIBLE          = 876,
     ULDUM_NZOTH_ASSAULT         = 1527,
 
     -- Shadowlands
@@ -623,6 +622,11 @@ QR.StaticDungeonEntrances = {
     -- Stormsong Valley (Kul Tiras)
     [Z.STORMSONG_VALLEY] = {
         { 1036, 0.7893, 0.2647, "Shrine of the Storm", false },
+        -- Crucible of Storms was registered on 876, which is the Kul Tiras
+        -- CONTINENT map, so coordinates surveyed for a zone map landed on the
+        -- continent. UiMap gives all three Crucible maps parent 942.
+        -- Coordinates carried over unchanged and not re-surveyed for 942.
+        { 1177, 0.6716, 0.2482, "Crucible of Storms", true },
     },
 
     -- Boralus (Kul Tiras city)
@@ -668,11 +672,6 @@ QR.StaticDungeonEntrances = {
     -- Dazar'alor (Zandalar city)
     [Z.DAZARALOR] = {
         { 1176, 0.5500, 0.5350, "Battle of Dazar'alor", true },
-    },
-
-    -- Crucible of Storms (near Stormsong)
-    [Z.STORMSONG_CRUCIBLE] = {
-        { 1177, 0.6716, 0.2482, "Crucible of Storms", true },
     },
 
     -- Uldum (N'Zoth assault version — same dungeons + Ny'alotha)

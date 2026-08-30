@@ -2028,9 +2028,23 @@ function UI:OnCombatEnd()
     end
     wipe(self.combatDisabledButtons)
 
-    if QR.MainFrame and QR.MainFrame.isShowing
-        and QR.MainFrame.activeTab == "route" and self.frame then
-        self:RefreshRoute()
+    if not (QR.MainFrame and QR.MainFrame.isShowing
+        and QR.MainFrame.activeTab == "route" and self.frame) then
+        return
+    end
+
+    -- Only when a teleport step is actually missing its button. MainFrame's
+    -- callback is registered before this one and restores a window that combat
+    -- hid, which rebuilds the tab already -- refreshing unconditionally ran
+    -- pathfinding twice and released and re-acquired every secure button in
+    -- the same frame. teleportID is set on the step whether or not the button
+    -- could be taken, so its presence without a useButton is exactly the
+    -- rendered-under-lockdown case.
+    for _, stepFrame in ipairs(self.stepLabels) do
+        if stepFrame.teleportID and not stepFrame.useButton then
+            self:RefreshRoute()
+            return
+        end
     end
 end
 

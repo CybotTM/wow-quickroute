@@ -442,12 +442,16 @@ end
 --   * modules + nested usedBlocks[template][id]  -- intermediate shape
 --   * MODULES + flat usedBlocks[questID]         -- what this file assumed
 -- @return table { [questID] = block }
--- @return boolean Whether a module of a known shape was walked. An empty table
---   with recognised = true means the tracker really has no blocks; with
---   recognised = false it means its shape is one this code does not know.
+-- @return boolean Whether every block provider present was read successfully.
+--   An empty table with recognised = true means the tracker really has no
+--   blocks. recognised = false means either an unknown shape or a provider
+--   that raised -- in both cases the block set is incomplete and the caller
+--   must not conclude a quest's block is gone. One provider failing is enough:
+--   its blocks are missing from an otherwise plausible-looking result.
 function QTB:CollectQuestBlocks()
     local blocks = {}
     local recognised = false
+    local failed = false
 
     local function record(id, block)
         if type(id) == "number" and type(block) == "table" and block.HeaderText then
@@ -463,21 +467,26 @@ function QTB:CollectQuestBlocks()
 
     for _, module in pairs(modules) do
         if type(module) == "table" then
-            if type(module.EnumerateActiveBlocks) == "function" then
-                -- Only a call that returned counts as a recognised shape. An
-                -- enumerator that errors tells us nothing about how many blocks
-                -- there are, and reporting "recognised, none" would hide every
-                -- button -- exactly what the caller's guard exists to prevent.
-                local ok = pcall(module.EnumerateActiveBlocks, module, function(block)
+            local hasEnumerator = type(module.EnumerateActiveBlocks) == "function"
+            local hasUsedBlocks = type(module.usedBlocks) == "table"
+            local handled = false
+
+            if hasEnumerator then
+                -- Only a call that returned counts as read. An enumerator that
+                -- errors tells us nothing about how many blocks there are, and
+                -- reporting "read it, none there" would hide every button --
+                -- exactly what the caller's guard exists to prevent.
+                handled = pcall(module.EnumerateActiveBlocks, module, function(block)
                     if type(block) == "table" then
                         record(block.id, block)
                     end
                 end)
-                if ok then
-                    recognised = true
-                end
-            elseif type(module.usedBlocks) == "table" then
-                recognised = true
+            end
+
+            -- Fall through to the older shape when the enumerator is absent OR
+            -- raised. This was an elseif, so a module carrying both fields got
+            -- no fallback at all.
+            if not handled and hasUsedBlocks then
                 for key, value in pairs(module.usedBlocks) do
                     if type(value) == "table" and value.HeaderText then
                         -- Flat: usedBlocks[questID] = block
@@ -489,11 +498,21 @@ function QTB:CollectQuestBlocks()
                         end
                     end
                 end
+                handled = true
+            end
+
+            if handled then
+                recognised = true
+            elseif hasEnumerator or hasUsedBlocks then
+                -- A block provider we could not read. A module carrying
+                -- neither field is simply not one -- the tracker has many
+                -- module types -- and must not count as a failure.
+                failed = true
             end
         end
     end
 
-    return blocks, recognised
+    return blocks, recognised and not failed
 end
 
 

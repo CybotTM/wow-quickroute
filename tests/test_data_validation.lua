@@ -1057,15 +1057,80 @@ end)
 --
 -- Identities confirmed with C_Map.GetMapInfo on a live 12.1.0.69497 client.
 local NOT_ZONES = {
-    [11]  = "Wailing Caverns (dungeon) — Ashenvale is 63",
-    [67]  = "Maraudon (dungeon) — Feralas is 69",
-    [68]  = "Maraudon (dungeon) — Dustwallow Marsh is 70",
-    [101] = "Outland (continent) — Zangarmarsh is 102",
-    [261] = "Blood Furnace (dungeon) — Uldum is 249",
-    [378] = "The Wandering Isle — Kun-Lai Summit is 379",
-    [700] = "Icecrown Citadel (raid) — Twilight Highlands is 241",
+    [11]  = "Wailing Caverns (dungeon) -- Ashenvale is 63",
+    [67]  = "Maraudon (dungeon) -- Feralas is 69",
+    [68]  = "Maraudon (dungeon) -- Dustwallow Marsh is 70",
+    [261] = "Blood Furnace (dungeon) -- Uldum is 249",
+    [378] = "The Wandering Isle -- Kun-Lai Summit is 379",
+    [700] = "Icecrown Citadel (raid) -- Twilight Highlands is 241",
     [809] = "Karazhan (dungeon)",
 }
+
+-- Every cosmic, world and continent map in the client's UiMap table, taken
+-- from the 12.1.0 build rather than listed by hand. The hand-written list
+-- above had caught 101 (Outland) and stopped there, so 876 -- the Kul Tiras
+-- CONTINENT -- sat in the adjacency table labelled "Zandalar" and carried the
+-- Crucible of Storms entrance until this sweep. The exhaustive set closes the
+-- class instead of one member of it. As of this build no map here is used as
+-- a zone anywhere in the addon, so an addition is a real finding: if a future
+-- patch makes one of these genuinely walkable, move it out with a comment
+-- saying so rather than deleting the check.
+local CONTINENT_MAPS = {
+    [12] = "Kalimdor (continent)",
+    [13] = "Eastern Kingdoms (continent)",
+    [101] = "Outland (continent)",
+    [113] = "Northrend (continent)",
+    [424] = "Pandaria (continent)",
+    [572] = "Draenor (continent)",
+    [619] = "Broken Isles (continent)",
+    [875] = "Zandalar (continent)",
+    [876] = "Kul Tiras (continent)",
+    [905] = "Argus (continent)",
+    [946] = "Cosmic (cosmic)",
+    [947] = "Azeroth (world)",
+    [948] = "The Maelstrom (continent)",
+    [985] = "Eastern Kingdoms (continent)",
+    [986] = "Kalimdor (continent)",
+    [987] = "Outland (continent)",
+    [988] = "Northrend (continent)",
+    [989] = "Pandaria (continent)",
+    [990] = "Draenor (continent)",
+    [991] = "Zandalar (continent)",
+    [992] = "Kul Tiras (continent)",
+    [993] = "Broken Isles (continent)",
+    [994] = "Argus (continent)",
+    [1011] = "Zandalar (continent)",
+    [1014] = "Kul Tiras (continent)",
+    [1208] = "Eastern Kingdoms (continent)",
+    [1209] = "Kalimdor (continent)",
+    [1384] = "Northrend (continent)",
+    [1467] = "Outland (continent)",
+    [1504] = "Nazjatar (continent)",
+    [1550] = "The Shadowlands (continent)",
+    [1645] = "Torghast (continent)",
+    [1647] = "The Shadowlands (continent)",
+    [1922] = "Draenor (continent)",
+    [1923] = "Pandaria (continent)",
+    [1978] = "Dragon Isles (continent)",
+    [2046] = "Zereth Mortis (continent)",
+    [2055] = "Sepulcher of the First Ones (continent)",
+    [2057] = "Dragon Isles (continent)",
+    [2059] = "Resonant Peaks (continent)",
+    [2147] = "Azeroth (continent)",
+    [2149] = "Ohn'ahran Plains (continent)",
+    [2252] = "Dragon Isles (continent)",
+    [2274] = "Khaz Algar (continent)",
+    [2276] = "Khaz Algar (continent)",
+    [2481] = "Eastern Kingdoms (continent)",
+    [2537] = "Quel'Thalas (continent)",
+    [2561] = "Quel'Thalas (continent)",
+}
+
+for mapID, name in pairs(CONTINENT_MAPS) do
+    if not NOT_ZONES[mapID] then
+        NOT_ZONES[mapID] = name
+    end
+end
 
 T:run("ZoneAdjacency: no dungeon, raid or continent map is used as a zone", function(t)
     for zoneID in pairs(QR.ZoneAdjacencies or {}) do

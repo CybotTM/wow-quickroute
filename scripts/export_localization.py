@@ -55,6 +55,23 @@ LOCALE_START = re.compile(
     r'(?:if|elseif)\s+(?:GetLocale\(\)|esLocale)\s*==\s*"(\w+)"'
 )
 
+# Any conditional comparing something to a known locale code is a locale block
+# header. LOCALE_START understands only two spellings of the left-hand side and
+# only double quotes -- both Lua-legal alternatives exist, and Localization.lua
+# already hoists one comparison into a local (esLocale), which is why that name
+# is special-cased above. A header it does not match is skipped silently, and
+# the block's phrases are then attributed to whatever current_locale happens to
+# be: "enUS" right after an `end`. enUS is the only locale uploaded with
+# missing-phrase-handling DeletePhrase, so that silent misfiling would overwrite
+# the authoritative source phrases with another language and exit 0.
+LOCALE_HEADER_HINT = re.compile(
+    r'(?:if|elseif)\s+[\w().]+\s*==\s*[\'"](\w{4})[\'"]'
+)
+
+# Sanity floor for the enUS upload. Not an exact count -- it exists so that a
+# parser that suddenly reads almost nothing cannot delete the phrase set.
+MIN_ENUS_PHRASES = 200
+
 
 def parse_localization(filepath):
     """Parse Localization.lua and return {locale: {key: value}} dict."""
@@ -71,6 +88,15 @@ def parse_localization(filepath):
                 if current_locale not in locales:
                     locales[current_locale] = {}
                 continue
+
+            hint = LOCALE_HEADER_HINT.search(line)
+            if hint and hint.group(1) in LOCALE_MAP:
+                raise ValueError(
+                    "Locale block header in %s that the parser cannot read:\n"
+                    "  %s\n"
+                    "Its phrases would be filed under %r instead of %r."
+                    % (filepath, line.rstrip(), current_locale, hint.group(1))
+                )
 
             # Check for end of locale block
             if line.strip() == "end":
@@ -106,6 +132,27 @@ def parse_localization(filepath):
         locales["esES"] = dict(locales["esMX"])
 
     return locales
+
+
+def check_parse(locales, filepath):
+    """Refuse to upload a parse that lost or misfiled a locale."""
+    found = set(locales)
+    expected = set(LOCALE_MAP)
+    if found != expected:
+        raise ValueError(
+            "Locale set from %s does not match LOCALE_MAP.\n"
+            "  missing: %s\n"
+            "  unexpected: %s"
+            % (filepath, sorted(expected - found) or "none",
+               sorted(found - expected) or "none")
+        )
+    count = len(locales["enUS"])
+    if count < MIN_ENUS_PHRASES:
+        raise ValueError(
+            "Only %d enUS phrases parsed from %s, expected at least %d. "
+            "enUS uploads with DeletePhrase, so this would delete the rest."
+            % (count, filepath, MIN_ENUS_PHRASES)
+        )
 
 
 def to_cf_format(strings):
@@ -217,6 +264,7 @@ def main():
     locales = parse_localization(LOCALIZATION_FILE)
 
     if "--upload" in sys.argv:
+        check_parse(locales, LOCALIZATION_FILE)
         print("Uploading localization to CurseForge...")
         # A failed upload has to reach the exit code. Printing to stderr and
         # returning 0 made the release workflow and the manual localization

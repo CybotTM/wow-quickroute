@@ -6,6 +6,10 @@ on:
       - 'v*'
 
 jobs:
+  # ci.yml triggers only on push and pull_request against main, so nothing it
+  # runs gates a tag. Both of its jobs are repeated here: without the lint one,
+  # a release published having passed the Lua suite and never having been
+  # linted, which is the gate a tag most needs.
   tests:
     name: Tests
     runs-on: ubuntu-latest
@@ -22,10 +26,32 @@ jobs:
       - name: Run tests
         run: lua tests/run_tests.lua
 
+  luacheck:
+    name: Luacheck
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Lua
+        uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13.0.0
+        with:
+          luaVersion: "5.1"
+
+      - name: Install LuaRocks
+        uses: leafo/gh-actions-luarocks@35d062def313a7699a0d513e996bcf4352f05389 # v6.1.0
+
+      - name: Install luacheck
+        run: luarocks install luacheck 1.2.0
+
+      - name: Run luacheck
+        run: luacheck QuickRoute/ tests/ --config .luacheckrc
+
   release:
     name: Package & Release
     runs-on: ubuntu-latest
-    needs: tests
+    needs: [tests, luacheck]
     permissions:
       contents: write
     steps:
@@ -90,13 +116,17 @@ jobs:
           # above is maintained by hand and has already shipped a build whose
           # .toc pointed at a file that was not packaged.
           #
+          # Covers the .lua entries, which is what the copy list above can get
+          # wrong; the .toc's other directives are not files.
+          #
           # Assert the entry count first. A grep that matches nothing -- a
           # renamed .toc, the standard multi-TOC split into
           # QuickRoute_Mainline.toc -- would otherwise leave missing=0 and let
           # the check pass without having read a single entry, which is the one
-          # failure mode a guard against silent packaging must not have.
-          # (A CRLF .toc is not one of them: the entries still count, and each
-          # path then carries a trailing \r and fails the existence check.)
+          # failure mode a guard against silent packaging must not have. A CRLF
+          # .toc is not that case: GNU grep still counts the entries, and each
+          # path then carries a trailing \r and fails the existence check
+          # below, so the step dies loudly rather than silently.
           entries=$(grep -cE '^[A-Za-z].*\.lua$' QuickRoute/QuickRoute.toc || true)
           echo "QuickRoute.toc lists ${entries} Lua entries"
           if [ "${entries:-0}" -lt 20 ]; then

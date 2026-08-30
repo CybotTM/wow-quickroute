@@ -93,19 +93,6 @@ function TravelTime:ClearMapScaleCache()
     wipe(mapScaleCache)
 end
 
---- Estimate travel time based on distance
--- Uses walking speed if canFly is false, flying speed otherwise
--- @param distance number Distance in coordinate units (0-1 scale)
--- @param canFly boolean Whether the player can fly in the zone
--- @param mapID number|nil Map the distance was measured on, for its real scale
--- @return number Estimated travel time in seconds
-function TravelTime:EstimateDistanceTime(distance, canFly, mapID)
-    -- Convert coordinate distance to approximate yards. Callers that know both
-    -- axes should use EstimateWalkingTime, which scales each one separately.
-    local width = self:GetMapScale(mapID)
-    return self:YardsToTime(distance * width, canFly)
-end
-
 --- Convert a distance in yards to travel time at the appropriate mount speed.
 -- @param yards number Distance in yards
 -- @param canFly boolean Whether the player can fly there

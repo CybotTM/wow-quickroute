@@ -505,3 +505,62 @@ T:run("CollectQuestBlocks: an enumerator that errors is not 'recognised'", funct
             "and an error is not evidence that the tracker is empty")
     end)
 end)
+
+T:run("CollectQuestBlocks: one failing provider beside a working one is not 'recognised'", function(t)
+    -- recognised was OR-ed across modules, so a working sibling re-armed it
+    -- after a module's enumerator had raised. The caller then hid every button
+    -- whose block was missing -- and the failing module's blocks are exactly
+    -- the missing ones.
+    withTracker({
+        modules = {
+            { EnumerateActiveBlocks = function() error("tracker API changed") end },
+            {
+                EnumerateActiveBlocks = function(self, callback)
+                    callback(fakeBlock(701))
+                end,
+            },
+        },
+    }, function()
+        local blocks, recognised = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertNotNil(blocks[701], "the working module's blocks are still collected")
+        t:assertFalse(recognised,
+            "but the set is incomplete, so the caller must not act on it")
+    end)
+end)
+
+T:run("CollectQuestBlocks: a broken enumerator falls through to usedBlocks", function(t)
+    -- The two shapes were an if/elseif, so a module carrying both got no
+    -- fallback: a raised enumerator ended the attempt with the older shape
+    -- sitting right there unread.
+    withTracker({
+        modules = {
+            {
+                EnumerateActiveBlocks = function() error("tracker API changed") end,
+                usedBlocks = { ["QuestObjectiveTemplate"] = { [801] = fakeBlock(801) } },
+            },
+        },
+    }, function()
+        local blocks, recognised = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertNotNil(blocks[801], "the older shape was read after the enumerator failed")
+        t:assertTrue(recognised, "and the provider counts as read")
+    end)
+end)
+
+T:run("CollectQuestBlocks: a module with neither shape is not a failed provider", function(t)
+    -- The tracker holds many module types. One that provides no blocks at all
+    -- must not make an otherwise complete read look incomplete.
+    withTracker({
+        modules = {
+            { somethingElse = true },
+            {
+                EnumerateActiveBlocks = function(self, callback)
+                    callback(fakeBlock(901))
+                end,
+            },
+        },
+    }, function()
+        local blocks, recognised = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertNotNil(blocks[901], "the real provider was read")
+        t:assertTrue(recognised, "and the unrelated module did not spoil it")
+    end)
+end)

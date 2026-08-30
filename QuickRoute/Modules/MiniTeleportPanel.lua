@@ -302,8 +302,16 @@ function MiniTeleportPanel:CreateFrame()
     -- ESC to close
     table_insert(UISpecialFrames, "QRMiniTeleportPanel")
 
-    -- Sync isShowing on hide
-    frame:SetScript("OnHide", function()
+    -- Sync isShowing on hide. OnHide also fires when an ancestor is hidden
+    -- (Alt+Z, a cinematic) and that is not a close: the panel comes back on its
+    -- own with its rows and secure buttons intact. Clearing isShowing there
+    -- disarmed the enter-combat callback, which is gated on it, so the panel
+    -- and its overlay buttons stayed on screen for the whole next fight. The
+    -- frame's own IsShown() is still true when an ancestor did the hiding.
+    frame:SetScript("OnHide", function(f)
+        if f:IsShown() then
+            return
+        end
         self.isShowing = false
     end)
 

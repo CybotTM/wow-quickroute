@@ -153,9 +153,9 @@ QR.Continents = {
             390,  -- Vale of Eternal Blossoms
             418,  -- Krasarang Wilds
             422,  -- Dread Wastes
-            433,  -- Isle of Thunder
-            504,  -- Isle of Giants
-            507,  -- Isle of Thunder (alternate)
+            433,  -- The Veiled Stair
+            504,  -- Isle of Thunder
+            507,  -- Isle of Giants
             554,  -- Timeless Isle
             1530, -- Vale of Eternal Blossoms (N'Zoth Assault version)
         },
@@ -221,7 +221,6 @@ QR.Continents = {
             863,  -- Nazmir
             864,  -- Vol'dun
             1165, -- Dazar'alor
-            875,  -- Zandalar (continent-level map)
         },
     },
     BFA_NEUTRAL = {
@@ -428,7 +427,8 @@ QR.ZoneAdjacencies = {
         {zone = 376, travelTime = 90},  -- Valley of Four Winds
         {zone = 388, travelTime = 90},  -- Townlong Steppes
         {zone = 390, travelTime = 60},  -- Vale of Eternal Blossoms
-        {zone = 504, travelTime = 120}, -- Isle of Giants (boat)
+        {zone = 507, travelTime = 120}, -- Isle of Giants (boat)
+        {zone = 433, travelTime = 60},  -- The Veiled Stair
         {zone = 1530, travelTime = 60}, -- Vale N'Zoth Assault (same as Vale)
     },
     [390] = {  -- Vale of Eternal Blossoms
@@ -445,6 +445,7 @@ QR.ZoneAdjacencies = {
         {zone = 371, travelTime = 60},  -- Jade Forest
         {zone = 379, travelTime = 90},  -- Kun-Lai Summit
         {zone = 418, travelTime = 60},  -- Krasarang Wilds
+        {zone = 433, travelTime = 60},  -- The Veiled Stair
     },
 
     -- Outland connections
@@ -561,7 +562,6 @@ QR.ZoneAdjacencies = {
     [942] = {  -- Stormsong Valley
         {zone = 895, travelTime = 60},   -- Tiragarde Sound
         {zone = 896, travelTime = 90},   -- Drustvar
-        {zone = 876, travelTime = 60},   -- Zandalar continent (Crucible of Storms)
     },
 
     -- Zandalar connections (BFA Horde)
@@ -1019,7 +1019,7 @@ QR.ZoneAdjacencies = {
         {zone = 379, travelTime = 90},   -- Kun-Lai Summit
         {zone = 390, travelTime = 60},   -- Vale of Eternal Blossoms
         {zone = 422, travelTime = 60},   -- Dread Wastes
-        {zone = 433, travelTime = 120},  -- Isle of Thunder (portal/boat)
+        {zone = 504, travelTime = 120},  -- Isle of Thunder (portal/boat)
         {zone = 1530, travelTime = 60},  -- Vale N'Zoth Assault (same as Vale)
     },
     [422] = {  -- Dread Wastes
@@ -1030,11 +1030,22 @@ QR.ZoneAdjacencies = {
         {zone = 371, travelTime = 60},   -- Jade Forest
         {zone = 376, travelTime = 60},   -- Valley of the Four Winds
     },
-    [433] = {  -- Isle of Thunder
+    [504] = {  -- Isle of Thunder
         {zone = 388, travelTime = 120},  -- Townlong Steppes (portal/boat)
     },
-    [504] = {  -- Isle of Giants
+    [507] = {  -- Isle of Giants
         {zone = 379, travelTime = 120},  -- Kun-Lai Summit (boat)
+    },
+    -- The Veiled Stair sits between Valley of the Four Winds and Kun-Lai
+    -- Summit and is walkable from both. It used to carry Isle of Thunder's
+    -- edges, which modelled a landlocked zone as an island reached by boat
+    -- from Townlong Steppes -- and DungeonEntrances puts the Terrace of
+    -- Endless Spring entrance here, so every route to that raid was priced
+    -- with a boat leg that does not exist. Times are estimates in the style
+    -- of the neighbouring entries.
+    [433] = {  -- The Veiled Stair
+        {zone = 376, travelTime = 60},   -- Valley of the Four Winds
+        {zone = 379, travelTime = 60},   -- Kun-Lai Summit
     },
     [1530] = {  -- Vale of Eternal Blossoms (N'Zoth Assault version)
         {zone = 379, travelTime = 60},   -- Kun-Lai Summit
@@ -1055,9 +1066,6 @@ QR.ZoneAdjacencies = {
     ---------------------------------------------------------------------------
     -- BFA - additional zones
     ---------------------------------------------------------------------------
-    [876] = {  -- Zandalar (continent-level map, Crucible of Storms)
-        {zone = 942, travelTime = 60},   -- Stormsong Valley (nearest zone)
-    },
     [1169] = {  -- Tol Dagor (off Kul Tiras)
         {zone = 895, travelTime = 60},   -- Tiragarde Sound (nearest Kul Tiras zone)
     },
