@@ -434,6 +434,57 @@ end
 
 --- OnUpdate handler: position buttons relative to ObjectiveTracker quest blocks
 -- @param elapsed number Time since last frame
+--- Collect the objective-tracker blocks keyed by questID.
+-- The tracker's shape has changed more than once and is Blizzard's own UI
+-- code, not a documented API, so all three known shapes are tried in turn and
+-- an unknown one yields an empty table rather than an error:
+--   * modules + EnumerateActiveBlocks(callback)  -- current mixin surface
+--   * modules + nested usedBlocks[template][id]  -- intermediate shape
+--   * MODULES + flat usedBlocks[questID]         -- what this file assumed
+-- @return table { [questID] = block }
+function QTB:CollectQuestBlocks()
+    local blocks = {}
+
+    local function record(id, block)
+        if type(id) == "number" and type(block) == "table" and block.HeaderText then
+            blocks[id] = block
+        end
+    end
+
+    local modules = ObjectiveTrackerFrame and
+        (ObjectiveTrackerFrame.modules or ObjectiveTrackerFrame.MODULES)
+    if type(modules) ~= "table" then
+        return blocks
+    end
+
+    for _, module in pairs(modules) do
+        if type(module) == "table" then
+            if type(module.EnumerateActiveBlocks) == "function" then
+                pcall(module.EnumerateActiveBlocks, module, function(block)
+                    if type(block) == "table" then
+                        record(block.id, block)
+                    end
+                end)
+            elseif type(module.usedBlocks) == "table" then
+                for key, value in pairs(module.usedBlocks) do
+                    if type(value) == "table" and value.HeaderText then
+                        -- Flat: usedBlocks[questID] = block
+                        record(key, value)
+                    elseif type(value) == "table" then
+                        -- Nested: usedBlocks[template][id] = block
+                        for id, block in pairs(value) do
+                            record(id, block)
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return blocks
+end
+
+
 function QTB:OnUpdate(elapsed)
     self.updateElapsed = self.updateElapsed + elapsed
     if self.updateElapsed < UPDATE_THROTTLE then return end
@@ -446,19 +497,12 @@ function QTB:OnUpdate(elapsed)
         return
     end
 
-    -- WoW 11.x uses the MODULES system
-    -- Try to find quest header blocks to position buttons next to
-    local questBlocks = {}
-    if ObjectiveTrackerFrame.MODULES then
-        for _, module in ipairs(ObjectiveTrackerFrame.MODULES) do
-            if module.usedBlocks then
-                for questID, block in pairs(module.usedBlocks) do
-                    if type(questID) == "number" and block.HeaderText then
-                        questBlocks[questID] = block
-                    end
-                end
-            end
-        end
+    local questBlocks = self:CollectQuestBlocks()
+    if not next(questBlocks) then
+        -- Nothing recognised. Leaving the buttons where they are beats hiding
+        -- every one of them: an unrecognised tracker shape is a positioning
+        -- problem, not a reason to remove working teleports from the screen.
+        return
     end
 
     -- Position each active button next to its quest block

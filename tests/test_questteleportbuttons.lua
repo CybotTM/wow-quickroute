@@ -401,3 +401,72 @@ end)
 
 -- Restore state at end
 restoreState()
+
+-------------------------------------------------------------------------------
+-- Objective tracker block collection
+-------------------------------------------------------------------------------
+
+-- Regression: this module read ObjectiveTrackerFrame.MODULES with a flat
+-- usedBlocks[questID]. The tracker has been reshaped more than once, and when
+-- the field is missing questBlocks stays empty — which sent every active
+-- button down the else branch to btn:Hide(), so no quest teleport button was
+-- ever positioned. The collector now understands the shapes that are known and
+-- returns an empty table for one that is not, and the caller leaves the buttons
+-- alone rather than hiding them all.
+local function fakeBlock(id)
+    return { id = id, HeaderText = { GetText = function() return "Quest " .. id end } }
+end
+
+local function withTracker(frame, fn)
+    local original = _G.ObjectiveTrackerFrame
+    _G.ObjectiveTrackerFrame = frame
+    local ok, err = pcall(fn)
+    _G.ObjectiveTrackerFrame = original
+    if not ok then error(err, 0) end
+end
+
+T:run("CollectQuestBlocks: reads the current modules + EnumerateActiveBlocks shape", function(t)
+    withTracker({
+        modules = {
+            {
+                EnumerateActiveBlocks = function(self, callback)
+                    callback(fakeBlock(101))
+                    callback(fakeBlock(102))
+                end,
+            },
+        },
+    }, function()
+        local blocks = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertNotNil(blocks[101], "block 101 found via EnumerateActiveBlocks")
+        t:assertNotNil(blocks[102], "block 102 found via EnumerateActiveBlocks")
+    end)
+end)
+
+T:run("CollectQuestBlocks: reads the nested usedBlocks[template][id] shape", function(t)
+    withTracker({
+        modules = {
+            { usedBlocks = { ["QuestObjectiveTemplate"] = { [201] = fakeBlock(201) } } },
+        },
+    }, function()
+        local blocks = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertNotNil(blocks[201], "block 201 found via nested usedBlocks")
+    end)
+end)
+
+T:run("CollectQuestBlocks: still reads the old MODULES + flat usedBlocks shape", function(t)
+    withTracker({
+        MODULES = {
+            { usedBlocks = { [301] = fakeBlock(301) } },
+        },
+    }, function()
+        local blocks = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertNotNil(blocks[301], "block 301 found via the legacy shape")
+    end)
+end)
+
+T:run("CollectQuestBlocks: an unknown tracker shape yields nothing rather than erroring", function(t)
+    withTracker({ somethingElse = true }, function()
+        local blocks = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertEqual(0, #blocks, "no blocks collected from an unrecognised tracker")
+    end)
+end)
