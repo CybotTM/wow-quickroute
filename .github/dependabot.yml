@@ -1,0 +1,19 @@
+version: 2
+
+updates:
+  # The workflows pin every action to a commit SHA, which nothing bumps on its
+  # own. Dependabot maintains those pins and keeps the trailing version comment
+  # in step.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore"
+
+  - package-ecosystem: pip
+    directory: "/scripts"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore"

@@ -38,6 +38,10 @@ globals = {
     "C_Timer",
     "C_TaskQuest",
     "C_EncounterJournal",
+    -- Reached through _G / a macrotext string, so a plain grep does not find
+    -- the call sites; declared here so the linter does not flag the tests.
+    "C_Housing",
+    "C_MountJournal",
 
     -- 12.0+ secret-value probe (absent on older clients)
     "issecretvalue",
