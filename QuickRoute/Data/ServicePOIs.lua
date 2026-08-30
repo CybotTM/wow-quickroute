@@ -15,7 +15,11 @@ QR.ServicePOIs = {
         { mapID = 85,   x = 0.5430, y = 0.6295, faction = "Horde" },     -- Orgrimmar
         { mapID = 90,   x = 0.6617, y = 0.3707, faction = "Horde" },     -- Undercity
         { mapID = 88,   x = 0.3920, y = 0.5296, faction = "Horde" },     -- Thunder Bluff
-        { mapID = 110,  x = 0.6748, y = 0.3048, faction = "Horde" },     -- Silvermoon
+        -- Map switched from 110 to the revamped Silvermoon 2393. Both maps
+        -- exist and are both named "Silvermoon"; 2393 is the one the player
+        -- stands on. These coordinates were surveyed on 110 and have NOT
+        -- been re-surveyed on the new layout.
+        { mapID = 2393, x = 0.6748, y = 0.3048, faction = "Horde" },     -- Silvermoon
         { mapID = 1165, x = 0.4228, y = 0.3283, faction = "Horde" },     -- Dazar'alor
         -- Neutral
         { mapID = 125,  x = 0.4264, y = 0.6397, faction = "both" },      -- Dalaran (Northrend)
@@ -35,7 +39,8 @@ QR.ServicePOIs = {
         { mapID = 85,   x = 0.5330, y = 0.6455, faction = "Horde" },     -- Orgrimmar
         { mapID = 90,   x = 0.6397, y = 0.4865, faction = "Horde" },     -- Undercity
         { mapID = 88,   x = 0.4530, y = 0.5230, faction = "Horde" },     -- Thunder Bluff
-        { mapID = 110,  x = 0.5780, y = 0.2190, faction = "Horde" },     -- Silvermoon
+        -- Coordinates surveyed on map 110, not re-surveyed on 2393.
+        { mapID = 2393, x = 0.5780, y = 0.2190, faction = "Horde" },     -- Silvermoon
         { mapID = 1165, x = 0.4468, y = 0.3538, faction = "Horde" },     -- Dazar'alor
         -- Neutral
         { mapID = 125,  x = 0.4777, y = 0.6335, faction = "both" },      -- Dalaran (Northrend)
