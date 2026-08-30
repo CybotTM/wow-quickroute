@@ -31,7 +31,7 @@ function AddonLoader:Load(MockWoW, options)
     -- Create the addon namespace table
     local QR = {}
 
-    -- File load order from .toc (excluding embeds.xml and test files)
+    -- File load order from .toc (excluding the in-game test runner)
     local files = {
         "Localization.lua",
         "Utils/Colors.lua",

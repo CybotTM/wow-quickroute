@@ -311,6 +311,7 @@ local function PrintHelp()
     print("  /qr autowaypoint - Toggle auto-waypoint")
     print("  /qrdebug - Show waypoint detection info")
     print("  /qrdebug copy - Copy full debug info (markdown for bug reports)")
+    print("  /qrteleports - Toggle the teleport inventory")
     print("  /qrinv - Show available teleports")
     print("  /qrcd - Show teleport cooldowns")
     print("  /qrwp - Calculate path to current waypoint")
@@ -321,7 +322,7 @@ local function PrintHelp()
     print("  /qr craft - Route to nearest Crafting Table")
     print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
     print("  /qrextract [zones|quests|portals|continent] - Extract data for development")
-    print("  /qrtest graph - Run graph unit tests")
+    print("  Development: /qrscan, /qrgraph, /qrzone, /qrdebugpath, /qrtest graph")
 end
 
 SLASH_QRHELP1 = "/qrhelp"
