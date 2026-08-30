@@ -734,6 +734,14 @@ end
 -- @param mapID number The map ID
 -- @param x number The X coordinate (0-1)
 -- @param y number The Y coordinate (0-1)
+--- True when a coarse "travel" estimate may be written over whatever edge is
+-- already there. Continent routing only estimates; a "walk" edge produced by
+-- the same-map pass is measured from real coordinates and must not be replaced.
+local function CanOverwriteWithTravel(graph, from, to)
+    local existing = graph:GetEdge(from, to)
+    return not existing or existing.edgeType ~= "walk"
+end
+
 function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
     local destContinent = QR.GetContinentForZone and QR.GetContinentForZone(mapID)
     local connectedSomething = false
@@ -765,10 +773,16 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
         local playerFaction = QR.PlayerInfo:GetFaction()
         local hubMapID = QR.GetContinentHub and QR.GetContinentHub(destContinent, playerFaction)
 
-        if hubMapID then
+        -- When the node is already on the hub map, the same-map pass in
+        -- ConnectNearbyNodes has connected it with measured walk edges.
+        -- EstimateSameContinentTravel(hub, hub) is 0, which AddEdge clamps to
+        -- the 0.001 epsilon, so running this strategy here would replace every
+        -- one of those walk edges with a free "travel" edge.
+        if hubMapID and hubMapID ~= mapID then
             -- Find the hub node
             for otherName, otherData in pairs(self.graph.nodes) do
-                if otherName ~= nodeName and otherData.mapID == hubMapID then
+                if otherName ~= nodeName and otherData.mapID == hubMapID
+                    and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
                     -- Estimate time from hub to destination
                     local travelTime = QR.EstimateSameContinentTravel and
                         QR.EstimateSameContinentTravel(hubMapID, mapID) or 180
@@ -808,7 +822,7 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
             end
         end
 
-        if bestNode then
+        if bestNode and CanOverwriteWithTravel(self.graph, nodeName, bestNode) then
             local bestData = self.graph.nodes[bestNode]
             self.graph:AddBidirectionalEdge(nodeName, bestNode, bestTime, "travel", {
                 note = "Same continent travel",
@@ -840,7 +854,8 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
 
                 -- Connect to hub/city nodes on other continents (let Dijkstra optimize)
                 -- Also connect to the single best non-hub as fallback
-                if otherData.nodeType == "hub" or otherData.nodeType == "city" then
+                if (otherData.nodeType == "hub" or otherData.nodeType == "city")
+                    and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
                     local hubTime = baseTime - 60  -- 1 minute bonus for hubs
                     self.graph:AddBidirectionalEdge(nodeName, otherName, hubTime, "travel", {
                         note = "Cross-continent travel",

@@ -1148,3 +1148,36 @@ T:run("Horde: faction-specific portal filtering excludes Alliance-only portals",
     -- Restore
     MockWoW.config.playerFaction = "Alliance"
 end)
+
+-------------------------------------------------------------------------------
+-- Continent routing must not destroy in-city walk edges
+-------------------------------------------------------------------------------
+
+-- Regression: ConnectNearbyNodes writes correct same-map walk edges and then
+-- calls ConnectViaContinentRouting, whose hub strategy iterated every node
+-- sharing the hub's mapID. For a destination on the hub map itself,
+-- EstimateSameContinentTravel(hub, hub) returns 0, AddEdge clamps that to the
+-- 0.001 epsilon, and the assignment overwrote the walk edge written moments
+-- earlier. The final in-city approach then cost nothing, so the ETA was short
+-- by the whole walk and Dijkstra treated every node on the map as the target.
+T:run("ConnectNearbyNodes: hub routing does not overwrite the in-city walk edge", function(t)
+    resetState()
+    local graph = QR.PathCalculator:BuildGraph()
+
+    local anchor = graph.nodes["Stormwind City"]
+    t:assertNotNil(anchor, "Stormwind City node exists")
+
+    -- A destination on the far side of the same map (Stormwind, uiMapID 84),
+    -- which is also the Alliance continent hub for the Eastern Kingdoms.
+    graph:AddNode("QR Test Target", { mapID = 84, x = 0.95, y = 0.95 })
+    QR.PathCalculator:ConnectNearbyNodes("QR Test Target", 84, 0.95, 0.95)
+
+    local edge = graph:GetEdge("QR Test Target", "Stormwind City")
+        or graph:GetEdge("Stormwind City", "QR Test Target")
+    t:assertNotNil(edge, "An edge to Stormwind City exists")
+
+    t:assertEqual("walk", edge.edgeType,
+        "Edge to a node on the same map stays a walk edge (got: " .. tostring(edge.edgeType) .. ")")
+    t:assertTrue(edge.weight > 1,
+        "In-city walk keeps its real cost instead of the 0.001 epsilon (got: " .. tostring(edge.weight) .. ")")
+end)
