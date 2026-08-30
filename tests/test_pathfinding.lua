@@ -1217,3 +1217,49 @@ T:run("UpdatePlayerLocation: zone change drops the old map's walk edges", functi
     t:assertNil(stale,
         "Walk edge to the old map's node is gone (kept: " .. tostring(stale and stale.edgeType) .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- Teleport edge weights must follow live cooldown state
+-------------------------------------------------------------------------------
+
+-- Regression: AddPlayerTeleportEdges bakes the remaining cooldown into the edge
+-- weight and only runs inside BuildGraph. No cooldown event marks the graph
+-- dirty, so a teleport used after the build stayed priced as ready and kept
+-- being chosen as step 1 — the "consider cooldowns" setting silently did
+-- nothing after the first build.
+T:run("CalculatePath: teleport edges are re-priced against live cooldowns", function(t)
+    resetState()
+    QR.db = QR.db or {}
+    QR.db.considerCooldowns = true
+    QR.db.loadingScreenTime = 0
+
+    local spellID = 3565  -- a known teleport spell in the fixtures
+    MockWoW.config.knownSpells[spellID] = true
+    QR.PlayerInventory:ScanAll()
+
+    local graph = QR.PathCalculator:BuildGraph()
+
+    -- Find any teleport edge out of the player node and remember its weight.
+    local edgeName, before
+    for otherName, edge in pairs(graph.edges["Player Location"] or {}) do
+        if edge.edgeType == "teleport" and edge.data and edge.data.teleportID then
+            edgeName, before = otherName, edge
+            break
+        end
+    end
+    t:assertNotNil(edgeName, "Player node has at least one teleport edge")
+
+    local weightWhenReady = before.weight
+    local teleportID = before.data.teleportID
+
+    -- The teleport goes on a long cooldown after the graph was built.
+    MockWoW.config.spellCooldowns[teleportID] = { start = GetTime(), duration = 1800 }
+    MockWoW.config.itemCooldowns[teleportID] = { start = GetTime(), duration = 1800 }
+
+    QR.PathCalculator:RefreshTeleportEdgeWeights()
+
+    local after = graph.edges["Player Location"][edgeName]
+    t:assertTrue(after.weight > weightWhenReady,
+        "Weight rises once the teleport is on cooldown (was " .. tostring(weightWhenReady)
+            .. ", now " .. tostring(after.weight) .. ")")
+end)

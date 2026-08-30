@@ -478,6 +478,39 @@ function PathCalculator:AddPlayerTeleportEdges()
     end
 end
 
+--- Re-price the player's teleport edges against live cooldown state.
+-- AddPlayerTeleportEdges bakes the remaining cooldown into the edge weight, but
+-- it only runs inside BuildGraph, and no cooldown event marks the graph dirty —
+-- PlayerInventory registers BAG_UPDATE, PLAYER_EQUIPMENT_CHANGED, TOYS_UPDATED
+-- and SPELLS_CHANGED, but neither BAG_UPDATE_COOLDOWN nor SPELL_UPDATE_COOLDOWN.
+-- Weights therefore froze at build time in both directions: a teleport used
+-- after the build stayed priced as ready, and one that was on cooldown during
+-- the build stayed expensive long after it came back up.
+-- Registering the cooldown events instead would mean a full rebuild on events
+-- that fire constantly; this is O(number of teleports) and needs no rebuild.
+function PathCalculator:RefreshTeleportEdgeWeights()
+    local outgoing = self.graph and self.graph.edges[PLAYER_NODE]
+    if not outgoing then
+        return
+    end
+
+    local includeCooldown = QR.db and QR.db.considerCooldowns
+    local loadingTime = QR.db and QR.db.loadingScreenTime or 0
+
+    for _, edge in pairs(outgoing) do
+        local data = edge.data
+        if edge.edgeType == "teleport" and data and data.teleportID and data.teleportData then
+            local travelTime = QR.TravelTime:GetEffectiveTime(
+                data.teleportID, data.teleportData, includeCooldown)
+            travelTime = travelTime + loadingTime
+            if travelTime <= 0 then
+                travelTime = 0.001  -- match Graph:AddEdge's epsilon
+            end
+            edge.weight = travelTime
+        end
+    end
+end
+
 --- Add dungeon/raid entrance nodes to the graph
 -- Each entrance becomes a node connected to its parent zone via walking edge
 function PathCalculator:AddDungeonNodes()
@@ -549,6 +582,10 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
 
     -- Update player location node
     self:UpdatePlayerLocation()
+
+    -- Cooldowns move without marking the graph dirty, so re-price the player's
+    -- teleport edges against live state before searching.
+    self:RefreshTeleportEdgeWeights()
 
     -- Build human-readable destination node name
     local destZoneName
