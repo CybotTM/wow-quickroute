@@ -55,14 +55,46 @@ TravelTime.MAP_SCALE = 1000
 -- Time Estimation Methods
 -------------------------------------------------------------------------------
 
+--- Yards per coordinate unit on a given map.
+-- MAP_SCALE is one number for every map in the game, which is wrong by a wide
+-- margin at both ends: a city and a continent-sized zone do not share a scale.
+-- C_Map.GetMapWorldSize reports the real size and it is static per map, so the
+-- lookup is cached. Falls back to MAP_SCALE when the API says nothing, which
+-- is what every caller got before.
+local mapScaleCache = {}
+function TravelTime:GetMapScale(mapID)
+    if not mapID then
+        return self.MAP_SCALE
+    end
+    local cached = mapScaleCache[mapID]
+    if cached then
+        return cached
+    end
+    local scale = self.MAP_SCALE
+    if C_Map and C_Map.GetMapWorldSize then
+        local ok, width = pcall(C_Map.GetMapWorldSize, mapID)
+        if ok and type(width) == "number" and width > 0 then
+            scale = width
+        end
+    end
+    mapScaleCache[mapID] = scale
+    return scale
+end
+
+--- Drop the cached scales (used by tests).
+function TravelTime:ClearMapScaleCache()
+    wipe(mapScaleCache)
+end
+
 --- Estimate travel time based on distance
 -- Uses walking speed if canFly is false, flying speed otherwise
 -- @param distance number Distance in coordinate units (0-1 scale)
 -- @param canFly boolean Whether the player can fly in the zone
+-- @param mapID number|nil Map the distance was measured on, for its real scale
 -- @return number Estimated travel time in seconds
-function TravelTime:EstimateDistanceTime(distance, canFly)
+function TravelTime:EstimateDistanceTime(distance, canFly, mapID)
     -- Convert coordinate distance to approximate yards
-    local yards = distance * self.MAP_SCALE
+    local yards = distance * self:GetMapScale(mapID)
 
     -- Select speed based on flight capability
     local speed
@@ -185,7 +217,7 @@ end
 -- @param y2 number Second point Y (0-1)
 -- @param canFly boolean Whether the player can fly in the zone
 -- @return number Estimated travel time in seconds
-function TravelTime:EstimateWalkingTime(x1, y1, x2, y2, canFly)
+function TravelTime:EstimateWalkingTime(x1, y1, x2, y2, canFly, mapID)
     local distance = self:CalculateDistance(x1, y1, x2, y2)
-    return self:EstimateDistanceTime(distance, canFly)
+    return self:EstimateDistanceTime(distance, canFly, mapID)
 end

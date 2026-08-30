@@ -41,6 +41,10 @@ MockWoW.config = {
     -- Spells the player knows: { [spellID] = true }
     knownSpells = {},
 
+    -- Real world size per map in yards: { [uiMapID] = width }.
+    -- Empty means the API answers nothing and callers fall back to MAP_SCALE.
+    mapWorldSizes = {},
+
     -- Items whose data is not cached client-side: { [itemID] = true }.
     uncachedItems = {},
 
@@ -313,6 +317,7 @@ function MockWoW:Reset()
     self.config.knownSpells = {}
     self.config.uncachedSpells = {}
     self.config.uncachedItems = {}
+    self.config.mapWorldSizes = {}
     self.config.itemCounts = {}
     self.config.equippedItems = {}
     self.config.professions = {}
@@ -997,6 +1002,12 @@ function MockWoW:Install()
     ---------------------------------------------------------------------------
 
     _G.C_Map = {}
+
+    -- Real map dimensions in yards. Static per map in the game, which is why
+    -- TravelTime caches the answer.
+    _G.C_Map.GetMapWorldSize = function(uiMapID)
+        return cfg.mapWorldSizes[uiMapID]
+    end
 
     _G.C_Map.GetBestMapForUnit = function(unit)
         if unit == "player" then

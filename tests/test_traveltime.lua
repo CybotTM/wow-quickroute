@@ -192,3 +192,37 @@ end)
 T:run("MAP_SCALE: is positive", function(t)
     t:assertGreaterThan(QR.TravelTime.MAP_SCALE, 0, "MAP_SCALE > 0")
 end)
+
+-------------------------------------------------------------------------------
+-- Per-map scale
+-------------------------------------------------------------------------------
+
+-- Regression: every map used one hard-coded 1000-yard scale, so a walk across
+-- a city and a walk across a continent-sized zone were priced the same per
+-- coordinate unit. C_Map.GetMapWorldSize reports the real size.
+T:run("GetMapScale: uses the map's real world size when the client reports one", function(t)
+    MockWoW:Reset()
+    QR.TravelTime:ClearMapScaleCache()
+    MockWoW.config.mapWorldSizes[84] = 2400
+
+    t:assertEqual(2400, QR.TravelTime:GetMapScale(84),
+        "the reported world size wins over MAP_SCALE")
+    t:assertEqual(QR.TravelTime.MAP_SCALE, QR.TravelTime:GetMapScale(9999),
+        "an unknown map falls back to MAP_SCALE")
+    t:assertEqual(QR.TravelTime.MAP_SCALE, QR.TravelTime:GetMapScale(nil),
+        "no map at all falls back to MAP_SCALE")
+end)
+
+T:run("EstimateDistanceTime: a larger map costs more time for the same distance", function(t)
+    MockWoW:Reset()
+    QR.TravelTime:ClearMapScaleCache()
+    MockWoW.config.mapWorldSizes[84] = 500     -- small city map
+    MockWoW.config.mapWorldSizes[85] = 4000    -- large zone
+
+    local small = QR.TravelTime:EstimateDistanceTime(0.5, false, 84)
+    local large = QR.TravelTime:EstimateDistanceTime(0.5, false, 85)
+
+    t:assertGreaterThan(large, small,
+        "the same coordinate distance takes longer on the bigger map ("
+            .. tostring(small) .. " vs " .. tostring(large) .. ")")
+end)

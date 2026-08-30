@@ -35,10 +35,10 @@ local TRANSPORT_TYPES = {
 -- @param y2 number Destination Y coordinate (0-1)
 -- @param canFly boolean Whether player can fly
 -- @return number Estimated travel time in seconds
-local function SafeEstimateWalkingTime(x1, y1, x2, y2, canFly)
+local function SafeEstimateWalkingTime(x1, y1, x2, y2, canFly, mapID)
     -- Use TravelTime module directly (pure math, no pcall needed)
     if QR.TravelTime and QR.TravelTime.EstimateWalkingTime then
-        return QR.TravelTime:EstimateWalkingTime(x1, y1, x2, y2, canFly)
+        return QR.TravelTime:EstimateWalkingTime(x1, y1, x2, y2, canFly, mapID)
     end
 
     -- Fallback calculation
@@ -283,7 +283,7 @@ function PathCalculator:ConnectSameMapNodes()
                         local walkTime = SafeEstimateWalkingTime(
                             nodeA.data.x or 0.5, nodeA.data.y or 0.5,
                             nodeB.data.x or 0.5, nodeB.data.y or 0.5,
-                            canFly
+                            canFly, mapID
                         )
 
                         -- Add bidirectional walking edge
@@ -795,7 +795,7 @@ function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
             local walkTime = SafeEstimateWalkingTime(
                 x, y,
                 otherData.x, otherData.y,
-                canFly
+                canFly, mapID
             )
 
             -- Add bidirectional walking edge
