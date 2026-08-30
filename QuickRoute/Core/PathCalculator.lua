@@ -18,6 +18,7 @@ local ZONE_SIZE_YARDS = 1000      -- Approximate zone size in yards for distance
 local MIN_TRAVEL_TIME = 5         -- Minimum travel time in seconds
 local DEBUG_DISPLAY_LIMIT = 5     -- Max items to show in debug output
 local PLAYER_NODE = "Player Location"  -- Graph node key for player's current position
+local EMPTY_NODE_LIST = {}  -- Shared empty result; never written to
 
 -- Step types that transport the player to a specific location (for AbsorbRedundantWalkSteps)
 -- flight intentionally excluded: flight masters deposit at a fixed point,
@@ -540,6 +541,9 @@ function PathCalculator:AddDungeonNodes()
 
     -- Second pass: connect dungeon nodes via continent routing
     -- (all dungeon+teleport nodes exist by now, so adjacency edges work)
+    -- The index is built once here rather than per node: without it each of the
+    -- hundreds of dungeon nodes drives four full scans of the node table.
+    self:BuildNodeIndex()
     for _, dn in ipairs(dungeonNodes) do
         self:ConnectViaContinentRouting(dn.name, dn.mapID, dn.x, dn.y)
     end
@@ -776,6 +780,10 @@ end
 -- @param x number The X coordinate (0-1)
 -- @param y number The Y coordinate (0-1)
 function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
+    -- Called after the caller has added its node, so the index is refreshed
+    -- here rather than reused from BuildGraph.
+    self:BuildNodeIndex()
+
     -- Only assume flying for the player's current map; remote maps use ground speed
     local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     local canFly = (mapID == playerMapID) and GetCachedIsFlyable() or false
@@ -817,6 +825,63 @@ local function CanOverwriteWithTravel(graph, from, to)
     return not existing or existing.edgeType ~= "walk"
 end
 
+--- Index the current nodes by map, by continent, and by hub/city status.
+-- ConnectViaContinentRouting filters on nothing but equality, so a lookup
+-- replaces a full scan without changing which nodes match. Rebuilt whenever the
+-- set of nodes changes; ConnectViaContinentRouting falls back to scanning when
+-- no index is present, so a missed rebuild costs speed rather than correctness.
+function PathCalculator:BuildNodeIndex()
+    local byMap, byContinent, hubsAndCities = {}, {}, {}
+
+    for nodeName, nodeData in pairs(self.graph.nodes) do
+        local mapID = nodeData.mapID
+        if mapID then
+            local bucket = byMap[mapID]
+            if not bucket then
+                bucket = {}
+                byMap[mapID] = bucket
+            end
+            bucket[#bucket + 1] = nodeName
+
+            local continent = QR.GetContinentForZone and QR.GetContinentForZone(mapID)
+            if continent then
+                local cont = byContinent[continent]
+                if not cont then
+                    cont = {}
+                    byContinent[continent] = cont
+                end
+                cont[#cont + 1] = nodeName
+            end
+        end
+
+        if nodeData.nodeType == "hub" or nodeData.nodeType == "city" then
+            hubsAndCities[#hubsAndCities + 1] = nodeName
+        end
+    end
+
+    self.nodeIndex = {
+        byMap = byMap,
+        byContinent = byContinent,
+        hubsAndCities = hubsAndCities,
+    }
+    return self.nodeIndex
+end
+
+--- Node names on a given map, from the index when it exists.
+-- @return table Array of node names
+function PathCalculator:NodesOnMap(mapID)
+    if self.nodeIndex then
+        return self.nodeIndex.byMap[mapID] or EMPTY_NODE_LIST
+    end
+    local names = {}
+    for nodeName, nodeData in pairs(self.graph.nodes) do
+        if nodeData.mapID == mapID then
+            names[#names + 1] = nodeName
+        end
+    end
+    return names
+end
+
 function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
     local destContinent = QR.GetContinentForZone and QR.GetContinentForZone(mapID)
     local connectedSomething = false
@@ -828,8 +893,8 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
     local adjacentZones = QR.GetAdjacentZones and QR.GetAdjacentZones(mapID) or {}
     for _, adj in ipairs(adjacentZones) do
         -- Find nodes on the adjacent zone
-        for otherName, otherData in pairs(self.graph.nodes) do
-            if otherName ~= nodeName and otherData.mapID == adj.zone then
+        for _, otherName in ipairs(self:NodesOnMap(adj.zone)) do
+            if otherName ~= nodeName then
                 self.graph:AddBidirectionalEdge(nodeName, otherName, adj.travelTime, "walk", {
                     note = "Adjacent zone travel",
                     fromMapID = mapID,
@@ -855,8 +920,8 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
         -- one of those walk edges with a free "travel" edge.
         if hubMapID and hubMapID ~= mapID then
             -- Find the hub node
-            for otherName, otherData in pairs(self.graph.nodes) do
-                if otherName ~= nodeName and otherData.mapID == hubMapID
+            for _, otherName in ipairs(self:NodesOnMap(hubMapID)) do
+                if otherName ~= nodeName
                     and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
                     -- Estimate time from hub to destination
                     local travelTime = QR.EstimateSameContinentTravel and
@@ -881,17 +946,33 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
     if not connectedSomething and destContinent then
         local bestNode, bestTime = nil, math_huge
 
-        for otherName, otherData in pairs(self.graph.nodes) do
-            if otherName ~= nodeName and otherData.mapID then
-                local otherContinent = QR.GetContinentForZone and QR.GetContinentForZone(otherData.mapID)
-
-                if otherContinent == destContinent then
+        local sameContinent = self.nodeIndex and self.nodeIndex.byContinent[destContinent]
+        if sameContinent then
+            for _, otherName in ipairs(sameContinent) do
+                local otherData = self.graph.nodes[otherName]
+                if otherName ~= nodeName and otherData and otherData.mapID then
                     local travelTime = QR.EstimateSameContinentTravel and
                         QR.EstimateSameContinentTravel(otherData.mapID, mapID) or 180
 
                     if travelTime < bestTime then
                         bestTime = travelTime
                         bestNode = otherName
+                    end
+                end
+            end
+        else
+            for otherName, otherData in pairs(self.graph.nodes) do
+                if otherName ~= nodeName and otherData.mapID then
+                    local otherContinent = QR.GetContinentForZone and QR.GetContinentForZone(otherData.mapID)
+
+                    if otherContinent == destContinent then
+                        local travelTime = QR.EstimateSameContinentTravel and
+                            QR.EstimateSameContinentTravel(otherData.mapID, mapID) or 180
+
+                        if travelTime < bestTime then
+                            bestTime = travelTime
+                            bestNode = otherName
+                        end
                     end
                 end
             end
@@ -917,8 +998,18 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
     if not connectedSomething then
         local connectCount = 0
 
-        for otherName, otherData in pairs(self.graph.nodes) do
-            if otherName ~= nodeName and otherData.mapID then
+        -- Only hub and city nodes are eligible below, so iterate just those.
+        local candidates = self.nodeIndex and self.nodeIndex.hubsAndCities
+        if not candidates then
+            candidates = {}
+            for otherName in pairs(self.graph.nodes) do
+                candidates[#candidates + 1] = otherName
+            end
+        end
+
+        for _, otherName in ipairs(candidates) do
+            local otherData = self.graph.nodes[otherName]
+            if otherName ~= nodeName and otherData and otherData.mapID then
                 local otherContinent = QR.GetContinentForZone and QR.GetContinentForZone(otherData.mapID)
 
                 -- Calculate cross-continent time
