@@ -162,6 +162,138 @@ local function SpellRow(id, note)
     return string_format("| %d | %s | %s |", id, tostring(name), note)
 end
 
+-- Words that mark a spell or toy as travel-related, in the locales this is
+-- likely to run under. Matching on names is coarse, but dumping every spell a
+-- character knows would bury the answer.
+local TRAVEL_WORDS = {
+    "teleport", "portal", "hearthstone", "ruhestein", "recall", "rückkehr",
+    "rueckkehr", "summon", "beschwör", "beschwoer", "travel", "reise",
+    "passage", "gate", "tor", "translocat", "transporter", "wormhole",
+    "wurmloch", "dalaran", "shrine", "zuflucht", "delve", "tiefe",
+}
+
+local function LooksLikeTravel(name)
+    if not name then return false end
+    local lower = string.lower(name)
+    for _, word in ipairs(TRAVEL_WORDS) do
+        if string.find(lower, word, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+--- Every teleport id the addon's data files already know about.
+-- @return table Set keyed by item or spell id
+local function KnownIDs()
+    local known = {}
+    for itemID in pairs(QR.TeleportItemsData or {}) do known[itemID] = true end
+    for _, tbl in ipairs({ QR.ClassTeleportSpells, QR.RacialTeleportSpells,
+                           QR.GeneralTeleportSpells }) do
+        for spellID in pairs(tbl or {}) do known[spellID] = true end
+    end
+    for _, factionTable in pairs(QR.MageTeleports or {}) do
+        for spellID in pairs(factionTable or {}) do known[spellID] = true end
+    end
+    return known
+end
+
+--- Owned toys the data files do not mention.
+-- Enumeration honours the toy box's own filters, so the count is reported and
+-- the caller is told to clear any search text first.
+local function DiscoverToys(out, known)
+    local function add(s) table_insert(out, s) end
+
+    add("### Toys you own that QuickRoute does not know")
+    add("")
+    if not (C_ToyBox and C_ToyBox.GetNumFilteredToys and C_ToyBox.GetToyFromIndex
+            and PlayerHasToy) then
+        add("_Toy box API unavailable._")
+        add("")
+        return
+    end
+
+    local total = C_ToyBox.GetNumFilteredToys() or 0
+    add(string_format("_Enumerated %d toys. This respects the toy box's filters — clear its search box and show all collected toys before trusting the list._",
+        total))
+    add("")
+    add("| itemID | name | travel-ish |")
+    add("|---|---|---|")
+
+    local found = 0
+    for i = 1, total do
+        local itemID = C_ToyBox.GetToyFromIndex(i)
+        if itemID and itemID > 0 and not known[itemID] then
+            local ok, hasToy = pcall(PlayerHasToy, itemID)
+            if ok and hasToy then
+                local name
+                if C_ToyBox.GetToyInfo then
+                    local _, toyName = C_ToyBox.GetToyInfo(itemID)
+                    name = toyName
+                end
+                name = name or "?"
+                if LooksLikeTravel(name) then
+                    found = found + 1
+                    add(string_format("| %d | %s | yes |", itemID, name))
+                end
+            end
+        end
+    end
+    if found == 0 then
+        add("| - | _nothing travel-related that the data files miss_ | - |")
+    end
+    add("")
+end
+
+--- Known spells the data files do not mention.
+local function DiscoverSpells(out, known)
+    local function add(s) table_insert(out, s) end
+
+    add("### Spells you know that QuickRoute does not know")
+    add("")
+    if not (C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines
+            and C_SpellBook.GetSpellBookSkillLineInfo
+            and C_SpellBook.GetSpellBookItemInfo and Enum and Enum.SpellBookSpellBank) then
+        add("_Spell book API unavailable._")
+        add("")
+        return
+    end
+
+    add("_Names are matched against a travel word list, so this is a shortlist rather than every spell._")
+    add("")
+    add("| spellID | name | skill line |")
+    add("|---|---|---|")
+
+    local found = 0
+    local scanned = 0
+    for lineIndex = 1, (C_SpellBook.GetNumSpellBookSkillLines() or 0) do
+        local lineInfo = C_SpellBook.GetSpellBookSkillLineInfo(lineIndex)
+        if lineInfo and lineInfo.itemIndexOffset and lineInfo.numSpellBookItems then
+            for slot = lineInfo.itemIndexOffset + 1,
+                       lineInfo.itemIndexOffset + lineInfo.numSpellBookItems do
+                local info = C_SpellBook.GetSpellBookItemInfo(
+                    slot, Enum.SpellBookSpellBank.Player)
+                if info and info.spellID then
+                    scanned = scanned + 1
+                    if not known[info.spellID] and not info.isPassive
+                        and LooksLikeTravel(info.name) then
+                        found = found + 1
+                        add(string_format("| %d | %s | %s |",
+                            info.spellID, tostring(info.name),
+                            tostring(lineInfo.name)))
+                    end
+                end
+            end
+        end
+    end
+    if found == 0 then
+        add("| - | _nothing travel-related that the data files miss_ | - |")
+    end
+    add("")
+    add(string_format("_Scanned %d spell book entries._", scanned))
+    add("")
+end
+
 --- Build the report as markdown.
 -- @return string
 function QR:BuildVerifyReport()
@@ -223,6 +355,14 @@ function QR:BuildVerifyReport()
     for _, row in ipairs(SPELLS) do
         add(SpellRow(row[1], row[2]))
     end
+    add("")
+
+    -- What the addon cannot find on its own: PlayerInventory only ever checks
+    -- the ids already in the data files, so anything missing from them is
+    -- invisible. These two sections compare against what the character has.
+    local known = KnownIDs()
+    DiscoverToys(out, known)
+    DiscoverSpells(out, known)
 
     return table_concat(out, "\n")
 end

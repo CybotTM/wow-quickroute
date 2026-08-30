@@ -49,6 +49,8 @@ globals = {
     -- Encounter Journal, load-on-demand: nil until Blizzard_EncounterJournal loads
     "EJ_GetInstanceInfo",
     "LoadAddOn",
+    -- 11.0+ spell book namespace
+    "C_SpellBook",
 
     -- WoW API functions
     "GetItemInfo",
