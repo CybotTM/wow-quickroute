@@ -1119,6 +1119,24 @@ function MockWoW:Install()
         }
     end
 
+    -- 12.0+: returns a DurationObject, not a number, and nothing when the spell
+    -- is ready (predicate MayReturnNothing). The object's accessors are not
+    -- publicly documented, so the mock models only what is documented: that it
+    -- is an object rather than a number, and that it is absent when ready.
+    _G.C_Spell.GetSpellCooldownDuration = function(spellID, ignoreGCD)
+        local cd = cfg.spellCooldowns[spellID]
+        if cd and cd.duration and cd.duration > 0 then
+            return setmetatable({}, { __metatable = "DurationObject" })
+        end
+        return nil
+    end
+
+    -- 12.0+ secret-value probe. Tests run as an unrestricted client, so nothing
+    -- is secret here; the restricted-cooldown case is not modelled.
+    _G.issecretvalue = function(value)
+        return false
+    end
+
     _G.C_Spell.GetSpellTexture = function(spellID)
         return 134400  -- Generic spell icon
     end

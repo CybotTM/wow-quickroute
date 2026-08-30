@@ -39,6 +39,9 @@ globals = {
     "C_TaskQuest",
     "C_EncounterJournal",
 
+    -- 12.0+ secret-value probe (absent on older clients)
+    "issecretvalue",
+
     -- WoW API functions
     "GetItemInfo",
     "GetItemIcon",
