@@ -1568,3 +1568,31 @@ T:run("UI: combat exit re-renders the route once, not twice", function(t)
 
     QR.MainFrame:Hide()
 end)
+
+-------------------------------------------------------------------------------
+-- Item info that is not cached yet
+-------------------------------------------------------------------------------
+
+-- The mock grew an `uncachedItems` flag alongside `uncachedSpells` so the
+-- "item info is not available immediately" branch could be exercised, but
+-- nothing ever set it: the branch never ran, and the flag was decoration.
+-- Right after login is exactly when that branch is live.
+T:run("GetLocalizedItemInfo: an item that is not cached yet returns nil, uncached", function(t)
+    resetState()
+    local itemID = 6948  -- Hearthstone
+    MockWoW.config.uncachedItems[itemID] = true
+    QR.UI.itemInfoCache = {}
+    QR.UI.itemInfoAccessOrder = {}
+
+    local name, link = QR.UI:GetLocalizedItemInfo(itemID)
+    t:assertNil(name, "no name while the client has not cached the item")
+    t:assertNil(link, "and no link either")
+    t:assertNil(QR.UI.itemInfoCache[itemID],
+        "and the miss is not cached, so a later call can still succeed")
+
+    -- The client answers on a later frame; the same call must now work.
+    MockWoW.config.uncachedItems[itemID] = nil
+    local name2 = QR.UI:GetLocalizedItemInfo(itemID)
+    t:assertNotNil(name2, "the second call gets the name once the client has it")
+    t:assertNotNil(QR.UI.itemInfoCache[itemID], "and that one is cached")
+end)

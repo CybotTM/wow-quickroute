@@ -7,8 +7,14 @@
 - Spell teleports reported as permanently off cooldown on 12.x
 - SecureButtons failed to load, raising a Lua error on every login
 - Twelve dungeon entrances bound to the wrong Encounter Journal instance
-- Six zone graph nodes carrying the uiMapID of a dungeon, raid or continent
+- Twelve zone graph nodes carrying the uiMapID of a dungeon, raid or continent
+- The Veiled Stair modelled as an island reached by boat, from carrying Isle of Thunder's map ID
+- Crucible of Storms registered on the Kul Tiras continent map instead of Stormsong Valley
 - Routes computed after a zone change started in the zone the player had just left
+- Teleports vanishing from routes after a single step, their graph edge overwritten by a walking estimate
+- North-south distances priced by the map's east-west extent
+- Secure buttons never returned when a window closed, draining the pool
+- Releases published without having been linted, and store uploads that failed silently
 
 ### Added
 - The Coiled Isle, Vaults of Atal'Utek, Val, Naigtal and the two housing zones

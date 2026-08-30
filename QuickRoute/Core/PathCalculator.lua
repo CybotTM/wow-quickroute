@@ -756,6 +756,32 @@ function PathCalculator:UpdatePlayerLocation()
     end
 end
 
+--- True when either direction between two nodes already holds a teleport edge.
+-- The graph holds one edge per ordered pair, so every write is a replacement:
+-- a teleport edge and a walk or travel edge between the same two nodes cannot
+-- coexist. A teleport edge IS the teleport as far as the route is concerned --
+-- the step carries its teleportID and its secure Use button off that edge -- so
+-- an estimate written over it removes the teleport from every route until an
+-- inventory event happens to rebuild the graph. ReconnectPlayerNode keeps the
+-- teleport edges on purpose when the player moves; without this the very next
+-- ConnectNearbyNodes overwrote them anyway.
+--
+-- Both directions are checked because the writers use AddBidirectionalEdge,
+-- which writes both: a guard on one direction alone still loses the other.
+local function HasTeleportEdge(graph, from, to)
+    local forward = graph:GetEdge(from, to)
+    if forward and forward.edgeType == "teleport" then
+        return true
+    end
+    local back = graph:GetEdge(to, from)
+    return (back and back.edgeType == "teleport") or false
+end
+
+--- True when a walking edge may be written between two nodes.
+local function CanOverwriteWithWalk(graph, from, to)
+    return not HasTeleportEdge(graph, from, to)
+end
+
 --- Rebuild the player node's position-derived edges for its current map.
 -- Walk and travel edges depend on where the player stands and are dropped;
 -- teleport edges do not and are kept.
@@ -798,7 +824,8 @@ function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
 
     -- First pass: connect to nodes on the same map
     for otherName, otherData in pairs(self.graph.nodes) do
-        if otherName ~= nodeName and otherData.mapID == mapID then
+        if otherName ~= nodeName and otherData.mapID == mapID
+            and CanOverwriteWithWalk(self.graph, nodeName, otherName) then
             -- Calculate walking time between nodes
             local walkTime = SafeEstimateWalkingTime(
                 x, y,
@@ -829,6 +856,9 @@ end
 -- already there. Continent routing only estimates; a "walk" edge produced by
 -- the same-map pass is measured from real coordinates and must not be replaced.
 local function CanOverwriteWithTravel(graph, from, to)
+    if HasTeleportEdge(graph, from, to) then
+        return false
+    end
     local existing = graph:GetEdge(from, to)
     return not existing or existing.edgeType ~= "walk"
 end
@@ -902,7 +932,8 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
     for _, adj in ipairs(adjacentZones) do
         -- Find nodes on the adjacent zone
         for _, otherName in ipairs(self:NodesOnMap(adj.zone)) do
-            if otherName ~= nodeName then
+            if otherName ~= nodeName
+                and CanOverwriteWithWalk(self.graph, nodeName, otherName) then
                 self.graph:AddBidirectionalEdge(nodeName, otherName, adj.travelTime, "walk", {
                     note = "Adjacent zone travel",
                     fromMapID = mapID,
@@ -926,6 +957,11 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
         -- EstimateSameContinentTravel(hub, hub) is 0, which AddEdge clamps to
         -- the 0.001 epsilon, so running this strategy here would replace every
         -- one of those walk edges with a free "travel" edge.
+        --
+        -- No test reddens on removing this check alone: CanOverwriteWithTravel
+        -- below refuses the same writes for the same reason. It is kept because
+        -- it states the condition where it is cheap to read, but do not count
+        -- it as covered.
         if hubMapID and hubMapID ~= mapID then
             -- Find the hub node
             for _, otherName in ipairs(self:NodesOnMap(hubMapID)) do
@@ -1037,6 +1073,13 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
 
                 -- Connect to hub/city nodes on other continents (let Dijkstra optimize)
                 -- Also connect to the single best non-hub as fallback
+                -- Neither the continent check nor the floor below reddens a
+                -- test on its own, and the state they guard cannot be reached
+                -- from a built graph: strategy 4 runs only when nothing else
+                -- connected the node, which with a known destContinent means
+                -- its continent holds no other node -- so no candidate can
+                -- share it, and baseTime stays at CROSS_CONTINENT_TIME. They
+                -- are defence in depth against a data change, not covered code.
                 if (otherData.nodeType == "hub" or otherData.nodeType == "city")
                     and otherContinent ~= destContinent
                     and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
@@ -1058,11 +1101,18 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
             end
         end
 
-        -- Fallback: if no hub/city nodes found, connect to single best node
+        -- Fallback: if no hub/city nodes found, connect to single best node.
+        -- Candidates the overwrite rules refuse are skipped rather than
+        -- overwritten: this branch was the one write in the whole strategy
+        -- without that check, so it replaced measured walk edges and teleport
+        -- edges with a flat 300-second estimate. When every candidate is
+        -- refused there is nothing to do -- the node already has real edges to
+        -- them, which is the opposite of isolated.
         if connectCount == 0 then
             local bestNode, bestTime = nil, math_huge
             for otherName, otherData in pairs(self.graph.nodes) do
-                if otherName ~= nodeName and otherData.mapID then
+                if otherName ~= nodeName and otherData.mapID
+                    and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
                     local baseTime = CROSS_CONTINENT_TIME
                     if baseTime < bestTime then
                         bestTime = baseTime
