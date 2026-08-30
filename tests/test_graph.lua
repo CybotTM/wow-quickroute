@@ -38,6 +38,11 @@ T:run("Graph:RemoveNode removes node and edges", function(t)
     t:assertNil(g.nodes["B"], "Node B no longer in nodes")
     t:assertNil(g.edges["B"], "Node B edges removed")
 
+    -- Inbound edges must go too. The test used to check only g.edges["B"],
+    -- which is the outbound table, so deleting RemoveNode's inbound cleanup
+    -- loop left A->B behind and the suite stayed green.
+    t:assertNil(g:GetEdge("A", "B"), "Inbound edge A->B removed")
+
     -- Edge from C to A should still exist
     t:assertNotNil(g:GetEdge("C", "A"), "Edge C->A still exists")
 end)

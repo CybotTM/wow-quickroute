@@ -370,6 +370,9 @@ end
 
 --- Release all rows back to pool
 function MiniTeleportPanel:ReleaseAllRows()
+    if self.separator then
+        self.separator:Hide()
+    end
     -- Release secure buttons
     if QR.SecureButtons and not InCombatLockdown() then
         for _, btn in ipairs(self.secureButtons) do
@@ -521,15 +524,21 @@ function MiniTeleportPanel:RefreshList()
         yOffset = yOffset + ROW_HEIGHT
     end
 
-    -- Separator line before mount button
-    local separator = CreateFrame("Frame", nil, self.frame.scrollChild)
-    separator:SetHeight(1)
-    separator:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 4, -yOffset - 3)
-    separator:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", -4, 0)
-    local sepTex = separator:CreateTexture(nil, "ARTWORK")
-    sepTex:SetAllPoints()
-    sepTex:SetColorTexture(0.5, 0.5, 0.5, 0.5)
-    table_insert(self.rows, separator)
+    -- Separator line before mount button. Created once and re-anchored: this
+    -- used to build a fresh Frame on every refresh and never hide or reuse it,
+    -- so each refresh left another 1px line behind in the scroll child.
+    if not self.separator then
+        local separator = CreateFrame("Frame", nil, self.frame.scrollChild)
+        separator:SetHeight(1)
+        local sepTex = separator:CreateTexture(nil, "ARTWORK")
+        sepTex:SetAllPoints()
+        sepTex:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+        self.separator = separator
+    end
+    self.separator:ClearAllPoints()
+    self.separator:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 4, -yOffset - 3)
+    self.separator:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", -4, 0)
+    self.separator:Show()
     yOffset = yOffset + 7  -- 3px gap + 1px line + 3px gap
 
     -- Mount button row

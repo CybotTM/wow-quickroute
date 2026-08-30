@@ -235,15 +235,28 @@ T:run("MiniTP: separator exists before mount button", function(t)
     QR.MiniTeleportPanel:CreateFrame()
     QR.MiniTeleportPanel:RefreshList()
 
-    -- The row before the mount row should be the separator (has no nameLabel)
-    local rows = QR.MiniTeleportPanel.rows
-    t:assertGreaterThan(#rows, 2, "Has at least 3 rows (teleport + separator + mount)")
-
-    -- Second-to-last row is the separator frame (no nameLabel)
-    local separator = rows[#rows - 1]
+    -- The separator is kept on the module rather than pushed into rows: it used
+    -- to be a fresh Frame per refresh that nothing ever hid, so each refresh
+    -- left another line behind. Same visual contract, one frame.
+    local separator = QR.MiniTeleportPanel.separator
     t:assertNotNil(separator, "Separator frame exists")
-    -- Separator doesn't have nameLabel (it's a plain frame)
     t:assertNil(separator.nameLabel, "Separator has no nameLabel (plain frame)")
+    t:assertTrue(separator:IsShown(), "Separator is shown while the panel has content")
+end)
+
+T:run("MiniTP: refreshing does not create a second separator", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    setupOwnedToys({ 140192 })
+
+    QR.MiniTeleportPanel:CreateFrame()
+    QR.MiniTeleportPanel:RefreshList()
+    local first = QR.MiniTeleportPanel.separator
+    QR.MiniTeleportPanel:RefreshList()
+    QR.MiniTeleportPanel:RefreshList()
+
+    t:assertEqual(first, QR.MiniTeleportPanel.separator,
+        "the same separator frame is reused across refreshes")
 end)
 
 -------------------------------------------------------------------------------
