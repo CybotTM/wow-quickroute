@@ -61,3 +61,5 @@ QuickRoute.lua
 
 # Tests (loaded last, can be commented out for release)
 Tests\TestGraph.lua
+# Temporary: /qrverify for the 12.1.0 data check. Remove with the file.
+Tests\VerifyData.lua
