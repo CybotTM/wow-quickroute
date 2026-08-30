@@ -1005,8 +1005,14 @@ function MockWoW:Install()
 
     -- Real map dimensions in yards. Static per map in the game, which is why
     -- TravelTime caches the answer.
+    -- Returns width, height in yards. A plain number in the config means a
+    -- square map; a table { width, height } models a rectangular one.
     _G.C_Map.GetMapWorldSize = function(uiMapID)
-        return cfg.mapWorldSizes[uiMapID]
+        local size = cfg.mapWorldSizes[uiMapID]
+        if type(size) == "table" then
+            return size[1], size[2]
+        end
+        return size, size
     end
 
     _G.C_Map.GetBestMapForUnit = function(unit)

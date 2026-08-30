@@ -61,24 +61,31 @@ TravelTime.MAP_SCALE = 1000
 -- C_Map.GetMapWorldSize reports the real size and it is static per map, so the
 -- lookup is cached. Falls back to MAP_SCALE when the API says nothing, which
 -- is what every caller got before.
+-- Only successful lookups are cached: a map the client had no size for may
+-- answer later, and caching the fallback would pin the wrong number forever.
 local mapScaleCache = {}
 function TravelTime:GetMapScale(mapID)
     if not mapID then
-        return self.MAP_SCALE
+        return self.MAP_SCALE, self.MAP_SCALE
     end
     local cached = mapScaleCache[mapID]
     if cached then
-        return cached
+        return cached[1], cached[2]
     end
-    local scale = self.MAP_SCALE
     if C_Map and C_Map.GetMapWorldSize then
-        local ok, width = pcall(C_Map.GetMapWorldSize, mapID)
+        -- Two values: width and height, both in yards. Using width for both
+        -- axes prices a north-south walk by the map's east-west extent, which
+        -- on a map that is not square is wrong by its aspect ratio.
+        local ok, width, height = pcall(C_Map.GetMapWorldSize, mapID)
         if ok and type(width) == "number" and width > 0 then
-            scale = width
+            if type(height) ~= "number" or height <= 0 then
+                height = width
+            end
+            mapScaleCache[mapID] = { width, height }
+            return width, height
         end
     end
-    mapScaleCache[mapID] = scale
-    return scale
+    return self.MAP_SCALE, self.MAP_SCALE
 end
 
 --- Drop the cached scales (used by tests).
@@ -93,8 +100,10 @@ end
 -- @param mapID number|nil Map the distance was measured on, for its real scale
 -- @return number Estimated travel time in seconds
 function TravelTime:EstimateDistanceTime(distance, canFly, mapID)
-    -- Convert coordinate distance to approximate yards
-    local yards = distance * self:GetMapScale(mapID)
+    -- Convert coordinate distance to approximate yards. Callers that know both
+    -- axes should use EstimateWalkingTime, which scales each one separately.
+    local width = self:GetMapScale(mapID)
+    local yards = distance * width
 
     -- Select speed based on flight capability
     local speed
@@ -218,6 +227,14 @@ end
 -- @param canFly boolean Whether the player can fly in the zone
 -- @return number Estimated travel time in seconds
 function TravelTime:EstimateWalkingTime(x1, y1, x2, y2, canFly, mapID)
-    local distance = self:CalculateDistance(x1, y1, x2, y2)
-    return self:EstimateDistanceTime(distance, canFly, mapID)
+    -- Scale each axis by its own extent. Normalized coordinates say nothing
+    -- about the shape of the map, so a single scale prices north-south travel
+    -- by the east-west size.
+    local width, height = self:GetMapScale(mapID)
+    local dx = (x2 - x1) * width
+    local dy = (y2 - y1) * height
+    local yards = math_sqrt(dx * dx + dy * dy)
+
+    local speed = canFly and self.SPEEDS.mounted_flying or self.SPEEDS.mounted_ground
+    return math_ceil(yards / speed)
 end

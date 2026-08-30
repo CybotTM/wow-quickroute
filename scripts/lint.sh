@@ -22,7 +22,14 @@ else
 fi
 
 if command -v luacheck &>/dev/null; then
-    echo "Running luacheck $(luacheck --version | head -1)..."
+    installed=$(luacheck --version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' || true)
+    echo "Running luacheck ${installed:-unknown}..."
+    if [ -n "$installed" ] && [ "$installed" != "$LUACHECK_VERSION" ]; then
+        # CI pins one version; a local one that differs enforces different rules,
+        # so a clean run here says nothing about the gate.
+        echo "⚠ Local luacheck is ${installed}, CI pins ${LUACHECK_VERSION}." >&2
+        echo "  Results may differ from the gate. Use the Docker invocation for parity." >&2
+    fi
     luacheck "${FILES[@]}" --config .luacheckrc
     echo "✓ Luacheck passed"
 elif command -v docker &>/dev/null; then

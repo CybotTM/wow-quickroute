@@ -1256,10 +1256,108 @@ T:run("CalculatePath: teleport edges are re-priced against live cooldowns", func
     MockWoW.config.spellCooldowns[teleportID] = { start = GetTime(), duration = 1800 }
     MockWoW.config.itemCooldowns[teleportID] = { start = GetTime(), duration = 1800 }
 
-    QR.PathCalculator:RefreshTeleportEdgeWeights()
+    -- Drive CalculatePath rather than calling RefreshTeleportEdgeWeights
+    -- directly: the wiring into CalculatePath is the fix, and calling the method
+    -- by hand guards the method while leaving the wiring untested. Deleting the
+    -- call site used to keep this test green.
+    MockWoW.config.currentMapID = 84
+    QR.PathCalculator:CalculatePath(85, 0.5, 0.5, "Repricing Target")
 
     local after = graph.edges["Player Location"][edgeName]
     t:assertTrue(after.weight > weightWhenReady,
         "Weight rises once the teleport is on cooldown (was " .. tostring(weightWhenReady)
             .. ", now " .. tostring(after.weight) .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- Continent routing must not fall through to the cross-continent last resort
+-------------------------------------------------------------------------------
+
+-- Regression: the guard that stops coarse "travel" estimates from overwriting
+-- measured walk edges was applied after a candidate had been chosen, and a
+-- refusal left connectedSomething false. The node then reached Strategy 4,
+-- where GetCrossContinentTravel returns 0 for a continent to itself and
+-- baseTime - 60 goes negative, which AddEdge clamps to the 0.001 epsilon. A
+-- destination inside a capital looked one free hop away: Ironforge to a point
+-- in Stormwind came back as a single 19s step with the Deeprun Tram gone.
+T:run("CalculatePath: a destination inside a capital keeps its real legs", function(t)
+    resetState()
+    MockWoW.config.currentMapID = 87  -- Ironforge
+    QR.PathCalculator.graph = nil
+    QR.PathCalculator.graphDirty = true
+
+    local result = QR.PathCalculator:CalculatePath(84, 0.60, 0.75, "Stormwind Target")
+    t:assertNotNil(result, "a route from Ironforge to Stormwind exists")
+    if not result then return end
+
+    t:assertGreaterThan(#(result.steps or {}), 1,
+        "the route has more than one step (got " .. tostring(#(result.steps or {})) .. ")")
+    t:assertGreaterThan(result.totalTime or 0, 60,
+        "crossing between two capitals is not priced under a minute (got "
+            .. tostring(result.totalTime) .. "s)")
+end)
+
+T:run("BuildGraph: no travel edge is cheaper than a second", function(t)
+    resetState()
+    QR.PathCalculator.graph = nil
+    QR.PathCalculator.graphDirty = true
+    local graph = QR.PathCalculator:BuildGraph()
+
+    local offenders = {}
+    for from, targets in pairs(graph.edges) do
+        for to, edge in pairs(targets) do
+            if edge.edgeType == "travel" and edge.weight < 1 then
+                offenders[#offenders + 1] = from .. " -> " .. to
+            end
+        end
+    end
+    t:assertEqual(0, #offenders,
+        "no sub-second travel edge (" .. table.concat(offenders, ", ") .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- The node index must not survive the graph it describes
+-------------------------------------------------------------------------------
+
+-- Regression: BuildGraph replaced self.graph but left self.nodeIndex in place.
+-- The index then handed back node names belonging to a discarded graph object,
+-- Graph:AddEdge refused them, and the edges vanished with no error.
+T:run("BuildGraph: a build that skips the index rebuild still produces every edge", function(t)
+    resetState()
+    local function build()
+        QR.PathCalculator.graph = nil
+        QR.PathCalculator.graphDirty = true
+        local g = QR.PathCalculator:BuildGraph()
+        local edges = 0
+        for _, targets in pairs(g.edges) do
+            for _ in pairs(targets) do edges = edges + 1 end
+        end
+        return edges
+    end
+
+    local wasScanned = QR.DungeonData and QR.DungeonData.scanned
+
+    -- First build populates the index.
+    build()
+
+    -- AddDungeonNodes returns early when the Encounter Journal has not been
+    -- scanned, and BuildNodeIndex sits after that return, so this build never
+    -- refreshes the index. If the previous one is left in place it names nodes
+    -- belonging to a graph object that no longer exists, Graph:AddEdge refuses
+    -- them, and the edges disappear with no error.
+    if QR.DungeonData then QR.DungeonData.scanned = false end
+    local withPossiblyStaleIndex = build()
+
+    -- The same build again with the index explicitly cleared: this is what the
+    -- edge count has to be.
+    QR.PathCalculator.graph = nil
+    QR.PathCalculator.graphDirty = true
+    QR.PathCalculator.nodeIndex = nil
+    local withFreshIndex = build()
+
+    if QR.DungeonData then QR.DungeonData.scanned = wasScanned end
+
+    t:assertEqual(withFreshIndex, withPossiblyStaleIndex,
+        "a build following a different graph loses no edges ("
+            .. withPossiblyStaleIndex .. " vs " .. withFreshIndex .. ")")
 end)

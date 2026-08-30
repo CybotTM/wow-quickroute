@@ -1140,3 +1140,52 @@ T:run("StaticDungeonEntrances: no two zones share an entrance table", function(t
         end
     end
 end)
+
+-------------------------------------------------------------------------------
+-- The test loader must load exactly what the game loads
+-------------------------------------------------------------------------------
+
+-- Regression risk: tests/addon_loader.lua repeats the .toc's file list by hand.
+-- The runner's load-failure guard only fires for files the loader knows about,
+-- so a file added to the .toc and forgotten here is never loaded at all — and
+-- the file-scope-QR bug class that guard exists to catch would be invisible for
+-- it. The two lists are compared rather than trusted.
+T:run("addon_loader: its file list matches QuickRoute.toc", function(t)
+    local function readLines(path)
+        local f = io.open(path, "r")
+        if not f then return nil end
+        local content = f:read("*a")
+        f:close()
+        return content
+    end
+
+    local toc = readLines("QuickRoute/QuickRoute.toc")
+    t:assertNotNil(toc, "QuickRoute.toc is readable")
+    if not toc then return end
+
+    local tocFiles = {}
+    for line in toc:gmatch("[^\r\n]+") do
+        local trimmed = line:match("^%s*(.-)%s*$")
+        if trimmed:match("%.lua$") and not trimmed:match("^#") then
+            -- The in-game test runner is deliberately not loaded by the suite.
+            local normalized = trimmed:gsub("\\", "/")
+            if not normalized:match("^Tests/") then
+                tocFiles[#tocFiles + 1] = normalized
+            end
+        end
+    end
+    t:assertGreaterThan(#tocFiles, 20, "the .toc lists a plausible number of files")
+
+    local loaderSource = readLines("tests/addon_loader.lua")
+    t:assertNotNil(loaderSource, "addon_loader.lua is readable")
+    if not loaderSource then return end
+
+    local missing = {}
+    for _, file in ipairs(tocFiles) do
+        if not loaderSource:find('"' .. file .. '"', 1, true) then
+            missing[#missing + 1] = file
+        end
+    end
+    t:assertEqual(0, #missing,
+        "every .toc file is in the loader list (missing: " .. table.concat(missing, ", ") .. ")")
+end)

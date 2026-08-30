@@ -226,3 +226,30 @@ T:run("EstimateDistanceTime: a larger map costs more time for the same distance"
         "the same coordinate distance takes longer on the bigger map ("
             .. tostring(small) .. " vs " .. tostring(large) .. ")")
 end)
+
+T:run("EstimateWalkingTime: each axis is scaled by its own extent", function(t)
+    MockWoW:Reset()
+    QR.TravelTime:ClearMapScaleCache()
+    -- A map three times wider than it is tall.
+    MockWoW.config.mapWorldSizes[84] = { 3000, 1000 }
+
+    local eastWest   = QR.TravelTime:EstimateWalkingTime(0.0, 0.5, 1.0, 0.5, false, 84)
+    local northSouth = QR.TravelTime:EstimateWalkingTime(0.5, 0.0, 0.5, 1.0, false, 84)
+
+    t:assertGreaterThan(eastWest, northSouth,
+        "crossing the long axis takes longer than the short one ("
+            .. tostring(eastWest) .. " vs " .. tostring(northSouth) .. ")")
+end)
+
+T:run("GetMapScale: a size the client does not report is not cached", function(t)
+    MockWoW:Reset()
+    QR.TravelTime:ClearMapScaleCache()
+
+    local before = QR.TravelTime:GetMapScale(4242)
+    t:assertEqual(QR.TravelTime.MAP_SCALE, before, "falls back while the client says nothing")
+
+    MockWoW.config.mapWorldSizes[4242] = 2000
+    local after = QR.TravelTime:GetMapScale(4242)
+    t:assertEqual(2000, after,
+        "and picks the real size up once it is available (got " .. tostring(after) .. ")")
+end)

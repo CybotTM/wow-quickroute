@@ -433,20 +433,17 @@ QR.ZoneAdjacencies = {
     },
     [390] = {  -- Vale of Eternal Blossoms
         {zone = 379, travelTime = 60},  -- Kun-Lai Summit
-        {zone = 379, travelTime = 60},  -- Kun-Lai Summit (alt)
         {zone = 388, travelTime = 60},  -- Townlong Steppes
         {zone = 422, travelTime = 60},  -- Dread Wastes
     },
     [371] = {  -- Jade Forest
         {zone = 379, travelTime = 90},  -- Kun-Lai Summit
-        {zone = 379, travelTime = 90},  -- Kun-Lai Summit (alt)
         {zone = 376, travelTime = 60},  -- Valley of Four Winds
         {zone = 418, travelTime = 60},  -- Krasarang Wilds
     },
     [376] = {  -- Valley of the Four Winds
         {zone = 371, travelTime = 60},  -- Jade Forest
         {zone = 379, travelTime = 90},  -- Kun-Lai Summit
-        {zone = 379, travelTime = 90},  -- Kun-Lai Summit (alternate ID)
         {zone = 418, travelTime = 60},  -- Krasarang Wilds
     },
 
@@ -887,7 +884,6 @@ QR.ZoneAdjacencies = {
         {zone = 78, travelTime = 60},   -- Un'Goro Crater
         {zone = 249, travelTime = 90},   -- Uldum
         {zone = 75, travelTime = 30},    -- Caverns of Time (sub-zone)
-        {zone = 249, travelTime = 90},   -- Uldum (Cataclysm-era map)
         {zone = 1527, travelTime = 90},  -- Uldum (N'Zoth Assault version)
     },
     [78] = {  -- Un'Goro Crater
@@ -1021,7 +1017,6 @@ QR.ZoneAdjacencies = {
     ---------------------------------------------------------------------------
     [388] = {  -- Townlong Steppes
         {zone = 379, travelTime = 90},   -- Kun-Lai Summit
-        {zone = 379, travelTime = 90},   -- Kun-Lai Summit (alternate ID)
         {zone = 390, travelTime = 60},   -- Vale of Eternal Blossoms
         {zone = 422, travelTime = 60},   -- Dread Wastes
         {zone = 433, travelTime = 120},  -- Isle of Thunder (portal/boat)

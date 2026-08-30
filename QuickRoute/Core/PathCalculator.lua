@@ -128,7 +128,10 @@ local CAPITAL_CITIES = {
     ["Orgrimmar"] = {mapID = 85, x = 0.4690, y = 0.3870, faction = "Horde"},
     ["Undercity"] = {mapID = 90, x = 0.6549, y = 0.4161, faction = "Horde"},
     ["Thunder Bluff"] = {mapID = 88, x = 0.2920, y = 0.2740, faction = "Horde"},
-    ["Silvermoon City"] = {mapID = 110, x = 0.5850, y = 0.1920, faction = "Horde"},
+    -- 2393 like Portals, ServicePOIs and the mage teleport. Leaving this at
+    -- 110 made the destination search offer a Silvermoon on a different map
+    -- than the one the portals land on, with two different routes for one city.
+    ["Silvermoon City"] = {mapID = 2393, x = 0.5850, y = 0.1920, faction = "Horde"},
     ["Dazar'alor"] = {mapID = 1165, x = 0.5020, y = 0.4080, faction = "Horde"},
 
     -- Neutral hubs
@@ -153,6 +156,11 @@ QR.CAPITAL_CITIES = CAPITAL_CITIES
 function PathCalculator:BuildGraph()
     -- Create new graph
     self.graph = QR.Graph:New()
+    -- The index belongs to the graph that was just discarded. Leaving it in
+    -- place is worse than having none: NodesOnMap would hand back names from
+    -- the old object, AddEdge would refuse them, and the edges would vanish
+    -- without an error.
+    self.nodeIndex = nil
     if not self.graph then
         QR:Error("Failed to create graph")
         return nil
@@ -978,7 +986,16 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
             end
         end
 
-        if bestNode and CanOverwriteWithTravel(self.graph, nodeName, bestNode) then
+        -- A refused candidate counts as connected. It was refused because a
+        -- measured walk edge to it already exists, which is strictly better
+        -- than the estimate this strategy wanted to write — but leaving
+        -- connectedSomething false sent the node on to the cross-continent last
+        -- resort, which happily wrote a negative weight that AddEdge clamps to
+        -- the 0.001 epsilon. A destination inside a capital then looked one
+        -- free hop away and the route lost its real legs.
+        if bestNode and not CanOverwriteWithTravel(self.graph, nodeName, bestNode) then
+            connectedSomething = true
+        elseif bestNode then
             local bestData = self.graph.nodes[bestNode]
             self.graph:AddBidirectionalEdge(nodeName, bestNode, bestTime, "travel", {
                 note = "Same continent travel",
@@ -1021,8 +1038,14 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
                 -- Connect to hub/city nodes on other continents (let Dijkstra optimize)
                 -- Also connect to the single best non-hub as fallback
                 if (otherData.nodeType == "hub" or otherData.nodeType == "city")
+                    and otherContinent ~= destContinent
                     and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
+                    -- Floor the hub bonus: GetCrossContinentTravel returns 0 for
+                    -- a continent to itself, and baseTime - 60 then goes
+                    -- negative, which AddEdge clamps to the 0.001 epsilon and
+                    -- Dijkstra reads as free.
                     local hubTime = baseTime - 60  -- 1 minute bonus for hubs
+                    if hubTime < 1 then hubTime = 1 end
                     self.graph:AddBidirectionalEdge(nodeName, otherName, hubTime, "travel", {
                         note = "Cross-continent travel",
                         fromMapID = mapID,

@@ -661,8 +661,13 @@ function MiniTeleportPanel:RegisterCombat()
                 MiniTeleportPanel.isShowing = false
             end
         end,
-        -- Leave combat: no action needed
-        nil
+        -- Leave combat: release again. The enter-combat callback is expected to
+        -- run before lockdown starts, but if that assumption is wrong on a live
+        -- client its ReleaseAllRows is a no-op and the buttons stay held. This
+        -- second pass costs nothing when the first one worked.
+        function()
+            MiniTeleportPanel:ReleaseAllRows()
+        end
     )
 end
 

@@ -442,8 +442,12 @@ end
 --   * modules + nested usedBlocks[template][id]  -- intermediate shape
 --   * MODULES + flat usedBlocks[questID]         -- what this file assumed
 -- @return table { [questID] = block }
+-- @return boolean Whether a module of a known shape was walked. An empty table
+--   with recognised = true means the tracker really has no blocks; with
+--   recognised = false it means its shape is one this code does not know.
 function QTB:CollectQuestBlocks()
     local blocks = {}
+    local recognised = false
 
     local function record(id, block)
         if type(id) == "number" and type(block) == "table" and block.HeaderText then
@@ -454,18 +458,20 @@ function QTB:CollectQuestBlocks()
     local modules = ObjectiveTrackerFrame and
         (ObjectiveTrackerFrame.modules or ObjectiveTrackerFrame.MODULES)
     if type(modules) ~= "table" then
-        return blocks
+        return blocks, false
     end
 
     for _, module in pairs(modules) do
         if type(module) == "table" then
             if type(module.EnumerateActiveBlocks) == "function" then
+                recognised = true
                 pcall(module.EnumerateActiveBlocks, module, function(block)
                     if type(block) == "table" then
                         record(block.id, block)
                     end
                 end)
             elseif type(module.usedBlocks) == "table" then
+                recognised = true
                 for key, value in pairs(module.usedBlocks) do
                     if type(value) == "table" and value.HeaderText then
                         -- Flat: usedBlocks[questID] = block
@@ -481,7 +487,7 @@ function QTB:CollectQuestBlocks()
         end
     end
 
-    return blocks
+    return blocks, recognised
 end
 
 
@@ -497,11 +503,13 @@ function QTB:OnUpdate(elapsed)
         return
     end
 
-    local questBlocks = self:CollectQuestBlocks()
-    if not next(questBlocks) then
-        -- Nothing recognised. Leaving the buttons where they are beats hiding
-        -- every one of them: an unrecognised tracker shape is a positioning
-        -- problem, not a reason to remove working teleports from the screen.
+    local questBlocks, recognised = self:CollectQuestBlocks()
+    if not recognised then
+        -- The tracker's shape is one this code does not know. Leaving the
+        -- buttons where they are beats hiding every one of them: that is a
+        -- positioning problem, not a reason to take working teleports off the
+        -- screen. An empty table from a shape that IS recognised falls through
+        -- to the loop below, which hides the buttons whose block is gone.
         return
     end
 

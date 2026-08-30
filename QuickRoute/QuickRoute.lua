@@ -316,7 +316,6 @@ do
             -- on the next route request rather than leaving wrong weights in
             -- place.
             local restricted, which = QR:AreActionsRestricted()
-            QR.actionsRestricted = restricted
             QR:Debug("Addon restriction state changed: " ..
                 (restricted and ("active (" .. tostring(which) .. ")") or "clear"))
             if not restricted and QR.PathCalculator then

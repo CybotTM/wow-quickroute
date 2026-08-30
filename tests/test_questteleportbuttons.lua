@@ -466,7 +466,21 @@ end)
 
 T:run("CollectQuestBlocks: an unknown tracker shape yields nothing rather than erroring", function(t)
     withTracker({ somethingElse = true }, function()
-        local blocks = QR.QuestTeleportButtons:CollectQuestBlocks()
-        t:assertEqual(0, #blocks, "no blocks collected from an unrecognised tracker")
+        -- next(), not #blocks: the table is keyed by questID, so the length
+        -- operator is 0 whatever it contains.
+        local blocks, recognised = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertNil(next(blocks), "no blocks collected from an unrecognised tracker")
+        t:assertFalse(recognised, "and the shape is reported as unrecognised")
+    end)
+end)
+
+T:run("CollectQuestBlocks: an empty tracker of a known shape is not 'unrecognised'", function(t)
+    -- The distinction decides whether the caller hides buttons whose quest block
+    -- is gone or leaves them alone. Both cases return an empty table, so without
+    -- the second return value they are indistinguishable.
+    withTracker({ modules = { { usedBlocks = {} } } }, function()
+        local blocks, recognised = QR.QuestTeleportButtons:CollectQuestBlocks()
+        t:assertNil(next(blocks), "an empty tracker yields no blocks")
+        t:assertTrue(recognised, "but its shape was recognised")
     end)
 end)
