@@ -9,7 +9,7 @@
 - Twelve dungeon entrances bound to the wrong Encounter Journal instance
 - Twelve dungeon-entrance zone constants pointing at the wrong map
 - Nine dungeon, raid and continent maps used as if they were walkable zones
-- The Veiled Stair modelled as an island reached by boat, from carrying Isle of Thunder's map ID
+- The Veiled Stair modelled as an island reached by boat, its adjacency block holding Isle of Thunder's neighbours
 - Crucible of Storms registered on the Kul Tiras continent map instead of Stormsong Valley
 - Four Tol Barad teleports pointing at a map with no continent and no neighbours
 - Silvermoon services and portals on the map the city left behind in 11.1
@@ -17,7 +17,7 @@
 - Routes computed after a zone change started in the zone the player had just left
 - Continent routing erasing the measured walk edges inside a city
 - Teleport edge weights frozen at graph-build time, so cooldowns stopped being considered
-- North-south distances priced by the map's east-west extent
+- Walking distances priced by one hard-coded scale for every map in the game instead of the map's real size
 - Quest teleport buttons hidden whenever the objective tracker had a shape this code did not know
 - Use buttons missing from a route rendered during combat, with nothing to restore them
 - Quest waypoints: the native map pin QuickRoute set was never taken back, so it kept outranking the player's tracked quest; the transit-hub fallback ran before the dungeon-entrance lookup and hid it; and both confirmations printed English regardless of locale

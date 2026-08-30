@@ -1782,3 +1782,115 @@ T:run("GetActiveWaypoint: priority 'mappin' puts the map pin first", function(t)
     _G.TomTom = nil
     QR.db.waypointPriority = "mappin"
 end)
+
+-------------------------------------------------------------------------------
+-- The native pin QuickRoute sets has to be taken back
+-------------------------------------------------------------------------------
+
+-- Regression: the cleanup removed TomTom's waypoints and left the native one in
+-- place. A native user waypoint outranks the player's super-tracked quest in
+-- GetActiveWaypoint -- mappin is first in every default priority order -- so a
+-- pin QuickRoute set silently hijacked their quest tracking until they cleared
+-- it by hand. The test could not exist before: the mock had no
+-- C_Map.ClearUserWaypoint, so the addon's own `and C_Map.ClearUserWaypoint`
+-- guard short-circuited and the branch never ran.
+T:run("Native waypoints QuickRoute set are cleared with the rest", function(t)
+    resetState()
+    MockWoW.config.userWaypointClears = 0
+    QR.WaypointIntegration._lastWpNative = nil
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Somewhere")
+    t:assertTrue(QR.WaypointIntegration._lastWpNative or false,
+        "the native fallback ran and recorded that it set a pin")
+    t:assertTrue(MockWoW.config.hasUserWaypoint, "and the client has a pin")
+
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+
+    t:assertEqual(1, MockWoW.config.userWaypointClears,
+        "the native pin is cleared exactly once (cleared: "
+            .. tostring(MockWoW.config.userWaypointClears) .. ")")
+    t:assertFalse(MockWoW.config.hasUserWaypoint, "so the client has none left")
+    t:assertNil(QR.WaypointIntegration._lastWpNative,
+        "and the flag is reset, so a second clear does not fire again")
+
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+    t:assertEqual(1, MockWoW.config.userWaypointClears,
+        "clearing again does not touch a pin the player may have set since")
+end)
+
+T:run("A pin QuickRoute did not set is left alone", function(t)
+    -- The flag is the whole point: without it the cleanup would remove the
+    -- player's own map pin every time a route was recalculated.
+    resetState()
+    MockWoW.config.userWaypointClears = 0
+    QR.WaypointIntegration._lastWpNative = nil
+    MockWoW.config.hasUserWaypoint = true
+
+    QR.WaypointIntegration:ClearTomTomWaypoints()
+
+    t:assertEqual(0, MockWoW.config.userWaypointClears,
+        "a pin QuickRoute never set is not cleared")
+    t:assertTrue(MockWoW.config.hasUserWaypoint, "and it is still there")
+end)
+
+T:run("The waypoint confirmation uses the translated string", function(t)
+    -- Both confirmations printed English literals while L["WAYPOINT_SET"] sat
+    -- translated in all ten locale blocks, referenced by nothing.
+    resetState()
+    local printed = {}
+    local originalPrint = QR.Print
+    QR.Print = function(_, msg) printed[#printed + 1] = msg end
+
+    QR.WaypointIntegration:SetTomTomWaypoint(84, 0.5, 0.5, "Testort")
+
+    QR.Print = originalPrint
+
+    t:assertGreaterThan(#printed, 0, "the confirmation was printed")
+    local template = QR.L["WAYPOINT_SET"]
+    t:assertNotNil(template, "the locale carries a WAYPOINT_SET template")
+    if not template or #printed == 0 then return end
+    local expected = string.format(template, "Testort")
+    local matched = false
+    for _, msg in ipairs(printed) do
+        if msg == expected then matched = true end
+    end
+    t:assertTrue(matched,
+        "the message comes from the template, not a literal (got: "
+            .. table.concat(printed, " | ") .. ")")
+end)
+
+-------------------------------------------------------------------------------
+-- The transit-hub fallback is a last resort, not a first answer
+-------------------------------------------------------------------------------
+
+-- Regression: the fallback used to return as soon as it was set, above the
+-- dungeon-entrance resolution and two other methods. Any quest whose next
+-- waypoint pointed at a portal hub therefore routed to the hub, and the
+-- entrance lookup below it was unreachable for exactly the quests that need it.
+T:run("A dungeon quest routes to the entrance, not to the transit hub", function(t)
+    resetState()
+    QR.WaypointIntegration:ClearQuestCoordCache()
+
+    local questID = 9001
+    -- Blizzard's next waypoint for this quest is Stormwind (84), which is a
+    -- PortalHubs entry and therefore a transit hub: this sets the fallback.
+    MockWoW.config.currentMapID = 84
+    MockWoW.config.questWaypoints = { [questID] = { mapID = 84, x = 0.55, y = 0.60 } }
+    MockWoW.config.questTitles = { [questID] = "Into the Stonevault" }
+    MockWoW.config.questTagInfo = { [questID] = { tagID = Enum.QuestTag.Dungeon } }
+    -- And the quest highlights Isle of Dorn, which has entrance data.
+    MockWoW.config.questAdditionalHighlights = {
+        [questID] = { uiMapID = 2248, dungeons = true },
+    }
+    QR.DungeonData.scanned = true
+
+    local result = QR.WaypointIntegration:GetQuestWaypoint(questID)
+
+    t:assertNotNil(result, "a destination was resolved")
+    if not result then return end
+    t:assertEqual(2248, result.mapID,
+        "the dungeon entrance wins over the transit hub (got map "
+            .. tostring(result.mapID) .. ")")
+    t:assertTrue(result.mapID ~= 84,
+        "and it is not the portal hub the next waypoint pointed at")
+end)

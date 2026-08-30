@@ -328,6 +328,8 @@ function MockWoW:Reset()
     self.config.knownSpells = {}
     self.config.uncachedSpells = {}
     self.config.uncachedItems = {}
+    self.config.userWaypointSets = 0
+    self.config.userWaypointClears = 0
     self.config.mapWorldSizes = {}
     self.config.itemCounts = {}
     self.config.equippedItems = {}
@@ -1068,6 +1070,16 @@ function MockWoW:Install()
     _G.C_Map.SetUserWaypoint = function(uiMapPoint)
         cfg.hasUserWaypoint = true
         cfg.userWaypoint = uiMapPoint
+        cfg.userWaypointSets = (cfg.userWaypointSets or 0) + 1
+    end
+
+    -- The real API. Its absence here used to make the addon's cleanup guard
+    -- (`... and C_Map.ClearUserWaypoint`) short-circuit, so the branch that
+    -- takes back a native pin never ran in any test.
+    _G.C_Map.ClearUserWaypoint = function()
+        cfg.hasUserWaypoint = false
+        cfg.userWaypoint = nil
+        cfg.userWaypointClears = (cfg.userWaypointClears or 0) + 1
     end
 
     _G.C_Map.GetMapInfoAtPosition = function(mapID, x, y)

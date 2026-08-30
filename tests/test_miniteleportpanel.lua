@@ -484,3 +484,24 @@ T:run("MiniTeleportPanel: an ancestor hide does not disarm the combat release", 
     onHide(frame)
     t:assertFalse(QR.MiniTeleportPanel.isShowing, "a real close clears isShowing")
 end)
+
+-- The separator is pooled on the module rather than pushed into self.rows,
+-- which ReleaseAllRows does not iterate. Being pooled is not enough on its own:
+-- closing the panel has to hide it too, or a 1px line stays on the scroll child
+-- after the rows around it are gone.
+T:run("MiniTP: closing the panel hides the separator", function(t)
+    resetState()
+    setupOwnedToys({ 64488, 184353, 183716, 140192 })
+
+    MockWoW.config.inCombatLockdown = false
+    QR.MiniTeleportPanel:Show()
+    local separator = QR.MiniTeleportPanel.separator
+    t:assertNotNil(separator, "the panel built its separator")
+    if not separator then return end
+    t:assertTrue(separator:IsShown(), "which is shown while the panel has content")
+
+    QR.MiniTeleportPanel:ReleaseAllRows()
+
+    t:assertFalse(separator:IsShown(),
+        "and hidden once the rows around it are released")
+end)
