@@ -32,8 +32,8 @@ body:
     id: version
     attributes:
       label: QuickRoute version
-      description: "If you can't paste debug info above, enter the version manually"
-      placeholder: "1.0.0"
+      description: "If you can't paste debug info in the field below, enter the version manually"
+      placeholder: "1.10.1"
   - type: textarea
     id: debug_info
     attributes:

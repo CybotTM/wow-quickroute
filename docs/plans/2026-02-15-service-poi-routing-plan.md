@@ -1,5 +1,7 @@
 # Service POI Routing Implementation Plan
 
+**Status:** Shipped. Kept as a record of the design, not as a plan to follow.
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Route the player to the nearest Auction House, Bank, or Void Storage across all capital cities using Dijkstra-optimal travel time.

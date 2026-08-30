@@ -51,6 +51,8 @@ globals = {
     "LoadAddOn",
     -- 11.0+ spell book namespace
     "C_SpellBook",
+    -- 12.0+ addon restriction states
+    "C_RestrictedActions",
 
     -- WoW API functions
     "GetItemInfo",
@@ -80,7 +82,6 @@ globals = {
     "GetAchievementLink",
     "GetNumFactions",
     "GetFactionInfo",
-    "SetPortraitToTexture",
     "PlaySound",
     "Screenshot",
     "hooksecurefunc",

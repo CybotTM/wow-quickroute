@@ -46,6 +46,10 @@ L_PATTERN = re.compile(
     r"^\s*L\[\"([^\"]+)\"\]\s*=\s*'((?:[^'\\]|\\.)*)'\s*$"
 )
 
+# Any line that assigns a localization key, whether or not the value parses.
+# Used to turn an unreadable value into an error instead of a silent skip.
+KEY_PREFIX = re.compile(r'^\s*L\["[^"]+"\]\s*=')
+
 # Pattern to detect locale blocks
 LOCALE_START = re.compile(
     r'(?:if|elseif)\s+(?:GetLocale\(\)|esLocale)\s*==\s*"(\w+)"'
@@ -76,12 +80,24 @@ def parse_localization(filepath):
             # Check for L["KEY"] = "VALUE"
             m = L_PATTERN.match(line)
             if m:
-                key = m.group(1) or m.group(3)
-                value = m.group(2) or m.group(4)
-                if key and value is not None:
-                    # Unescape Lua string escapes
-                    value = value.replace('\\"', '"').replace("\\'", "'")
-                    locales[current_locale][key] = value
+                # Pick the value by which key group matched, so an empty string
+                # survives: `m.group(2) or m.group(4)` turned "" into the other
+                # group's None and silently dropped the entry.
+                if m.group(1) is not None:
+                    key, value = m.group(1), m.group(2)
+                else:
+                    key, value = m.group(3), m.group(4)
+                # Unescape Lua string escapes
+                value = value.replace('\\"', '"').replace("\\'", "'")
+                locales[current_locale][key] = value
+            elif KEY_PREFIX.match(line):
+                # An assignment the value pattern could not read. Silently
+                # skipping it is dangerous here: the enUS upload is configured
+                # to delete phrases it does not send, so a dropped line removes
+                # a translation on CurseForge.
+                raise ValueError(
+                    "Unparsable localization line in %s:\n  %s" % (filepath, line.rstrip())
+                )
 
     # esES and esMX share the same block — duplicate if only one found
     if "esES" in locales and "esMX" not in locales:

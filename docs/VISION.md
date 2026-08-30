@@ -70,4 +70,7 @@ QuickRoute is the **only addon** that combines:
 6. **Route step collapsing** — clean, readable directions instead of verbose node-by-node paths
 
 ## Competition
-See [FEATURE_PLAN.md](analysis/FEATURE_PLAN.md) for detailed competitive analysis.
+QuickRoute's angle is that it treats travel as a graph and solves it, rather than
+listing teleports and leaving the routing to the player. The competitive analysis
+this section used to link to was never committed; the link is removed rather than
+left pointing at a file that does not exist.

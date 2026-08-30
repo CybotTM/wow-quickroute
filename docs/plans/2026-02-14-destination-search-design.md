@@ -1,5 +1,7 @@
 # Unified Destination Search - Design
 
+**Status:** Shipped. Kept as a record of the design, not as a plan to follow.
+
 ## Goal
 
 Replace the current waypoint source dropdown + separate dungeon picker button in the Route tab with a single search box that provides unified access to all destination types: auto-detected waypoints, cities, and dungeons/raids.

@@ -1,0 +1,19 @@
+# Read by the CurseForge packager from the repository root, not from
+# inside the addon folder. The ignore paths below are root-relative,
+# which is why they never matched while this file lived in QuickRoute/.
+# enable-nolib-creation is omitted: nothing here declares an external.
+package-as: QuickRoute
+
+ignore:
+  - README.md
+  - AGENTS.md
+  - LICENSE
+  - .gitignore
+  - .luacheckrc
+  - .github
+  - docs
+  - scripts
+  - tests
+  - Tests
+  - "*.png"
+
