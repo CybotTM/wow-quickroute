@@ -687,11 +687,49 @@ function PathCalculator:UpdatePlayerLocation()
         end
     end
 
-    if self.graph.nodes[PLAYER_NODE] then
-        self.graph.nodes[PLAYER_NODE].mapID = mapID
-        self.graph.nodes[PLAYER_NODE].x = x
-        self.graph.nodes[PLAYER_NODE].y = y
+    local node = self.graph.nodes[PLAYER_NODE]
+    if not node then
+        return
     end
+
+    local moved = (node.mapID ~= mapID) or (node.x ~= x) or (node.y ~= y)
+
+    node.mapID = mapID
+    node.x = x
+    node.y = y
+
+    -- The node's walk and travel edges were computed once, in BuildGraph,
+    -- against whatever map the player stood on then. Nothing marks the graph
+    -- dirty on movement, so without this every route computed after a zone
+    -- change until the next bag update started with a walk into the old zone.
+    if moved then
+        self:ReconnectPlayerNode(mapID, x, y)
+    end
+end
+
+--- Rebuild the player node's position-derived edges for its current map.
+-- Walk and travel edges depend on where the player stands and are dropped;
+-- teleport edges do not and are kept.
+-- @param mapID number The player's current map ID
+-- @param x number The X coordinate (0-1)
+-- @param y number The Y coordinate (0-1)
+function PathCalculator:ReconnectPlayerNode(mapID, x, y)
+    local outgoing = self.graph.edges[PLAYER_NODE]
+    if outgoing then
+        for otherName, edge in pairs(outgoing) do
+            if edge.edgeType == "walk" or edge.edgeType == "travel" then
+                outgoing[otherName] = nil
+
+                local incoming = self.graph.edges[otherName]
+                local back = incoming and incoming[PLAYER_NODE]
+                if back and (back.edgeType == "walk" or back.edgeType == "travel") then
+                    incoming[PLAYER_NODE] = nil
+                end
+            end
+        end
+    end
+
+    self:ConnectNearbyNodes(PLAYER_NODE, mapID, x, y)
 end
 
 --- Connect a node to other nodes on the same map with walking edges

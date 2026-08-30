@@ -1181,3 +1181,39 @@ T:run("ConnectNearbyNodes: hub routing does not overwrite the in-city walk edge"
     t:assertTrue(edge.weight > 1,
         "In-city walk keeps its real cost instead of the 0.001 epsilon (got: " .. tostring(edge.weight) .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- The player node must not keep walk edges from the map it was built on
+-------------------------------------------------------------------------------
+
+-- Regression: UpdatePlayerLocation rewrote only the node's coordinates, while
+-- its walk edges were created once in BuildGraph against the map the player
+-- stood on then. Nothing marks the graph dirty on movement, so every route
+-- computed between arriving in a new zone and the next bag update started with
+-- a walk into the zone the player had just left.
+T:run("UpdatePlayerLocation: zone change drops the old map's walk edges", function(t)
+    resetState()
+    MockWoW.config.currentMapID = 84  -- Stormwind
+    local graph = QR.PathCalculator:BuildGraph()
+
+    -- Find a node the player node is connected to by a walk edge on map 84.
+    local staleNeighbour
+    for otherName, edge in pairs(graph.edges["Player Location"] or {}) do
+        local other = graph.nodes[otherName]
+        if other and other.mapID == 84 and edge.edgeType == "walk" then
+            staleNeighbour = otherName
+            break
+        end
+    end
+    t:assertNotNil(staleNeighbour, "Player node starts with a walk edge on map 84")
+
+    -- The player hearths to another continent.
+    MockWoW.config.currentMapID = 2339  -- Dornogal, Khaz Algar
+    QR.PathCalculator:UpdatePlayerLocation()
+
+    t:assertEqual(2339, graph.nodes["Player Location"].mapID, "Player node follows the move")
+
+    local stale = graph.edges["Player Location"][staleNeighbour]
+    t:assertNil(stale,
+        "Walk edge to the old map's node is gone (kept: " .. tostring(stale and stale.edgeType) .. ")")
+end)
