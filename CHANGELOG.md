@@ -23,7 +23,8 @@
 - Quest waypoints: the native map pin QuickRoute set was never taken back, so it kept outranking the player's tracked quest; the transit-hub fallback ran before the dungeon-entrance lookup and hid it; and both confirmations printed English regardless of locale
 - The minimap teleport panel left one separator frame behind on every refresh
 - Secure buttons never returned when a window closed, and the minimap teleport panel keeping its buttons on screen for the whole fight
-- Calls to APIs removed in 11.0.2 and 12.0.0 for teleport icons, item names, quest log lookups and window portraits
+- Unguarded calls to two removed globals: GetSpellInfo (11.0.2) in the teleport panel's icon lookup, reached whenever spell data is not cached yet, and SetPortraitToTexture (12.0.0) in the window portrait
+- A dead quest-log branch left by the GetQuestLogIndexByID rename, and item and icon lookups moved to the C_Item namespace
 - Releases published without having been linted, and store uploads that failed silently
 
 ### Added

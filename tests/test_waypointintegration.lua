@@ -1894,3 +1894,39 @@ T:run("The TomTom confirmation uses the translated string too", function(t)
         "the TomTom confirmation comes from the template too (got: "
             .. table.concat(printed, " | ") .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- The transit-hub fallback is a last resort, not a first answer
+-------------------------------------------------------------------------------
+
+-- Regression: the fallback used to return as soon as it was set, above the
+-- dungeon-entrance resolution and two other methods. Any quest whose next
+-- waypoint pointed at a portal hub therefore routed to the hub, and the
+-- entrance lookup below it was unreachable for exactly the quests that need it.
+T:run("A dungeon quest routes to the entrance, not to the transit hub", function(t)
+    resetState()
+    QR.WaypointIntegration:ClearQuestCoordCache()
+
+    local questID = 9001
+    -- Blizzard's next waypoint for this quest is Stormwind (84), which is a
+    -- PortalHubs entry and therefore a transit hub: this sets the fallback.
+    MockWoW.config.currentMapID = 84
+    MockWoW.config.questWaypoints = { [questID] = { mapID = 84, x = 0.55, y = 0.60 } }
+    MockWoW.config.questTitles = { [questID] = "Into the Stonevault" }
+    MockWoW.config.questTagInfo = { [questID] = { tagID = Enum.QuestTag.Dungeon } }
+    -- And the quest highlights Isle of Dorn, which has entrance data.
+    MockWoW.config.questAdditionalHighlights = {
+        [questID] = { uiMapID = 2248, dungeons = true },
+    }
+    QR.DungeonData.scanned = true
+
+    local result = QR.WaypointIntegration:GetQuestWaypoint(questID)
+
+    t:assertNotNil(result, "a destination was resolved")
+    if not result then return end
+    t:assertEqual(2248, result.mapID,
+        "the dungeon entrance wins over the transit hub (got map "
+            .. tostring(result.mapID) .. ")")
+    t:assertTrue(result.mapID ~= 84,
+        "and it is not the portal hub the next waypoint pointed at")
+end)
