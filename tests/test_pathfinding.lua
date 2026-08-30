@@ -1424,6 +1424,46 @@ T:run("Movement does not overwrite the player's teleport edges", function(t)
     end
 end)
 
+-- The same defect through the other writer. Standing in Elwynn Forest reaches
+-- the Stormwind node through the adjacent-zone pass; standing INSIDE Stormwind
+-- reaches it through the same-map pass, which is a separate call site with its
+-- own guard. Removing that one alone left the suite green while reinstating the
+-- whole regression for any player in a city they can teleport to.
+T:run("Movement inside a city does not overwrite its teleport edge", function(t)
+    resetState()
+    MockWoW.config.playerClass = "MAGE"
+    MockWoW.config.playerClassName = "Mage"
+    MockWoW.config.knownSpells = { [3561] = true }  -- Teleport: Stormwind
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 84                -- Stormwind City itself
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.60, 0.40
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+
+    local function playerEdgeType()
+        local graph = QR.PathCalculator.graph
+        local edge = graph and graph:GetEdge("Player Location", "Stormwind City")
+        return edge and edge.edgeType or "no edge"
+    end
+
+    t:assertEqual("teleport", playerEdgeType(),
+        "the teleport edge exists as built (got: " .. playerEdgeType() .. ")")
+
+    MockWoW.config.playerX = 0.6001
+    QR.PathCalculator:UpdatePlayerLocation()
+
+    t:assertEqual("teleport", playerEdgeType(),
+        "the same-map pass does not overwrite it (got: " .. playerEdgeType() .. ")")
+
+    local after = QR.PathCalculator:CalculatePath(84, 0.4965, 0.8725, "Stormwind City")
+    t:assertNotNil(after, "a route is still found")
+    if after then
+        t:assertEqual("teleport", after.steps[1].type,
+            "and it still starts with the teleport")
+        t:assertEqual(3561, after.steps[1].teleportID, "carrying its spell ID")
+    end
+end)
+
 -------------------------------------------------------------------------------
 -- Continent routing must never manufacture a near-free edge
 -------------------------------------------------------------------------------
@@ -1480,10 +1520,14 @@ T:run("A travel estimate never replaces a measured walk edge", function(t)
     t:assertEqual(7, edge.weight, "with its measured weight")
 end)
 
-T:run("Strategy 4 creates no sub-second edge", function(t)
-    -- The last resort connects to every hub and city. Its weight is
-    -- baseTime - 60, and baseTime is 0 for a continent to itself, so an
-    -- unguarded write lands at -60 and the epsilon clamp turns it into 0.001.
+T:run("Strategy 4 connects an unreachable node without a sub-second edge", function(t)
+    -- The last resort connects to every hub and city at baseTime - 60. This
+    -- pins the reachable property: the node gets edges, and none of them is
+    -- near-free. It does NOT reach the sub-second case -- that needs
+    -- baseTime = 0, which only happens for a continent to itself, and the
+    -- continent check above this write makes that state unreachable from a
+    -- built graph. The floor behind it is documented as uncovered where it
+    -- stands rather than pinned here.
     local graph = scratchGraph()
     graph:AddNode("Orphan", { mapID = 99999, x = 0.5, y = 0.5, nodeType = "zone" })
     graph:AddNode("Stormwind City", { mapID = 84, x = 0.4965, y = 0.8725, nodeType = "city" })

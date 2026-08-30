@@ -7,13 +7,21 @@
 - Spell teleports reported as permanently off cooldown on 12.x
 - SecureButtons failed to load, raising a Lua error on every login
 - Twelve dungeon entrances bound to the wrong Encounter Journal instance
-- Twelve zone graph nodes carrying the uiMapID of a dungeon, raid or continent
+- Twelve dungeon-entrance zone constants pointing at the wrong map
+- Nine dungeon, raid and continent maps used as if they were walkable zones
 - The Veiled Stair modelled as an island reached by boat, from carrying Isle of Thunder's map ID
 - Crucible of Storms registered on the Kul Tiras continent map instead of Stormsong Valley
+- Four Tol Barad teleports pointing at a map with no continent and no neighbours
+- Silvermoon services and portals on the map the city left behind in 11.1
+- Teleport entries the live client contradicts
 - Routes computed after a zone change started in the zone the player had just left
-- Teleports vanishing from routes after a single step, their graph edge overwritten by a walking estimate
+- Continent routing erasing the measured walk edges inside a city
+- Teleport edge weights frozen at graph-build time, so cooldowns stopped being considered
 - North-south distances priced by the map's east-west extent
-- Secure buttons never returned when a window closed, draining the pool
+- Quest teleport buttons hidden whenever the objective tracker had a shape this code did not know
+- Use buttons missing from a route rendered during combat, with nothing to restore them
+- Secure buttons never returned when a window closed, and the minimap teleport panel keeping its buttons on screen for the whole fight
+- Calls to APIs removed in 11.0.2 and 12.0.0 for item names, quest log lookups and window portraits
 - Releases published without having been linted, and store uploads that failed silently
 
 ### Added

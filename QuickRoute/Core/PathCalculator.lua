@@ -767,7 +767,12 @@ end
 -- ConnectNearbyNodes overwrote them anyway.
 --
 -- Both directions are checked because the writers use AddBidirectionalEdge,
--- which writes both: a guard on one direction alone still loses the other.
+-- which writes both. The backward half is defence in depth, not covered code:
+-- teleport edges are only ever written as PLAYER_NODE -> destination, and no
+-- writer is currently reached with the player node as the target, so replacing
+-- that half with `false` reddens nothing. It is kept for the case where a
+-- future writer -- ConnectIslandNodes reaching a teleport destination node
+-- with the player node among its candidates -- does arrive from the other side.
 local function HasTeleportEdge(graph, from, to)
     local forward = graph:GetEdge(from, to)
     if forward and forward.edgeType == "teleport" then
