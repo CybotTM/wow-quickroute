@@ -1717,3 +1717,68 @@ T:run("Negative cache hit: logs debug message", function(t)
 
     QR.Debug = origDebug
 end)
+
+-------------------------------------------------------------------------------
+-- The waypointPriority setting must actually decide the order
+-------------------------------------------------------------------------------
+
+-- Regression: the setting could be inverted with zero test failures. The
+-- settings tests only asserted that the dropdown exists, and nothing ever
+-- called GetActiveWaypoint with more than one source available, so the order
+-- itself was never checked.
+local function populateAllThreeSources()
+    -- Map pin
+    MockWoW.config.hasUserWaypoint = true
+    MockWoW.config.userWaypoint = { uiMapID = 84, position = { x = 0.10, y = 0.10 } }
+    -- Super-tracked quest
+    MockWoW.config.superTrackedQuestID = 12345
+    -- TomTom, in the shape the existing GetTomTomWaypoint tests use
+    _G.TomTom = {
+        GetClosestWaypoint = function(self)
+            return { mapID = 85, x = 0.40, y = 0.60, title = "Priority TomTom WP" }
+        end,
+    }
+    -- Quest: super-tracking alone is not enough, the quest needs coordinates
+    MockWoW.config.questWaypoints = MockWoW.config.questWaypoints or {}
+    MockWoW.config.questWaypoints[12345] = { mapID = 84, x = 0.50, y = 0.50 }
+end
+
+T:run("GetActiveWaypoint: priority 'tomtom' puts TomTom first", function(t)
+    resetState()
+    populateAllThreeSources()
+    QR.db = QR.db or {}
+    QR.db.waypointPriority = "tomtom"
+
+    local _, source = QR.WaypointIntegration:GetActiveWaypoint()
+    t:assertEqual("tomtom", source,
+        "TomTom wins when it is the configured priority (got: " .. tostring(source) .. ")")
+
+    _G.TomTom = nil
+end)
+
+T:run("GetActiveWaypoint: priority 'quest' puts the quest first", function(t)
+    resetState()
+    populateAllThreeSources()
+    QR.db = QR.db or {}
+    QR.db.waypointPriority = "quest"
+
+    local _, source = QR.WaypointIntegration:GetActiveWaypoint()
+    t:assertEqual("quest", source,
+        "the quest wins when it is the configured priority (got: " .. tostring(source) .. ")")
+
+    _G.TomTom = nil
+end)
+
+T:run("GetActiveWaypoint: priority 'mappin' puts the map pin first", function(t)
+    resetState()
+    populateAllThreeSources()
+    QR.db = QR.db or {}
+    QR.db.waypointPriority = "mappin"
+
+    local _, source = QR.WaypointIntegration:GetActiveWaypoint()
+    t:assertEqual("mappin", source,
+        "the map pin wins when it is the configured priority (got: " .. tostring(source) .. ")")
+
+    _G.TomTom = nil
+    QR.db.waypointPriority = "mappin"
+end)

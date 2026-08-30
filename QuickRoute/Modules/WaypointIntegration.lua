@@ -493,13 +493,6 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         end
     end
 
-    -- If we had a transit hub fallback but found nothing better, use it
-    if transitFallback then
-        QR:Debug(string_format("Quest %d: no better destination found, using transit hub fallback map %d", questID, transitFallback.mapID))
-        questCoordCache[questID] = { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, time = now }
-        return { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, title = questTitle }
-    end
-
     -- Resolve quest log header (shared by Methods 5b, 6, and final fallback)
     local questHeader = nil
     if C_QuestLog.GetHeaderIndexForQuest then
@@ -754,6 +747,17 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 end
             end
         end
+    end
+
+    -- The transit-hub fallback is by definition the last resort, so it runs
+    -- after every other method rather than before Methods 5b, 6 and 7. It used
+    -- to sit above them and return as soon as it was set, which made the
+    -- dungeon-entrance resolution below unreachable for any quest that had a
+    -- transit hub.
+    if transitFallback then
+        QR:Debug(string_format("Quest %d: no better destination found, using transit hub fallback map %d", questID, transitFallback.mapID))
+        questCoordCache[questID] = { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, time = now }
+        return { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, title = questTitle }
     end
 
     -- No coordinates found from any API - cache negative result to avoid repeated scans
@@ -1166,6 +1170,15 @@ function WaypointIntegration:ClearTomTomWaypoints()
             end
         end
     end
+    -- Native waypoints too, not just TomTom's: both were set by us.
+    if self._lastWpNative and C_Map and C_Map.ClearUserWaypoint then
+        local ok, err = pcall(C_Map.ClearUserWaypoint)
+        if not ok then
+            QR:Debug("Failed to clear native waypoint: " .. tostring(err))
+        end
+    end
+    self._lastWpNative = nil
+
     wipe(self._tomtomUIDs)
     self._lastWpUID = nil
     self._lastWpMapID = nil
@@ -1230,7 +1243,7 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
             table_insert(self._tomtomUIDs, uid)
         end
         QR:Log("INFO", "TomTom waypoint set: " .. safeTitle .. string_format(" at map %d (%.2f, %.2f)", mapID, x, y))
-        QR:Print("|cFF00FF00QuickRoute|r: TomTom waypoint set for " .. safeTitle)
+        QR:Print(string_format(QR.L["WAYPOINT_SET"], safeTitle))
         return uid
     end
 
@@ -1240,13 +1253,18 @@ function WaypointIntegration:SetTomTomWaypoint(mapID, x, y, title)
         local success, err = pcall(function()
             local uiMapPoint = UiMapPoint.CreateFromCoordinates(mapID, x, y)
             C_Map.SetUserWaypoint(uiMapPoint)
+            -- Remembered so the cleanup below can take it back again: a native
+            -- waypoint QuickRoute set outranks the player's super-tracked quest
+            -- in GetActiveWaypoint, so leaving it behind silently hijacks their
+            -- tracking until they clear the pin by hand.
+            WaypointIntegration._lastWpNative = true
             if C_SuperTrack and C_SuperTrack.SetSuperTrackedUserWaypoint then
                 C_SuperTrack.SetSuperTrackedUserWaypoint(true)
             end
         end)
         self._settingWaypoint = false
         if success then
-            QR:Print("|cFF00FF00QuickRoute|r: Native waypoint set for " .. (title or "destination"))
+            QR:Print(string_format(QR.L["WAYPOINT_SET"], title or QR.L["UNKNOWN"]))
             return nil
         else
             QR:Warn("Native waypoint API failed: " .. tostring(err))
