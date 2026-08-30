@@ -120,22 +120,22 @@ T:run("RouteToMapPosition: shows UI after routing", function(t)
         showCalled = true
     end
 
-    -- Track if UI:UpdateRoute was called
-    local updateCalled = false
-    local updateResult = nil
+    -- RouteToMapPosition does not call UI:UpdateRoute. It stashes the computed
+    -- route in UI._pendingPOIRoute and calls Show(); RefreshRoute picks it up
+    -- from there via SetActiveTab, so that it does not recalculate from the
+    -- active waypoint. Assert that handover rather than a call that never comes.
     local origUpdate = QR.UI.UpdateRoute
-    QR.UI.UpdateRoute = function(self, result)
-        updateCalled = true
-        updateResult = result
-    end
+    QR.UI._pendingPOIRoute = nil
 
     QR.POIRouting:RouteToMapPosition(84, 0.5, 0.5)
 
     t:assertTrue(showCalled, "UI:Show was called")
+    t:assertNotNil(QR.UI._pendingPOIRoute, "Route was handed over via UI._pendingPOIRoute")
 
     -- Restore
     QR.UI.Show = origShow
     QR.UI.UpdateRoute = origUpdate
+    QR.UI._pendingPOIRoute = nil
 end)
 
 T:run("RouteToMapPosition: result has map_click waypointSource", function(t)

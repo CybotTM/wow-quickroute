@@ -742,11 +742,13 @@ function MockWoW:Install()
     ---------------------------------------------------------------------------
 
     -- string.trim (WoW adds this to string metatable)
+    -- luacheck: push ignore string
     if not string.trim then
         string.trim = function(s)
             return s:match("^%s*(.-)%s*$")
         end
     end
+    -- luacheck: pop
 
     -- date (WoW exposes os.date as global 'date')
     _G.date = os.date

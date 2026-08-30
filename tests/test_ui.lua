@@ -187,6 +187,7 @@ T:run("RefreshRoute logs error when UpdateRoute fails", function(t)
     QR.UI:RefreshRoute()
 
     t:assertTrue(errorLogged, "Error was logged when UpdateRoute failed")
+    t:assertTrue(errorMsg ~= "", "The logged error carries a message (got: " .. tostring(errorMsg) .. ")")
 
     -- Restore
     QR.UI.UpdateRoute = originalUpdateRoute

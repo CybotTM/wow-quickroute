@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Pre-commit hook: run luacheck on staged Lua files
 
-# Get staged .lua files (only in QuickRoute/)
-STAGED_LUA=$(git diff --cached --name-only --diff-filter=ACM -- 'QuickRoute/*.lua' 'QuickRoute/**/*.lua')
+# Get staged .lua files. tests/ is included because CI lints it too — the mock
+# and the test files are the guard the addon's own correctness rests on.
+STAGED_LUA=$(git diff --cached --name-only --diff-filter=ACM \
+    -- 'QuickRoute/*.lua' 'QuickRoute/**/*.lua' 'tests/*.lua')
 
 if [ -z "$STAGED_LUA" ]; then
     exit 0

@@ -28,7 +28,7 @@ jobs:
         run: luarocks install luacheck 1.2.0
 
       - name: Run luacheck
-        run: luacheck QuickRoute/ --config .luacheckrc
+        run: luacheck QuickRoute/ tests/ --config .luacheckrc
 
   tests:
     name: Tests
