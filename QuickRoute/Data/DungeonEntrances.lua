@@ -358,8 +358,8 @@ QR.StaticDungeonEntrances = {
 
     -- Borean Tundra (Nexus complex)
     [Z.BOREAN_TUNDRA] = {
-        { 282, 0.2700, 0.2596, "The Nexus", false },
-        { 281, 0.2700, 0.2596, "The Oculus", false },
+        { 281, 0.2700, 0.2596, "The Nexus", false },
+        { 282, 0.2700, 0.2596, "The Oculus", false },
         { 756, 0.2700, 0.2596, "Eye of Eternity", true },
     },
 
@@ -390,9 +390,9 @@ QR.StaticDungeonEntrances = {
 
     -- Icecrown
     [Z.ICECROWN] = {
-        { 276, 0.5140, 0.8830, "The Forge of Souls", false },
-        { 278, 0.5140, 0.8830, "Halls of Reflection", false },
-        { 280, 0.5140, 0.8830, "Pit of Saron", false },
+        { 280, 0.5140, 0.8830, "The Forge of Souls", false },
+        { 276, 0.5140, 0.8830, "Halls of Reflection", false },
+        { 278, 0.5140, 0.8830, "Pit of Saron", false },
         { 284, 0.7400, 0.2090, "Trial of the Champion", false },
         { 757, 0.7520, 0.2180, "Trial of the Crusader", true },
         { 758, 0.5380, 0.8720, "Icecrown Citadel", true },
@@ -465,12 +465,12 @@ QR.StaticDungeonEntrances = {
 
     -- Caverns of Time (Tanaris sub-zone)
     [Z.CAVERNS_OF_TIME] = {
-        { 251, 0.2649, 0.3304, "The Black Morass", false },
-        { 255, 0.3454, 0.8531, "Old Hillsbrad Foothills", false },
+        { 255, 0.2649, 0.3304, "The Black Morass", false },
+        { 251, 0.3454, 0.8531, "Old Hillsbrad Foothills", false },
         { 279, 0.6070, 0.8300, "The Culling of Stratholme", false },
-        { 185, 0.2215, 0.6387, "End Time", false },
-        { 186, 0.6849, 0.2959, "Well of Eternity", false },
-        { 184, 0.5726, 0.2615, "Hour of Twilight", false },
+        { 184, 0.2215, 0.6387, "End Time", false },
+        { 185, 0.6849, 0.2959, "Well of Eternity", false },
+        { 186, 0.5726, 0.2615, "Hour of Twilight", false },
         { 750, 0.5572, 0.5333, "Hyjal Summit", true },
         { 187, 0.5572, 0.5333, "Dragon Soul", true },
     },
@@ -660,8 +660,10 @@ QR.StaticDungeonEntrances = {
 
     -- Zuldazar (Zandalar)
     [Z.ZULDAZAR] = {
-        { 1041, 0.3746, 0.3948, "Atal'Dazar", false },
-        { 968,  0.5000, 0.6500, "King's Rest", false },
+        { 968,  0.3746, 0.3948, "Atal'Dazar", false },
+        -- 0.5000/0.6500 is a placeholder the original author left in; the real
+        -- Kings' Rest entrance has not been surveyed.
+        { 1041, 0.5000, 0.6500, "Kings' Rest", false },
         { 1012, 0.3922, 0.7137, "The MOTHERLODE!!", false },
     },
 

@@ -979,3 +979,57 @@ T:run("Data: Signet of the Kirin Tor (40585) base ring exists", function(t)
         t:assertEqual(11, data.equipSlot, "equipSlot is finger (11)")
     end
 end)
+
+-------------------------------------------------------------------------------
+-- journalInstanceID to name, checked against the live client
+-------------------------------------------------------------------------------
+
+-- Regression: twelve entries bound a journalInstanceID to the wrong dungeon.
+-- The Nexus carried The Oculus's id, Atal'Dazar carried Kings' Rest's, and the
+-- Caverns of Time and Icecrown groups were rotated. Nothing noticed, because no
+-- test ever compared an id against the name the game gives it.
+--
+-- The expected pairs below were read off a live 12.1.0.69497 client with
+-- EJ_GetInstanceInfo. Extend this table whenever an entrance is added: an entry
+-- whose id and name disagree is the defect this guards against.
+local EXPECTED_INSTANCE_NAMES = {
+    [184]  = "End Time",
+    [185]  = "Well of Eternity",
+    [186]  = "Hour of Twilight",
+    [251]  = "Old Hillsbrad",
+    [255]  = "Black Morass",
+    [276]  = "Halls of Reflection",
+    [278]  = "Pit of Saron",
+    [280]  = "The Forge of Souls",
+    [281]  = "The Nexus",
+    [282]  = "The Oculus",
+    [968]  = "Atal'Dazar",
+    [1041] = "Kings' Rest",
+}
+
+T:run("StaticDungeonEntrances: journalInstanceIDs carry the name the client gives them", function(t)
+    local seen = {}
+
+    for mapID, entries in pairs(QR.StaticDungeonEntrances) do
+        for _, entry in ipairs(entries) do
+            local journalID, name = entry[1], entry[4]
+            local expected = EXPECTED_INSTANCE_NAMES[journalID]
+            if expected then
+                seen[journalID] = true
+                t:assertNotNil(string.find(name, expected, 1, true),
+                    string.format("journalInstanceID %d on map %s is %s, repo says %q",
+                        journalID, tostring(mapID), expected, tostring(name)))
+            end
+        end
+    end
+
+    local missing = {}
+    for journalID in pairs(EXPECTED_INSTANCE_NAMES) do
+        if not seen[journalID] then
+            missing[#missing + 1] = journalID
+        end
+    end
+    t:assertEqual(0, #missing,
+        "every verified journalInstanceID still has an entrance entry (missing: "
+            .. table.concat(missing, ", ") .. ")")
+end)
