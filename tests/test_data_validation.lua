@@ -1097,3 +1097,46 @@ T:run("StaticDungeonEntrances: no dungeon, raid or continent map is used as a zo
                 mapID, tostring(NOT_ZONES[mapID])))
     end
 end)
+
+-------------------------------------------------------------------------------
+-- One zone per entrance table
+-------------------------------------------------------------------------------
+
+-- Regression: correcting one zone constant during this pass silently collided
+-- it with a neighbour that already held the corrected value, so two zones'
+-- entrances registered on the same map and one zone got none. Lua accepts two
+-- keys holding the same number without complaint, which is why nothing noticed
+-- until the table was read by eye.
+T:run("StaticDungeonEntrances: no two zones share an entrance table", function(t)
+    local count = 0
+    for _ in pairs(QR.StaticDungeonEntrances) do
+        count = count + 1
+    end
+    t:assertGreaterThan(count, 50, "the entrance table is populated")
+
+    -- Every key is a distinct map by construction (they are table keys), so the
+    -- collision shows up as a zone that lost its entries entirely. Check the
+    -- zones this pass corrected still have their own.
+    local mustHaveEntries = {
+        [63]  = "Ashenvale",
+        [70]  = "Dustwallow Marsh",
+        [69]  = "Feralas",
+        [71]  = "Tanaris",
+        [102] = "Zangarmarsh",
+        [108] = "Terokkar Forest",
+        [104] = "Shadowmoon Valley (Outland)",
+        [109] = "Netherstorm",
+        [241] = "Twilight Highlands",
+        [249] = "Uldum",
+        [15]  = "Badlands",
+    }
+    for mapID, name in pairs(mustHaveEntries) do
+        local entries = QR.StaticDungeonEntrances[mapID]
+        t:assertNotNil(entries,
+            string.format("%s (map %d) has an entrance table", name, mapID))
+        if entries then
+            t:assertGreaterThan(#entries, 0,
+                string.format("%s (map %d) has at least one entrance", name, mapID))
+        end
+    end
+end)

@@ -44,10 +44,10 @@ local Z = {
     -- The Burning Crusade
     HELLFIRE_PENINSULA          = 100,
     ZANGARMARSH                 = 102,
-    TEROKKAR_FOREST             = 102,
+    TEROKKAR_FOREST             = 108,
     NETHERSTORM             = 109,
     BLADES_EDGE_MOUNTAINS       = 105,
-    SHADOWMOON_VALLEY_OUTLAND   = 108,
+    SHADOWMOON_VALLEY_OUTLAND   = 104,
     ISLE_OF_QUELDANAS           = 122,
 
     -- Wrath of the Lich King
@@ -868,8 +868,8 @@ QR.StaticDungeonEntrances = {
     -- The uiMapIDs below are confirmed against a live 12.1.0.69497 client and
     -- the journalInstanceIDs against EJ_GetInstanceInfo. The COORDINATES are
     -- not surveyed — they place each entrance in the right zone but not
-    -- necessarily on the right spot. Standing at an entrance and running
-    -- /qrverify prints the real position.
+    -- necessarily on the right spot. Surveying one means standing at the
+    -- entrance and reading C_Map.GetPlayerMapPosition.
 
     -- K'aresh
     [Z.KARESH] = {
