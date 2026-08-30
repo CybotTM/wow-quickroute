@@ -1,4 +1,4 @@
-## Interface: 120001
+## Interface: 120100
 ## Title: QuickRoute
 ## Notes: Shows the shortest path to your destination using teleports and portals
 ## Author: Sebastian Mendel
