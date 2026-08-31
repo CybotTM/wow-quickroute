@@ -2321,6 +2321,64 @@ T:run("A step's destination map and coordinates come from the same node", functi
     QR.PathCalculator.knownFlightZonesOverride = nil
 end)
 
+T:run("Choosing a side mid-session takes effect without a reload", function(t)
+    -- A pandaren begins neutral and picks a faction at the end of the starting
+    -- experience. GetFaction cached the first answer forever and nothing in
+    -- the addon ever called InvalidateCache, so the rest of the session was
+    -- routed for a character who no longer existed.
+    resetState()
+    MockWoW.config.playerFaction = "Neutral"
+    QR.PlayerInfo:InvalidateCache()
+    t:assertEqual("Neutral", QR.PlayerInfo:GetFaction(), "starts neutral")
+
+    -- Build a graph as the neutral character, then choose a side. Nothing
+    -- clears the cache and nothing marks the graph dirty -- the fix has to
+    -- notice on its own.
+    flightGraphSnapshot(allFlightZones(), 84)
+    local neutralPoint = QR.PathCalculator:FlightPointFor(26)
+    MockWoW.config.playerFaction = "Horde"
+
+    t:assertEqual("Horde", QR.PlayerInfo:GetFaction(),
+        "the new faction is seen without an explicit cache clear")
+    local hordePoint = QR.PathCalculator:FlightPointFor(26)
+    t:assertNotNil(hordePoint, "The Hinterlands still has a master for them")
+    if neutralPoint and hordePoint then
+        t:assertEqual("Horde", hordePoint.faction,
+            "and it is the Horde one (got " .. tostring(hordePoint.node) .. ")")
+        t:assert(hordePoint.node ~= neutralPoint.node,
+            "which is not the one they were shown as a neutral ("
+                .. tostring(neutralPoint.node) .. ")")
+    end
+
+    -- And the graph itself, not just the accessor.
+    local route = QR.PathCalculator:CalculatePath(84, 0.55, 0.60, "Stormwind")
+    t:assertNotNil(route, "a route still exists after the change")
+    t:assertEqual("Horde", QR.PathCalculator.graphFaction,
+        "and the graph was rebuilt for the new faction")
+
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A settled faction is still cached", function(t)
+    -- The fix must not turn every faction read into an API call. Only
+    -- "Neutral" is re-read; Alliance and Horde stay cached exactly as before.
+    resetState()
+    MockWoW.config.playerFaction = "Horde"
+    QR.PlayerInfo:InvalidateCache()
+    t:assertEqual("Horde", QR.PlayerInfo:GetFaction(), "reads Horde")
+
+    -- Change the underlying value WITHOUT clearing the cache. A settled
+    -- faction cannot change in game, so the cached answer must survive.
+    MockWoW.config.playerFaction = "Alliance"
+    t:assertEqual("Horde", QR.PlayerInfo:GetFaction(),
+        "and keeps it, because a chosen faction never changes")
+
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+end)
+
 T:run("A character of neither faction keeps the whole flight network", function(t)
     -- UnitFactionGroup returns "Neutral" for a pandaren who has not picked a
     -- side. The first version of the accessor tested `not faction`, which can
