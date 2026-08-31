@@ -1372,3 +1372,55 @@ T:run("PathCalculator: Silvermoon City uses the revamped map", function(t)
     t:assertEqual(2393, silvermoon.mapID,
         "Silvermoon City is uiMapID 2393, not the pre-revamp 110")
 end)
+
+-------------------------------------------------------------------------------
+-- FlightPoints
+-------------------------------------------------------------------------------
+
+T:run("Data: FlightPoints has entries", function(t)
+    t:assertNotNil(QR.FlightPoints, "QR.FlightPoints exists")
+    local count = 0
+    for _ in pairs(QR.FlightPoints or {}) do count = count + 1 end
+    -- A regeneration that loses most of the table would otherwise pass every
+    -- other assertion in this file, because they all iterate what is there.
+    t:assertGreaterThan(count, 100,
+        "and holds a plausible number of zones (" .. count .. ")")
+end)
+
+T:run("Data: FlightPoints entries have required fields", function(t)
+    for uiMapID, point in pairs(QR.FlightPoints or {}) do
+        local where = "map " .. tostring(uiMapID)
+        t:assert(type(uiMapID) == "number" and uiMapID > 0 and uiMapID == math.floor(uiMapID),
+            where .. " is keyed by a positive integer uiMapID")
+        t:assert(type(point.worldX) == "number", where .. " has a numeric worldX")
+        t:assert(type(point.worldY) == "number", where .. " has a numeric worldY")
+        t:assert(type(point.continentID) == "number", where .. " has a numeric continentID")
+        t:assert(type(point.node) == "string" and point.node ~= "",
+            where .. " names the flight point it was derived from")
+    end
+end)
+
+T:run("Data: FlightPoints coordinates are inside the zone", function(t)
+    -- Strictly inside, not 0-1 inclusive: a point landing exactly on a box
+    -- edge is the signature of a projection that fell outside its zone, which
+    -- is how flight masters ended up in the neighbouring zone.
+    for uiMapID, point in pairs(QR.FlightPoints or {}) do
+        t:assert(type(point.x) == "number" and point.x > 0 and point.x < 1,
+            "map " .. tostring(uiMapID) .. " has x strictly inside the zone (got "
+                .. tostring(point.x) .. ")")
+        t:assert(type(point.y) == "number" and point.y > 0 and point.y < 1,
+            "map " .. tostring(uiMapID) .. " has y strictly inside the zone (got "
+                .. tostring(point.y) .. ")")
+    end
+end)
+
+T:run("Data: FlightPoints zones are zones, not continents", function(t)
+    -- The generator filters on UiMap Type 3. A continent or cosmic map slipping
+    -- in would connect a whole landmass as if it were one flight point.
+    for uiMapID in pairs(QR.FlightPoints or {}) do
+        if QR.CONTINENT_MAPS then
+            t:assertEqual(nil, QR.CONTINENT_MAPS[uiMapID],
+                "map " .. tostring(uiMapID) .. " is not a continent map")
+        end
+    end
+end)

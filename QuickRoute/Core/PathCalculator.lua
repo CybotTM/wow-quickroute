@@ -237,17 +237,6 @@ function PathCalculator:BuildGraph()
     -- Portal destinations and dungeon entrances may be the only node on their
     -- map, leaving them isolated. Give each one a hub/continent edge so
     -- Dijkstra can traverse across maps.
-    -- Flight paths before the player node, so the player can be connected to a
-    -- flight zone by the same-map and continent passes.
-    success, err = pcall(function()
-        self:AddFlightEdges()
-    end)
-    if not success then
-        QR:Error("AddFlightEdges failed: " .. tostring(err))
-        buildSuccess = false
-        buildError = buildError or err
-    end
-
     -- The player node last, once every other node and edge exists.
     success, err = pcall(function()
         self:ConnectPlayerNode()
@@ -263,6 +252,22 @@ function PathCalculator:BuildGraph()
     end)
     if not success then
         QR:Error("ConnectIslandNodes failed: " .. tostring(err))
+        buildSuccess = false
+        buildError = buildError or err
+    end
+
+    -- Flight last, so every edge it might replace already exists. Run earlier,
+    -- AddFlightEdges wrote into empty slots and its "only if it beats what is
+    -- there" guard had nothing to compare against: ConnectIslandNodes then saw
+    -- the node as connected and skipped the continent edge it would otherwise
+    -- have written. The result was still faster at the shipped FLIGHT_SPEED,
+    -- but only by margin -- recalibrating the speed below ~17 yd/s made flight
+    -- routes slower than the ones they displaced. Now the guard decides it.
+    success, err = pcall(function()
+        self:AddFlightEdges()
+    end)
+    if not success then
+        QR:Error("AddFlightEdges failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
@@ -1287,8 +1292,20 @@ end
 -- a zone the player has left, which is a route that cannot be taken rather
 -- than merely a bad estimate.
 --
--- A zone node is preferred over a dungeon node so the edge lands on the zone
--- the flight master is in rather than on an instance portal inside it.
+-- The node that best stands for the zone wins, by nodeType. A dungeon-prefix
+-- test was not enough: it left Stormwind and Ironforge anchored on the Deeprun
+-- Tram platform, because "Deeprun Tram (...)" sorts before "Stormwind City"
+-- and neither is a dungeon. Of the anchored maps only 5 were a city that way;
+-- 15 were a transport endpoint and 14 a portal destination.
+local FLIGHT_ANCHOR_RANK = {
+    city = 1,
+    hub = 2,
+    destination = 3,
+    teleport_dest = 4,
+    transport = 5,
+}
+local FLIGHT_ANCHOR_RANK_DEFAULT = 6   -- dungeons and anything unclassified
+
 function PathCalculator:FlightAnchorForMap(mapID)
     local candidates = {}
     for _, name in ipairs(self:NodesOnMap(mapID)) do
@@ -1299,11 +1316,16 @@ function PathCalculator:FlightAnchorForMap(mapID)
     if #candidates == 0 then
         return nil
     end
+    local nodes = self.graph.nodes
+    local function rank(name)
+        local data = nodes[name]
+        local nodeType = data and data.nodeType
+        return (nodeType and FLIGHT_ANCHOR_RANK[nodeType]) or FLIGHT_ANCHOR_RANK_DEFAULT
+    end
     table_sort(candidates, function(a, b)
-        local aDungeon = a:sub(1, 9) == "Dungeon: "
-        local bDungeon = b:sub(1, 9) == "Dungeon: "
-        if aDungeon ~= bDungeon then
-            return bDungeon
+        local ra, rb = rank(a), rank(b)
+        if ra ~= rb then
+            return ra < rb
         end
         return a < b
     end)
@@ -1317,16 +1339,56 @@ end
 -- the second test the graph offered 50 flights that cannot be taken, including
 -- Azuremyst Isle to Shattrath. The addon's own continent is the second opinion,
 -- and it is the same notion the rest of the routing uses.
+--
+-- Only world maps that actually mix continents are held to the stricter test.
+-- Falling back to "allow" whenever a continent is unknown re-opened the bug for
+-- any zone QR.ZoneToContinent does not cover -- map 530 has one such zone, and a
+-- node placed on it would have flown to Shattrath again. On a world map whose
+-- flight zones all belong to one continent there is nothing to disambiguate, so
+-- an unknown zone there is allowed through.
+--
+-- A *_NEUTRAL continent is a wildcard on its own world map: the addon files
+-- Mechagon and Tol Dagor under BFA_NEUTRAL while the rest of Kul Tiras is
+-- KUL_TIRAS, and those flights do exist. Two named continents on one world map
+-- stay separate, which is what keeps Kul Tiras and Zandalar apart.
+local mixedWorldMaps
+
+local function IsNeutral(continent)
+    return continent ~= nil and continent:find("NEUTRAL", 1, true) ~= nil
+end
+
+local function WorldMapMixesContinents(continentID)
+    if not mixedWorldMaps then
+        mixedWorldMaps = {}
+        local seen = {}
+        for uiMapID, point in pairs(QR.FlightPoints or {}) do
+            local continent = QR.GetContinentForZone and QR.GetContinentForZone(uiMapID)
+            if continent and not IsNeutral(continent) then
+                local known = seen[point.continentID]
+                if not known then
+                    seen[point.continentID] = continent
+                elseif known ~= continent then
+                    mixedWorldMaps[point.continentID] = true
+                end
+            end
+        end
+    end
+    return mixedWorldMaps[continentID] or false
+end
+
 local function SameFlightNetwork(a, b)
     if a.point.continentID ~= b.point.continentID then
         return false
     end
+    if not WorldMapMixesContinents(a.point.continentID) then
+        return true
+    end
     local ca = QR.GetContinentForZone and QR.GetContinentForZone(a.mapID)
     local cb = QR.GetContinentForZone and QR.GetContinentForZone(b.mapID)
-    if ca and cb then
-        return ca == cb
+    if IsNeutral(ca) or IsNeutral(cb) then
+        return true
     end
-    return true
+    return ca ~= nil and cb ~= nil and ca == cb
 end
 
 --- Write one direction of a flight edge, if it is allowed and worth writing.
@@ -1381,7 +1443,12 @@ function PathCalculator:AddFlightEdges()
             usable[#usable + 1] = { mapID = uiMapID, point = point }
         end
     end
-    table_sort(usable, function(a, b) return a.mapID < b.mapID end)
+    -- No sort here on purpose. Iteration order does not reach the result:
+    -- WriteFlightEdge writes only when the new weight beats what is already
+    -- there, so the cheapest pair wins whichever order the pairs arrive in. A
+    -- sort would look like it was load-bearing and no defect injection could
+    -- redden it. The order that DOES matter is the anchor choice, which
+    -- FlightAnchorForMap sorts.
 
     local speed = QR.TravelTime.FLIGHT_SPEED
     local overhead = QR.TravelTime.FLIGHT_OVERHEAD
@@ -1392,6 +1459,9 @@ function PathCalculator:AddFlightEdges()
             if SameFlightNetwork(a, b) then
                 local nodeA = self:FlightAnchorForMap(a.mapID)
                 local nodeB = self:FlightAnchorForMap(b.mapID)
+                -- nodeA ~= nodeB is defence in depth, not covered code: no
+                -- two flight zones currently resolve to the same anchor (0
+                -- collisions over all 136), so removing it reddens nothing.
                 if nodeA and nodeB and nodeA ~= nodeB then
                     local dx = a.point.worldX - b.point.worldX
                     local dy = a.point.worldY - b.point.worldY

@@ -1794,7 +1794,14 @@ T:run("Flight edges stay inside one continent", function(t)
             if e.edgeType == "flight" and e.data and e.data.fromMapID and e.data.toMapID then
                 local ca = QR.GetContinentForZone(e.data.fromMapID)
                 local cb = QR.GetContinentForZone(e.data.toMapID)
-                if ca and cb and ca ~= cb then
+                -- A *_NEUTRAL continent is a wildcard on its own world map:
+                -- the addon files Mechagon under BFA_NEUTRAL while the rest of
+                -- Kul Tiras is KUL_TIRAS, and that flight does exist. Two
+                -- NAMED continents on one world map stay apart, which is what
+                -- keeps Outland away from the Burning Crusade start zones.
+                local neutral = (ca and ca:find("NEUTRAL", 1, true))
+                    or (cb and cb:find("NEUTRAL", 1, true))
+                if ca and cb and ca ~= cb and not neutral then
                     crossings[#crossings + 1] = string.format("%s (%s) -> %s (%s)", from, ca, to, cb)
                 end
             end
@@ -1841,17 +1848,23 @@ T:run("The flight anchor does not depend on table order", function(t)
         local nodes = QR.PathCalculator:NodesOnMap(uiMapID)
         if #nodes > 1 then
             local anchor = QR.PathCalculator:FlightAnchorForMap(uiMapID)
-            -- The documented order: never the player, a zone node before a
-            -- dungeon node, then alphabetical. Recomputed here independently.
+            -- The documented order: never the player, then by nodeType --
+            -- city, hub, destination, teleport_dest, transport, everything
+            -- else -- and alphabetical within a rank. Recomputed here
+            -- independently of the implementation.
+            local rank = { city = 1, hub = 2, destination = 3, teleport_dest = 4, transport = 5 }
+            local function rankOf(name)
+                local data = QR.PathCalculator.graph.nodes[name]
+                return (data and data.nodeType and rank[data.nodeType]) or 6
+            end
             local want
             for _, name in ipairs(nodes) do
                 if name ~= "Player Location" then
                     if not want then
                         want = name
                     else
-                        local aD = name:sub(1, 9) == "Dungeon: "
-                        local wD = want:sub(1, 9) == "Dungeon: "
-                        if (wD and not aD) or (aD == wD and name < want) then want = name end
+                        local rn, rw = rankOf(name), rankOf(want)
+                        if rn < rw or (rn == rw and name < want) then want = name end
                     end
                 end
             end
@@ -1913,6 +1926,96 @@ T:run("A flight leg reads as a flight in every text surface", function(t)
             "which is not the walk wording (got: " .. tostring(flightStep.action) .. ")")
     end
     QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("Every flight edge is priced by the documented formula", function(t)
+    -- overhead + distance / speed, from the two flight points' world
+    -- positions. Nothing else in the suite pins the weight, so dropping the
+    -- overhead or changing the speed constant went unnoticed.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+    local speed = QR.TravelTime.FLIGHT_SPEED
+    local overhead = QR.TravelTime.FLIGHT_OVERHEAD
+    t:assertGreaterThan(speed, 0, "the speed constant is positive")
+    t:assertGreaterThan(overhead, 0, "and the overhead is a real cost")
+
+    local checked, wrong = 0, nil
+    for _, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+        for _, e in pairs(tos) do
+            if e.edgeType == "flight" then
+                local a = QR.FlightPoints[e.data.fromMapID]
+                local b = QR.FlightPoints[e.data.toMapID]
+                if a and b then
+                    local dx, dy = a.worldX - b.worldX, a.worldY - b.worldY
+                    local want = overhead + math.sqrt(dx * dx + dy * dy) / speed
+                    if math.abs(want - e.weight) > 0.01 and not wrong then
+                        wrong = string.format("%d->%d wanted %.2f got %.2f",
+                            e.data.fromMapID, e.data.toMapID, want, e.weight)
+                    end
+                    checked = checked + 1
+                end
+            end
+        end
+    end
+    t:assertEqual(nil, wrong, "every flight weight matches: " .. tostring(wrong))
+    t:assertGreaterThan(checked, 100, "over enough edges to mean something (" .. checked .. ")")
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A flight pair is written in both directions", function(t)
+    -- Each direction is decided separately, which is what stops a flight from
+    -- replacing a one-way portal. The other half of that has to hold too: a
+    -- pair with nothing competing gets BOTH directions, not one.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+
+    local oneWay
+    for from, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+        for to, e in pairs(tos) do
+            if e.edgeType == "flight" then
+                local back = QR.PathCalculator.graph:GetEdge(to, from)
+                -- Either the same flight comes back, or something strictly
+                -- better already held that direction and kept it.
+                local ok = back and (back.edgeType == "flight" or back.weight <= e.weight)
+                if not ok and not oneWay then
+                    oneWay = from .. " -> " .. to .. " has no return edge"
+                end
+            end
+        end
+    end
+    t:assertEqual(nil, oneWay, "every flight direction is answered: " .. tostring(oneWay))
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("Undiscovered flight points do not count as discovered", function(t)
+    -- state 0 is a node the player has not found. This is the one live API
+    -- behaviour that could not be verified offline, and the gate the whole
+    -- feature rests on: treating state 0 as discovered hands out flights from
+    -- flight masters the player has never visited.
+    resetState()
+    local saved = _G.C_TaxiMap
+    -- Sorted so the two zones under test are the same on every run.
+    local zoneIDs = {}
+    for uiMapID in pairs(QR.FlightPoints or {}) do zoneIDs[#zoneIDs + 1] = uiMapID end
+    table.sort(zoneIDs)
+    local firstZone, secondZone = zoneIDs[1], zoneIDs[2]
+    t:assertNotNil(secondZone, "the data has at least two flight zones")
+    _G.C_TaxiMap = {
+        GetAllTaxiNodes = function(uiMapID)
+            if uiMapID == firstZone then return { { state = 1 } } end
+            return { { state = 0 }, { state = 0 } }
+        end,
+    }
+    QR.PathCalculator.knownFlightZonesOverride = nil
+    local known = QR.PathCalculator:GetKnownFlightZones()
+    t:assertNotNil(known, "the client answered")
+    if known then
+        t:assertEqual(true, known[firstZone] or false,
+            "the zone with a discovered node counts")
+        t:assertEqual(nil, known[secondZone],
+            "the zone whose nodes are all state 0 does not")
+    end
+    _G.C_TaxiMap = saved
 end)
 
 T:run("An answering client with nothing discovered is not the same as no client", function(t)
