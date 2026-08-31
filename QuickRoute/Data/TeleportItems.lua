@@ -1100,10 +1100,19 @@ QR.ClassTeleportSpells = {
     -- Monk
     [126892] = {
         name = "Zen Pilgrimage",
-        destination = "Peak of Serenity / Temple of Five Dawns",
-        mapID = 809,  -- Peak of Serenity
-        x = 0.5000,
-        y = 0.5000,
+        destination = "Peak of Serenity",
+        -- Verified in game on 2026-08-31 with /qrverifymap immediately after
+        -- casting: the client reports 379 Kun-Lai Summit <- 424 Pandaria, at
+        -- (0.4864, 0.4294). It was 809, which is a Karazhan instance floor
+        -- whose parent is Deadwind Pass -- a different continent.
+        --
+        -- The Peak of Serenity has no UiMap of its own; it is a place inside
+        -- Kun-Lai Summit, which is why there was nothing to match by name and
+        -- the wrong ID went unnoticed. The coordinates are the landing spot,
+        -- not the zone centre they used to be.
+        mapID = 379,
+        x = 0.4864,
+        y = 0.4294,
         cooldown = 60,
         type = QR.TeleportTypes.SPELL,
         faction = "both",

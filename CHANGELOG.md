@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Zen Pilgrimage sends Monks to Kun-Lai Summit, where it actually lands. It pointed at a Karazhan instance floor on another continent, and now carries the landing position rather than the middle of the zone.
+
 ## [1.15.0] - 2026-08-31
 
 ### Fixed

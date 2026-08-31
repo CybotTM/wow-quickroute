@@ -1623,3 +1623,64 @@ T:run("Data: teleport landings are all-or-nothing", function(t)
     t:assertGreaterThan(withMap, 5,
         "of which enough name a landing map (" .. withMap .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- Teleport destination maps
+-------------------------------------------------------------------------------
+
+T:run("Data: every teleport lands on a map the addon knows", function(t)
+    -- Zen Pilgrimage pointed at map 809 for as long as this data existed. 809
+    -- is a Karazhan instance floor whose parent is Deadwind Pass -- a
+    -- different continent from where the spell actually lands. Nothing caught
+    -- it because nothing asked whether the destination was a map the addon has
+    -- any other knowledge of, and the Peak of Serenity has no map of its own
+    -- to match by name.
+    --
+    -- A destination the addon knows nothing about is not automatically wrong,
+    -- but it should be a decision rather than an accident. The exceptions are
+    -- listed here with a reason; everything else has to resolve to a continent
+    -- or have adjacency data.
+    local ALLOWED_UNKNOWN = {
+        -- Emerald Dreamway, UiMap type 6: a druid-only hub that is not a zone
+        -- and has no continent, so it cannot appear in the zone tables.
+        [715] = "Dreamwalk",
+    }
+    local sources = {
+        TeleportItemsData = QR.TeleportItemsData,
+        ClassTeleportSpells = QR.ClassTeleportSpells,
+        RacialTeleportSpells = QR.RacialTeleportSpells,
+        GeneralTeleportSpells = QR.GeneralTeleportSpells,
+        DungeonTeleportSpells = QR.DungeonTeleportSpells,
+    }
+    local checked = 0
+    for label, tbl in pairs(sources) do
+        for id, entry in pairs(tbl or {}) do
+            if type(entry) == "table" and entry.mapID then
+                checked = checked + 1
+                local continent = QR.GetContinentForZone and QR.GetContinentForZone(entry.mapID)
+                local adjacent = QR.GetAdjacentZones and QR.GetAdjacentZones(entry.mapID)
+                local known = continent ~= nil or (adjacent and #adjacent > 0)
+                t:assert(known or ALLOWED_UNKNOWN[entry.mapID] ~= nil,
+                    label .. "[" .. tostring(id) .. "] (" .. tostring(entry.name)
+                        .. ") lands on map " .. tostring(entry.mapID)
+                        .. ", which the addon has no continent or adjacency for")
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 50,
+        "over a real number of teleports (" .. checked .. ")")
+end)
+
+T:run("Data: Zen Pilgrimage lands where the client says it does", function(t)
+    -- Verified in game on 2026-08-31 with /qrverifymap immediately after the
+    -- cast: 379 Kun-Lai Summit <- 424 Pandaria, at (0.4864, 0.4294). Pinned
+    -- because the previous value survived every other check in this file.
+    local entry = QR.ClassTeleportSpells and QR.ClassTeleportSpells[126892]
+    t:assertNotNil(entry, "Zen Pilgrimage is in the data")
+    if not entry then return end
+    t:assertEqual(379, entry.mapID, "it lands on Kun-Lai Summit")
+    t:assert(math.abs(entry.x - 0.4864) < 0.0005,
+        "at the verified x (got " .. tostring(entry.x) .. ")")
+    t:assert(math.abs(entry.y - 0.4294) < 0.0005,
+        "at the verified y (got " .. tostring(entry.y) .. ")")
+end)
