@@ -43,7 +43,7 @@ Every release goes to all three at once, from the same build.
 
 | Source | |
 |---|---|
-| CurseForge | [QuickRoute](https://www.curseforge.com/projects/1461133) — or search "QuickRoute" in the CurseForge app or WoWUp |
+| CurseForge | [QuickRoute](https://www.curseforge.com/wow/addons/quickroute) — or search "QuickRoute" in the CurseForge app or WoWUp |
 | Wago | [QuickRoute](https://addons.wago.io/addons/quickroute) — or in the WagoApp |
 | GitHub | [Latest release](https://github.com/CybotTM/wow-quickroute/releases/latest) |
 
