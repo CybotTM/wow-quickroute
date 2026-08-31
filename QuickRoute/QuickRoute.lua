@@ -206,6 +206,7 @@ function QR:OnPlayerLogin()
             { "QuestTeleportBtns",  function() QR.QuestTeleportButtons:Initialize() end },
             { "POIRouting",         function() QR.POIRouting:Initialize() end },
             { "EJButton",           function() if QR.EncounterJournalButton then QR.EncounterJournalButton:Initialize() end end },
+            { "DungeonPicker",      function() QR.DungeonPicker:Initialize() end },
             { "DestinationSearch",  function() QR.DestinationSearch:Initialize() end },
             { "ServiceRouter",      function() QR.ServiceRouter:Initialize() end },
             { "SettingsPanel",      function() QR.SettingsPanel:Initialize() end },
@@ -346,6 +347,7 @@ local function PrintHelp()
     print("  /qrdebug - Show waypoint detection info")
     print("  /qrdebug copy - Copy full debug info (markdown for bug reports)")
     print("  /qrteleports - Toggle the teleport inventory")
+    print("  /qrdungeons - Toggle the dungeon and raid picker")
     print("  /qrinv - Show available teleports")
     print("  /qrcd - Show teleport cooldowns")
     print("  /qrwp - Calculate path to current waypoint")

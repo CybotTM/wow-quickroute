@@ -70,6 +70,7 @@ An addon manager keeps QuickRoute current on its own, which matters here: the ad
 - `/qrwp` - Calculate path to current waypoint
 - `/qrpath <mapID> <x> <y>` - Calculate path to coordinates
 - `/qrteleports` - Toggle teleport panel
+- `/qrdungeons` - Toggle the dungeon and raid picker
 - `/qrinv` - Show available teleports
 - `/qrcd` - Show teleport cooldowns
 - `/qrdebug` - Show waypoint detection info (`/qrdebug copy` yields markdown for bug reports)

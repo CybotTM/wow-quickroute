@@ -830,3 +830,58 @@ T:run("DungeonPicker: shows no results when DungeonData not scanned", function(t
     end
     t:assertTrue(foundNoResults, "Shows no results when DungeonData not scanned")
 end)
+
+-------------------------------------------------------------------------------
+-- The module has to be reachable
+-------------------------------------------------------------------------------
+
+-- Regression: DungeonPicker was listed in the .toc and loaded, but nothing ever
+-- called its Initialize and no slash command or button opened it. The module
+-- was unreachable, so every change to it -- including the "no entrance
+-- coordinates" handling added during the 12.1.0 pass -- was untestable through
+-- the addon and invisible to players.
+T:run("DungeonPicker is initialized during addon startup", function(t)
+    t:assertTrue(QR.DungeonPicker.initialized or false,
+        "Initialize ran (the module is in QuickRoute.lua's step list)")
+end)
+
+T:run("DungeonPicker has a slash command that toggles it", function(t)
+    t:assertEqual("/qrdungeons", _G.SLASH_QRDUNGEONS1, "the command is registered")
+    local handler = SlashCmdList and SlashCmdList["QRDUNGEONS"]
+    t:assertNotNil(handler, "and has a handler")
+    if not handler then return end
+
+    MockWoW.config.inCombatLockdown = false
+    QR.DungeonPicker.isShowing = false
+    handler("")
+    t:assertTrue(QR.DungeonPicker.isShowing, "the first call opens it")
+    handler("")
+    t:assertFalse(QR.DungeonPicker.isShowing, "the second closes it")
+end)
+
+-- The same guard MainFrame and MiniTeleportPanel carry. Wiring the module up
+-- made this reachable: OnHide fires when an ancestor is hidden too, and clearing
+-- the flag there leaves Toggle believing the picker is closed while it is on
+-- screen, so the next /qrdungeons re-shows an already-visible frame.
+T:run("DungeonPicker: an ancestor hide does not clear isShowing", function(t)
+    MockWoW.config.inCombatLockdown = false
+    QR.DungeonPicker.isShowing = false
+    QR.DungeonPicker:Show()
+    t:assertTrue(QR.DungeonPicker.isShowing, "the picker is open")
+
+    local frame = QR.DungeonPicker.frame
+    local onHide = frame and frame:GetScript("OnHide")
+    t:assertNotNil(onHide, "the frame has an OnHide handler")
+    if not onHide then return end
+
+    frame._shown = true
+    onHide(frame)
+    t:assertTrue(QR.DungeonPicker.isShowing,
+        "an ancestor hide leaves it counted as open")
+
+    frame._shown = false
+    onHide(frame)
+    t:assertFalse(QR.DungeonPicker.isShowing, "a real close clears the flag")
+
+    QR.DungeonPicker:Hide()
+end)
