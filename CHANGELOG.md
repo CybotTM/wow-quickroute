@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Flight routes use your own faction's flight masters. 74 of the 141 flight zones were represented by a node only one side can reach, and 45 of those had a master for the other faction that the data was discarding — The Hinterlands sent Horde players to Aerie Peak, Ashenvale to Astranaar. Zones with no master for your faction no longer get a flight edge at all.
+
 ## [1.13.0] - 2026-08-31
 
 ### Added

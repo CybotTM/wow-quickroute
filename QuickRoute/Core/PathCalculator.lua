@@ -1245,6 +1245,60 @@ function PathCalculator:AddDungeonTeleportEdges()
     end
 end
 
+--- The flight point in a zone that THIS player can actually use.
+-- Most zones have one flight master per faction and they are not in the same
+-- place: The Hinterlands has Aerie Peak in the north-west for the Alliance and
+-- Revantusk Village in the south-east for the Horde, and neutral towns like
+-- Booty Bay and Gadgetzan have two nodes a few yards apart. Collapsing that to
+-- one entry per zone priced 45 of 141 zones from a flight master half the
+-- players cannot walk up to.
+--
+-- Returns nil when the zone has no flight master for this faction, which is a
+-- real answer: 17 zones are Alliance-only and 12 are Horde-only.
+--
+-- Anything that is not one of the two factions -- "Neutral" for a pandaren who
+-- has not chosen a side, or any value the client returns that is neither --
+-- gets the primary entry, which is what the addon did before this filter
+-- existed. The first version tested `not faction` instead, which can never be
+-- true because GetFaction falls back to "Alliance"; a neutral character
+-- therefore matched no branch and lost 74 of 141 zones and 392 of its 479
+-- flight edges. (A neutral character has 479 on main, not the 599 an Alliance
+-- one has, because AddZoneNodes withholds the faction capitals from them --
+-- so fewer zones carry a graph node in the first place.)
+--
+-- Note what this branch does NOT cover: a client that has not answered yet.
+-- UnitFactionGroup returns nil there and GetFaction turns that into
+-- "Alliance", so such a character is filtered as Alliance rather than falling
+-- through here. The fallback is for a genuine third value, not for silence.
+-- @param uiMapID number
+-- @return table|nil
+function PathCalculator:FlightPointFor(uiMapID)
+    local point = QR.FlightPoints and QR.FlightPoints[uiMapID]
+    if not point then
+        return nil
+    end
+    -- The QR.PlayerInfo guard is defence in depth, not covered code: the
+    -- module is set at load and no build path reaches here without it, so
+    -- dropping it reddens nothing. It is kept because a false faction here
+    -- silently filters the whole flight network.
+    local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    if faction ~= "Alliance" and faction ~= "Horde" then
+        return point
+    end
+    if point.faction == "both" or point.faction == faction then
+        return point
+    end
+    local alt = point.alt
+    -- alt.faction is always the opposite of the primary's, so reaching here
+    -- means this is the player's side. The check is defence in depth against a
+    -- future generator that emits a third shape, not covered code: replacing
+    -- it with `if alt then` reddens nothing.
+    if alt and alt.faction == faction then
+        return alt
+    end
+    return nil
+end
+
 --- Which flight points the player has actually discovered.
 -- Returns a set keyed by uiMapID, or nil when the client cannot tell us. nil is
 -- not the same as empty: empty means "the player has none", nil means "do not
@@ -1361,15 +1415,29 @@ local function WorldMapMixesContinents(continentID)
     if not mixedWorldMaps then
         mixedWorldMaps = {}
         local seen = {}
-        for uiMapID, point in pairs(QR.FlightPoints or {}) do
+        -- Both halves of a zone's entry, not just the primary. The alternate
+        -- carries its own world map, and a world map that only an alternate
+        -- puts a second continent on would otherwise never be flagged mixed --
+        -- SameFlightNetwork would then short-circuit to "same network" and
+        -- offer a flight the strict test exists to refuse. No shipped zone has
+        -- its two nodes on different world maps, so this changes nothing
+        -- today; it is here so the alternate is treated like the entry it is.
+        local function note(uiMapID, worldMap)
             local continent = QR.GetContinentForZone and QR.GetContinentForZone(uiMapID)
-            if continent and not IsNeutral(continent) then
-                local known = seen[point.continentID]
-                if not known then
-                    seen[point.continentID] = continent
-                elseif known ~= continent then
-                    mixedWorldMaps[point.continentID] = true
-                end
+            if not continent or IsNeutral(continent) then
+                return
+            end
+            local known = seen[worldMap]
+            if not known then
+                seen[worldMap] = continent
+            elseif known ~= continent then
+                mixedWorldMaps[worldMap] = true
+            end
+        end
+        for uiMapID, point in pairs(QR.FlightPoints or {}) do
+            note(uiMapID, point.continentID)
+            if point.alt then
+                note(uiMapID, point.alt.continentID)
             end
         end
     end
@@ -1442,8 +1510,9 @@ function PathCalculator:AddFlightEdges()
 
     -- Only zones the graph already models AND the player has discovered.
     local usable = {}
-    for uiMapID, point in pairs(QR.FlightPoints) do
-        if known[uiMapID] and next(self:NodesOnMap(uiMapID)) then
+    for uiMapID in pairs(QR.FlightPoints) do
+        local point = self:FlightPointFor(uiMapID)
+        if point and known[uiMapID] and next(self:NodesOnMap(uiMapID)) then
             usable[#usable + 1] = { mapID = uiMapID, point = point }
         end
     end
@@ -1704,7 +1773,7 @@ function PathCalculator:BuildSteps(path, edges)
         -- read it until this block, which is why a transposed x/y went
         -- unnoticed for four review rounds.
         if edge.edgeType == "flight" and edge.data and QR.FlightPoints then
-            local master = QR.FlightPoints[edge.data.fromMapID]
+            local master = self:FlightPointFor(edge.data.fromMapID)
             if master and master.x and master.y then
                 step.navX = master.x
                 step.navY = master.y

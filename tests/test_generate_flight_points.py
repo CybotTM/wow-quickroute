@@ -156,14 +156,21 @@ class FixtureMixin:
                 {"UiMapID": str(self.ZONE_C), "MapID": "1",
                  "Region_0": "240", "Region_1": "240", "Region_3": "260", "Region_4": "260",
                  "UiMin_0": "0", "UiMin_1": "0", "UiMax_0": "1", "UiMax_1": "1"},
+                # Alpha Vale again, on a SECOND world map. Real zones do this
+                # -- UiMap 376 is assigned to MapID 870 and 1157 -- and it is
+                # the only shape that can tell the alternate's own continentID
+                # apart from the primary's.
+                {"UiMapID": str(self.ZONE_A), "MapID": "2",
+                 "Region_0": "0", "Region_1": "0", "Region_3": "100", "Region_4": "100",
+                 "UiMin_0": "0", "UiMin_1": "0", "UiMax_0": "1", "UiMax_1": "1"},
             ],
         )
         return directory
 
     @staticmethod
-    def node(node_id, name, x, y, flags="3"):
+    def node(node_id, name, x, y, flags="3", continent="1"):
         return {"Name_lang": name, "Pos_0": str(x), "Pos_1": str(y),
-                "ID": str(node_id), "ContinentID": "1", "Flags": flags}
+                "ID": str(node_id), "ContinentID": continent, "Flags": flags}
 
 
 class FilterTest(FixtureMixin, unittest.TestCase):
@@ -320,6 +327,130 @@ class FilterTest(FixtureMixin, unittest.TestCase):
         ])
         self.assertIn(self.ZONE_C, result)
         self.assertEqual(result[self.ZONE_C]["name"], "Gamma Hold, Beta Reach")
+
+
+    def test_each_faction_keeps_its_own_flight_master(self):
+        # The Hinterlands case: two masters in one zone, one per faction, in
+        # different places. Collapsing to one entry lost the other side's in 45
+        # of 141 real zones.
+        result = self.resolve([
+            self.node(1, "Alliancepost, Alpha Vale", 50, 50, flags="1"),
+            self.node(2, "Hordepost, Alpha Vale", 60, 60, flags="2"),
+            self.node(3, "Farpost, Beta Reach", 250, 250),
+        ])
+        entry = result[self.ZONE_A]
+        self.assertIn(entry["faction"], ("Alliance", "Horde"))
+        self.assertIsNotNone(entry["alt"], "the other faction's master survives")
+        self.assertNotEqual(entry["faction"], entry["alt"]["faction"])
+        self.assertNotEqual(entry["name"], entry["alt"]["name"])
+
+    def test_a_node_both_factions_use_needs_no_alternate(self):
+        result = self.resolve([
+            self.node(1, "Havenhold, Alpha Vale", 50, 50, flags="3"),
+            self.node(2, "Farpost, Beta Reach", 250, 250),
+            self.node(3, "Waypost, Beta Reach", 260, 260),
+        ])
+        entry = result[self.ZONE_A]
+        self.assertEqual("both", entry["faction"])
+        self.assertIsNone(entry["alt"])
+
+    def test_a_one_faction_zone_stays_one_faction(self):
+        result = self.resolve([
+            self.node(1, "Hordepost, Alpha Vale", 50, 50, flags="2"),
+            self.node(2, "Farpost, Beta Reach", 250, 250),
+            self.node(3, "Waypost, Beta Reach", 260, 260),
+        ])
+        entry = result[self.ZONE_A]
+        self.assertEqual("Horde", entry["faction"])
+        self.assertIsNone(entry["alt"], "there is no Alliance master to record")
+
+
+class EmitTest(FixtureMixin, unittest.TestCase):
+    """What build() decides has to survive being written out.
+
+    Nothing covered emit() before: deleting the whole alt tail -- all 45
+    alternates, the entire payload of the faction work -- or stamping
+    faction = "both" on every row left both suites green, because the Python
+    tests only exercised build() and the Lua tests read a committed file that
+    no job regenerates.
+    """
+
+    def render(self, taxi_rows, path_rows=None):
+        directory = self.build_inputs(taxi_rows, path_rows)
+        gen.MIN_ZONES = 0
+        final = gen.build(directory)
+        out = os.path.join(directory, "out.lua")
+        gen.emit(final, out)
+        with open(out, encoding="utf-8") as handle:
+            return handle.read()
+
+    def two_faction_zone(self):
+        return [
+            self.node(1, "Alliancepost, Alpha Vale", 50, 50, flags="1"),
+            self.node(2, "Hordepost, Alpha Vale", 60, 60, flags="2"),
+            self.node(3, "Farpost, Beta Reach", 250, 250),
+        ]
+
+    def test_the_alternate_reaches_the_file(self):
+        text = self.render(self.two_faction_zone())
+        self.assertIn("alt = {", text)
+        self.assertIn("Alliancepost, Alpha Vale", text)
+        self.assertIn("Hordepost, Alpha Vale", text)
+
+    def test_every_entry_states_a_faction(self):
+        text = self.render(self.two_faction_zone())
+        entries = [line for line in text.splitlines() if line.startswith("    [")]
+        self.assertTrue(entries)
+        for line in entries:
+            self.assertIn("faction = ", line, line)
+        self.assertNotIn('faction = "both", alt', text)
+
+    def test_the_alternate_states_the_other_faction(self):
+        text = self.render(self.two_faction_zone())
+        line = next(l for l in text.splitlines() if "alt = {" in l)
+        primary = line.split("faction = ")[1].split(",")[0].strip()
+        alternate = line.split("alt = {")[1].split('faction = ')[1].split("}")[0].strip()
+        self.assertNotEqual(primary, alternate)
+        self.assertIn(primary, ('"Alliance"', '"Horde"'))
+
+    def test_the_alternate_carries_its_own_world_map(self):
+        # The two sides on DIFFERENT world maps. Writing the primary's
+        # continentID onto the alternate would invert SameFlightNetwork for
+        # that player -- every zone on one world map offered, every zone on the
+        # other denied. No shipped zone has this shape, so only a fixture can
+        # tell the two apart.
+        text = self.render([
+            self.node(1, "Alliancepost, Alpha Vale", 50, 50, flags="1", continent="1"),
+            self.node(2, "Hordepost, Alpha Vale", 60, 60, flags="2", continent="2"),
+            self.node(3, "Farpost, Beta Reach", 250, 250),
+        ])
+        line = next(l for l in text.splitlines() if "alt = {" in l)
+        self.assertEqual(2, line.count("continentID = "),
+                         "the alternate is self-contained")
+        primary, alternate = line.split("continentID = ")[1:3]
+        self.assertNotEqual(primary.split(",")[0].strip(),
+                            alternate.split(",")[0].strip(),
+                            "and it is the alternate's own world map, not the primary's")
+
+    def test_the_header_describes_the_shape_the_file_actually_has(self):
+        # The header is prose and reverted silently once already: it kept
+        # saying "one entry per zone" for a commit after the collapse became
+        # per-faction. Nothing regenerates the committed file in CI, so a stale
+        # header is invisible unless asserted here.
+        text = self.render(self.two_faction_zone())
+        header = text.split("QR.FlightPoints = {")[0]
+        self.assertIn("faction", header,
+                      "the header names the faction field the rows carry")
+        self.assertIn("alt", header,
+                      "and the alternate entry")
+        self.assertNotIn("One entry per zone:", header,
+                         "and no longer claims one entry per zone")
+
+    def test_the_file_still_parses_as_a_lua_table(self):
+        text = self.render(self.two_faction_zone())
+        self.assertTrue(text.startswith("-- FlightPoints.lua"))
+        self.assertIn("QR.FlightPoints = {", text)
+        self.assertEqual(text.count("{"), text.count("}"))
 
 
 class InputGuardTest(FixtureMixin, unittest.TestCase):

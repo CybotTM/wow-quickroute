@@ -2048,8 +2048,12 @@ T:run("Every flight edge is priced by the documented formula", function(t)
     for _, tos in pairs(QR.PathCalculator.graph.edges or {}) do
         for _, e in pairs(tos) do
             if e.edgeType == "flight" then
-                local a = QR.FlightPoints[e.data.fromMapID]
-                local b = QR.FlightPoints[e.data.toMapID]
+                -- Through the same accessor the graph used: a zone's two
+                -- flight masters are in different places, so pricing against
+                -- the primary entry disagrees with the edge whenever the
+                -- player is on the other side.
+                local a = QR.PathCalculator:FlightPointFor(e.data.fromMapID)
+                local b = QR.PathCalculator:FlightPointFor(e.data.toMapID)
                 if a and b then
                     local dx, dy = a.worldX - b.worldX, a.worldY - b.worldY
                     local want = overhead + math.sqrt(dx * dx + dy * dy) / speed
@@ -2155,7 +2159,11 @@ T:run("Every step's waypoint takes its map and its coordinates from one place", 
         if fromNode then candidates[#candidates + 1] = fromNode end
         if toNode then candidates[#candidates + 1] = toNode end
         if step.type == "flight" and step.fromMapID then
-            local master = QR.FlightPoints[step.fromMapID]
+            -- The master THIS player uses. Reading the primary entry puts
+            -- the candidate in the wrong place for a zone whose two factions
+            -- board in different spots, and the invariant then rejects a
+            -- perfectly correct waypoint.
+            local master = QR.PathCalculator:FlightPointFor(step.fromMapID)
             if master then
                 candidates[#candidates + 1] =
                     { mapID = step.fromMapID, x = master.x, y = master.y }
@@ -2313,6 +2321,176 @@ T:run("A step's destination map and coordinates come from the same node", functi
     QR.PathCalculator.knownFlightZonesOverride = nil
 end)
 
+T:run("A character of neither faction keeps the whole flight network", function(t)
+    -- UnitFactionGroup returns "Neutral" for a pandaren who has not picked a
+    -- side. The first version of the accessor tested `not faction`, which can
+    -- never be true -- GetFaction falls back to "Alliance" -- so a neutral
+    -- character matched no branch and silently lost 74 of 141 zones and 392 of
+    -- its 479 flight edges against the behaviour before the filter existed.
+    -- (479, not 599: a neutral character never had the faction capitals as
+    -- graph nodes, so fewer zones could carry a flight edge to begin with.)
+    resetState()
+    local usable = {}
+    for _, faction in ipairs({ "Alliance", "Neutral" }) do
+        MockWoW.config.playerFaction = faction
+        QR.PlayerInfo:InvalidateCache()
+        local count = 0
+        for uiMapID in pairs(QR.FlightPoints or {}) do
+            if QR.PathCalculator:FlightPointFor(uiMapID) then count = count + 1 end
+        end
+        usable[faction] = count
+    end
+
+    local total = 0
+    for _ in pairs(QR.FlightPoints or {}) do total = total + 1 end
+    t:assertEqual(total, usable.Neutral,
+        "a neutral character can use every zone (" .. tostring(usable.Neutral)
+            .. " of " .. total .. ")")
+    t:assertGreaterThan(usable.Neutral, usable.Alliance,
+        "which is strictly more than a faction sees, since nothing is filtered out")
+
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+end)
+
+T:run("A Horde route is waypointed to Horde flight masters", function(t)
+    -- The waypoint tests elsewhere run as Alliance, and for most zones the
+    -- Alliance master is also the primary entry -- so reading the primary
+    -- instead of the player's own point changed nothing they could see. As
+    -- Horde it changes 26 zones that have an Alliance primary and a Horde
+    -- alternate, and those are the ones this walks. (17 is a different set --
+    -- the Alliance-only zones, where a Horde player gets nothing rather than
+    -- something else. An earlier revision of this comment, and commit
+    -- 142b139's message, used that number for this sentence.)
+    resetState()
+    MockWoW.config.playerFaction = "Horde"
+    QR.PlayerInfo:InvalidateCache()
+
+    local checked, wrong = 0, nil
+    for _, origin in ipairs({ 22, 36, 63, 105, 117 }) do
+        flightGraphSnapshot(allFlightZones(), origin)
+        local route = QR.PathCalculator:CalculatePath(85, 0.50, 0.50, "Orgrimmar")
+        for _, step in ipairs((route and route.steps) or {}) do
+            if step.type == "flight" then
+                local master = QR.PathCalculator:FlightPointFor(step.fromMapID)
+                if master then
+                    checked = checked + 1
+                    local dx = (step.navX or 0) - master.x
+                    local dy = (step.navY or 0) - master.y
+                    if math.sqrt(dx * dx + dy * dy) > 0.001 and not wrong then
+                        local primary = QR.FlightPoints[step.fromMapID]
+                        wrong = string.format(
+                            "map %d waypoint (%.4f, %.4f) is not the Horde master %s "
+                            .. "at (%.4f, %.4f) -- it is %s",
+                            step.fromMapID, step.navX or -1, step.navY or -1,
+                            tostring(master.node), master.x, master.y,
+                            tostring(primary and primary.node))
+                    end
+                end
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 0, "the Horde routes contain flight legs")
+    t:assertEqual(nil, wrong, "and each is waypointed to a Horde master: " .. tostring(wrong))
+
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("Each faction flies from its own flight master", function(t)
+    -- The Hinterlands has Aerie Peak in the north-west for the Alliance and
+    -- Revantusk Village in the south-east for the Horde. One entry per zone
+    -- priced 45 of 141 zones from a master half the players cannot reach.
+    resetState()
+    local point = QR.FlightPoints[26]
+    t:assertNotNil(point, "The Hinterlands has a flight point")
+    t:assertNotNil(point and point.alt, "and a second one for the other faction")
+    if not (point and point.alt) then return end
+
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    local alliance = QR.PathCalculator:FlightPointFor(26)
+    MockWoW.config.playerFaction = "Horde"
+    QR.PlayerInfo:InvalidateCache()
+    local horde = QR.PathCalculator:FlightPointFor(26)
+
+    t:assertNotNil(alliance, "the Alliance has a flight master there")
+    t:assertNotNil(horde, "so does the Horde")
+    if alliance and horde then
+        t:assert(alliance.node ~= horde.node,
+            "and they are different places (" .. tostring(alliance.node)
+                .. " vs " .. tostring(horde.node) .. ")")
+        t:assertEqual("Alliance", alliance.faction, "the Alliance one says so")
+        t:assertEqual("Horde", horde.faction, "and the Horde one says so")
+    end
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+end)
+
+T:run("A zone with no flight master for your faction gets no flight edge", function(t)
+    -- 17 zones are Alliance-only and 12 Horde-only. Offering those to the
+    -- other side hands out a route that cannot be flown, which is the whole
+    -- point of gating on what the player has discovered in the first place.
+    resetState()
+    local oneSided
+    for uiMapID, point in pairs(QR.FlightPoints or {}) do
+        if point.faction ~= "both" and not point.alt then
+            oneSided = { id = uiMapID, faction = point.faction }
+            break
+        end
+    end
+    t:assertNotNil(oneSided, "the data has a one-faction zone to test with")
+    if not oneSided then return end
+
+    local other = oneSided.faction == "Alliance" and "Horde" or "Alliance"
+    MockWoW.config.playerFaction = oneSided.faction
+    QR.PlayerInfo:InvalidateCache()
+    t:assertNotNil(QR.PathCalculator:FlightPointFor(oneSided.id),
+        "its own faction can use map " .. oneSided.id)
+    MockWoW.config.playerFaction = other
+    QR.PlayerInfo:InvalidateCache()
+    t:assertEqual(nil, QR.PathCalculator:FlightPointFor(oneSided.id),
+        "the other faction cannot (map " .. oneSided.id .. ", " .. oneSided.faction .. " only)")
+
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+end)
+
+T:run("No flight edge is priced from the other faction's flight master", function(t)
+    -- The graph and the waypoint have to agree with each other and with the
+    -- player: every edge weight must be the distance between the two points
+    -- THIS faction uses, not between whichever entries came first in the file.
+    resetState()
+    for _, faction in ipairs({ "Alliance", "Horde" }) do
+        MockWoW.config.playerFaction = faction
+        QR.PlayerInfo:InvalidateCache()
+        flightGraphSnapshot(allFlightZones(), 84)
+        local checked, wrong = 0, nil
+        for _, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+            for _, e in pairs(tos) do
+                if e.edgeType == "flight" and e.data then
+                    local a = QR.PathCalculator:FlightPointFor(e.data.fromMapID)
+                    local b = QR.PathCalculator:FlightPointFor(e.data.toMapID)
+                    if not a or not b then
+                        wrong = wrong or (faction .. " has an edge through a zone it cannot fly from")
+                    else
+                        checked = checked + 1
+                        if a.faction ~= "both" and a.faction ~= faction and not wrong then
+                            wrong = faction .. " is routed via a " .. tostring(a.faction) .. " master"
+                        end
+                    end
+                end
+            end
+        end
+        t:assertEqual(nil, wrong, "as " .. faction .. ": " .. tostring(wrong))
+        t:assertGreaterThan(checked, 100, "over enough edges as " .. faction .. " (" .. checked .. ")")
+    end
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
 T:run("Every flight step in the graph names its own departure zone", function(t)
     -- The single-route test below inspects one flight leg, and that leg
     -- happens to be the forward direction of its pair. Both directions shared
@@ -2356,7 +2534,7 @@ T:run("A reverse-direction flight step navigates to the right flight master", fu
     for _, step in ipairs(route.steps or {}) do
         if step.type == "flight" then
             checked = checked + 1
-            local master = QR.FlightPoints[step.fromMapID]
+            local master = QR.PathCalculator:FlightPointFor(step.fromMapID)
             t:assertEqual(step.fromMapID, step.navMapID,
                 "the waypoint is in the zone the player is standing in (nav "
                     .. tostring(step.navMapID) .. ", from " .. tostring(step.fromMapID) .. ")")
@@ -2401,7 +2579,7 @@ T:run("A flight step navigates to the flight master, not the destination", funct
         -- ranked highest on that map, which for the Badlands is a dungeon
         -- entrance 0.48 of the zone from Fuselight -- the right map, the wrong
         -- building, and the player is told to fly from it.
-        local master = QR.FlightPoints[flightStep.fromMapID]
+        local master = QR.PathCalculator:FlightPointFor(flightStep.fromMapID)
         t:assertNotNil(master, "the departure zone has a flight master on file")
         if master then
             local dx = (flightStep.navX or 0) - master.x

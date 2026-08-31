@@ -1521,6 +1521,37 @@ T:run("Data: FlightPoints covers the zones a route is most likely to start in", 
     end
 end)
 
+T:run("Data: FlightPoints entries say which faction can use them", function(t)
+    -- Every entry states a faction, and an alternate exists only where the two
+    -- factions genuinely have different flight masters. Without the field the
+    -- addon cannot tell "everyone can fly from here" from "half the players
+    -- cannot walk up to this".
+    local VALID = { both = true, Alliance = true, Horde = true }
+    local withAlt = 0
+    for uiMapID, point in pairs(QR.FlightPoints or {}) do
+        local where = "map " .. tostring(uiMapID)
+        t:assert(VALID[point.faction] == true,
+            where .. " names a faction (got: " .. tostring(point.faction) .. ")")
+        if point.alt then
+            withAlt = withAlt + 1
+            t:assert(VALID[point.alt.faction] == true,
+                where .. " alternate names a faction (got: " .. tostring(point.alt.faction) .. ")")
+            t:assert(point.alt.faction ~= point.faction,
+                where .. " alternate is for the OTHER faction, not " .. tostring(point.faction))
+            t:assert(point.faction ~= "both",
+                where .. " has an alternate only because it is not usable by both")
+            t:assert(type(point.alt.worldX) == "number" and type(point.alt.worldY) == "number",
+                where .. " alternate carries the world position edges are priced from")
+            t:assert(type(point.alt.continentID) == "number",
+                where .. " alternate is self-contained, continentID and all")
+            t:assert(point.alt.x > 0 and point.alt.x < 1 and point.alt.y > 0 and point.alt.y < 1,
+                where .. " alternate sits inside its zone")
+        end
+    end
+    t:assertGreaterThan(withAlt, 20,
+        "and a real number of zones have two (" .. withAlt .. ")")
+end)
+
 T:run("Data: FlightPoints zones are zones, not continents", function(t)
     -- The generator filters on UiMap Type 3. A continent or cosmic map slipping
     -- in would connect a whole landmass as if it were one flight point.
