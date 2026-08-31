@@ -53,3 +53,22 @@ jobs:
         env:
           QR_TEST_ORDER: ${{ matrix.order }}
         run: lua tests/run_tests.lua
+
+  generator:
+    # The data generator decides which taxi nodes are flight masters, which
+    # zone each belongs to and where in it they sit. None of that is reachable
+    # from the Lua suite, which only checks the shape of the file the generator
+    # already produced -- so a filter could be inverted or the projection
+    # transposed and nothing would fail. That last one actually happened.
+    name: Generator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run generator tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v

@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Flight paths are part of the travel graph. 141 zones with a flight master, positioned from the client's own tables and connected where the player has discovered them. A flight step's waypoint is the flight master itself. Measured for a character with no teleports routing to Stormwind: 18 zones get a faster route and none get a slower one; Silithus drops from 855 to 542 seconds and Mount Hyjal from 705 to 418.
+
 ## [1.12.0] - 2026-08-31
 
 ### Fixed

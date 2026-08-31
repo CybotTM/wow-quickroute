@@ -22,6 +22,7 @@ A World of Warcraft addon that calculates and displays the shortest path to any 
 - **Faction-Aware:** Respects Alliance/Horde restrictions for portals and items
 - **Class-Aware:** Includes class-specific teleports (Mage, Druid, Monk, DK, Shaman, DH)
 - **Dungeon Teleports:** Mythic+ and attunement teleports route to the dungeon entrance
+- **Flight Paths:** Flight masters you have discovered are part of the route graph
 - **TomTom Integration:** Automatically detects TomTom waypoints
 - **Auto-Destination:** Automatically routes to super-tracked quests/waypoints
 - **World Map Teleport Button:** One-click teleport button on the world map

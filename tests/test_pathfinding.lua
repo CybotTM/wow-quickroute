@@ -1681,3 +1681,551 @@ T:run("A teleport-less character in Thunder Bluff can route out", function(t)
     if not route then return end
     t:assertGreaterThan(#(route.steps or {}), 0, "with at least one step")
 end)
+
+-------------------------------------------------------------------------------
+-- Flight paths
+-------------------------------------------------------------------------------
+
+-- The flight network was missing entirely, which is why a character without
+-- teleports could be stranded: Pandaria and Draenor have portals in and no
+-- modelled way out. The zone positions come from the client's TaxiNodes table,
+-- so the distance an edge is priced from is exact; only the speed it is divided
+-- by is an estimate, like every other constant in TravelTime.
+T:run("Flight edges connect zones the player has discovered", function(t)
+    resetState()
+    -- The client tells the addon which flight points the player has. The test
+    -- supplies that set directly rather than mocking C_TaxiMap, which is the
+    -- one piece whose live behaviour could not be verified.
+    local flightZones = {}
+    for uiMapID in pairs(QR.FlightPoints or {}) do flightZones[#flightZones + 1] = uiMapID end
+    table.sort(flightZones)
+    t:assertGreaterThan(#flightZones, 100, "the data has a plausible number of flight zones")
+
+    QR.PathCalculator.knownFlightZonesOverride = nil
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+    local without = 0
+    for _, edges in pairs(QR.PathCalculator.graph.edges or {}) do
+        for _, e in pairs(edges) do if e.edgeType == "flight" then without = without + 1 end end
+    end
+    t:assertEqual(0, without,
+        "no flight edges when the client says nothing (got " .. tostring(without) .. ")")
+
+    local known = {}
+    for _, uiMapID in ipairs(flightZones) do known[uiMapID] = true end
+    QR.PathCalculator.knownFlightZonesOverride = known
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+    local with = 0
+    for _, edges in pairs(QR.PathCalculator.graph.edges or {}) do
+        for _, e in pairs(edges) do if e.edgeType == "flight" then with = with + 1 end end
+    end
+    t:assertGreaterThan(with, 0,
+        "and flight edges once it does (got " .. tostring(with) .. ")")
+
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+-- Snapshot every edge of a graph built with the given discovered-zone set.
+local function flightGraphSnapshot(override, mapID)
+    QR.PathCalculator.knownFlightZonesOverride = override
+    MockWoW.config.currentMapID = mapID or 84
+    QR.PathCalculator.graph = nil
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+    local edges = {}
+    for from, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+        for to, e in pairs(tos) do
+            edges[from .. "\1" .. to] = { weight = e.weight, edgeType = e.edgeType }
+        end
+    end
+    return edges
+end
+
+local function allFlightZones()
+    local known = {}
+    for uiMapID in pairs(QR.FlightPoints or {}) do known[uiMapID] = true end
+    return known
+end
+
+T:run("Adding flight never makes an existing edge worse", function(t)
+    -- The graph holds one edge per ordered pair, so every write is a
+    -- replacement, and portals and one-way transports are written unpaired. A
+    -- bidirectional flight write guarded by the forward edge alone replaced the
+    -- 10s Valdrakken -> Waking Shores portal with a 101s flight, taking the
+    -- portalData with it. Each direction has to be judged on its own.
+    resetState()
+    local before = flightGraphSnapshot(nil, 84)
+    local after = flightGraphSnapshot(allFlightZones(), 84)
+
+    local worse = {}
+    for key, a in pairs(after) do
+        local b = before[key]
+        if b and a.weight > b.weight + 0.001 then
+            local from, to = key:match("^(.-)\1(.*)$")
+            worse[#worse + 1] = string.format("%s -> %s (%s %.1f became %s %.1f)",
+                from, to, b.edgeType, b.weight, a.edgeType, a.weight)
+        end
+    end
+    t:assertEqual(0, #worse,
+        "no edge got heavier: " .. (worse[1] or "none"))
+
+    -- The pair the regression was found on, named so the guard says what it is
+    -- guarding rather than only counting.
+    local portal = QR.PathCalculator.graph:GetEdge("Valdrakken", "Waking Shores")
+    if portal then
+        t:assertEqual("portal", portal.edgeType,
+            "and the Valdrakken portal is still a portal (got: " .. tostring(portal.edgeType) .. ")")
+    end
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("Adding flight makes nothing worse at any speed", function(t)
+    -- The test above runs at the shipped FLIGHT_SPEED, where the invariant
+    -- also held under the OLD build order -- the two regressions only appeared
+    -- below about 17 yd/s. So that test passed by numeric margin and could not
+    -- see a reordering. TravelTime.lua invites recalibrating this constant, so
+    -- the invariant is checked at a speed where the margin is gone.
+    resetState()
+    local realSpeed = QR.TravelTime.FLIGHT_SPEED
+    local before = flightGraphSnapshot(nil, 84)
+    QR.TravelTime.FLIGHT_SPEED = 5
+    local after = flightGraphSnapshot(allFlightZones(), 84)
+    QR.TravelTime.FLIGHT_SPEED = realSpeed
+
+    local worse
+    for key, a in pairs(after) do
+        local b = before[key]
+        if b and a.weight > b.weight + 0.001 and not worse then
+            local from, to = key:match("^(.-)\1(.*)$")
+            worse = string.format("%s -> %s (%s %.1f became %s %.1f)",
+                from, to, b.edgeType, b.weight, a.edgeType, a.weight)
+        end
+    end
+    t:assertEqual(nil, worse,
+        "at a speed slow enough to lose every race: " .. tostring(worse))
+
+    -- And the graph is rebuilt at the real speed so nothing leaks out.
+    flightGraphSnapshot(nil, 84)
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A neutral continent still flies to its own world map", function(t)
+    -- The continent test below suppresses flights between two named
+    -- continents. That rule, applied bluntly, also suppressed Kul Tiras to
+    -- Mechagon, which is a real flight -- the addon files Mechagon under
+    -- BFA_NEUTRAL while the rest of Kul Tiras is KUL_TIRAS. Nothing caught
+    -- that, so removing the wildcard again would go unnoticed.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+
+    local neutralCrossings = 0
+    for _, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+        for _, e in pairs(tos) do
+            if e.edgeType == "flight" and e.data then
+                local ca = QR.GetContinentForZone(e.data.fromMapID)
+                local cb = QR.GetContinentForZone(e.data.toMapID)
+                if ca and cb and ca ~= cb then neutralCrossings = neutralCrossings + 1 end
+            end
+        end
+    end
+    t:assertGreaterThan(neutralCrossings, 0,
+        "flights across a neutral continent boundary exist (got " .. neutralCrossings .. ")")
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("Flight edges stay inside one continent", function(t)
+    -- continentID is a world map, not a taxi network: world map 530 holds
+    -- Outland and the Burning Crusade starting zones together. Flying from
+    -- Azuremyst Isle to Shattrath is not possible, and the addon's own
+    -- continent map is what says so.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+
+    local crossings = {}
+    for from, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+        for to, e in pairs(tos) do
+            if e.edgeType == "flight" and e.data and e.data.fromMapID and e.data.toMapID then
+                local ca = QR.GetContinentForZone(e.data.fromMapID)
+                local cb = QR.GetContinentForZone(e.data.toMapID)
+                -- A *_NEUTRAL continent is a wildcard on its own world map:
+                -- the addon files Mechagon under BFA_NEUTRAL while the rest of
+                -- Kul Tiras is KUL_TIRAS, and that flight does exist. Two
+                -- NAMED continents on one world map stay apart, which is what
+                -- keeps Outland away from the Burning Crusade start zones.
+                local neutral = (ca and ca:find("NEUTRAL", 1, true))
+                    or (cb and cb:find("NEUTRAL", 1, true))
+                if ca and cb and ca ~= cb and not neutral then
+                    crossings[#crossings + 1] = string.format("%s (%s) -> %s (%s)", from, ca, to, cb)
+                end
+            end
+        end
+    end
+    t:assertEqual(0, #crossings,
+        "no flight edge crosses continents: " .. (crossings[1] or "none"))
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("Flight edges never attach to the player node", function(t)
+    -- The player node carries the position the graph was built at, and
+    -- ReconnectPlayerNode drops only walk and travel edges on movement. A
+    -- flight edge would survive the move and price a flight from a zone the
+    -- player has left -- a route that cannot be taken, not just a bad estimate.
+    -- Built in Elwynn Forest, which has a flight master and NO other graph
+    -- node, so the player node is the only candidate and this guard is the
+    -- only thing standing between it and a flight edge. An earlier version of
+    -- this test built in a zone that had a dungeon node too, where the
+    -- alphabetical tiebreak decided instead and deleting the guard changed
+    -- nothing.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 37)
+
+    local attached = 0
+    for _, e in pairs((QR.PathCalculator.graph.edges or {})["Player Location"] or {}) do
+        if e.edgeType == "flight" then attached = attached + 1 end
+    end
+    t:assertEqual(0, attached,
+        "player node carries no flight edges (got " .. attached .. ")")
+
+    -- And the anchor the zone does use is a real node, chosen the documented way.
+    -- With the player excluded and nothing else on the map, there is no
+    -- anchor at all -- which is the correct answer, and the one that stops a
+    -- flight edge being priced from a position the player is about to leave.
+    t:assertEqual(nil, QR.PathCalculator:FlightAnchorForMap(37),
+        "a map whose only node is the player has no anchor")
+    local elsewhere = QR.PathCalculator:FlightAnchorForMap(84)
+    t:assertNotNil(elsewhere, "a map with a real node still has one")
+    t:assert(elsewhere ~= "Player Location", "and it is never the player node")
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("The flight anchor does not depend on table order", function(t)
+    -- NodesOnMap yields pairs() hash order. Taking its first element made the
+    -- graph depend on that order: learning an unrelated teleport rehashed the
+    -- node table and re-anchored flight edges on six unrelated maps.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+
+    local checked = 0
+    for uiMapID in pairs(QR.FlightPoints or {}) do
+        local nodes = QR.PathCalculator:NodesOnMap(uiMapID)
+        if #nodes > 1 then
+            local anchor = QR.PathCalculator:FlightAnchorForMap(uiMapID)
+            -- The documented order: never the player, then by nodeType --
+            -- city, hub, destination, teleport_dest, transport, everything
+            -- else -- and alphabetical within a rank. Recomputed here
+            -- independently of the implementation.
+            local rank = { city = 1, hub = 2, destination = 3, teleport_dest = 4, transport = 5 }
+            local function rankOf(name)
+                local data = QR.PathCalculator.graph.nodes[name]
+                return (data and data.nodeType and rank[data.nodeType]) or 6
+            end
+            local want
+            for _, name in ipairs(nodes) do
+                if name ~= "Player Location" then
+                    if not want then
+                        want = name
+                    else
+                        local rn, rw = rankOf(name), rankOf(want)
+                        if rn < rw or (rn == rw and name < want) then want = name end
+                    end
+                end
+            end
+            t:assertEqual(want, anchor,
+                "map " .. uiMapID .. " anchors on the documented first node")
+            checked = checked + 1
+        end
+    end
+    t:assertGreaterThan(checked, 10,
+        "and enough maps have a real choice to make that meaningful (" .. checked .. ")")
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("Only zones the player discovered get flight edges", function(t)
+    -- Flying from a flight master you have not found is not possible, so
+    -- ignoring the discovered set hands out routes that cannot be taken.
+    resetState()
+    -- Exactly two zones, both on the Eastern Kingdoms world map.
+    local two = { [15] = true, [36] = true }
+    flightGraphSnapshot(two, 84)
+
+    local zones = {}
+    local count = 0
+    for _, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+        for _, e in pairs(tos) do
+            if e.edgeType == "flight" then
+                count = count + 1
+                zones[e.data.fromMapID] = true
+                zones[e.data.toMapID] = true
+            end
+        end
+    end
+    t:assertGreaterThan(count, 0, "the two discovered zones are connected")
+    for mapID in pairs(zones) do
+        t:assertEqual(true, two[mapID] or false,
+            "no flight edge touches undiscovered map " .. tostring(mapID))
+    end
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A flight leg reads as a flight in every text surface", function(t)
+    -- BuildSteps had no flight branch, so a flight fell through to STEP_GO_TO
+    -- and read "Go to X" everywhere except the route list, which formats its
+    -- own line.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 15)
+    local route = QR.PathCalculator:CalculatePath(84, 0.55, 0.60, "Stormwind")
+    t:assertNotNil(route, "the Badlands route exists")
+    if not route then QR.PathCalculator.knownFlightZonesOverride = nil return end
+
+    local flightStep
+    for _, step in ipairs(route.steps or {}) do
+        if step.type == "flight" then flightStep = step break end
+    end
+    t:assertNotNil(flightStep, "and it contains a flight leg")
+    if flightStep then
+        t:assertNotNil(flightStep.action, "the leg has an action line")
+        -- Pinned to the wording itself, not merely to "not the walk wording":
+        -- a flight leg reading "Take Deeprun Tram to X" passed that.
+        local want = string.format(QR.L["ACTION_FLY_TO"], flightStep.localizedTo or "")
+        t:assertEqual(want, flightStep.action,
+            "and reads as a flight (got: " .. tostring(flightStep.action) .. ")")
+    end
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("Every flight edge is priced by the documented formula", function(t)
+    -- overhead + distance / speed, from the two flight points' world
+    -- positions. Nothing else in the suite pins the weight, so dropping the
+    -- overhead or changing the speed constant went unnoticed.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+    local speed = QR.TravelTime.FLIGHT_SPEED
+    local overhead = QR.TravelTime.FLIGHT_OVERHEAD
+    t:assertGreaterThan(speed, 0, "the speed constant is positive")
+    t:assertGreaterThan(overhead, 0, "and the overhead is a real cost")
+
+    local checked, wrong = 0, nil
+    for _, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+        for _, e in pairs(tos) do
+            if e.edgeType == "flight" then
+                local a = QR.FlightPoints[e.data.fromMapID]
+                local b = QR.FlightPoints[e.data.toMapID]
+                if a and b then
+                    local dx, dy = a.worldX - b.worldX, a.worldY - b.worldY
+                    local want = overhead + math.sqrt(dx * dx + dy * dy) / speed
+                    if math.abs(want - e.weight) > 0.01 and not wrong then
+                        wrong = string.format("%d->%d wanted %.2f got %.2f",
+                            e.data.fromMapID, e.data.toMapID, want, e.weight)
+                    end
+                    checked = checked + 1
+                end
+            end
+        end
+    end
+    t:assertEqual(nil, wrong, "every flight weight matches: " .. tostring(wrong))
+    t:assertGreaterThan(checked, 100, "over enough edges to mean something (" .. checked .. ")")
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A flight pair is written in both directions", function(t)
+    -- Each direction is decided separately, which is what stops a flight from
+    -- replacing a one-way portal. The other half of that has to hold too: a
+    -- pair with nothing competing gets BOTH directions, not one.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+
+    local oneWay
+    for from, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+        for to, e in pairs(tos) do
+            if e.edgeType == "flight" then
+                local back = QR.PathCalculator.graph:GetEdge(to, from)
+                -- Either the same flight comes back, or something strictly
+                -- better already held that direction and kept it.
+                local ok = back and (back.edgeType == "flight" or back.weight <= e.weight)
+                if not ok and not oneWay then
+                    oneWay = from .. " -> " .. to .. " has no return edge"
+                end
+            end
+        end
+    end
+    t:assertEqual(nil, oneWay, "every flight direction is answered: " .. tostring(oneWay))
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("Undiscovered flight points do not count as discovered", function(t)
+    -- state 0 is a node the player has not found. This is the one live API
+    -- behaviour that could not be verified offline, and the gate the whole
+    -- feature rests on: treating state 0 as discovered hands out flights from
+    -- flight masters the player has never visited.
+    resetState()
+    local saved = _G.C_TaxiMap
+    -- Sorted so the two zones under test are the same on every run.
+    local zoneIDs = {}
+    for uiMapID in pairs(QR.FlightPoints or {}) do zoneIDs[#zoneIDs + 1] = uiMapID end
+    table.sort(zoneIDs)
+    local firstZone, secondZone = zoneIDs[1], zoneIDs[2]
+    t:assertNotNil(secondZone, "the data has at least two flight zones")
+    _G.C_TaxiMap = {
+        GetAllTaxiNodes = function(uiMapID)
+            if uiMapID == firstZone then return { { state = 1 } } end
+            return { { state = 0 }, { state = 0 } }
+        end,
+    }
+    QR.PathCalculator.knownFlightZonesOverride = nil
+    local known = QR.PathCalculator:GetKnownFlightZones()
+    t:assertNotNil(known, "the client answered")
+    if known then
+        t:assertEqual(true, known[firstZone] or false,
+            "the zone with a discovered node counts")
+        t:assertEqual(nil, known[secondZone],
+            "the zone whose nodes are all state 0 does not")
+    end
+    _G.C_TaxiMap = saved
+end)
+
+T:run("Every flight step in the graph names its own departure zone", function(t)
+    -- The single-route test below inspects one flight leg, and that leg
+    -- happens to be the forward direction of its pair. Both directions shared
+    -- one data table, so on the reverse half "from" meant the far end -- 301
+    -- of 599 edges -- and the waypoint landed in the wrong zone entirely. A
+    -- test that walks one route cannot see that; this walks the graph.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+    local graph = QR.PathCalculator.graph
+
+    local checked, wrong = 0, nil
+    for from, tos in pairs(graph.edges or {}) do
+        for _, e in pairs(tos) do
+            if e.edgeType == "flight" and e.data then
+                checked = checked + 1
+                local nodeMapID = graph.nodes[from] and graph.nodes[from].mapID
+                if nodeMapID ~= e.data.fromMapID and not wrong then
+                    wrong = string.format("%s sits on map %s but its edge says it departs from %s",
+                        from, tostring(nodeMapID), tostring(e.data.fromMapID))
+                end
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 100,
+        "enough flight edges to cover both directions (" .. checked .. ")")
+    t:assertEqual(nil, wrong, "and every one departs from its own node's map: " .. tostring(wrong))
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A reverse-direction flight step navigates to the right flight master", function(t)
+    -- Routing out of Mount Hyjal takes the half of a pair that was written
+    -- second, which is the half the shared data table got wrong: the player
+    -- was sent to Teldrassil to board a flight leaving Mount Hyjal.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 198)
+    local route = QR.PathCalculator:CalculatePath(84, 0.55, 0.60, "Stormwind")
+    t:assertNotNil(route, "the Mount Hyjal route exists")
+    if not route then QR.PathCalculator.knownFlightZonesOverride = nil return end
+
+    local checked = 0
+    for _, step in ipairs(route.steps or {}) do
+        if step.type == "flight" then
+            checked = checked + 1
+            local master = QR.FlightPoints[step.fromMapID]
+            t:assertEqual(step.fromMapID, step.navMapID,
+                "the waypoint is in the zone the player is standing in (nav "
+                    .. tostring(step.navMapID) .. ", from " .. tostring(step.fromMapID) .. ")")
+            if master then
+                local dx = (step.navX or 0) - master.x
+                local dy = (step.navY or 0) - master.y
+                t:assert(math.sqrt(dx * dx + dy * dy) < 0.001,
+                    "and it is that zone's flight master, " .. tostring(master.node))
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 0, "the route has a flight leg to check")
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A flight step navigates to the flight master, not the destination", function(t)
+    -- A flight starts where the flight master stands, so the waypoint has to
+    -- be the node the player walks to. Pointed at the destination it names a
+    -- place reachable only by taking the flight it is supposed to start --
+    -- and the wording branch beside it is guarded while this was not.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 15)
+    local route = QR.PathCalculator:CalculatePath(84, 0.55, 0.60, "Stormwind")
+    t:assertNotNil(route, "the Badlands route exists")
+    if not route then QR.PathCalculator.knownFlightZonesOverride = nil return end
+
+    local flightStep
+    for _, step in ipairs(route.steps or {}) do
+        if step.type == "flight" then flightStep = step break end
+    end
+    t:assertNotNil(flightStep, "and it contains a flight leg")
+    if flightStep then
+        t:assertNotNil(flightStep.navMapID, "the leg has a navigation target")
+        t:assertEqual(flightStep.fromMapID, flightStep.navMapID,
+            "which is the map the flight departs from (nav "
+                .. tostring(flightStep.navMapID) .. ", from "
+                .. tostring(flightStep.fromMapID) .. ")")
+        t:assert(flightStep.navMapID ~= flightStep.destMapID,
+            "and not the map it arrives on (dest " .. tostring(flightStep.destMapID) .. ")")
+
+        -- The map alone is not enough. The edge attaches to whatever node was
+        -- ranked highest on that map, which for the Badlands is a dungeon
+        -- entrance 0.48 of the zone from Fuselight -- the right map, the wrong
+        -- building, and the player is told to fly from it.
+        local master = QR.FlightPoints[flightStep.fromMapID]
+        t:assertNotNil(master, "the departure zone has a flight master on file")
+        if master then
+            local dx = (flightStep.navX or 0) - master.x
+            local dy = (flightStep.navY or 0) - master.y
+            local apart = math.sqrt(dx * dx + dy * dy)
+            t:assert(apart < 0.001, string.format(
+                "and the waypoint is the flight master itself, not the graph "
+                .. "node the edge happens to hang off: (%.4f, %.4f) vs %s at "
+                .. "(%.4f, %.4f), %.4f apart",
+                flightStep.navX or -1, flightStep.navY or -1,
+                tostring(master.node), master.x, master.y, apart))
+        end
+    end
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A node the client reports without a state is not discovered", function(t)
+    -- C_TaxiMap's live shape is the one thing here that could not be verified
+    -- offline, so the gate has to be defensive in both directions. Dropping
+    -- the "node.state and" half counted every zone as discovered from a
+    -- client that never said so -- flights offered from masters the player has
+    -- never visited, which is the failure the gate exists to prevent.
+    resetState()
+    local saved = _G.C_TaxiMap
+    _G.C_TaxiMap = {
+        GetAllTaxiNodes = function() return { { name = "A node with no state" } } end,
+    }
+    QR.PathCalculator.knownFlightZonesOverride = nil
+    local known = QR.PathCalculator:GetKnownFlightZones()
+    t:assertNotNil(known, "the client answered, so this is not the nil case")
+    if known then
+        t:assertEqual(nil, next(known),
+            "and nothing it failed to describe counts as discovered")
+    end
+    _G.C_TaxiMap = saved
+end)
+
+T:run("An answering client with nothing discovered is not the same as no client", function(t)
+    -- nil means "the client did not say, do not model flight at all"; empty
+    -- means "the player has none". Collapsing them made a level-one character
+    -- log a data-availability problem that does not exist.
+    resetState()
+    local saved = _G.C_TaxiMap
+    _G.C_TaxiMap = { GetAllTaxiNodes = function() return {} end }
+    QR.PathCalculator.knownFlightZonesOverride = nil
+    local known = QR.PathCalculator:GetKnownFlightZones()
+    t:assertNotNil(known, "an answering client returns a set, not nil")
+    if known then
+        t:assertEqual(nil, next(known), "and that set is empty")
+    end
+
+    _G.C_TaxiMap = nil
+    t:assertEqual(nil, QR.PathCalculator:GetKnownFlightZones(),
+        "an absent API returns nil")
+    _G.C_TaxiMap = saved
+end)

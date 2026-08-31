@@ -257,3 +257,16 @@ T:run("GetMapScale: a size the client does not report is not cached", function(t
     t:assertEqual(2000, after,
         "and picks the real size up once it is available (got " .. tostring(after) .. ")")
 end)
+
+T:run("Flight constants are pinned to the values the data was calibrated for", function(t)
+    -- Doubling either moved 107 graph edges with the whole suite green. They
+    -- are estimates, and estimates get recalibrated -- but a recalibration is
+    -- a deliberate data change, not something a refactor should do quietly.
+    -- TravelTime.lua says how to redo it: time one flight between two points
+    -- that are both in QR.FlightPoints and divide the world distance by the
+    -- seconds. Change the number here in the same commit.
+    t:assertEqual(30, QR.TravelTime.FLIGHT_SPEED,
+        "FLIGHT_SPEED is 30 yards per second")
+    t:assertEqual(20, QR.TravelTime.FLIGHT_OVERHEAD,
+        "FLIGHT_OVERHEAD is 20 seconds for talking to the master and landing")
+end)

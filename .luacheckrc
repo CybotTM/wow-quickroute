@@ -36,6 +36,7 @@ globals = {
     "C_QuestLog",
     "C_ToyBox",
     "C_Timer",
+    "C_TaxiMap",
     "C_TaskQuest",
     "C_EncounterJournal",
     -- Reached through _G / a macrotext string, so a plain grep does not find

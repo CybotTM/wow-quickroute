@@ -256,6 +256,22 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
+    -- Flight last, so every edge it might replace already exists. Run earlier,
+    -- AddFlightEdges wrote into empty slots and its "only if it beats what is
+    -- there" guard had nothing to compare against: ConnectIslandNodes then saw
+    -- the node as connected and skipped the continent edge it would otherwise
+    -- have written. The result was still faster at the shipped FLIGHT_SPEED,
+    -- but only by margin -- recalibrating the speed below ~17 yd/s made flight
+    -- routes slower than the ones they displaced. Now the guard decides it.
+    success, err = pcall(function()
+        self:AddFlightEdges()
+    end)
+    if not success then
+        QR:Error("AddFlightEdges failed: " .. tostring(err))
+        buildSuccess = false
+        buildError = buildError or err
+    end
+
     -- Only mark clean if all steps succeeded
     self.graphDirty = not buildSuccess
 
@@ -1229,6 +1245,268 @@ function PathCalculator:AddDungeonTeleportEdges()
     end
 end
 
+--- Which flight points the player has actually discovered.
+-- Returns a set keyed by uiMapID, or nil when the client cannot tell us. nil is
+-- not the same as empty: empty means "the player has none", nil means "do not
+-- model flight at all", and the caller treats them differently. Flying from a
+-- flight master you have not discovered is not possible, so guessing here would
+-- hand out routes that cannot be walked.
+-- @return table|nil Set of uiMapIDs, or nil if the client does not say
+function PathCalculator:GetKnownFlightZones()
+    if self.knownFlightZonesOverride ~= nil then
+        return self.knownFlightZonesOverride
+    end
+    if not (C_TaxiMap and C_TaxiMap.GetAllTaxiNodes) then
+        return nil
+    end
+
+    local known = {}
+    for uiMapID in pairs(QR.FlightPoints or {}) do
+        local ok, nodes = pcall(C_TaxiMap.GetAllTaxiNodes, uiMapID)
+        if ok and type(nodes) == "table" then
+            for _, node in ipairs(nodes) do
+                -- state 0 is a node the player has not discovered; anything
+                -- else is one they can fly from or to.
+                if node.state and node.state ~= 0 then
+                    known[uiMapID] = true
+                    break
+                end
+            end
+        end
+    end
+    -- Empty on purpose when the client answered and the player has discovered
+    -- nothing: that is "they have none", which AddFlightEdges handles by
+    -- writing no edges. Only an absent API returns nil above.
+    return known
+end
+
+--- The graph node a zone's flight edges attach to.
+-- NodesOnMap yields whatever pairs() order the node table happens to have, so
+-- taking its first element makes the graph depend on hash order: adding an
+-- unrelated teleport rehashes the table and re-anchors flight edges on maps
+-- that have nothing to do with it. Sorting fixes that.
+--
+-- The player node is excluded outright. It carries the position the graph was
+-- built at, and ReconnectPlayerNode drops only walk and travel edges when the
+-- player moves -- a flight edge would survive the move and price a flight from
+-- a zone the player has left, which is a route that cannot be taken rather
+-- than merely a bad estimate.
+--
+-- The node that best stands for the zone wins, by nodeType. A dungeon-prefix
+-- test was not enough: it left Stormwind and Ironforge anchored on the Deeprun
+-- Tram platform, because "Deeprun Tram (...)" sorts before "Stormwind City"
+-- and neither is a dungeon. Of the anchored maps only 5 were a city that way;
+-- 15 were a transport endpoint and 14 a portal destination.
+local FLIGHT_ANCHOR_RANK = {
+    city = 1,
+    hub = 2,
+    destination = 3,
+    teleport_dest = 4,
+    transport = 5,
+}
+local FLIGHT_ANCHOR_RANK_DEFAULT = 6   -- dungeons and anything unclassified
+
+function PathCalculator:FlightAnchorForMap(mapID)
+    local candidates = {}
+    for _, name in ipairs(self:NodesOnMap(mapID)) do
+        if name ~= PLAYER_NODE then
+            candidates[#candidates + 1] = name
+        end
+    end
+    if #candidates == 0 then
+        return nil
+    end
+    local nodes = self.graph.nodes
+    local function rank(name)
+        local data = nodes[name]
+        local nodeType = data and data.nodeType
+        return (nodeType and FLIGHT_ANCHOR_RANK[nodeType]) or FLIGHT_ANCHOR_RANK_DEFAULT
+    end
+    table_sort(candidates, function(a, b)
+        local ra, rb = rank(a), rank(b)
+        if ra ~= rb then
+            return ra < rb
+        end
+        return a < b
+    end)
+    return candidates[1]
+end
+
+--- True when two flight zones are on the same taxi network.
+-- Sharing a world map (continentID) is necessary but not sufficient. World map
+-- 530 holds Outland and the Burning Crusade starting zones together, because
+-- they share a coordinate space, and they are not one flight network -- without
+-- the second test the graph offered 50 flights that cannot be taken, including
+-- Azuremyst Isle to Shattrath. The addon's own continent is the second opinion,
+-- and it is the same notion the rest of the routing uses.
+--
+-- Only world maps that actually mix continents are held to the stricter test.
+-- Falling back to "allow" whenever a continent is unknown re-opened the bug for
+-- any zone QR.ZoneToContinent does not cover -- map 530 has one such zone, and a
+-- node placed on it would have flown to Shattrath again. On a world map whose
+-- flight zones all belong to one continent there is nothing to disambiguate, so
+-- an unknown zone there is allowed through.
+--
+-- A *_NEUTRAL continent is a wildcard on its own world map: the addon files
+-- Mechagon and Tol Dagor under BFA_NEUTRAL while the rest of Kul Tiras is
+-- KUL_TIRAS, and those flights do exist. Two named continents on one world map
+-- stay separate, which is what keeps Kul Tiras and Zandalar apart.
+local mixedWorldMaps
+
+local function IsNeutral(continent)
+    return continent ~= nil and continent:find("NEUTRAL", 1, true) ~= nil
+end
+
+local function WorldMapMixesContinents(continentID)
+    if not mixedWorldMaps then
+        mixedWorldMaps = {}
+        local seen = {}
+        for uiMapID, point in pairs(QR.FlightPoints or {}) do
+            local continent = QR.GetContinentForZone and QR.GetContinentForZone(uiMapID)
+            if continent and not IsNeutral(continent) then
+                local known = seen[point.continentID]
+                if not known then
+                    seen[point.continentID] = continent
+                elseif known ~= continent then
+                    mixedWorldMaps[point.continentID] = true
+                end
+            end
+        end
+    end
+    return mixedWorldMaps[continentID] or false
+end
+
+local function SameFlightNetwork(a, b)
+    if a.point.continentID ~= b.point.continentID then
+        return false
+    end
+    if not WorldMapMixesContinents(a.point.continentID) then
+        return true
+    end
+    -- No IsNeutral test here. One was written and was dead code: a world map
+    -- carrying a neutral continent alongside a single named one is not
+    -- "mixed", so it returns above and never reaches this line. Kul Tiras and
+    -- Mechagon are allowed by that early return, not by a wildcard. Removing
+    -- the dead clause is also what lets a test see the difference -- with it
+    -- present, forcing every world map through the strict path changed
+    -- nothing observable.
+    local ca = QR.GetContinentForZone and QR.GetContinentForZone(a.mapID)
+    local cb = QR.GetContinentForZone and QR.GetContinentForZone(b.mapID)
+    return ca ~= nil and cb ~= nil and ca == cb
+end
+
+--- Write one direction of a flight edge, if it is allowed and worth writing.
+--
+-- The teleport guard below is defence in depth, not covered code, and the same
+-- kind as the backward half of HasTeleportEdge. Teleport edges are only ever
+-- written PLAYER_NODE -> destination, and FlightAnchorForMap excludes the
+-- player node, so no flight write can currently meet one: replacing the guard
+-- with `true` reddens nothing. It is kept for the case where a future anchor
+-- rule does reach a teleport destination from the other side.
+-- @return boolean true when an edge was written
+function PathCalculator:WriteFlightEdge(from, to, seconds, data)
+    if not CanOverwriteWithWalk(self.graph, from, to) then
+        return false
+    end
+    local existing = self.graph:GetEdge(from, to)
+    -- Flying is only worth an edge where it beats what is already there;
+    -- otherwise it clutters the graph with a slower alternative Dijkstra would
+    -- never take, and -- worse -- discards the portal or transport data the
+    -- edge it replaced was carrying.
+    if existing and seconds >= existing.weight then
+        return false
+    end
+    self.graph:AddEdge(from, to, seconds, "flight", data)
+    return true
+end
+
+--- Connect the zones the player can fly between.
+-- Two flight zones are connected when they share both a world map and the
+-- addon's own continent: from any flight master the game auto-routes multi-hop
+-- to every point you have discovered on that map, so the per-path topology adds
+-- nothing at this granularity.
+--
+-- The weight is the real distance between the two flight points divided by
+-- FLIGHT_SPEED, plus a fixed overhead for talking to the flight master and the
+-- takeoff and landing. The distance is exact -- it comes from the client's
+-- TaxiNodes positions -- and only the speed is an estimate.
+function PathCalculator:AddFlightEdges()
+    if not QR.FlightPoints then
+        return
+    end
+    local known = self:GetKnownFlightZones()
+    if not known then
+        QR:Debug("PathCalculator: no flight point data from the client, skipping flight edges")
+        return
+    end
+
+    -- Only zones the graph already models AND the player has discovered.
+    local usable = {}
+    for uiMapID, point in pairs(QR.FlightPoints) do
+        if known[uiMapID] and next(self:NodesOnMap(uiMapID)) then
+            usable[#usable + 1] = { mapID = uiMapID, point = point }
+        end
+    end
+    -- No sort here on purpose. Iteration order does not reach the result:
+    -- WriteFlightEdge writes only when the new weight beats what is already
+    -- there, so the cheapest pair wins whichever order the pairs arrive in. A
+    -- sort would look like it was load-bearing and no defect injection could
+    -- redden it. The order that DOES matter is the anchor choice, which
+    -- FlightAnchorForMap sorts.
+
+    local speed = QR.TravelTime.FLIGHT_SPEED
+    local overhead = QR.TravelTime.FLIGHT_OVERHEAD
+    local added = 0
+    for i = 1, #usable do
+        for j = i + 1, #usable do
+            local a, b = usable[i], usable[j]
+            if SameFlightNetwork(a, b) then
+                local nodeA = self:FlightAnchorForMap(a.mapID)
+                local nodeB = self:FlightAnchorForMap(b.mapID)
+                -- nodeA ~= nodeB is defence in depth, not covered code: no
+                -- two flight zones currently resolve to the same anchor (0
+                -- collisions over all 136), so removing it reddens nothing.
+                if nodeA and nodeB and nodeA ~= nodeB then
+                    local dx = a.point.worldX - b.point.worldX
+                    local dy = a.point.worldY - b.point.worldY
+                    local yards = math_sqrt(dx * dx + dy * dy)
+                    local seconds = overhead + yards / speed
+                    -- Each direction is decided on its own. The graph holds one
+                    -- edge per ordered pair and portals and one-way transports
+                    -- are written unpaired, so a bidirectional write guarded by
+                    -- the forward edge alone replaces a portal nobody looked at:
+                    -- Valdrakken -> The Waking Shores went from a 10s portal to
+                    -- a 101s flight that way, because the guard checked the
+                    -- other direction.
+                    --
+                    -- Each direction also gets its OWN data. Sharing one table
+                    -- made "from" mean the far end on half the edges: 301 of
+                    -- 599. That was invisible while nothing read it, and became
+                    -- a wrong waypoint the moment something did -- a player in
+                    -- Mount Hyjal was sent to Teldrassil to board the flight.
+                    -- Only the two map IDs. fromNode and toNode were carried
+                    -- here and read by nothing, which is the same shape as the
+                    -- unread x/y that let a transposed projection sit in the
+                    -- data for four review rounds.
+                    if self:WriteFlightEdge(nodeA, nodeB, seconds, {
+                        fromMapID = a.mapID, toMapID = b.mapID,
+                    }) then
+                        added = added + 1
+                    end
+                    if self:WriteFlightEdge(nodeB, nodeA, seconds, {
+                        fromMapID = b.mapID, toMapID = a.mapID,
+                    }) then
+                        added = added + 1
+                    end
+                end
+            end
+        end
+    end
+    if added > 0 then
+        QR:Debug(string_format("PathCalculator: %d flight edge(s)", added))
+    end
+end
+
 --- Give the player node its position-derived edges at build time.
 -- Without this the player is only connected by whatever teleports they own.
 -- ConnectSameMapNodes reaches them only when another node shares their map, and
@@ -1386,6 +1664,11 @@ function PathCalculator:BuildSteps(path, edges)
             step.action = string_format(L["STEP_TAKE_ZEPPELIN"], localizedToNode)
         elseif edge.edgeType == "tram" then
             step.action = string_format(L["STEP_TAKE_TRAM"], localizedToNode)
+        elseif edge.edgeType == "flight" then
+            -- ACTION_FLY_TO already exists in every locale because the route
+            -- list uses it; without this branch a flight leg fell through to
+            -- STEP_GO_TO and every text surface but that list read "Go to X".
+            step.action = string_format(L["ACTION_FLY_TO"], localizedToNode)
         else
             step.action = string_format(L["STEP_GO_TO"], localizedToNode)
         end
@@ -1398,13 +1681,31 @@ function PathCalculator:BuildSteps(path, edges)
         step.navY = step.destY
         step.navTitle = toNode
 
+        -- A boarded transport starts where you board it, so navigation points
+        -- at the from node rather than at the destination.
         if edge.edgeType == "portal" or edge.edgeType == "boat"
-            or edge.edgeType == "zeppelin" or edge.edgeType == "tram" then
+            or edge.edgeType == "zeppelin" or edge.edgeType == "tram"
+            or edge.edgeType == "flight" then
             if fromNodeData then
                 step.navMapID = fromNodeData.mapID
                 step.navX = fromNodeData.x or 0.5
                 step.navY = fromNodeData.y or 0.5
                 step.navTitle = step.action
+            end
+        end
+
+        -- The block above already put the waypoint on the right MAP, via the
+        -- from node. Only the position still needs correcting: that node is
+        -- whatever FlightAnchorForMap ranked highest on the map, which for the
+        -- Badlands is a dungeon entrance 0.48 of the zone from Fuselight.
+        -- QR.FlightPoints carries the flight master's own position -- nothing
+        -- read it until this block, which is why a transposed x/y went
+        -- unnoticed for four review rounds.
+        if edge.edgeType == "flight" and edge.data and QR.FlightPoints then
+            local master = QR.FlightPoints[edge.data.fromMapID]
+            if master and master.x and master.y then
+                step.navX = master.x
+                step.navY = master.y
             end
         end
 

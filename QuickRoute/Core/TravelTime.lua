@@ -47,6 +47,21 @@ TravelTime.SPEEDS = {
     epic_flying = 21,   -- 310% flying mount
 }
 
+-- Flight master speed, yards per second.
+--
+-- An estimate, like every other constant in this file -- LOADING_TIMES.boat and
+-- SPEEDS.mounted_flying are the same kind of number. What is NOT estimated is
+-- the distance it divides: flight point positions come from the client's own
+-- TaxiNodes table, so the geometry is exact and only the scalar is guessed.
+--
+-- To recalibrate: take a flight whose endpoints are both in QR.FlightPoints,
+-- time it, and divide the world distance between them by the seconds.
+TravelTime.FLIGHT_SPEED = 30
+
+-- Time on the ground per flight: talking to the flight master, the takeoff and
+-- landing animations. Charged once per flight edge rather than per hop.
+TravelTime.FLIGHT_OVERHEAD = 20
+
 -- Map scale factors (approximate yards per coordinate unit)
 -- Most maps are roughly 1000 yards per 1.0 coordinate difference
 TravelTime.MAP_SCALE = 1000
