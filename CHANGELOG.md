@@ -8,6 +8,7 @@
 
 ### Added
 - `/qrdungeons` opens the dungeon and raid picker. The module shipped in every release but nothing ever initialized it or opened it, so it was unreachable.
+- A teleport step rendered during combat is dimmed. It gets no Use button under lockdown, so it used to look identical to a step whose teleport is unavailable.
 
 ## [1.11.0] - 2026-08-31
 
