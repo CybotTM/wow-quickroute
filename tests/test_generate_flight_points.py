@@ -109,6 +109,10 @@ class FixtureMixin:
     """A minimal but complete input set, one world map, two zones."""
 
     ZONE_A, ZONE_B, ZONE_C = 100, 200, 300
+    # A System 2 duplicate of Alpha Vale. Deliberately a SMALLER box than the
+    # real one, so it wins on area and, sharing the name, corroborates too --
+    # everything the box choice ranks on. Only the System filter separates them.
+    ZONE_A_LEGACY = 400
 
     def build_inputs(self, taxi_rows, path_rows=None):
         directory = tempfile.mkdtemp()
@@ -131,11 +135,22 @@ class FixtureMixin:
         )
         write_csv(
             os.path.join(directory, "UiMap.csv"),
-            ["Name_lang", "ID", "Type"],
+            ["Name_lang", "ID", "Type", "System"],
             [
-                {"Name_lang": "Alpha Vale", "ID": str(self.ZONE_A), "Type": "3"},
-                {"Name_lang": "Beta Reach", "ID": str(self.ZONE_B), "Type": "3"},
-                {"Name_lang": "Gamma Hold", "ID": str(self.ZONE_C), "Type": "3"},
+                {"Name_lang": "Alpha Vale", "ID": str(self.ZONE_A), "Type": "3",
+                 "System": "0"},
+                {"Name_lang": "Beta Reach", "ID": str(self.ZONE_B), "Type": "3",
+                 "System": "0"},
+                {"Name_lang": "Gamma Hold", "ID": str(self.ZONE_C), "Type": "3",
+                 "System": "0"},
+                # UiMap ships a second map set under System 2 that repeats
+                # zones under different IDs. Its boxes cover the same world
+                # coordinates, so it competes for every node -- and this one is
+                # deliberately SMALLER than the Alpha Vale it duplicates, so it
+                # wins on area and corroborates on name. Without the System
+                # filter it takes every Alpha Vale node.
+                {"Name_lang": "Alpha Vale", "ID": str(self.ZONE_A_LEGACY),
+                 "Type": "3", "System": "2"},
             ],
         )
         write_csv(
@@ -163,6 +178,11 @@ class FixtureMixin:
                 {"UiMapID": str(self.ZONE_A), "MapID": "2",
                  "Region_0": "0", "Region_1": "0", "Region_3": "100", "Region_4": "100",
                  "UiMin_0": "0", "UiMin_1": "0", "UiMax_0": "1", "UiMax_1": "1"},
+                # The System 2 duplicate, covering the same ground as Alpha
+                # Vale but tighter, so it beats it on area.
+                {"UiMapID": str(self.ZONE_A_LEGACY), "MapID": "1",
+                 "Region_0": "10", "Region_1": "10", "Region_3": "90", "Region_4": "90",
+                 "UiMin_0": "0", "UiMin_1": "0", "UiMax_0": "1", "UiMax_1": "1"},
             ],
         )
         return directory
@@ -188,6 +208,43 @@ class FilterTest(FixtureMixin, unittest.TestCase):
         ])
         self.assertIn(self.ZONE_A, result)
         self.assertEqual(result[self.ZONE_A]["name"], "Havenhold, Alpha Vale")
+
+    def test_the_retail_map_wins_over_its_system_2_duplicate(self):
+        # UiMap ships a second map set under System 2 that repeats zones under
+        # different IDs, on boxes covering the same world coordinates. Seven of
+        # the 147 shipped flight points landed on one -- Azsuna as 1187 rather
+        # than 630, Isle of Dorn as 2271 rather than 2248 -- and five of those
+        # IDs are ones ZoneAdjacency.lua does not know, so the zone had a
+        # flight master in the data and no flight edge in the graph.
+        #
+        # The duplicate in the fixture beats Alpha Vale on both things the box
+        # choice ranks on: it is smaller, and it carries the same name, so it
+        # corroborates too. Only the System filter separates them.
+        result = self.resolve([
+            self.node(1, "Havenhold, Alpha Vale", 50, 50),
+            self.node(2, "Farpost, Beta Reach", 250, 250),
+            self.node(3, "Waypost, Beta Reach", 260, 260),
+        ])
+        self.assertIn(self.ZONE_A, result)
+        self.assertNotIn(self.ZONE_A_LEGACY, result)
+
+    def test_a_missing_system_column_is_an_error_not_a_silent_drop(self):
+        # Every zone box is read through the System check, so a UiMap export
+        # without the column would quietly yield no zones at all rather than
+        # failing. load() declares it required for exactly that reason.
+        directory = self.build_inputs([
+            self.node(1, "Havenhold, Alpha Vale", 50, 50),
+            self.node(2, "Farpost, Beta Reach", 250, 250),
+            self.node(3, "Waypost, Beta Reach", 260, 260),
+        ])
+        path = os.path.join(directory, "UiMap.csv")
+        rows = list(csv.DictReader(open(path, encoding="utf-8")))
+        for row in rows:
+            del row["System"]
+        write_csv(path, ["Name_lang", "ID", "Type"], rows)
+        gen.MIN_ZONES = 0
+        with self.assertRaises(SystemExit):
+            gen.build(directory)
 
     def test_an_internal_flagged_node_is_dropped(self):
         result = self.resolve([
