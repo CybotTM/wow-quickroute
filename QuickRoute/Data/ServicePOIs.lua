@@ -1,6 +1,14 @@
 -- ServicePOIs.lua
 -- Static coordinates for common service NPCs (Auction House, Bank, Void Storage, Crafting Table)
 -- in capital cities. Used by ServiceRouter to find nearest service via Dijkstra.
+--
+-- Darnassus (89) and Undercity (90) are deliberately absent. Both cities were
+-- destroyed in Battle for Azeroth and the maps the client still ships for them
+-- are the pre-destruction versions, reachable only by talking to Zidormi. In
+-- the default phase a character walks into a burned tree or a plague-flooded
+-- ruin, and the services below are not standing. The addon cannot tell which
+-- phase a player is in, so it does not offer them at all -- the same call this
+-- file already makes for pre-revamp Silvermoon (110). See issue #3.
 local ADDON_NAME, QR = ...
 
 QR.ServicePOIs = {
@@ -8,12 +16,10 @@ QR.ServicePOIs = {
         -- Alliance
         { mapID = 84,   x = 0.6105, y = 0.7064, faction = "Alliance" },  -- Stormwind
         { mapID = 87,   x = 0.2549, y = 0.7468, faction = "Alliance" },  -- Ironforge
-        { mapID = 89,   x = 0.5481, y = 0.5642, faction = "Alliance" },  -- Darnassus
         { mapID = 103,  x = 0.4842, y = 0.6925, faction = "Alliance" },  -- Exodar
         { mapID = 1161, x = 0.7195, y = 0.1298, faction = "Alliance" },  -- Boralus
         -- Horde
         { mapID = 85,   x = 0.5430, y = 0.6295, faction = "Horde" },     -- Orgrimmar
-        { mapID = 90,   x = 0.6617, y = 0.3707, faction = "Horde" },     -- Undercity
         { mapID = 88,   x = 0.3920, y = 0.5296, faction = "Horde" },     -- Thunder Bluff
         -- Map switched from 110 to the revamped Silvermoon 2393. Both maps
         -- exist and are both named "Silvermoon"; 2393 is the one the player
@@ -32,12 +38,10 @@ QR.ServicePOIs = {
         -- Alliance
         { mapID = 84,   x = 0.6282, y = 0.6995, faction = "Alliance" },  -- Stormwind
         { mapID = 87,   x = 0.3530, y = 0.6270, faction = "Alliance" },  -- Ironforge
-        { mapID = 89,   x = 0.4355, y = 0.3543, faction = "Alliance" },  -- Darnassus
         { mapID = 103,  x = 0.4734, y = 0.6435, faction = "Alliance" },  -- Exodar
         { mapID = 1161, x = 0.7600, y = 0.1657, faction = "Alliance" },  -- Boralus
         -- Horde
         { mapID = 85,   x = 0.5330, y = 0.6455, faction = "Horde" },     -- Orgrimmar
-        { mapID = 90,   x = 0.6397, y = 0.4865, faction = "Horde" },     -- Undercity
         { mapID = 88,   x = 0.4530, y = 0.5230, faction = "Horde" },     -- Thunder Bluff
         -- Coordinates surveyed on map 110, not re-surveyed on 2393.
         { mapID = 2393, x = 0.5780, y = 0.2190, faction = "Horde" },     -- Silvermoon
@@ -55,7 +59,6 @@ QR.ServicePOIs = {
         { mapID = 87,   x = 0.3550, y = 0.6240, faction = "Alliance" },  -- Ironforge
         -- Horde
         { mapID = 85,   x = 0.5350, y = 0.6430, faction = "Horde" },     -- Orgrimmar
-        { mapID = 90,   x = 0.6420, y = 0.4830, faction = "Horde" },     -- Undercity
         -- Neutral
         { mapID = 2112, x = 0.5730, y = 0.3420, faction = "both" },      -- Valdrakken
         { mapID = 2339, x = 0.4945, y = 0.5200, faction = "both" },      -- Dornogal
