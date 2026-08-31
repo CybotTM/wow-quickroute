@@ -106,8 +106,15 @@ function DungeonPicker:CreatePickerFrame()
     -- ESC to close
     table_insert(UISpecialFrames, "QRDungeonPickerFrame")
 
-    -- Sync isShowing on hide
-    frame:SetScript("OnHide", function()
+    -- Sync isShowing on hide. OnHide also fires when an ancestor is hidden
+    -- (Alt+Z, a cinematic) and that is not a close: the picker comes back on
+    -- its own, so clearing the flag there would leave Toggle believing it is
+    -- hidden while it is on screen. The frame's own IsShown() is still true
+    -- when an ancestor did the hiding.
+    frame:SetScript("OnHide", function(f)
+        if f:IsShown() then
+            return
+        end
         self.isShowing = false
     end)
 
@@ -500,7 +507,24 @@ end
 -------------------------------------------------------------------------------
 
 function DungeonPicker:Initialize()
+    -- Idempotent, like every other module's Initialize: RegisterCombat appends
+    -- to a callback list that is never cleared, so a second call would run this
+    -- module's combat handler twice per event.
+    if self.initialized then
+        return
+    end
+    self.initialized = true
+
     L = QR.L
     self:RegisterCombat()
     QR:Debug("DungeonPicker initialized")
+end
+
+-------------------------------------------------------------------------------
+-- Slash Command
+-------------------------------------------------------------------------------
+
+SLASH_QRDUNGEONS1 = "/qrdungeons"
+SlashCmdList["QRDUNGEONS"] = function()
+    QR.DungeonPicker:Toggle()
 end
