@@ -1551,16 +1551,22 @@ T:run("Data: teleport landings are all-or-nothing", function(t)
     -- So it is checked here instead, at the source: a teleport that says where
     -- it lands has to say it completely.
     --
-    -- This covers the DATA, not the code that applies it. Deleting the three
-    -- overrides in BuildSteps is still invisible to the suite -- reaching them
-    -- needs a route whose teleport lands somewhere other than the destination
-    -- the caller asked for, and no fixture here produces one. Written down
-    -- rather than papered over with a test that would not fail.
+    -- The code that applies it is covered separately, by
+    -- "BuildSteps: teleport step includes teleport name" in
+    -- test_pathfinding.lua. An earlier version of this comment claimed that
+    -- was impossible because a routed teleport cannot reach the override --
+    -- true, and beside the point: that test drives BuildSteps directly, and
+    -- its fixture already had the node and the landing disagreeing.
     local tables = {
         TeleportItemsData = QR.TeleportItemsData,
         ClassTeleportSpells = QR.ClassTeleportSpells,
         RacialTeleportSpells = QR.RacialTeleportSpells,
         GeneralTeleportSpells = QR.GeneralTeleportSpells,
+        -- Scanned by PlayerInventory and handed to BuildSteps as teleportData
+        -- like the rest, and missing from this list until review pointed it
+        -- out: a dungeon teleport with a landing map but no coordinates was
+        -- the one shape of this defect the test could not see.
+        DungeonTeleportSpells = QR.DungeonTeleportSpells,
     }
     local checked, withMap = 0, 0
     for label, data in pairs(tables) do

@@ -555,6 +555,45 @@ T:run("BuildSteps: teleport step includes teleport name", function(t)
     t:assertNotNil(hasTeleportName, "Teleport step mentions teleport name")
     t:assertEqual(53140, step.teleportID, "teleportID is preserved")
     t:assertEqual("spell", step.sourceType, "sourceType is preserved")
+
+    -- The landing, not the node. This fixture already had the two disagreeing
+    -- -- the node is at (0.49, 0.47), the spell puts you at (0.4947, 0.4709)
+    -- -- and asserted neither, so deleting all three overrides in BuildSteps
+    -- was invisible to the whole suite. Routing a real teleport cannot reach
+    -- this, because the edge is gone by the time a finished route can be
+    -- inspected; driving BuildSteps directly can, which is what this test
+    -- already does.
+    t:assertEqual(125, step.destMapID, "the step reports the landing map")
+    t:assert(math.abs((step.destX or -1) - 0.4947) < 0.0005,
+        "and the landing x (got " .. tostring(step.destX) .. ")")
+    t:assert(math.abs((step.destY or -1) - 0.4709) < 0.0005,
+        "and the landing y (got " .. tostring(step.destY) .. ")")
+end)
+
+T:run("BuildSteps: a teleport landing on another map reports that map", function(t)
+    -- The fixture above has the node and the landing on the same map (125), so
+    -- it cannot tell whether the map override runs -- only the coordinates.
+    -- Here they differ, which is the case that pins the third of the three.
+    resetState()
+    QR.PathCalculator.graph = QR.Graph:New()
+    QR.PathCalculator.graph:AddNode("Player Location", { mapID = 84, x = 0.50, y = 0.50 })
+    QR.PathCalculator.graph:AddNode("Dalaran", { mapID = 84, x = 0.49, y = 0.47 })
+
+    local steps = QR.PathCalculator:BuildSteps(
+        { "Player Location", "Dalaran" },
+        { { weight = 3, edgeType = "teleport", data = {
+            teleportID = 53140,
+            teleportData = { name = "Teleport: Dalaran - Northrend",
+                             mapID = 125, x = 0.4947, y = 0.4709 },
+            sourceType = "spell",
+        } } })
+
+    t:assertNotNil(steps and steps[1], "a step was built")
+    if steps and steps[1] then
+        t:assertEqual(125, steps[1].destMapID,
+            "the landing map wins over the node's 84 (got "
+                .. tostring(steps[1].destMapID) .. ")")
+    end
 end)
 
 T:run("BuildSteps: portal step says 'Take portal to X'", function(t)
