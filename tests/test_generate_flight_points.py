@@ -432,6 +432,20 @@ class EmitTest(FixtureMixin, unittest.TestCase):
                             alternate.split(",")[0].strip(),
                             "and it is the alternate's own world map, not the primary's")
 
+    def test_the_header_describes_the_shape_the_file_actually_has(self):
+        # The header is prose and reverted silently once already: it kept
+        # saying "one entry per zone" for a commit after the collapse became
+        # per-faction. Nothing regenerates the committed file in CI, so a stale
+        # header is invisible unless asserted here.
+        text = self.render(self.two_faction_zone())
+        header = text.split("QR.FlightPoints = {")[0]
+        self.assertIn("faction", header,
+                      "the header names the faction field the rows carry")
+        self.assertIn("alt", header,
+                      "and the alternate entry")
+        self.assertNotIn("One entry per zone:", header,
+                         "and no longer claims one entry per zone")
+
     def test_the_file_still_parses_as_a_lua_table(self):
         text = self.render(self.two_faction_zone())
         self.assertTrue(text.startswith("-- FlightPoints.lua"))

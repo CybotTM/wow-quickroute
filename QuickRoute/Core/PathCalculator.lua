@@ -1257,11 +1257,19 @@ end
 -- real answer: 17 zones are Alliance-only and 12 are Horde-only.
 --
 -- Anything that is not one of the two factions -- "Neutral" for a pandaren who
--- has not chosen a side, or a value the client has not settled yet -- gets the
--- primary entry, which is what the addon did before this filter existed. The
--- first version tested `not faction` instead, which can never be true because
--- GetFaction falls back to "Alliance"; a neutral character therefore matched
--- no branch and lost 74 of 141 zones and 386 of 473 flight edges.
+-- has not chosen a side, or any value the client returns that is neither --
+-- gets the primary entry, which is what the addon did before this filter
+-- existed. The first version tested `not faction` instead, which can never be
+-- true because GetFaction falls back to "Alliance"; a neutral character
+-- therefore matched no branch and lost 74 of 141 zones and 392 of its 479
+-- flight edges. (A neutral character has 479 on main, not the 599 an Alliance
+-- one has, because AddZoneNodes withholds the faction capitals from them --
+-- so fewer zones carry a graph node in the first place.)
+--
+-- Note what this branch does NOT cover: a client that has not answered yet.
+-- UnitFactionGroup returns nil there and GetFaction turns that into
+-- "Alliance", so such a character is filtered as Alliance rather than falling
+-- through here. The fallback is for a genuine third value, not for silence.
 -- @param uiMapID number
 -- @return table|nil
 function PathCalculator:FlightPointFor(uiMapID)
@@ -1269,6 +1277,10 @@ function PathCalculator:FlightPointFor(uiMapID)
     if not point then
         return nil
     end
+    -- The QR.PlayerInfo guard is defence in depth, not covered code: the
+    -- module is set at load and no build path reaches here without it, so
+    -- dropping it reddens nothing. It is kept because a false faction here
+    -- silently filters the whole flight network.
     local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
     if faction ~= "Alliance" and faction ~= "Horde" then
         return point
@@ -1403,15 +1415,29 @@ local function WorldMapMixesContinents(continentID)
     if not mixedWorldMaps then
         mixedWorldMaps = {}
         local seen = {}
-        for uiMapID, point in pairs(QR.FlightPoints or {}) do
+        -- Both halves of a zone's entry, not just the primary. The alternate
+        -- carries its own world map, and a world map that only an alternate
+        -- puts a second continent on would otherwise never be flagged mixed --
+        -- SameFlightNetwork would then short-circuit to "same network" and
+        -- offer a flight the strict test exists to refuse. No shipped zone has
+        -- its two nodes on different world maps, so this changes nothing
+        -- today; it is here so the alternate is treated like the entry it is.
+        local function note(uiMapID, worldMap)
             local continent = QR.GetContinentForZone and QR.GetContinentForZone(uiMapID)
-            if continent and not IsNeutral(continent) then
-                local known = seen[point.continentID]
-                if not known then
-                    seen[point.continentID] = continent
-                elseif known ~= continent then
-                    mixedWorldMaps[point.continentID] = true
-                end
+            if not continent or IsNeutral(continent) then
+                return
+            end
+            local known = seen[worldMap]
+            if not known then
+                seen[worldMap] = continent
+            elseif known ~= continent then
+                mixedWorldMaps[worldMap] = true
+            end
+        end
+        for uiMapID, point in pairs(QR.FlightPoints or {}) do
+            note(uiMapID, point.continentID)
+            if point.alt then
+                note(uiMapID, point.alt.continentID)
             end
         end
     end

@@ -2134,8 +2134,10 @@ T:run("A character of neither faction keeps the whole flight network", function(
     -- UnitFactionGroup returns "Neutral" for a pandaren who has not picked a
     -- side. The first version of the accessor tested `not faction`, which can
     -- never be true -- GetFaction falls back to "Alliance" -- so a neutral
-    -- character matched no branch and silently lost 74 of 141 zones and 386 of
-    -- 473 flight edges against the behaviour before the filter existed.
+    -- character matched no branch and silently lost 74 of 141 zones and 392 of
+    -- its 479 flight edges against the behaviour before the filter existed.
+    -- (479, not 599: a neutral character never had the faction capitals as
+    -- graph nodes, so fewer zones could carry a flight edge to begin with.)
     resetState()
     local usable = {}
     for _, faction in ipairs({ "Alliance", "Neutral" }) do
