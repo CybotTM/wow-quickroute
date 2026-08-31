@@ -366,15 +366,29 @@ function SecureButtons:ConfigureForEquippable(btn, itemID, equipSlot)
         return false
     end
 
-    -- Save currently equipped item in this slot (before combat lockdown check in PreClick)
+    -- Save currently equipped item in this slot, and pick the macro to run.
+    --
+    -- /equip searches the bags only. Firing it at an item the player is
+    -- already wearing prints "Item not found" and the teleport does not
+    -- happen, which is what the guild cloaks did: they are worn, so every
+    -- click failed on the first line. Whether the item is worn is only known
+    -- at click time, so the macro is chosen here rather than at configure
+    -- time. Setting an attribute is safe out of combat and the guard above
+    -- returns before it in combat.
     btn:SetScript("PreClick", function(self, button, down)
         if InCombatLockdown() then return end
         local currentItemID = GetInventoryItemID("player", equipSlot)
-        if currentItemID and currentItemID ~= itemID then
+        if currentItemID == itemID then
+            self:SetAttribute("macrotext", string_format("/use %d", equipSlot))
+            return
+        end
+        if currentItemID then
             savedEquipment[equipSlot] = currentItemID
             pendingRestore = true
             QR:Debug(string_format("Saved equipment slot %d: item %d", equipSlot, currentItemID))
         end
+        self:SetAttribute("macrotext",
+            string_format("/equip item:%d\n/use %d", itemID, equipSlot))
     end)
 
     btn:SetAttribute("type", "macro")
