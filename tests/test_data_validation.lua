@@ -1566,3 +1566,60 @@ T:run("Data: FlightPoints zones are zones, not continents", function(t)
             "map " .. tostring(uiMapID) .. " is a zone")
     end
 end)
+
+-------------------------------------------------------------------------------
+-- Teleport landing coordinates
+-------------------------------------------------------------------------------
+
+T:run("Data: teleport landings are all-or-nothing", function(t)
+    -- BuildSteps applies a teleport's mapID, x and y under three separate
+    -- guards, each overriding the node. An entry with a mapID but no x or y
+    -- therefore produces a step naming one place's map and another place's
+    -- position -- the exact mix the waypoint invariant exists to prevent, and
+    -- the one case that invariant cannot see, because the edge carrying the
+    -- landing data is gone by the time a finished route can be inspected.
+    --
+    -- So it is checked here instead, at the source: a teleport that says where
+    -- it lands has to say it completely.
+    --
+    -- The code that applies it is covered separately, by
+    -- "BuildSteps: teleport step includes teleport name" in
+    -- test_pathfinding.lua. An earlier version of this comment claimed that
+    -- was impossible because a routed teleport cannot reach the override --
+    -- true, and beside the point: that test drives BuildSteps directly, and
+    -- its fixture already had the node and the landing disagreeing.
+    local tables = {
+        TeleportItemsData = QR.TeleportItemsData,
+        ClassTeleportSpells = QR.ClassTeleportSpells,
+        RacialTeleportSpells = QR.RacialTeleportSpells,
+        GeneralTeleportSpells = QR.GeneralTeleportSpells,
+        -- Scanned by PlayerInventory and handed to BuildSteps as teleportData
+        -- like the rest, and missing from this list until review pointed it
+        -- out: a dungeon teleport with a landing map but no coordinates was
+        -- the one shape of this defect the test could not see.
+        DungeonTeleportSpells = QR.DungeonTeleportSpells,
+    }
+    local checked, withMap = 0, 0
+    for label, data in pairs(tables) do
+        for id, entry in pairs(data or {}) do
+            if type(entry) == "table" then
+                checked = checked + 1
+                if entry.mapID then
+                    withMap = withMap + 1
+                    t:assert(type(entry.x) == "number" and type(entry.y) == "number",
+                        label .. "[" .. tostring(id) .. "] states a landing map ("
+                            .. tostring(entry.mapID) .. ") so it must state where in it "
+                            .. "(x=" .. tostring(entry.x) .. ", y=" .. tostring(entry.y) .. ")")
+                end
+                if entry.x or entry.y then
+                    t:assert(entry.mapID ~= nil,
+                        label .. "[" .. tostring(id) .. "] states a landing position "
+                            .. "so it must state which map it is on")
+                end
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 20, "over a real number of teleports (" .. checked .. ")")
+    t:assertGreaterThan(withMap, 5,
+        "of which enough name a landing map (" .. withMap .. ")")
+end)
