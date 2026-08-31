@@ -1609,17 +1609,19 @@ function PathCalculator:BuildSteps(path, edges)
             step.destY = toNodeData.y or 0.5
         end
 
-        -- Also get from edge data if available
-        if edge.data then
-            if edge.data.toMapID then
-                step.destMapID = step.destMapID or edge.data.toMapID
-            end
-            if edge.data.toX then
-                step.destX = edge.data.toX
-            end
-            if edge.data.toY then
-                step.destY = edge.data.toY
-            end
+        -- The edge only fills a gap, never overrides. It used to be allowed to
+        -- overwrite destX and destY unconditionally while destMapID stayed
+        -- with the node, so a step could name one node's map and another
+        -- node's position -- the shape that put a flight waypoint in the wrong
+        -- zone twice. Nothing writes toX or toY into edge.data (the portal
+        -- descriptor that has them is nested under portalData), so those two
+        -- branches were reading a field that is never set; they are gone.
+        --
+        -- The toMapID fallback stays and currently never fires: every edge
+        -- carrying it has a to-node, so the node's map always wins. It is here
+        -- for an edge whose node is missing, not because it does work today.
+        if edge.data and edge.data.toMapID then
+            step.destMapID = step.destMapID or edge.data.toMapID
         end
 
         -- Get localized display names for source and destination nodes
