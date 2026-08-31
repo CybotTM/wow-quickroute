@@ -29,6 +29,7 @@ Data\Portals.lua
 Data\ZoneAdjacency.lua
 Data\DungeonEntrances.lua
 Data\DungeonTeleports.lua
+Data\FlightPoints.lua
 Data\ServicePOIs.lua
 
 # Core

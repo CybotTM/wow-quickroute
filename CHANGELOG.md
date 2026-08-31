@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Flight paths are part of the travel graph. 166 zones with a flight master, positioned from the client's own tables, connected where the player has discovered them. The Hinterlands to Stormwind drops from 510 to 226 seconds for a character with no teleports.
+
 ## [1.12.0] - 2026-08-31
 
 ### Fixed

@@ -237,6 +237,17 @@ function PathCalculator:BuildGraph()
     -- Portal destinations and dungeon entrances may be the only node on their
     -- map, leaving them isolated. Give each one a hub/continent edge so
     -- Dijkstra can traverse across maps.
+    -- Flight paths before the player node, so the player can be connected to a
+    -- flight zone by the same-map and continent passes.
+    success, err = pcall(function()
+        self:AddFlightEdges()
+    end)
+    if not success then
+        QR:Error("AddFlightEdges failed: " .. tostring(err))
+        buildSuccess = false
+        buildError = buildError or err
+    end
+
     -- The player node last, once every other node and edge exists.
     success, err = pcall(function()
         self:ConnectPlayerNode()
@@ -1226,6 +1237,109 @@ function PathCalculator:AddDungeonTeleportEdges()
 
     if added > 0 then
         QR:Debug(string_format("PathCalculator: %d dungeon teleport edge(s)", added))
+    end
+end
+
+--- Which flight points the player has actually discovered.
+-- Returns a set keyed by uiMapID, or nil when the client cannot tell us. nil is
+-- not the same as empty: empty means "the player has none", nil means "do not
+-- model flight at all", and the caller treats them differently. Flying from a
+-- flight master you have not discovered is not possible, so guessing here would
+-- hand out routes that cannot be walked.
+-- @return table|nil Set of uiMapIDs, or nil if the client does not say
+function PathCalculator:GetKnownFlightZones()
+    if self.knownFlightZonesOverride ~= nil then
+        return self.knownFlightZonesOverride
+    end
+    if not (C_TaxiMap and C_TaxiMap.GetAllTaxiNodes) then
+        return nil
+    end
+
+    local known = {}
+    local found = false
+    for uiMapID in pairs(QR.FlightPoints or {}) do
+        local ok, nodes = pcall(C_TaxiMap.GetAllTaxiNodes, uiMapID)
+        if ok and type(nodes) == "table" then
+            for _, node in ipairs(nodes) do
+                -- state 0 is a node the player has not discovered; anything
+                -- else is one they can fly from or to.
+                if node.state and node.state ~= 0 then
+                    known[uiMapID] = true
+                    found = true
+                    break
+                end
+            end
+        end
+    end
+    if not found then
+        return nil
+    end
+    return known
+end
+
+--- Connect the zones the player can fly between.
+-- Two flight zones are connected exactly when they share a world map, which is
+-- what continentID records: from any flight master the game auto-routes
+-- multi-hop to every point you have discovered on that map, so the per-path
+-- topology adds nothing at this granularity.
+--
+-- The weight is the real distance between the two flight points divided by
+-- FLIGHT_SPEED, plus a fixed overhead for talking to the flight master and the
+-- takeoff and landing. The distance is exact -- it comes from the client's
+-- TaxiNodes positions -- and only the speed is an estimate.
+function PathCalculator:AddFlightEdges()
+    if not QR.FlightPoints then
+        return
+    end
+    local known = self:GetKnownFlightZones()
+    if not known then
+        QR:Debug("PathCalculator: no flight point data from the client, skipping flight edges")
+        return
+    end
+
+    -- Only zones the graph already models AND the player has discovered.
+    local usable = {}
+    for uiMapID, point in pairs(QR.FlightPoints) do
+        if known[uiMapID] and next(self:NodesOnMap(uiMapID)) then
+            usable[#usable + 1] = { mapID = uiMapID, point = point }
+        end
+    end
+    table_sort(usable, function(a, b) return a.mapID < b.mapID end)
+
+    local speed = QR.TravelTime.FLIGHT_SPEED
+    local overhead = QR.TravelTime.FLIGHT_OVERHEAD
+    local added = 0
+    for i = 1, #usable do
+        for j = i + 1, #usable do
+            local a, b = usable[i], usable[j]
+            if a.point.continentID == b.point.continentID then
+                local nodeA = self:NodesOnMap(a.mapID)[1]
+                local nodeB = self:NodesOnMap(b.mapID)[1]
+                if nodeA and nodeB and nodeA ~= nodeB
+                    and CanOverwriteWithWalk(self.graph, nodeA, nodeB) then
+                    local dx = a.point.worldX - b.point.worldX
+                    local dy = a.point.worldY - b.point.worldY
+                    local yards = math_sqrt(dx * dx + dy * dy)
+                    local seconds = overhead + yards / speed
+                    local existing = self.graph:GetEdge(nodeA, nodeB)
+                    -- Flying is only worth an edge where it beats what is
+                    -- already there; otherwise it clutters the graph with a
+                    -- slower alternative Dijkstra would never take.
+                    if not existing or seconds < existing.weight then
+                        self.graph:AddBidirectionalEdge(nodeA, nodeB, seconds, "flight", {
+                            fromMapID = a.mapID,
+                            toMapID = b.mapID,
+                            fromNode = a.point.node,
+                            toNode = b.point.node,
+                        })
+                        added = added + 1
+                    end
+                end
+            end
+        end
+    end
+    if added > 0 then
+        QR:Debug(string_format("PathCalculator: %d flight edge(s)", added))
     end
 end
 

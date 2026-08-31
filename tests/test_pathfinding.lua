@@ -1681,3 +1681,71 @@ T:run("A teleport-less character in Thunder Bluff can route out", function(t)
     if not route then return end
     t:assertGreaterThan(#(route.steps or {}), 0, "with at least one step")
 end)
+
+-------------------------------------------------------------------------------
+-- Flight paths
+-------------------------------------------------------------------------------
+
+-- The flight network was missing entirely, which is why a character without
+-- teleports could be stranded: Pandaria and Draenor have portals in and no
+-- modelled way out. The zone positions come from the client's TaxiNodes table,
+-- so the distance an edge is priced from is exact; only the speed it is divided
+-- by is an estimate, like every other constant in TravelTime.
+T:run("Flight edges connect zones the player has discovered", function(t)
+    resetState()
+    -- The client tells the addon which flight points the player has. The test
+    -- supplies that set directly rather than mocking C_TaxiMap, which is the
+    -- one piece whose live behaviour could not be verified.
+    local flightZones = {}
+    for uiMapID in pairs(QR.FlightPoints or {}) do flightZones[#flightZones + 1] = uiMapID end
+    table.sort(flightZones)
+    t:assertGreaterThan(#flightZones, 100, "the data has a plausible number of flight zones")
+
+    QR.PathCalculator.knownFlightZonesOverride = nil
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+    local without = 0
+    for _, edges in pairs(QR.PathCalculator.graph.edges or {}) do
+        for _, e in pairs(edges) do if e.edgeType == "flight" then without = without + 1 end end
+    end
+    t:assertEqual(0, without,
+        "no flight edges when the client says nothing (got " .. tostring(without) .. ")")
+
+    local known = {}
+    for _, uiMapID in ipairs(flightZones) do known[uiMapID] = true end
+    QR.PathCalculator.knownFlightZonesOverride = known
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+    local with = 0
+    for _, edges in pairs(QR.PathCalculator.graph.edges or {}) do
+        for _, e in pairs(edges) do if e.edgeType == "flight" then with = with + 1 end end
+    end
+    t:assertGreaterThan(with, 0,
+        "and flight edges once it does (got " .. tostring(with) .. ")")
+
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A flight edge never replaces a teleport edge", function(t)
+    -- Same rule the walk and travel writers follow: an edge that IS a teleport
+    -- carries the spell ID a route step needs, and an estimate written over it
+    -- removes the teleport from every route.
+    resetState()
+    local known = {}
+    for uiMapID in pairs(QR.FlightPoints or {}) do known[uiMapID] = true end
+    QR.PathCalculator.knownFlightZonesOverride = known
+    MockWoW.config.playerClass = "MAGE"
+    MockWoW.config.knownSpells = { [3561] = true }
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 37
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+
+    local edge = QR.PathCalculator.graph:GetEdge("Player Location", "Stormwind City")
+    t:assertNotNil(edge, "the teleport edge exists")
+    if edge then
+        t:assertEqual("teleport", edge.edgeType,
+            "and is still a teleport (got: " .. tostring(edge.edgeType) .. ")")
+    end
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
