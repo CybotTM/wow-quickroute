@@ -68,6 +68,7 @@ An addon manager keeps QuickRoute current on its own, which matters here: the ad
 - `/qr ah` / `/qr bank` / `/qr void` / `/qr craft` - Route to the nearest auction house, bank, void storage or crafting table
 - `/qrhelp` - Show all commands
 - `/qrwp` - Calculate path to current waypoint
+- `/qrverifymap [mapID]` - Report what the client and the addon each say about a map
 - `/qrpath <mapID> <x> <y>` - Calculate path to coordinates
 - `/qrteleports` - Toggle teleport panel
 - `/qrdungeons` - Toggle the dungeon and raid picker
