@@ -1484,15 +1484,17 @@ function PathCalculator:AddFlightEdges()
                     -- 599. That was invisible while nothing read it, and became
                     -- a wrong waypoint the moment something did -- a player in
                     -- Mount Hyjal was sent to Teldrassil to board the flight.
+                    -- Only the two map IDs. fromNode and toNode were carried
+                    -- here and read by nothing, which is the same shape as the
+                    -- unread x/y that let a transposed projection sit in the
+                    -- data for four review rounds.
                     if self:WriteFlightEdge(nodeA, nodeB, seconds, {
                         fromMapID = a.mapID, toMapID = b.mapID,
-                        fromNode = a.point.node, toNode = b.point.node,
                     }) then
                         added = added + 1
                     end
                     if self:WriteFlightEdge(nodeB, nodeA, seconds, {
                         fromMapID = b.mapID, toMapID = a.mapID,
-                        fromNode = b.point.node, toNode = a.point.node,
                     }) then
                         added = added + 1
                     end

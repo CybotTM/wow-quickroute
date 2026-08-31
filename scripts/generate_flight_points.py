@@ -80,11 +80,19 @@ def related(a, b):
     including Emerald Dream and The Azure Span -- current content, and exactly
     the zones a player wants flying out of.
 
-    Loosening it costs nothing: substring accepts those seven and still rejects
-    every genuine border case the rule exists for -- Badlands for Searing
-    Gorge, Duskwood for Deadwind Pass, Dalaran for Broken Shore, Southern
-    Barrens for Mulgore, Northern Barrens for Durotar, Blasted Lands for Swamp
-    of Sorrows. Regenerating with it adds 7 zones and removes 0.
+    Loosening it costs nothing measurable: substring accepts those seven and
+    still rejects every genuine border case the rule exists for -- Badlands for
+    Searing Gorge, Duskwood for Deadwind Pass, Dalaran for Broken Shore,
+    Southern Barrens for Mulgore, Northern Barrens for Durotar, Blasted Lands
+    for Swamp of Sorrows. Regenerating with it adds 7 zones and removes 0.
+
+    Substring does admit a theoretical false positive that prefix did not: a
+    very short zone name inside a longer one. Across the 211 zone-type UiMap
+    names the only case is the placeholder map "Val", a substring of Ashenvale,
+    Val'sharah, Valdrakken and Stranglethorn Vale among others. No taxi node
+    states "Val" as its zone and neither Val map holds a kept node, so it
+    cannot fire on the current tables -- but a future one-syllable zone name
+    would want checking here.
     """
     a, b = norm(a), norm(b)
     return bool(a) and bool(b) and (a in b or b in a)
