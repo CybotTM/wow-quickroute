@@ -21,7 +21,7 @@ QR.UI = {
     frame = nil,
     stepLabels = {},
     stepLabelPool = {},  -- Pool of reusable step label frames
-    combatDisabledButtons = {},  -- Track buttons disabled during combat
+    combatDimmedSteps = {},  -- Step frames dimmed because combat blocks their teleport
     -- Cache tables for localized names (reduces repeated API calls)
     itemInfoCache = {},
     spellInfoCache = {},
@@ -36,6 +36,9 @@ QR.UI = {
 }
 
 local UI = QR.UI
+
+-- Alpha for a teleport step whose Use button combat is blocking
+local COMBAT_DIMMED_ALPHA = 0.5
 
 -- Localization shorthand
 local L = QR.L
@@ -678,7 +681,7 @@ function UI:UpdateRoute(result)
     end
 
     -- Clear combat disabled buttons tracking to prevent duplicates on refresh
-    wipe(self.combatDisabledButtons)
+    wipe(self.combatDimmedSteps)
 
     local waypoint = result.waypoint
     local steps = result.steps
@@ -897,14 +900,28 @@ function UI:SetupStepNavButton(stepFrame, step)
     return navButton
 end
 
+--- Dim a teleport step whose Use button combat is blocking, and remember it so
+-- OnCombatEnd can undim it.
+-- @param stepFrame Frame The step container frame
+function UI:MarkStepCombatDimmed(stepFrame)
+    if not stepFrame or not stepFrame.SetAlpha then
+        return
+    end
+    stepFrame:SetAlpha(COMBAT_DIMMED_ALPHA)
+    table_insert(self.combatDimmedSteps, stepFrame)
+end
+
 --- Configure a secure "Use" button for a teleport step
 -- @param stepFrame Frame The step container frame
 -- @param step table The step data
 -- @return Button|nil useButton The configured button, or nil if not applicable
 function UI:ConfigureStepUseButton(stepFrame, step)
-    -- Create "Use" secure button for teleport steps
-    -- Must check InCombatLockdown BEFORE GetButton to avoid wasting pool slots
-    if not (step.type == "teleport" and step.teleportID and QR.SecureButtons and not InCombatLockdown()) then
+    if not (step.type == "teleport" and step.teleportID and QR.SecureButtons) then
+        return nil
+    end
+
+    -- Must check InCombatLockdown BEFORE GetButton to avoid wasting pool slots.
+    if InCombatLockdown() then
         return nil
     end
 
@@ -1131,6 +1148,14 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     -- Enable mouse for nav button clicks
     stepFrame:EnableMouse(true)
 
+    -- Last, because the progress styling above writes this frame's alpha too:
+    -- a teleport step rendered under lockdown gets no Use button, and without
+    -- this it looks identical to a step whose teleport is simply unavailable.
+    if step.type == "teleport" and step.teleportID
+        and not stepFrame.useButton and InCombatLockdown() then
+        self:MarkStepCombatDimmed(stepFrame)
+    end
+
     return stepFrame
 end
 
@@ -1160,6 +1185,9 @@ function UI:ReleaseStepLabelFrame(stepFrame)
     -- Clear stored data
     stepFrame.teleportID = nil
     stepFrame.sourceType = nil
+
+    -- A frame dimmed during combat must not come back out of the pool dim.
+    stepFrame:SetAlpha(1.0)
 
     -- Hide and unparent
     stepFrame:Hide()
@@ -1192,7 +1220,7 @@ function UI:ClearStepLabels()
         self:ReleaseStepLabelFrame(stepFrame)
     end
     wipe(self.stepLabels)
-    wipe(self.combatDisabledButtons)
+    wipe(self.combatDimmedSteps)
 end
 
 --- Clear the route display to default empty state
@@ -2018,15 +2046,16 @@ end
 -- restores a window that combat itself hid. TeleportPanel covers its own tab
 -- through SecureButtons:RegisterCombatEndCallback; this is the route tab.
 function UI:OnCombatEnd()
-    for _, btn in ipairs(self.combatDisabledButtons) do
-        if btn and btn.SetAlpha then
-            btn:SetAlpha(1.0)
-            if btn.text then
-                btn.text:SetTextColor(1, 0.82, 0)  -- Gold color
-            end
-        end
-    end
-    wipe(self.combatDisabledButtons)
+    -- Undimming is a re-render rather than SetAlpha(1.0): the progress styling
+    -- writes this same alpha -- 0.6 for a completed step -- so forcing 1.0
+    -- would erase that. The refresh below reapplies both, and frames are reset
+    -- to full alpha when they return to the pool.
+    --
+    -- No separate "was anything dimmed" branch: a dimmed step is by definition
+    -- a teleport step without a Use button, which is exactly what the loop
+    -- below looks for. Removing such a branch changed no test, which is how it
+    -- was found to be redundant rather than protective.
+    wipe(self.combatDimmedSteps)
 
     if not (QR.MainFrame and QR.MainFrame.isShowing
         and QR.MainFrame.activeTab == "route" and self.frame) then

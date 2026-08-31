@@ -1596,3 +1596,75 @@ T:run("GetLocalizedItemInfo: an item that is not cached yet returns nil, uncache
     t:assertNotNil(name2, "the second call gets the name once the client has it")
     t:assertNotNil(QR.UI.itemInfoCache[itemID], "and that one is cached")
 end)
+
+-------------------------------------------------------------------------------
+-- Teleport steps rendered during combat are dimmed, not silently button-less
+-------------------------------------------------------------------------------
+
+-- Regression: UI.combatDisabledButtons was wiped in three places and iterated in
+-- one, and nothing ever inserted into it. The dimming it was named for did not
+-- exist, so a teleport step rendered under lockdown looked exactly like a step
+-- whose teleport is unavailable -- same text, no Use button, no signal which of
+-- the two it was.
+T:run("UI: a teleport step rendered in combat is dimmed", function(t)
+    resetState()
+    ensureUIFrame()
+    QR.SecureButtons:Initialize()
+    MockWoW.config.ownedToys[140192] = true
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 84
+    setMapPinWaypoint(627, 0.5, 0.5)
+    QR.MainFrame.isShowing = true
+    QR.MainFrame.activeTab = "route"
+
+    MockWoW.config.inCombatLockdown = true
+    QR.UI:RefreshRoute()
+
+    local teleportSteps, dimmed = 0, 0
+    for _, stepFrame in ipairs(QR.UI.stepLabels or {}) do
+        if stepFrame.teleportID then
+            teleportSteps = teleportSteps + 1
+            if stepFrame:GetAlpha() < 1.0 then dimmed = dimmed + 1 end
+        end
+    end
+    t:assertGreaterThan(teleportSteps, 0, "the route has a teleport step")
+    t:assertEqual(teleportSteps, dimmed,
+        "every teleport step is dimmed while combat blocks its button ("
+            .. tostring(dimmed) .. " of " .. tostring(teleportSteps) .. ")")
+    t:assertGreaterThan(#QR.UI.combatDimmedSteps, 0,
+        "and each one is recorded so it can be undimmed")
+
+    MockWoW.config.inCombatLockdown = false
+    local handler = QR.combatFrame and QR.combatFrame:GetScript("OnEvent")
+    t:assertNotNil(handler, "the combat manager is reachable")
+    if not handler then return end
+    handler(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+
+    local stillDim = 0
+    for _, stepFrame in ipairs(QR.UI.stepLabels or {}) do
+        if stepFrame:GetAlpha() < 1.0 then stillDim = stillDim + 1 end
+    end
+    t:assertEqual(0, stillDim,
+        "and nothing stays dim once combat ends (still dim: " .. tostring(stillDim) .. ")")
+
+    QR.MainFrame.isShowing = false
+end)
+
+-- A dimmed frame goes back into the pool like any other. Without resetting its
+-- alpha it comes back dim on a route rendered out of combat, which is the same
+-- wrong signal in the opposite direction.
+T:run("UI: a step frame does not come back from the pool dimmed", function(t)
+    resetState()
+    ensureUIFrame()
+
+    local frame = QR.UI:GetStepLabelFrame()
+    QR.UI:MarkStepCombatDimmed(frame)
+    t:assert(frame:GetAlpha() < 1.0, "the frame is dimmed")
+
+    QR.UI:ReleaseStepLabelFrame(frame)
+    local reused = QR.UI:GetStepLabelFrame()
+    t:assertEqual(frame, reused, "the pool handed back the same frame")
+    t:assertEqual(1.0, reused:GetAlpha(),
+        "at full alpha (got: " .. tostring(reused:GetAlpha()) .. ")")
+    QR.UI:ReleaseStepLabelFrame(reused)
+end)
