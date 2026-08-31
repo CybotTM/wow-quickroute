@@ -1245,6 +1245,38 @@ function PathCalculator:AddDungeonTeleportEdges()
     end
 end
 
+--- The flight point in a zone that THIS player can actually use.
+-- Most zones have one flight master per faction and they are not in the same
+-- place: The Hinterlands has Aerie Peak in the north-west for the Alliance and
+-- Revantusk Village in the south-east for the Horde, and neutral towns like
+-- Booty Bay and Gadgetzan have two nodes a few yards apart. Collapsing that to
+-- one entry per zone priced 45 of 141 zones from a flight master half the
+-- players cannot walk up to.
+--
+-- Returns nil when the zone has no flight master for this faction, which is a
+-- real answer: 17 zones are Alliance-only and 12 are Horde-only.
+--
+-- An unknown faction falls back to the primary entry rather than to nothing,
+-- so a client that has not answered yet degrades to the old behaviour instead
+-- of losing the whole flight network.
+-- @param uiMapID number
+-- @return table|nil
+function PathCalculator:FlightPointFor(uiMapID)
+    local point = QR.FlightPoints and QR.FlightPoints[uiMapID]
+    if not point then
+        return nil
+    end
+    local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    if not faction or point.faction == "both" or point.faction == faction then
+        return point
+    end
+    local alt = point.alt
+    if alt and alt.faction == faction then
+        return alt
+    end
+    return nil
+end
+
 --- Which flight points the player has actually discovered.
 -- Returns a set keyed by uiMapID, or nil when the client cannot tell us. nil is
 -- not the same as empty: empty means "the player has none", nil means "do not
@@ -1442,8 +1474,9 @@ function PathCalculator:AddFlightEdges()
 
     -- Only zones the graph already models AND the player has discovered.
     local usable = {}
-    for uiMapID, point in pairs(QR.FlightPoints) do
-        if known[uiMapID] and next(self:NodesOnMap(uiMapID)) then
+    for uiMapID in pairs(QR.FlightPoints) do
+        local point = self:FlightPointFor(uiMapID)
+        if point and known[uiMapID] and next(self:NodesOnMap(uiMapID)) then
             usable[#usable + 1] = { mapID = uiMapID, point = point }
         end
     end
@@ -1702,7 +1735,7 @@ function PathCalculator:BuildSteps(path, edges)
         -- read it until this block, which is why a transposed x/y went
         -- unnoticed for four review rounds.
         if edge.edgeType == "flight" and edge.data and QR.FlightPoints then
-            local master = QR.FlightPoints[edge.data.fromMapID]
+            local master = self:FlightPointFor(edge.data.fromMapID)
             if master and master.x and master.y then
                 step.navX = master.x
                 step.navY = master.y

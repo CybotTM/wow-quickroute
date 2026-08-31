@@ -38,7 +38,9 @@ INTERNAL_NAME = re.compile(r"\[(hidden|disabled|ph|temp|internal)\b", re.IGNOREC
 # scripted and internal nodes: every row this generator was getting wrong
 # carried it ("Grand Rampart" = 1027, the Exile's Reach troll bat = 1024) and
 # no real flight master does -- Stormwind is 1, Orgrimmar 2, Maruukai 3.
-FLAG_FACTIONS = 0x3
+FLAG_ALLIANCE = 0x1
+FLAG_HORDE = 0x2
+FLAG_FACTIONS = FLAG_ALLIANCE | FLAG_HORDE
 FLAG_INTERNAL = 0x400
 
 
@@ -199,6 +201,7 @@ def build(csv_dir):
             "name": name,
             "degree": degree.get(node["ID"], 0),
             "id": int(node["ID"]),
+            "factions": flags & FLAG_FACTIONS,
         })
 
     # Rule 3 needs to know which zones are represented at all, so it runs after
@@ -238,21 +241,53 @@ def build(csv_dir):
         else:
             tally["dropped: name contradicts geometry"] += 1
 
-    # One entry per zone: the most connected node wins, lowest node ID breaks
-    # ties so regeneration is stable.
-    best_per_zone = {}
-    for entry in corroborated:
-        current = best_per_zone.get(entry["uid"])
-        def key(item):
-            return (0 if item.get("corroborated") else 1, -item["degree"], item["id"])
-        if current is None or key(entry) < key(current):
-            best_per_zone[entry["uid"]] = entry
+    def key(item):
+        return (0 if item.get("corroborated") else 1, -item["degree"], item["id"])
 
-    final = {
-        uid: entry for uid, entry in best_per_zone.items()
-        if 0.0 < entry["x"] < 1.0 and 0.0 < entry["y"] < 1.0
-    }
-    tally["dropped: coordinates outside the zone"] = len(best_per_zone) - len(final)
+    def best_for(entries, faction_bit):
+        """The best node a player of this faction can actually use."""
+        usable = [e for e in entries
+                  if e["factions"] & faction_bit
+                  and 0.0 < e["x"] < 1.0 and 0.0 < e["y"] < 1.0]
+        return min(usable, key=key) if usable else None
+
+    # One entry per zone PER FACTION. Collapsing to one entry outright lost the
+    # other side's flight master in 45 of 141 zones -- Hammerfall for Arathi,
+    # Revantusk Village for The Hinterlands, and the neutral towns where each
+    # faction has its own node under the same name (Booty Bay, Gadgetzan,
+    # Everlook, Moonglade). The addon would have priced those zones from a
+    # flight master half its users cannot walk up to.
+    by_zone = collections.defaultdict(list)
+    for entry in corroborated:
+        by_zone[entry["uid"]].append(entry)
+
+    final = {}
+    dropped_coords = 0
+    for uid, entries in by_zone.items():
+        alliance = best_for(entries, FLAG_ALLIANCE)
+        horde = best_for(entries, FLAG_HORDE)
+        if alliance is None and horde is None:
+            dropped_coords += 1
+            continue
+        if alliance is not None and alliance is horde:
+            # One node serves both sides.
+            primary, alt = dict(alliance), None
+            primary["faction"] = "both"
+        elif alliance is not None and horde is not None:
+            # Two different nodes. The lower-ranked one becomes the alternate;
+            # which side is primary is decided by the same key, so the choice
+            # is stable across regenerations rather than by faction order.
+            first, second = sorted((alliance, horde), key=key)
+            primary, alt = dict(first), dict(second)
+            primary["faction"] = "Alliance" if first is alliance else "Horde"
+            alt["faction"] = "Horde" if first is alliance else "Alliance"
+        else:
+            only = alliance if alliance is not None else horde
+            primary, alt = dict(only), None
+            primary["faction"] = "Alliance" if alliance is not None else "Horde"
+        primary["alt"] = alt
+        final[uid] = primary
+    tally["dropped: coordinates outside the zone"] = dropped_coords
 
     for key in sorted(tally):
         print(f"{key:<38}: {tally[key]}", file=sys.stderr)
@@ -320,11 +355,22 @@ def emit(final, out_path):
         if entry["continent"] != current:
             current = entry["continent"]
             lines.append(f"    -- world map {current}")
-        node = entry["name"].replace("\\", "\\\\").replace('"', '\\"')
+        def render(e):
+            node = e["name"].replace("\\", "\\\\").replace('"', '\\"')
+            return (f'x = {e["x"]:.4f}, y = {e["y"]:.4f}, '
+                    f'worldX = {e["wx"]:.1f}, worldY = {e["wy"]:.1f}, '
+                    f'node = "{node}"')
+        alt = entry.get("alt")
+        tail = ""
+        if alt:
+            # continentID is repeated on the alternate on purpose: a consumer
+            # that picks one of the two should not have to know which half of
+            # the pair it is holding.
+            tail = (f', alt = {{ {render(alt)}, continentID = {current}, '
+                    f'faction = "{alt["faction"]}" }}')
         lines.append(
-            f'    [{uid}] = {{ x = {entry["x"]:.4f}, y = {entry["y"]:.4f}, '
-            f'worldX = {entry["wx"]:.1f}, worldY = {entry["wy"]:.1f}, '
-            f'continentID = {current}, node = "{node}" }},'
+            f'    [{uid}] = {{ {render(entry)}, continentID = {current}, '
+            f'faction = "{entry["faction"]}"{tail} }},'
         )
     lines.append("}")
     lines.append("")

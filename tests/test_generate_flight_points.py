@@ -322,6 +322,42 @@ class FilterTest(FixtureMixin, unittest.TestCase):
         self.assertEqual(result[self.ZONE_C]["name"], "Gamma Hold, Beta Reach")
 
 
+    def test_each_faction_keeps_its_own_flight_master(self):
+        # The Hinterlands case: two masters in one zone, one per faction, in
+        # different places. Collapsing to one entry lost the other side's in 45
+        # of 141 real zones.
+        result = self.resolve([
+            self.node(1, "Alliancepost, Alpha Vale", 50, 50, flags="1"),
+            self.node(2, "Hordepost, Alpha Vale", 60, 60, flags="2"),
+            self.node(3, "Farpost, Beta Reach", 250, 250),
+        ])
+        entry = result[self.ZONE_A]
+        self.assertIn(entry["faction"], ("Alliance", "Horde"))
+        self.assertIsNotNone(entry["alt"], "the other faction's master survives")
+        self.assertNotEqual(entry["faction"], entry["alt"]["faction"])
+        self.assertNotEqual(entry["name"], entry["alt"]["name"])
+
+    def test_a_node_both_factions_use_needs_no_alternate(self):
+        result = self.resolve([
+            self.node(1, "Havenhold, Alpha Vale", 50, 50, flags="3"),
+            self.node(2, "Farpost, Beta Reach", 250, 250),
+            self.node(3, "Waypost, Beta Reach", 260, 260),
+        ])
+        entry = result[self.ZONE_A]
+        self.assertEqual("both", entry["faction"])
+        self.assertIsNone(entry["alt"])
+
+    def test_a_one_faction_zone_stays_one_faction(self):
+        result = self.resolve([
+            self.node(1, "Hordepost, Alpha Vale", 50, 50, flags="2"),
+            self.node(2, "Farpost, Beta Reach", 250, 250),
+            self.node(3, "Waypost, Beta Reach", 260, 260),
+        ])
+        entry = result[self.ZONE_A]
+        self.assertEqual("Horde", entry["faction"])
+        self.assertIsNone(entry["alt"], "there is no Alliance master to record")
+
+
 class InputGuardTest(FixtureMixin, unittest.TestCase):
     """Broken input must fail loudly. Exit status is what a script reads."""
 
