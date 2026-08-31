@@ -1584,3 +1584,67 @@ T:run("Strategy 4 fallback picks the lexicographically first candidate", functio
         "and it is the lexicographically first candidate, not whichever the "
             .. "hash order yielded (got: " .. tostring(written[1]) .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- Dungeon teleports become edges to the entrance the graph already has
+-------------------------------------------------------------------------------
+
+-- A player who owns a dungeon teleport was routed to that dungeon's entrance on
+-- foot: the addon knew the entrance and knew the spell existed as a spell, but
+-- nothing connected the two. AddPlayerTeleportEdges cannot do it -- it runs
+-- before the dungeon nodes exist and builds its destination from data.mapID,
+-- which these spells do not carry.
+local function firstKnownDungeonTeleport(QR)
+    local ids = {}
+    for spellID in pairs(QR.DungeonTeleportSpells or {}) do ids[#ids + 1] = spellID end
+    table.sort(ids)
+    for _, spellID in ipairs(ids) do
+        local data = QR.DungeonTeleportSpells[spellID]
+        local inst = QR.DungeonData and QR.DungeonData.instances
+            and QR.DungeonData.instances[data.journalInstanceID]
+        if inst and inst.zoneMapID and inst.x and inst.y and inst.name then
+            return spellID, data, "Dungeon: " .. inst.name
+        end
+    end
+end
+
+T:run("A known dungeon teleport becomes an edge to that dungeon's node", function(t)
+    resetState()
+    local spellID, data, nodeName = firstKnownDungeonTeleport(QR)
+    t:assertNotNil(spellID, "the data has a teleport whose instance the graph models")
+    if not spellID then return end
+
+    MockWoW.config.knownSpells = { [spellID] = true }
+    QR.PlayerInventory:ScanAll()
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+
+    local graph = QR.PathCalculator.graph
+    t:assertNotNil(graph and graph.nodes[nodeName],
+        "the dungeon node exists (" .. tostring(nodeName) .. ")")
+    local edge = graph and graph:GetEdge("Player Location", nodeName)
+    t:assertNotNil(edge, "and the player has an edge to it")
+    if not edge then return end
+    t:assertEqual("teleport", edge.edgeType, "which is a teleport edge")
+    t:assertEqual(spellID, edge.data and edge.data.teleportID,
+        "carrying the spell ID the Use button needs")
+end)
+
+T:run("An unknown dungeon teleport creates no edge", function(t)
+    -- The data table is a generous name match against the client's instance
+    -- list, so IsSpellKnown is what makes it correct. A spell the player does
+    -- not have must not shorten any route.
+    resetState()
+    local spellID, _, nodeName = firstKnownDungeonTeleport(QR)
+    if not spellID then return end
+
+    MockWoW.config.knownSpells = {}
+    QR.PlayerInventory:ScanAll()
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+
+    local graph = QR.PathCalculator.graph
+    local edge = graph and graph:GetEdge("Player Location", nodeName)
+    t:assert(edge == nil or edge.edgeType ~= "teleport",
+        "no teleport edge for a spell the player does not know")
+end)

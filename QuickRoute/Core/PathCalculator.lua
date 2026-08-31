@@ -211,6 +211,17 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
+    -- Dungeon teleports the player knows. Must come after AddDungeonNodes:
+    -- the nodes these edges point at do not exist before it.
+    success, err = pcall(function()
+        self:AddDungeonTeleportEdges()
+    end)
+    if not success then
+        QR:Error("AddDungeonTeleportEdges failed: " .. tostring(err))
+        buildSuccess = false
+        buildError = buildError or err
+    end
+
     -- IMPORTANT: Connect all nodes on the same map with walking edges
     -- This ensures teleport destinations connect to portal hubs on the same map
     success, err = pcall(function()
@@ -1158,6 +1169,53 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
         if connectCount > 0 then
             QR:Debug(string_format("  -> Cross-continent: connected to %d hub/city nodes", connectCount))
         end
+    end
+end
+
+--- Add an edge from the player to each dungeon they can teleport to.
+-- Separate from AddPlayerTeleportEdges because that one runs before the dungeon
+-- nodes exist and builds its own destination node from data.mapID, which these
+-- spells do not carry: a dungeon teleport lands at an entrance the graph already
+-- models, so it should reuse that node rather than invent a second one beside it.
+function PathCalculator:AddDungeonTeleportEdges()
+    if not QR.DungeonTeleportSpells or not QR.PlayerInventory then
+        return
+    end
+
+    -- Index the dungeon nodes by instance, so a spell finds its entrance in one
+    -- lookup rather than a scan per spell.
+    local nodeByInstance = {}
+    for nodeName, nodeData in pairs(self.graph.nodes) do
+        if nodeData.isDungeon and nodeData.journalInstanceID then
+            nodeByInstance[nodeData.journalInstanceID] = nodeName
+        end
+    end
+    if not next(nodeByInstance) then
+        return
+    end
+
+    local teleports = QR.PlayerInventory:GetAllTeleports()
+    local added = 0
+    for teleportID, teleport in pairs(teleports) do
+        local data = teleport.data
+        local instanceID = data and data.journalInstanceID
+        local destName = instanceID and nodeByInstance[instanceID]
+        if destName then
+            local includeCooldown = QR.db and QR.db.considerCooldowns
+            local travelTime = QR.TravelTime:GetEffectiveTime(teleportID, data, includeCooldown)
+            travelTime = travelTime + (QR.db and QR.db.loadingScreenTime or 0)
+
+            self.graph:AddEdge(PLAYER_NODE, destName, travelTime, "teleport", {
+                teleportID = teleportID,
+                teleportData = data,
+                sourceType = teleport.sourceType,
+            })
+            added = added + 1
+        end
+    end
+
+    if added > 0 then
+        QR:Debug(string_format("PathCalculator: %d dungeon teleport edge(s)", added))
     end
 end
 

@@ -245,6 +245,24 @@ function PlayerInventory:ScanSpells()
         end
     end
 
+    -- Dungeon and raid teleports. The table is a generous name match against the
+    -- client's instance list, so IsSpellKnown is what makes it correct: a spell
+    -- nobody can learn never lands here, and neither does a boss ability that
+    -- happens to share the name.
+    if QR.DungeonTeleportSpells then
+        for spellID, data in pairs(QR.DungeonTeleportSpells) do
+            if not self.spells[spellID] and IsSpellKnown(spellID) then
+                -- No marker field: GetAllTeleports would drop it, and the
+                -- graph step keys on data.journalInstanceID, which is what
+                -- actually distinguishes these.
+                self.spells[spellID] = {
+                    id = spellID,
+                    data = data,
+                }
+            end
+        end
+    end
+
     return self.spells
 end
 
