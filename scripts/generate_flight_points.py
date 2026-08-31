@@ -25,6 +25,7 @@ import re
 import sys
 
 ZONE_TYPE = "3"          # UiMap.Type 3 is a zone
+RETAIL_MAP_SYSTEM = "0"  # UiMap.System 0 is the map set the retail client uses
 MIN_NEIGHBOURS = 2       # a flight master connects to more than one node
 
 # Rows the client keeps for its own purposes. The degree filter removes most of
@@ -127,7 +128,7 @@ def build(csv_dir):
     nodes = load(csv_dir, "TaxiNodes.csv",
                  ("Name_lang", "Pos_0", "Pos_1", "ID", "ContinentID", "Flags"))
     paths = load(csv_dir, "TaxiPath.csv", ("FromTaxiNode", "ToTaxiNode"))
-    uimaps = load(csv_dir, "UiMap.csv", ("Name_lang", "ID", "Type"))
+    uimaps = load(csv_dir, "UiMap.csv", ("Name_lang", "ID", "Type", "System"))
     assignments = load(csv_dir, "UiMapAssignment.csv",
                        ("UiMapID", "MapID", "Region_0", "Region_1", "Region_3",
                         "Region_4", "UiMin_0", "UiMin_1", "UiMax_0", "UiMax_1"))
@@ -143,6 +144,20 @@ def build(csv_dir):
     for row in assignments:
         entry = uimap.get(row["UiMapID"])
         if not entry or entry["Type"] != ZONE_TYPE:
+            continue
+        # UiMap ships several map sets side by side and distinguishes them by
+        # System. The retail client uses System 0; System 2 is a parallel set
+        # that repeats zones under different IDs -- Azsuna is 630 in the game
+        # and 1187 here, Isle of Dorn 2248 and 2271, Hallowfall 2215 and 2273.
+        #
+        # Their boxes cover the same world coordinates, so they compete for
+        # every node, and where one wins the flight master is filed under an ID
+        # no player is ever on. Seven of the 147 shipped zones were: Azsuna,
+        # Bastion, Isle of Dorn, Azj-Kahet, The Ringing Deeps, Hallowfall and
+        # Harandar. Five of those seven map IDs are ones ZoneAdjacency.lua does
+        # not know at all, so those zones had a flight master in the data and no
+        # flight edge in the graph.
+        if entry.get("System") != RETAIL_MAP_SYSTEM:
             continue
         try:
             x0, y0 = float(row["Region_0"]), float(row["Region_1"])

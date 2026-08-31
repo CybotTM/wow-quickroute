@@ -157,6 +157,7 @@ QR.FlightPoints = {
     [550] = { x = 0.7974, y = 0.4975, worldX = 3040.8, worldY = 4783.1, node = "The Ring of Trials, Nagrand", continentID = 1116, faction = "both" },
     [588] = { x = 0.4065, y = 0.1061, worldX = 5356.2, worldY = -3942.2, node = "Warspear, Ashran", continentID = 1116, faction = "Horde", alt = { x = 0.3739, y = 0.9090, worldX = 3685.1, worldY = -3840.5, node = "Stormshield (Alliance), Ashran", continentID = 1116, faction = "Alliance" } },
     -- world map 1220
+    [630] = { x = 0.4083, y = 0.0911, worldX = 1406.1, worldY = 7140.7, node = "Challiane's Terrace, Azsuna", continentID = 1220, faction = "both" },
     [634] = { x = 0.5200, y = 0.3467, worldX = 3835.6, worldY = 2016.1, node = "Stormtorn Foothills, Stormheim", continentID = 1220, faction = "both" },
     [641] = { x = 0.5496, y = 0.7255, worldX = 2299.9, worldY = 6577.7, node = "Lorlathil, Val'sharah", continentID = 1220, faction = "both" },
     [646] = { x = 0.4974, y = 0.2108, worldX = -545.2, worldY = 3001.8, node = "Vengeance Point, Broken Shore", continentID = 1220, faction = "both" },
@@ -164,7 +165,6 @@ QR.FlightPoints = {
     [680] = { x = 0.3423, y = 0.4944, worldX = 1615.5, worldY = 4757.9, node = "Meredil, Suramar", continentID = 1220, faction = "both" },
     [739] = { x = 0.3646, y = 0.2782, worldX = 4634.3, worldY = 5339.4, node = "Trueshot Lodge, Highmountain", continentID = 1220, faction = "both" },
     [790] = { x = 0.3825, y = 0.4592, worldX = -3362.3, worldY = 4823.0, node = "Eye of Azshara, Azsuna", continentID = 1220, faction = "both" },
-    [1187] = { x = 0.4083, y = 0.0911, worldX = 1406.1, worldY = 7140.7, node = "Challiane's Terrace, Azsuna", continentID = 1220, faction = "both" },
     -- world map 1642
     [862] = { x = 0.6623, y = 0.1767, worldX = 382.0, worldY = 104.0, node = "Nesingwary's Gameland, Zuldazar", continentID = 1642, faction = "both" },
     [863] = { x = 0.3894, y = 0.7806, worldX = 793.2, worldY = 1400.7, node = "Zul'jan, Nazmir", continentID = 1642, faction = "Horde", alt = { x = 0.3424, y = 0.6330, worldX = 1310.3, worldY = 1647.5, node = "Grimwatt's Crash, Nazmir", continentID = 1642, faction = "Alliance" } },
@@ -184,9 +184,9 @@ QR.FlightPoints = {
     [1355] = { x = 0.7420, y = 0.2495, worldX = 2077.9, worldY = -1566.3, node = "Kelya's Grave, Nazjatar", continentID = 1718, faction = "both" },
     -- world map 2222
     [1525] = { x = 0.6053, y = 0.6077, worldX = -2624.0, worldY = 6010.5, node = "Darkhaven, Revendreth", continentID = 2222, faction = "both" },
+    [1533] = { x = 0.4409, y = 0.3245, worldX = -2305.1, worldY = -4361.4, node = "Sagehaven, Bastion", continentID = 2222, faction = "both" },
     [1536] = { x = 0.4997, y = 0.5324, worldX = 2580.5, worldY = -2520.8, node = "Theater of Pain, Maldraxxus", continentID = 2222, faction = "both" },
     [1565] = { x = 0.4639, y = 0.5105, worldX = -6788.6, worldY = 1006.8, node = "Heart of the Forest, Ardenweald", continentID = 2222, faction = "both" },
-    [1569] = { x = 0.4409, y = 0.3245, worldX = -2305.1, worldY = -4361.4, node = "Sagehaven, Bastion", continentID = 2222, faction = "both" },
     -- world map 2374
     [1970] = { x = 0.3561, y = 0.6504, worldX = -4213.0, worldY = 684.6, node = "Haven, Zereth Mortis", continentID = 2374, faction = "both" },
     -- world map 2444
@@ -201,15 +201,14 @@ QR.FlightPoints = {
     -- world map 2548
     [2200] = { x = 0.5106, y = 0.6241, worldX = -1716.3, worldY = 7074.1, node = "Central Encampment, The Emerald Dream", continentID = 2548, faction = "both" },
     -- world map 2552
-    [2271] = { x = 0.3822, y = 0.7853, worldX = 985.5, worldY = -1847.6, node = "Freywold Village, Isle of Dorn", continentID = 2552, faction = "both" },
+    [2248] = { x = 0.4107, y = 0.7294, worldX = 985.5, worldY = -1847.6, node = "Freywold Village, Isle of Dorn", continentID = 2552, faction = "both" },
     [2339] = { x = 0.4476, y = 0.5104, worldX = 2585.4, worldY = -2473.3, node = "Dornogal, Isle of Dorn", continentID = 2552, faction = "both" },
     -- world map 2601
+    [2214] = { x = 0.4277, y = 0.3341, worldX = 2224.3, worldY = -2735.8, node = "Gundargaz, The Ringing Deeps", continentID = 2601, faction = "both" },
+    [2215] = { x = 0.6750, y = 0.4460, worldX = 2471.6, worldY = -1204.9, node = "Dunelle's Kindness, Hallowfall", continentID = 2601, faction = "both" },
     [2255] = { x = 0.5696, y = 0.4672, worldX = -593.3, worldY = -1446.6, node = "Weaver's Lair, Azj-Kahet", continentID = 2601, faction = "both" },
-    [2270] = { x = 0.3781, y = 0.0694, worldX = -1544.4, worldY = -590.8, node = "Wildcamp Ul'ar, Azj-Kahet", continentID = 2601, faction = "both" },
-    [2272] = { x = 0.3843, y = 0.3435, worldX = 2224.3, worldY = -2735.8, node = "Gundargaz, The Ringing Deeps", continentID = 2601, faction = "both" },
-    [2273] = { x = 0.7185, y = 0.6031, worldX = 2471.6, worldY = -1204.9, node = "Dunelle's Kindness, Hallowfall", continentID = 2601, faction = "both" },
     -- world map 2694
-    [2480] = { x = 0.6936, y = 0.5260, worldX = -128.2, worldY = -1673.3, node = "Har'athir, Harandar", continentID = 2694, faction = "both" },
+    [2413] = { x = 0.6936, y = 0.5260, worldX = -128.2, worldY = -1673.3, node = "Har'athir, Harandar", continentID = 2694, faction = "both" },
     -- world map 2706
     [2346] = { x = 0.4293, y = 0.4620, worldX = 65.6, worldY = 535.8, node = "The Incontinental Hotel", continentID = 2706, faction = "both" },
     -- world map 2735

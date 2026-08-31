@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Fixed
+- Six zones had a flight master in the data and no flight edge in the graph. The client ships a second set of zone maps that repeats zones under different IDs, and the flight-point generator was filing masters under those: Azsuna as 1187 rather than 630, Isle of Dorn as 2271 rather than 2248, and the same for Bastion, The Ringing Deeps, Hallowfall and Harandar. Five of those IDs are ones the addon's zone tables do not know at all. Azj-Kahet had two entries and keeps the right one. No route changes as a result — 0 of 1824 measured routes into those zones and 0 of 306 to the faction capitals — but the graph gains 18 flight edges that were previously attached to nothing.
+
+### Fixed
 - Teleport items you are wearing work again. Eleven of them sit in slots the inventory scan never looked at — the six guild cloaks and Mountebank's Colorful Cloak on the back, three pairs of slippers on the feet, and the Blessed Medallion of Karabor on the neck — so while worn they counted as not owned and the panel drew a plain icon with nothing behind it. The slot list is now taken from the item data instead of being kept by hand.
 - Clicking a worn teleport item no longer reports that the item was not found. The button ran `/equip` first, which searches the bags only, so aiming it at something already on the character failed on that line and never reached the teleport. An item already in its slot is now used straight from the slot.
 - Zen Pilgrimage sends Monks to Kun-Lai Summit, where it actually lands. It pointed at a Karazhan instance floor on another continent, and now carries the landing position rather than the middle of the zone.

@@ -1720,3 +1720,53 @@ T:run("Data: Zen Pilgrimage lands where the client says it does", function(t)
     t:assert(math.abs(entry.y - 0.4294) < 0.0005,
         "at the verified y (got " .. tostring(entry.y) .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- FlightPoints: retail map IDs
+--
+-- UiMap ships a second map set under System 2 that repeats zones under
+-- different IDs, on boxes covering the same world coordinates. Seven of the
+-- 147 shipped flight points landed on one, and five of those IDs are ones
+-- ZoneAdjacency.lua does not know -- so the zone had a flight master in the
+-- data and no flight edge in the graph.
+--
+-- The generator filters System 2 out now, and its own tests cover that. This
+-- pins the shipped values as well, the way the Silvermoon assertion above
+-- does, because a regeneration against an older script would put them back
+-- and every other assertion in this file would still pass.
+local SYSTEM_2_MAPS = {
+    [1187] = "Azsuna, which is 630",
+    [1569] = "Bastion, which is 1533",
+    [2270] = "Azj-Kahet, which is 2255",
+    [2271] = "Isle of Dorn, which is 2248",
+    [2272] = "The Ringing Deeps, which is 2214",
+    [2273] = "Hallowfall, which is 2215",
+    [2480] = "Harandar, which is 2413",
+}
+
+T:run("Data: FlightPoints uses no System 2 duplicate map", function(t)
+    local offenders = {}
+    for uiMapID in pairs(QR.FlightPoints or {}) do
+        local why = SYSTEM_2_MAPS[uiMapID]
+        if why then
+            offenders[#offenders + 1] = string.format("%d (%s)", uiMapID, why)
+        end
+    end
+    table.sort(offenders)
+    t:assertEqual(0, #offenders,
+        "no flight point sits on a duplicate map the player is never on: "
+        .. table.concat(offenders, "; "))
+end)
+
+T:run("Data: the zones those duplicates stood in for have a flight point", function(t)
+    local expected = {630, 1533, 2214, 2215, 2248, 2255, 2413}
+    local missing = {}
+    for _, uiMapID in ipairs(expected) do
+        if not (QR.FlightPoints or {})[uiMapID] then
+            missing[#missing + 1] = tostring(uiMapID)
+        end
+    end
+    t:assertEqual(0, #missing,
+        "each zone kept its flight master on the retail map; missing: "
+        .. table.concat(missing, ", "))
+end)
