@@ -2084,6 +2084,169 @@ T:run("Undiscovered flight points do not count as discovered", function(t)
     _G.C_TaxiMap = saved
 end)
 
+T:run("Every step's waypoint takes its map and its coordinates from one place", function(t)
+    -- Three lines in BuildSteps set navMapID, navX and navY, and until now
+    -- nothing checked they agree: a map from one node and coordinates from
+    -- another produce a waypoint in a real zone at a position that means
+    -- nothing there. The flight step got this wrong twice before anyone
+    -- noticed, once on the building and once on the whole zone -- and it was
+    -- only noticed because a test compared the position against a known one.
+    -- This is that check for every step type.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+    local graph = QR.PathCalculator.graph
+
+    -- A waypoint is sound when its map and position belong to the same thing:
+    -- the node being travelled to, the node being departed from (boarded
+    -- transports), or the flight master (flights, whose edge hangs off a node
+    -- that is merely on the right map).
+    -- The route's own requested destination is the fourth legitimate source:
+    -- the last step targets the place the caller asked for, which is not a
+    -- graph node at all.
+    local requested
+    local function soundFor(step)
+        local candidates = {}
+        if requested then candidates[#candidates + 1] = requested end
+        local fromNode = graph.nodes[step.from]
+        local toNode = graph.nodes[step.to]
+        if fromNode then candidates[#candidates + 1] = fromNode end
+        if toNode then candidates[#candidates + 1] = toNode end
+        if step.type == "flight" and step.fromMapID then
+            local master = QR.FlightPoints[step.fromMapID]
+            if master then
+                candidates[#candidates + 1] =
+                    { mapID = step.fromMapID, x = master.x, y = master.y }
+            end
+        end
+        for _, c in ipairs(candidates) do
+            if c.mapID == step.navMapID
+                and math.abs((c.x or 0.5) - (step.navX or -1)) < 0.0005
+                and math.abs((c.y or 0.5) - (step.navY or -1)) < 0.0005 then
+                return true
+            end
+        end
+        return false
+    end
+
+    local destinations = {
+        { 84, 0.55, 0.60, "Stormwind" },
+        { 85, 0.50, 0.50, "Orgrimmar" },
+        { 371, 0.50, 0.50, "Jade Forest" },
+    }
+    local checked, seenTypes, bad = 0, {}, nil
+    for _, origin in ipairs({ 15, 84, 85, 1, 71, 198, 2024, 26, 87 }) do
+        flightGraphSnapshot(allFlightZones(), origin)
+        graph = QR.PathCalculator.graph
+        for _, d in ipairs(destinations) do
+            requested = { mapID = d[1], x = d[2], y = d[3] }
+            local route = QR.PathCalculator:CalculatePath(d[1], d[2], d[3], d[4])
+            for _, step in ipairs((route and route.steps) or {}) do
+                checked = checked + 1
+                seenTypes[step.type or "?"] = true
+                if step.navMapID and not soundFor(step) and not bad then
+                    bad = string.format(
+                        "a %s step to %q is waypointed at map %s (%.4f, %.4f), "
+                        .. "which is not where any of its own nodes are",
+                        tostring(step.type), tostring(step.to),
+                        tostring(step.navMapID), step.navX or -1, step.navY or -1)
+                end
+            end
+        end
+    end
+
+    local typeList = {}
+    for name in pairs(seenTypes) do typeList[#typeList + 1] = name end
+    table.sort(typeList)
+    t:assertGreaterThan(checked, 50, "enough steps to be worth checking (" .. checked .. ")")
+    t:assertGreaterThan(#typeList, 2,
+        "across several step types (" .. table.concat(typeList, ", ") .. ")")
+    t:assertEqual(nil, bad, "and every waypoint is internally consistent: " .. tostring(bad))
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A step's destination map comes from its node, on every edge that has one", function(t)
+    -- Sampled routes cannot reach this: the edges where the node's map and the
+    -- edge's toMapID disagree are the walk and travel edges between dungeon
+    -- nodes, 1212 of 3029, and an ordinary route to a capital touches none of
+    -- them. So this drives BuildSteps directly, once per disagreeing edge,
+    -- which is the only way to see the rule that decides between the two.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+    local graph = QR.PathCalculator.graph
+
+    local checked, bad = 0, nil
+    for from, tos in pairs(graph.edges or {}) do
+        for to, edge in pairs(tos) do
+            local toNode = graph.nodes[to]
+            if toNode and edge.data and edge.data.toMapID
+                and toNode.mapID ~= edge.data.toMapID then
+                checked = checked + 1
+                local steps = QR.PathCalculator:BuildSteps({ from, to }, { edge })
+                local step = steps and steps[1]
+                if step and step.destMapID ~= toNode.mapID and not bad then
+                    bad = string.format(
+                        "a %s step to %q reports map %s; its node is on %s and the "
+                        .. "edge data says %s -- the node has to win",
+                        tostring(edge.edgeType), tostring(to), tostring(step.destMapID),
+                        tostring(toNode.mapID), tostring(edge.data.toMapID))
+                end
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 100,
+        "enough edges where the two sources disagree (" .. checked .. ")")
+    t:assertEqual(nil, bad, "and the node wins on every one: " .. tostring(bad))
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A step's destination map and coordinates come from the same node", function(t)
+    -- The sibling of the above, for the destination the step names rather than
+    -- the waypoint it navigates to. edge.data may override destX and destY
+    -- unconditionally while destMapID is only filled in when the node is
+    -- missing, so the two can be sourced differently by construction.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+    local graph = QR.PathCalculator.graph
+
+    -- Destinations chosen to traverse the edges that actually disagree: the
+    -- walk and travel edges between dungeon nodes, where the node's map and
+    -- the edge's toMapID differ on 1212 of 3029 edges. Routing only to a
+    -- capital never touches them, which is why nothing noticed.
+    local runs = {
+        { 15, { 84, 0.55, 0.60, "Stormwind" } },
+        { 85, { 84, 0.55, 0.60, "Stormwind" } },
+        { 1, { 115, 0.50, 0.50, "Dragonblight" } },
+        { 71, { 115, 0.50, 0.50, "Dragonblight" } },
+        { 198, { 627, 0.50, 0.50, "Dalaran" } },
+        { 2024, { 627, 0.50, 0.50, "Dalaran" } },
+        { 26, { 1670, 0.50, 0.50, "Oribos" } },
+        { 87, { 1670, 0.50, 0.50, "Oribos" } },
+        { 63, { 114, 0.50, 0.50, "Borean Tundra" } },
+        { 105, { 114, 0.50, 0.50, "Borean Tundra" } },
+    }
+    local checked, bad = 0, nil
+    for _, run in ipairs(runs) do
+        local origin, d = run[1], run[2]
+        flightGraphSnapshot(allFlightZones(), origin)
+        graph = QR.PathCalculator.graph
+        local route = QR.PathCalculator:CalculatePath(d[1], d[2], d[3], d[4])
+        for _, step in ipairs((route and route.steps) or {}) do
+            local toNode = graph.nodes[step.to]
+            if toNode and step.destMapID then
+                checked = checked + 1
+                if toNode.mapID ~= step.destMapID and not bad then
+                    bad = string.format("a %s step to %q says map %s, its node is on %s",
+                        tostring(step.type), tostring(step.to),
+                        tostring(step.destMapID), tostring(toNode.mapID))
+                end
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 15, "enough steps with a destination (" .. checked .. ")")
+    t:assertEqual(nil, bad, "and each names its own node's map: " .. tostring(bad))
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
 T:run("Every flight step in the graph names its own departure zone", function(t)
     -- The single-route test below inspects one flight leg, and that leg
     -- happens to be the forward direction of its pair. Both directions shared
