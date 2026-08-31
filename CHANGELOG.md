@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-08-31
+
 ### Fixed
 - Interface bumped to 120100 for WoW 12.1.0; the addon was flagged out of date and skipped at load
 - Spell teleports reported as permanently off cooldown on 12.x
