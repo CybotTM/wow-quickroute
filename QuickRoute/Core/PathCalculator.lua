@@ -1256,9 +1256,12 @@ end
 -- Returns nil when the zone has no flight master for this faction, which is a
 -- real answer: 17 zones are Alliance-only and 12 are Horde-only.
 --
--- An unknown faction falls back to the primary entry rather than to nothing,
--- so a client that has not answered yet degrades to the old behaviour instead
--- of losing the whole flight network.
+-- Anything that is not one of the two factions -- "Neutral" for a pandaren who
+-- has not chosen a side, or a value the client has not settled yet -- gets the
+-- primary entry, which is what the addon did before this filter existed. The
+-- first version tested `not faction` instead, which can never be true because
+-- GetFaction falls back to "Alliance"; a neutral character therefore matched
+-- no branch and lost 74 of 141 zones and 386 of 473 flight edges.
 -- @param uiMapID number
 -- @return table|nil
 function PathCalculator:FlightPointFor(uiMapID)
@@ -1267,10 +1270,17 @@ function PathCalculator:FlightPointFor(uiMapID)
         return nil
     end
     local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
-    if not faction or point.faction == "both" or point.faction == faction then
+    if faction ~= "Alliance" and faction ~= "Horde" then
+        return point
+    end
+    if point.faction == "both" or point.faction == faction then
         return point
     end
     local alt = point.alt
+    -- alt.faction is always the opposite of the primary's, so reaching here
+    -- means this is the player's side. The check is defence in depth against a
+    -- future generator that emits a third shape, not covered code: replacing
+    -- it with `if alt then` reddens nothing.
     if alt and alt.faction == faction then
         return alt
     end

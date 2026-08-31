@@ -2130,6 +2130,36 @@ T:run("A Horde route is waypointed to Horde flight masters", function(t)
     QR.PathCalculator.knownFlightZonesOverride = nil
 end)
 
+T:run("A character of neither faction keeps the whole flight network", function(t)
+    -- UnitFactionGroup returns "Neutral" for a pandaren who has not picked a
+    -- side. The first version of the accessor tested `not faction`, which can
+    -- never be true -- GetFaction falls back to "Alliance" -- so a neutral
+    -- character matched no branch and silently lost 74 of 141 zones and 386 of
+    -- 473 flight edges against the behaviour before the filter existed.
+    resetState()
+    local usable = {}
+    for _, faction in ipairs({ "Alliance", "Neutral" }) do
+        MockWoW.config.playerFaction = faction
+        QR.PlayerInfo:InvalidateCache()
+        local count = 0
+        for uiMapID in pairs(QR.FlightPoints or {}) do
+            if QR.PathCalculator:FlightPointFor(uiMapID) then count = count + 1 end
+        end
+        usable[faction] = count
+    end
+
+    local total = 0
+    for _ in pairs(QR.FlightPoints or {}) do total = total + 1 end
+    t:assertEqual(total, usable.Neutral,
+        "a neutral character can use every zone (" .. tostring(usable.Neutral)
+            .. " of " .. total .. ")")
+    t:assertGreaterThan(usable.Neutral, usable.Alliance,
+        "which is strictly more than a faction sees, since nothing is filtered out")
+
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+end)
+
 T:run("Each faction flies from its own flight master", function(t)
     -- The Hinterlands has Aerie Peak in the north-west for the Alliance and
     -- Revantusk Village in the south-east for the Horde. One entry per zone
