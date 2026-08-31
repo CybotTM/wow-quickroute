@@ -1415,6 +1415,30 @@ T:run("Data: FlightPoints coordinates are inside the zone", function(t)
     end
 end)
 
+T:run("Data: FlightPoints coordinates agree with a surveyed landmark", function(t)
+    -- The "strictly inside 0..1" test above cannot see the defect that
+    -- actually happened: the generator read the UI axes as the world axes,
+    -- which put every flight point at (1 - y, 1 - x). A swapped and mirrored
+    -- unit square is still the unit square, so that check passed on all 134
+    -- wrong entries.
+    --
+    -- Stormwind is the anchor because this repo surveys it independently:
+    -- ServicePOIs puts two Trade District services within about a tenth of the
+    -- map of the flight master. The tolerance is loose on purpose -- these are
+    -- different buildings, not the same point -- but the transposed value was
+    -- 0.54 away, five times the bound.
+    local point = QR.FlightPoints and QR.FlightPoints[84]
+    t:assertNotNil(point, "Stormwind City has a flight point")
+    if not point then return end
+    local anchorX, anchorY = 0.6105, 0.7064   -- ServicePOIs, Stormwind auction house
+    local dx, dy = point.x - anchorX, point.y - anchorY
+    local apart = math.sqrt(dx * dx + dy * dy)
+    t:assert(apart < 0.25, string.format(
+        "the Stormwind flight point is near the surveyed city services "
+        .. "(%.4f, %.4f) vs (%.4f, %.4f), %.3f apart",
+        point.x, point.y, anchorX, anchorY, apart))
+end)
+
 T:run("Data: FlightPoints zones are zones, not continents", function(t)
     -- The generator filters on UiMap Type 3. A continent or cosmic map slipping
     -- in would connect a whole landmass as if it were one flight point.

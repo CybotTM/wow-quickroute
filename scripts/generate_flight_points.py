@@ -74,6 +74,26 @@ def related(a, b):
     return bool(a) and bool(b) and (a.startswith(b) or b.startswith(a))
 
 
+def project(px, py, x0, y0, x1, y1, a0, b0, a1, b1):
+    """World position -> normalized zone coordinates.
+
+    The UI axes are the transpose of the world axes, and both run backwards:
+    the map's x comes from world Y and its y from world X, each decreasing as
+    the world coordinate grows. This is not folklore -- UiMapAssignment states
+    it. On uiMap 13 two rows share the world-Y span [-1400,-800] and carry an
+    identical UiMin_0/UiMax_0 of [0.4657,0.4804] while differing in world X and
+    in UiMin_1/UiMax_1, which is only possible if ui_0 is a function of world Y.
+    The two rows are adjacent in X and meet at ui_1 = 0.6842 where X = -7400,
+    with the larger X on the smaller ui_1, which is what fixes the direction.
+
+    Getting this backwards put Stormwind's flight master at (0.2703, 0.2902),
+    918 yards from where it stands.
+    """
+    ux = a0 + (y1 - py) / (y1 - y0) * (a1 - a0) if y1 != y0 else a0
+    uy = b0 + (x1 - px) / (x1 - x0) * (b1 - b0) if x1 != x0 else b0
+    return ux, uy
+
+
 def build(csv_dir):
     nodes = load(csv_dir, "TaxiNodes.csv",
                  ("Name_lang", "Pos_0", "Pos_1", "ID", "ContinentID", "Flags"))
@@ -119,6 +139,11 @@ def build(csv_dir):
             flags = int(node["Flags"])
         except (KeyError, ValueError):
             flags = 0
+        # The faction half currently drops nothing on its own -- every
+        # faction-less survivor of the filters above already carries 0x400 --
+        # so only the 0x400 test is covered. It is kept because "shown to
+        # nobody" and "internal" are different claims and a future table could
+        # separate them, not because it is doing work today.
         if flags & FLAG_INTERNAL or not flags & FLAG_FACTIONS:
             tally["dropped: not shown to players"] += 1
             continue
@@ -135,13 +160,12 @@ def build(csv_dir):
             continue
         _, uid, (x0, y0, x1, y1, a0, b0, a1, b1) = best
 
-        nx = (px - x0) / (x1 - x0) if x1 != x0 else 0.0
-        ny = (py - y0) / (y1 - y0) if y1 != y0 else 0.0
+        ux, uy = project(px, py, x0, y0, x1, y1, a0, b0, a1, b1)
         kept.append({
             "uid": uid,
             "zone": uimap[str(uid)]["Name_lang"].strip(),
-            "x": a0 + nx * (a1 - a0),
-            "y": b0 + ny * (b1 - b0),
+            "x": ux,
+            "y": uy,
             "wx": px, "wy": py,
             "continent": int(node["ContinentID"]),
             "name": name,
@@ -224,20 +248,31 @@ HEADER = '''-- FlightPoints.lua
 -- the network between them, and UiMapAssignment converts a world position into
 -- a zone with normalized coordinates.
 --
--- Four filters, because TaxiNodes holds far more than flight masters. A node
+-- Five filters, because TaxiNodes holds far more than flight masters. A node
 -- is kept only when it has at least two TaxiPath neighbours (a flight master
 -- connects to many nodes; a scripted quest flight to one, and the boat and
--- zeppelin nodes to none), is not tagged internal or disabled, sits inside
--- some zone-type UiMap box, and has a name that corroborates that zone.
+-- zeppelin nodes to none), is not tagged internal or disabled, is shown to
+-- players by its Flags, sits inside some zone-type UiMap box, and -- if its
+-- name states a zone at all -- states the zone the geometry put it in.
 --
--- The rule is deliberately conservative: a node whose name cannot corroborate
--- the geometry is dropped, not guessed at. That costs real entries, and it is
--- the right trade -- a wrong entry makes the addon assert a flight master that
--- is not there and hand out a route nobody can fly.
+-- A name of the form "Place, Zone" has to agree with the geometry: zone boxes
+-- overlap at borders, and without that test "New Kargath, Badlands" lands in
+-- Searing Gorge 1103 yards away. A name with no comma states no zone, so it
+-- neither confirms nor contradicts: those are kept, but rank below a name that
+-- does confirm. That is what makes Broken Shore pick "Vengeance Point, Broken
+-- Shore" over the bare "Dalaran" sitting 1332 yards from it.
 --
--- One entry per zone: the most connected node wins, lowest node ID breaks ties.
--- The graph is zone-level, and from any flight master the game auto-routes
--- multi-hop to every point you have discovered on that world map.
+-- One entry per zone: a corroborating name first, then the most connected
+-- node, then the lowest node ID so regeneration is stable. The graph is
+-- zone-level, and from any flight master the game auto-routes multi-hop to
+-- every point you have discovered on that world map.
+--
+-- x and y are normalized ZONE coordinates, and the UI axes are the transpose
+-- of the world axes with both running backwards -- see project() in the
+-- generator for the evidence. Getting that backwards put Stormwind's flight
+-- master 918 yards from where it stands, and the "inside the unit square"
+-- check could not see it, because a swapped and mirrored unit square is still
+-- the unit square.
 --
 -- worldX/worldY are what edge weights are computed from: the distance is
 -- exact, and only the speed it is divided by is an estimate. continentID is

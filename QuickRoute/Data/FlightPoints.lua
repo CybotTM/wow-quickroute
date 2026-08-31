@@ -9,20 +9,31 @@
 -- the network between them, and UiMapAssignment converts a world position into
 -- a zone with normalized coordinates.
 --
--- Four filters, because TaxiNodes holds far more than flight masters. A node
+-- Five filters, because TaxiNodes holds far more than flight masters. A node
 -- is kept only when it has at least two TaxiPath neighbours (a flight master
 -- connects to many nodes; a scripted quest flight to one, and the boat and
--- zeppelin nodes to none), is not tagged internal or disabled, sits inside
--- some zone-type UiMap box, and has a name that corroborates that zone.
+-- zeppelin nodes to none), is not tagged internal or disabled, is shown to
+-- players by its Flags, sits inside some zone-type UiMap box, and -- if its
+-- name states a zone at all -- states the zone the geometry put it in.
 --
--- The rule is deliberately conservative: a node whose name cannot corroborate
--- the geometry is dropped, not guessed at. That costs real entries, and it is
--- the right trade -- a wrong entry makes the addon assert a flight master that
--- is not there and hand out a route nobody can fly.
+-- A name of the form "Place, Zone" has to agree with the geometry: zone boxes
+-- overlap at borders, and without that test "New Kargath, Badlands" lands in
+-- Searing Gorge 1103 yards away. A name with no comma states no zone, so it
+-- neither confirms nor contradicts: those are kept, but rank below a name that
+-- does confirm. That is what makes Broken Shore pick "Vengeance Point, Broken
+-- Shore" over the bare "Dalaran" sitting 1332 yards from it.
 --
--- One entry per zone: the most connected node wins, lowest node ID breaks ties.
--- The graph is zone-level, and from any flight master the game auto-routes
--- multi-hop to every point you have discovered on that world map.
+-- One entry per zone: a corroborating name first, then the most connected
+-- node, then the lowest node ID so regeneration is stable. The graph is
+-- zone-level, and from any flight master the game auto-routes multi-hop to
+-- every point you have discovered on that world map.
+--
+-- x and y are normalized ZONE coordinates, and the UI axes are the transpose
+-- of the world axes with both running backwards -- see project() in the
+-- generator for the evidence. Getting that backwards put Stormwind's flight
+-- master 918 yards from where it stands, and the "inside the unit square"
+-- check could not see it, because a swapped and mirrored unit square is still
+-- the unit square.
 --
 -- worldX/worldY are what edge weights are computed from: the distance is
 -- exact, and only the speed it is divided by is an estimate. continentID is
@@ -34,162 +45,162 @@ local ADDON_NAME, QR = ...
 
 QR.FlightPoints = {
     -- world map 0
-    [14] = { x = 0.5261, y = 0.6008, worldX = -1240.5, worldY = -2515.1, continentID = 0, node = "Refuge Pointe, Arathi" },
-    [15] = { x = 0.6477, y = 0.3575, worldX = -6574.9, worldY = -3875.1, continentID = 0, node = "Fuselight, Badlands" },
-    [17] = { x = 0.1078, y = 0.5289, worldX = -12761.9, worldY = -2919.0, continentID = 0, node = "Surwich, Blasted Lands" },
-    [21] = { x = 0.5758, y = 0.5444, worldX = 478.9, worldY = 1536.6, continentID = 0, node = "The Sepulcher, Silverpine Forest" },
-    [22] = { x = 0.1505, y = 0.5705, worldX = 931.3, worldY = -1430.1, continentID = 0, node = "Chillwind Camp, Western Plaguelands" },
-    [23] = { x = 0.4668, y = 0.2426, worldX = 2271.1, worldY = -5340.8, continentID = 0, node = "Light's Hope Chapel, Eastern Plaguelands" },
-    [25] = { x = 0.5376, y = 0.4398, worldX = -17.7, worldY = -874.2, continentID = 0, node = "Tarren Mill, Hillsbrad" },
-    [26] = { x = 0.5391, y = 0.8889, worldX = 283.7, worldY = -2002.8, continentID = 0, node = "Aerie Peak, The Hinterlands" },
-    [27] = { x = 0.4571, y = 0.2413, worldX = -5714.1, worldY = -1578.6, continentID = 0, node = "Gol'Bolar Quarry, Dun Morogh" },
-    [32] = { x = 0.6957, y = 0.6211, worldX = -6552.6, worldY = -1168.3, continentID = 0, node = "Thorium Point, Searing Gorge" },
-    [36] = { x = 0.3432, y = 0.2786, worldX = -8364.6, worldY = -2738.4, continentID = 0, node = "Morgan's Vigil, Burning Steppes" },
-    [37] = { x = 0.3544, y = 0.5822, worldX = -9434.0, worldY = 85.1, continentID = 0, node = "Goldshire, Elwynn" },
-    [47] = { x = 0.4328, y = 0.7903, worldX = -10737.6, worldY = 267.0, continentID = 0, node = "Raven Hill, Duskwood" },
-    [48] = { x = 0.4921, y = 0.6606, worldX = -5421.9, worldY = -2930.0, continentID = 0, node = "Thelsamar, Loch Modan" },
-    [49] = { x = 0.4660, y = 0.7072, worldX = -9429.1, worldY = -2231.4, continentID = 0, node = "Lakeshire, Redridge" },
-    [51] = { x = 0.8795, y = 0.2786, worldX = -9737.1, worldY = -3890.7, continentID = 0, node = "Bogpaddle, Swamp of Sorrows" },
-    [52] = { x = 0.5063, y = 0.4336, worldX = -10551.9, worldY = 1034.4, continentID = 0, node = "Sentinel Hill, Westfall" },
-    [56] = { x = 0.4050, y = 0.9061, worldX = -3787.8, worldY = -777.7, continentID = 0, node = "Menethil Harbor, Wetlands" },
-    [84] = { x = 0.2703, y = 0.2902, worldX = -8841.1, worldY = 489.7, continentID = 0, node = "Stormwind, Elwynn" },
-    [87] = { x = 0.5213, y = 0.4411, worldX = -4821.8, worldY = -1155.4, continentID = 0, node = "Ironforge, Dun Morogh" },
-    [90] = { x = 0.5168, y = 0.3691, worldX = 1568.6, worldY = 268.0, continentID = 0, node = "Undercity, Tirisfal" },
-    [241] = { x = 0.4719, y = 0.2616, worldX = -4012.4, worldY = -6329.2, continentID = 0, node = "Dragonmaw Port, Twilight Highlands" },
-    [2393] = { x = 0.2898, y = 0.4903, worldX = 8444.3, worldY = -4765.7, continentID = 0, node = "Sanctum of Light, Silvermoon City" },
-    [2395] = { x = 0.0995, y = 0.6894, worldX = 4512.1, worldY = -2780.1, continentID = 0, node = "Silverglade Refuge, Eversong Woods" },
-    [2424] = { x = 0.6619, y = 0.4225, worldX = 11245.3, worldY = -4781.4, continentID = 0, node = "Terrace of the Sun, Isle of Quel'Danas" },
-    [2437] = { x = 0.7682, y = 0.6120, worldX = 6916.6, worldY = -7114.0, continentID = 0, node = "Witherbark Bluffs, Zul'Aman" },
-    [2512] = { x = 0.5424, y = 0.4212, worldX = 6098.5, worldY = -12045.8, continentID = 0, node = "Tokka's Landing, The Coiled Isle" },
-    [2536] = { x = 0.5884, y = 0.5992, worldX = 5114.3, worldY = -6473.8, continentID = 0, node = "Atal'Aman, Zul'Aman" },
+    [14] = { x = 0.3992, y = 0.4739, worldX = -1240.5, worldY = -2515.1, continentID = 0, node = "Refuge Pointe, Arathi" },
+    [15] = { x = 0.6425, y = 0.3523, worldX = -6574.9, worldY = -3875.1, continentID = 0, node = "Fuselight, Badlands" },
+    [17] = { x = 0.4711, y = 0.8922, worldX = -12761.9, worldY = -2919.0, continentID = 0, node = "Surwich, Blasted Lands" },
+    [21] = { x = 0.4556, y = 0.4242, worldX = 478.9, worldY = 1536.6, continentID = 0, node = "The Sepulcher, Silverpine Forest" },
+    [22] = { x = 0.4295, y = 0.8495, worldX = 931.3, worldY = -1430.1, continentID = 0, node = "Chillwind Camp, Western Plaguelands" },
+    [23] = { x = 0.7574, y = 0.5332, worldX = 2271.1, worldY = -5340.8, continentID = 0, node = "Light's Hope Chapel, Eastern Plaguelands" },
+    [25] = { x = 0.5602, y = 0.4624, worldX = -17.7, worldY = -874.2, continentID = 0, node = "Tarren Mill, Hillsbrad" },
+    [26] = { x = 0.1111, y = 0.4609, worldX = 283.7, worldY = -2002.8, continentID = 0, node = "Aerie Peak, The Hinterlands" },
+    [27] = { x = 0.7587, y = 0.5429, worldX = -5714.1, worldY = -1578.6, continentID = 0, node = "Gol'Bolar Quarry, Dun Morogh" },
+    [32] = { x = 0.3789, y = 0.3043, worldX = -6552.6, worldY = -1168.3, continentID = 0, node = "Thorium Point, Searing Gorge" },
+    [36] = { x = 0.7214, y = 0.6568, worldX = -8364.6, worldY = -2738.4, continentID = 0, node = "Morgan's Vigil, Burning Steppes" },
+    [37] = { x = 0.4178, y = 0.6456, worldX = -9434.0, worldY = 85.1, continentID = 0, node = "Goldshire, Elwynn" },
+    [47] = { x = 0.2097, y = 0.5672, worldX = -10737.6, worldY = 267.0, continentID = 0, node = "Raven Hill, Duskwood" },
+    [48] = { x = 0.3394, y = 0.5079, worldX = -5421.9, worldY = -2930.0, continentID = 0, node = "Thelsamar, Loch Modan" },
+    [49] = { x = 0.2928, y = 0.5340, worldX = -9429.1, worldY = -2231.4, continentID = 0, node = "Lakeshire, Redridge" },
+    [51] = { x = 0.7214, y = 0.1205, worldX = -9737.1, worldY = -3890.7, continentID = 0, node = "Bogpaddle, Swamp of Sorrows" },
+    [52] = { x = 0.5664, y = 0.4937, worldX = -10551.9, worldY = 1034.4, continentID = 0, node = "Sentinel Hill, Westfall" },
+    [56] = { x = 0.0939, y = 0.5950, worldX = -3787.8, worldY = -777.7, continentID = 0, node = "Menethil Harbor, Wetlands" },
+    [84] = { x = 0.7098, y = 0.7297, worldX = -8841.1, worldY = 489.7, continentID = 0, node = "Stormwind, Elwynn" },
+    [87] = { x = 0.5589, y = 0.4787, worldX = -4821.8, worldY = -1155.4, continentID = 0, node = "Ironforge, Dun Morogh" },
+    [90] = { x = 0.6309, y = 0.4832, worldX = 1568.6, worldY = 268.0, continentID = 0, node = "Undercity, Tirisfal" },
+    [241] = { x = 0.7384, y = 0.5281, worldX = -4012.4, worldY = -6329.2, continentID = 0, node = "Dragonmaw Port, Twilight Highlands" },
+    [2393] = { x = 0.5097, y = 0.7102, worldX = 8444.3, worldY = -4765.7, continentID = 0, node = "Sanctum of Light, Silvermoon City" },
+    [2395] = { x = 0.3106, y = 0.9005, worldX = 4512.1, worldY = -2780.1, continentID = 0, node = "Silverglade Refuge, Eversong Woods" },
+    [2424] = { x = 0.5775, y = 0.3381, worldX = 11245.3, worldY = -4781.4, continentID = 0, node = "Terrace of the Sun, Isle of Quel'Danas" },
+    [2437] = { x = 0.3880, y = 0.2318, worldX = 6916.6, worldY = -7114.0, continentID = 0, node = "Witherbark Bluffs, Zul'Aman" },
+    [2512] = { x = 0.5788, y = 0.4576, worldX = 6098.5, worldY = -12045.8, continentID = 0, node = "Tokka's Landing, The Coiled Isle" },
+    [2536] = { x = 0.4008, y = 0.4116, worldX = 5114.3, worldY = -6473.8, continentID = 0, node = "Atal'Aman, Zul'Aman" },
     -- world map 1
-    [1] = { x = 0.5636, y = 0.4696, worldX = 269.9, worldY = -4766.8, continentID = 1, node = "Razor Hill, Durotar" },
-    [57] = { x = 0.1155, y = 0.4461, worldX = 8383.8, worldY = 981.0, continentID = 1, node = "Rut'theran Village, Teldrassil" },
-    [62] = { x = 0.8230, y = 0.4828, worldX = 7459.9, worldY = -326.6, continentID = 1, node = "Lor'danel, Darkshore" },
-    [63] = { x = 0.5198, y = 0.6550, worldX = 2827.3, worldY = -289.2, continentID = 1, node = "Astranaar, Ashenvale" },
-    [64] = { x = 0.8827, y = 0.8878, worldX = -4310.6, worldY = -927.1, continentID = 1, node = "Westreach Summit, Thousand Needles" },
-    [65] = { x = 0.3821, y = 0.6798, worldX = 973.9, worldY = 2013.1, continentID = 1, node = "Farwatcher's Glen, Stonetalon Mountains" },
-    [66] = { x = 0.8956, y = 0.3533, worldX = 139.2, worldY = 1325.8, continentID = 1, node = "Nijel's Point, Desolace" },
-    [69] = { x = 0.5569, y = 0.2457, worldX = -4419.9, worldY = 199.3, continentID = 1, node = "Camp Mojache, Feralas" },
-    [70] = { x = 0.4880, y = 0.3254, worldX = -3825.4, worldY = -4516.6, continentID = 1, node = "Theramore, Dustwallow Marsh" },
-    [71] = { x = 0.7248, y = 0.4799, worldX = -7094.0, worldY = -3813.7, continentID = 1, node = "Gadgetzan, Tanaris" },
-    [76] = { x = 0.5012, y = 0.4702, worldX = 3547.2, worldY = -6294.7, continentID = 1, node = "Bilgewater Harbor, Azshara" },
-    [77] = { x = 0.7468, y = 0.3943, worldX = 6214.3, worldY = -1874.3, continentID = 1, node = "Talonbranch Glade, Felwood" },
-    [78] = { x = 0.3589, y = 0.4393, worldX = -7548.0, worldY = -1541.1, continentID = 1, node = "Marshal's Stand, Un'Goro Crater" },
-    [80] = { x = 0.3289, y = 0.5209, worldX = 7458.5, worldY = -2487.2, continentID = 1, node = "Moonglade" },
-    [81] = { x = 0.6532, y = 0.4711, worldX = -6811.4, worldY = 836.7, continentID = 1, node = "Cenarion Hold, Silithus" },
-    [83] = { x = 0.5169, y = 0.4115, worldX = 6813.1, worldY = -4611.1, continentID = 1, node = "Everlook, Winterspring" },
-    [85] = { x = 0.4063, y = 0.5073, worldX = 1798.3, worldY = -4363.3, continentID = 1, node = "Orgrimmar, Durotar" },
-    [88] = { x = 0.5010, y = 0.5335, worldX = -1197.2, worldY = 29.7, continentID = 1, node = "Thunder Bluff, Mulgore" },
-    [89] = { x = 0.5173, y = 0.6328, worldX = 9968.8, worldY = 2622.1, continentID = 1, node = "Darnassus, Teldrassil" },
-    [249] = { x = 0.6644, y = 0.4374, worldX = -9415.0, worldY = -1043.0, continentID = 1, node = "Ramkahen, Uldum" },
+    [1] = { x = 0.5304, y = 0.4364, worldX = 269.9, worldY = -4766.8, continentID = 1, node = "Razor Hill, Durotar" },
+    [57] = { x = 0.5539, y = 0.8845, worldX = 8383.8, worldY = 981.0, continentID = 1, node = "Rut'theran Village, Teldrassil" },
+    [62] = { x = 0.5172, y = 0.1770, worldX = 7459.9, worldY = -326.6, continentID = 1, node = "Lor'danel, Darkshore" },
+    [63] = { x = 0.3450, y = 0.4802, worldX = 2827.3, worldY = -289.2, continentID = 1, node = "Astranaar, Ashenvale" },
+    [64] = { x = 0.1122, y = 0.1173, worldX = -4310.6, worldY = -927.1, continentID = 1, node = "Westreach Summit, Thousand Needles" },
+    [65] = { x = 0.3202, y = 0.6179, worldX = 973.9, worldY = 2013.1, continentID = 1, node = "Farwatcher's Glen, Stonetalon Mountains" },
+    [66] = { x = 0.6467, y = 0.1044, worldX = 139.2, worldY = 1325.8, continentID = 1, node = "Nijel's Point, Desolace" },
+    [69] = { x = 0.7543, y = 0.4431, worldX = -4419.9, worldY = 199.3, continentID = 1, node = "Camp Mojache, Feralas" },
+    [70] = { x = 0.6746, y = 0.5120, worldX = -3825.4, worldY = -4516.6, continentID = 1, node = "Theramore, Dustwallow Marsh" },
+    [71] = { x = 0.5201, y = 0.2752, worldX = -7094.0, worldY = -3813.7, continentID = 1, node = "Gadgetzan, Tanaris" },
+    [76] = { x = 0.5298, y = 0.4988, worldX = 3547.2, worldY = -6294.7, continentID = 1, node = "Bilgewater Harbor, Azshara" },
+    [77] = { x = 0.6057, y = 0.2532, worldX = 6214.3, worldY = -1874.3, continentID = 1, node = "Talonbranch Glade, Felwood" },
+    [78] = { x = 0.5607, y = 0.6411, worldX = -7548.0, worldY = -1541.1, continentID = 1, node = "Marshal's Stand, Un'Goro Crater" },
+    [80] = { x = 0.4791, y = 0.6711, worldX = 7458.5, worldY = -2487.2, continentID = 1, node = "Moonglade" },
+    [81] = { x = 0.5289, y = 0.3468, worldX = -6811.4, worldY = 836.7, continentID = 1, node = "Cenarion Hold, Silithus" },
+    [83] = { x = 0.5885, y = 0.4831, worldX = 6813.1, worldY = -4611.1, continentID = 1, node = "Everlook, Winterspring" },
+    [85] = { x = 0.4927, y = 0.5937, worldX = 1798.3, worldY = -4363.3, continentID = 1, node = "Orgrimmar, Durotar" },
+    [88] = { x = 0.4665, y = 0.4990, worldX = -1197.2, worldY = 29.7, continentID = 1, node = "Thunder Bluff, Mulgore" },
+    [89] = { x = 0.3672, y = 0.4827, worldX = 9968.8, worldY = 2622.1, continentID = 1, node = "Darnassus, Teldrassil" },
+    [249] = { x = 0.5626, y = 0.3356, worldX = -9415.0, worldY = -1043.0, continentID = 1, node = "Ramkahen, Uldum" },
     -- world map 530
-    [94] = { x = 0.3007, y = 0.5601, worldX = 8745.8, worldY = -6654.1, continentID = 530, node = "Fairbreeze Village, Eversong Woods" },
-    [95] = { x = 0.6945, y = 0.5452, worldX = 7594.5, worldY = -6784.3, continentID = 530, node = "Tranquillien, Ghostlands" },
-    [100] = { x = 0.3993, y = 0.7215, worldX = -587.4, worldY = 4101.0, continentID = 530, node = "Falcon Watch, Hellfire Peninsula" },
-    [102] = { x = 0.4864, y = 0.3214, worldX = 213.8, worldY = 6063.8, continentID = 530, node = "Telredor, Zangarmarsh" },
-    [103] = { x = 0.6341, y = 0.4561, worldX = -3867.6, worldY = -11641.1, continentID = 530, node = "The Exodar" },
-    [104] = { x = 0.6952, y = 0.3681, worldX = -3065.6, worldY = 749.4, continentID = 530, node = "Altar of Sha'tar, Shadowmoon Valley" },
-    [105] = { x = 0.3849, y = 0.6219, worldX = 2183.6, worldY = 6794.5, continentID = 530, node = "Sylvanaar, Blade's Edge Mountains" },
-    [107] = { x = 0.2478, y = 0.4587, worldX = -2729.0, worldY = 7305.3, continentID = 530, node = "Telaar, Nagrand" },
-    [108] = { x = 0.4480, y = 0.4055, worldX = -2987.2, worldY = 3872.8, continentID = 530, node = "Allerian Stronghold, Terokkar Forest" },
-    [109] = { x = 0.6506, y = 0.5473, worldX = 4157.6, worldY = 2959.7, continentID = 530, node = "The Stormspire, Netherstorm" },
-    [110] = { x = 0.0351, y = 0.3684, worldX = 9375.2, worldY = -7165.9, continentID = 530, node = "Silvermoon City" },
-    [111] = { x = 0.5828, y = 0.3620, worldX = -1837.2, worldY = 5301.9, continentID = 530, node = "Shattrath, Terokkar Forest" },
-    [122] = { x = 0.7494, y = 0.5172, worldX = 13012.7, worldY = -6908.4, continentID = 530, node = "Shattered Sun Staging Area" },
+    [94] = { x = 0.4399, y = 0.6993, worldX = 8745.8, worldY = -6654.1, continentID = 530, node = "Fairbreeze Village, Eversong Woods" },
+    [95] = { x = 0.4548, y = 0.3055, worldX = 7594.5, worldY = -6784.3, continentID = 530, node = "Tranquillien, Ghostlands" },
+    [100] = { x = 0.2785, y = 0.6007, worldX = -587.4, worldY = 4101.0, continentID = 530, node = "Falcon Watch, Hellfire Peninsula" },
+    [102] = { x = 0.6786, y = 0.5136, worldX = 213.8, worldY = 6063.8, continentID = 530, node = "Telredor, Zangarmarsh" },
+    [103] = { x = 0.5439, y = 0.3659, worldX = -3867.6, worldY = -11641.1, continentID = 530, node = "The Exodar" },
+    [104] = { x = 0.6319, y = 0.3048, worldX = -3065.6, worldY = 749.4, continentID = 530, node = "Altar of Sha'tar, Shadowmoon Valley" },
+    [105] = { x = 0.3781, y = 0.6151, worldX = 2183.6, worldY = 6794.5, continentID = 530, node = "Sylvanaar, Blade's Edge Mountains" },
+    [107] = { x = 0.5413, y = 0.7522, worldX = -2729.0, worldY = 7305.3, continentID = 530, node = "Telaar, Nagrand" },
+    [108] = { x = 0.5945, y = 0.5520, worldX = -2987.2, worldY = 3872.8, continentID = 530, node = "Allerian Stronghold, Terokkar Forest" },
+    [109] = { x = 0.4527, y = 0.3494, worldX = 4157.6, worldY = 2959.7, continentID = 530, node = "The Stormspire, Netherstorm" },
+    [110] = { x = 0.6316, y = 0.9649, worldX = 9375.2, worldY = -7165.9, continentID = 530, node = "Silvermoon City" },
+    [111] = { x = 0.6380, y = 0.4172, worldX = -1837.2, worldY = 5301.9, continentID = 530, node = "Shattrath, Terokkar Forest" },
+    [122] = { x = 0.4828, y = 0.2506, worldX = 13012.7, worldY = -6908.4, continentID = 530, node = "Shattered Sun Staging Area" },
     -- world map 571
-    [114] = { x = 0.3162, y = 0.4107, worldX = 2269.5, worldY = 5173.7, continentID = 571, node = "Valiance Keep, Borean Tundra" },
-    [115] = { x = 0.3764, y = 0.2345, worldX = 3243.0, worldY = -666.2, continentID = 571, node = "Venomspite, Dragonblight" },
-    [116] = { x = 0.5313, y = 0.3505, worldX = 3876.3, worldY = -4520.1, continentID = 571, node = "Camp Oneqwah, Grizzly Hills" },
-    [117] = { x = 0.5600, y = 0.6874, worldX = 1342.8, worldY = -3287.9, continentID = 571, node = "Westguard Keep, Howling Fjord" },
-    [118] = { x = 0.5217, y = 0.8055, worldX = 7427.3, worldY = 4224.2, continentID = 571, node = "Death's Rise, Icecrown" },
-    [119] = { x = 0.3867, y = 0.4993, worldX = 5506.2, worldY = 4748.1, continentID = 571, node = "River's Heart, Sholazar Basin" },
-    [120] = { x = 0.7188, y = 0.5549, worldX = 8864.7, worldY = -1324.3, continentID = 571, node = "Ulduar, The Storm Peaks" },
-    [121] = { x = 0.2641, y = 0.8594, worldX = 5218.9, worldY = -1302.2, continentID = 571, node = "Ebon Watch, Zul'Drak" },
-    [123] = { x = 0.6895, y = 0.2795, worldX = 5100.8, worldY = 2185.6, continentID = 571, node = "Valiance Landing Camp, Wintergrasp" },
-    [127] = { x = 0.1919, y = 0.2788, worldX = 5035.6, worldY = -520.0, continentID = 571, node = "Windrunner's Overlook, Crystalsong Forest" },
+    [114] = { x = 0.5893, y = 0.6838, worldX = 2269.5, worldY = 5173.7, continentID = 571, node = "Valiance Keep, Borean Tundra" },
+    [115] = { x = 0.7655, y = 0.6236, worldX = 3243.0, worldY = -666.2, continentID = 571, node = "Venomspite, Dragonblight" },
+    [116] = { x = 0.6495, y = 0.4687, worldX = 3876.3, worldY = -4520.1, continentID = 571, node = "Camp Oneqwah, Grizzly Hills" },
+    [117] = { x = 0.3126, y = 0.4400, worldX = 1342.8, worldY = -3287.9, continentID = 571, node = "Westguard Keep, Howling Fjord" },
+    [118] = { x = 0.1945, y = 0.4783, worldX = 7427.3, worldY = 4224.2, continentID = 571, node = "Death's Rise, Icecrown" },
+    [119] = { x = 0.5007, y = 0.6133, worldX = 5506.2, worldY = 4748.1, continentID = 571, node = "River's Heart, Sholazar Basin" },
+    [120] = { x = 0.4451, y = 0.2812, worldX = 8864.7, worldY = -1324.3, continentID = 571, node = "Ulduar, The Storm Peaks" },
+    [121] = { x = 0.1406, y = 0.7359, worldX = 5218.9, worldY = -1302.2, continentID = 571, node = "Ebon Watch, Zul'Drak" },
+    [123] = { x = 0.7205, y = 0.3105, worldX = 5100.8, worldY = 2185.6, continentID = 571, node = "Valiance Landing Camp, Wintergrasp" },
+    [127] = { x = 0.7212, y = 0.8081, worldX = 5035.6, worldY = -520.0, continentID = 571, node = "Windrunner's Overlook, Crystalsong Forest" },
     -- world map 870
-    [376] = { x = 0.4966, y = 0.4358, worldX = -221.3, worldY = 464.6, continentID = 870, node = "Halfhill, Valley of the Four Winds" },
-    [379] = { x = 0.1929, y = 0.3756, worldX = 2250.6, worldY = 931.6, continentID = 870, node = "Eastwind Rest, Kun-Lai Summit" },
-    [388] = { x = 0.4267, y = 0.2888, worldX = 2363.2, worldY = 2994.4, continentID = 870, node = "Longying Outpost, Townlong Steppes" },
-    [418] = { x = 0.4959, y = 0.7104, worldX = -1685.7, worldY = 1590.3, continentID = 870, node = "Dawnchaser Retreat, Krasarang Wilds" },
-    [422] = { x = 0.6514, y = 0.4418, worldX = 172.7, worldY = 3152.2, continentID = 870, node = "Klaxxi'vess, Dread Wastes" },
-    [433] = { x = 0.2435, y = 0.4335, worldX = 784.9, worldY = -203.7, continentID = 870, node = "Tavern in the Mists, The Veiled Stair" },
-    [507] = { x = 0.2077, y = 0.5812, worldX = 5753.8, worldY = 1255.6, continentID = 870, node = "Beeble's Wreck, Isle Of Giants" },
-    [554] = { x = 0.2908, y = 0.7684, worldX = -901.4, worldY = -4639.1, continentID = 870, node = "Tushui Landing, Timeless Isle" },
-    [1530] = { x = 0.8081, y = 0.3710, worldX = 1580.2, worldY = 894.2, continentID = 870, node = "Shrine of Two Moons, Vale of Eternal Blossoms" },
+    [376] = { x = 0.5642, y = 0.5034, worldX = -221.3, worldY = 464.6, continentID = 870, node = "Halfhill, Valley of the Four Winds" },
+    [379] = { x = 0.6244, y = 0.8071, worldX = 2250.6, worldY = 931.6, continentID = 870, node = "Eastwind Rest, Kun-Lai Summit" },
+    [388] = { x = 0.7112, y = 0.5733, worldX = 2363.2, worldY = 2994.4, continentID = 870, node = "Longying Outpost, Townlong Steppes" },
+    [418] = { x = 0.2896, y = 0.5041, worldX = -1685.7, worldY = 1590.3, continentID = 870, node = "Dawnchaser Retreat, Krasarang Wilds" },
+    [422] = { x = 0.5582, y = 0.3486, worldX = 172.7, worldY = 3152.2, continentID = 870, node = "Klaxxi'vess, Dread Wastes" },
+    [433] = { x = 0.5665, y = 0.7565, worldX = 784.9, worldY = -203.7, continentID = 870, node = "Tavern in the Mists, The Veiled Stair" },
+    [507] = { x = 0.4188, y = 0.7923, worldX = 5753.8, worldY = 1255.6, continentID = 870, node = "Beeble's Wreck, Isle Of Giants" },
+    [554] = { x = 0.2316, y = 0.7092, worldX = -901.4, worldY = -4639.1, continentID = 870, node = "Tushui Landing, Timeless Isle" },
+    [1530] = { x = 0.6290, y = 0.1919, worldX = 1580.2, worldY = 894.2, continentID = 870, node = "Shrine of Two Moons, Vale of Eternal Blossoms" },
     -- world map 1116
-    [525] = { x = 0.3387, y = 0.5190, worldX = 5578.9, worldY = 4564.8, continentID = 1116, node = "Frostwall Garrison, Frostfire Ridge" },
-    [534] = { x = 0.6103, y = 0.7384, worldX = 4569.4, worldY = 335.1, continentID = 1116, node = "Aktar's Post, Tanaan Jungle" },
-    [535] = { x = 0.5718, y = 0.4874, worldX = 2727.2, worldY = 2777.0, continentID = 1116, node = "Shattrath City, Talador" },
-    [539] = { x = 0.7461, y = 0.5436, worldX = 1526.4, worldY = -788.9, continentID = 1116, node = "Exile's Rise, Shadowmoon Valley" },
-    [542] = { x = 0.5664, y = 0.6047, worldX = -368.2, worldY = 2285.6, continentID = 1116, node = "Axefall, Spires of Arak" },
-    [543] = { x = 0.4250, y = 0.3590, worldX = 6456.1, worldY = -174.8, continentID = 1116, node = "Wildwood Wash, Gorgrond" },
-    [550] = { x = 0.5540, y = 0.1676, worldX = 3235.7, worldY = 4584.5, continentID = 1116, node = "Wor'var, Nagrand" },
-    [588] = { x = 0.8939, y = 0.5935, worldX = 5356.2, worldY = -3942.2, continentID = 1116, node = "Warspear, Ashran" },
+    [525] = { x = 0.4810, y = 0.6613, worldX = 5578.9, worldY = 4564.8, continentID = 1116, node = "Frostwall Garrison, Frostfire Ridge" },
+    [534] = { x = 0.2616, y = 0.3897, worldX = 4569.4, worldY = 335.1, continentID = 1116, node = "Aktar's Post, Tanaan Jungle" },
+    [535] = { x = 0.5126, y = 0.4282, worldX = 2727.2, worldY = 2777.0, continentID = 1116, node = "Shattrath City, Talador" },
+    [539] = { x = 0.4564, y = 0.2539, worldX = 1526.4, worldY = -788.9, continentID = 1116, node = "Exile's Rise, Shadowmoon Valley" },
+    [542] = { x = 0.3953, y = 0.4336, worldX = -368.2, worldY = 2285.6, continentID = 1116, node = "Axefall, Spires of Arak" },
+    [543] = { x = 0.6410, y = 0.5750, worldX = 6456.1, worldY = -174.8, continentID = 1116, node = "Wildwood Wash, Gorgrond" },
+    [550] = { x = 0.8324, y = 0.4460, worldX = 3235.7, worldY = 4584.5, continentID = 1116, node = "Wor'var, Nagrand" },
+    [588] = { x = 0.4065, y = 0.1061, worldX = 5356.2, worldY = -3942.2, continentID = 1116, node = "Warspear, Ashran" },
     -- world map 1220
-    [634] = { x = 0.6533, y = 0.4800, worldX = 3835.6, worldY = 2016.1, continentID = 1220, node = "Stormtorn Foothills, Stormheim" },
-    [641] = { x = 0.2745, y = 0.4504, worldX = 2299.9, worldY = 6577.7, continentID = 1220, node = "Lorlathil, Val'sharah" },
-    [646] = { x = 0.7892, y = 0.5026, worldX = -545.2, worldY = 3001.8, continentID = 1220, node = "Vengeance Point, Broken Shore" },
-    [650] = { x = 0.6065, y = 0.7003, worldX = 5108.3, worldY = 5570.6, continentID = 1220, node = "Felbane Camp, Highmountain" },
-    [680] = { x = 0.5806, y = 0.3578, worldX = 1893.3, worldY = 3092.6, continentID = 1220, node = "Crimson Thicket, Suramar" },
-    [739] = { x = 0.7218, y = 0.6354, worldX = 4634.3, worldY = 5339.4, continentID = 1220, node = "Trueshot Lodge, Highmountain" },
-    [790] = { x = 0.5408, y = 0.6175, worldX = -3362.3, worldY = 4823.0, continentID = 1220, node = "Eye of Azshara, Azsuna" },
-    [1187] = { x = 0.4104, y = 0.4383, worldX = -784.2, worldY = 6130.0, continentID = 1220, node = "Shackle's Den, Azsuna" },
+    [634] = { x = 0.5200, y = 0.3467, worldX = 3835.6, worldY = 2016.1, continentID = 1220, node = "Stormtorn Foothills, Stormheim" },
+    [641] = { x = 0.5496, y = 0.7255, worldX = 2299.9, worldY = 6577.7, continentID = 1220, node = "Lorlathil, Val'sharah" },
+    [646] = { x = 0.4974, y = 0.2108, worldX = -545.2, worldY = 3001.8, continentID = 1220, node = "Vengeance Point, Broken Shore" },
+    [650] = { x = 0.2997, y = 0.3935, worldX = 5108.3, worldY = 5570.6, continentID = 1220, node = "Felbane Camp, Highmountain" },
+    [680] = { x = 0.6422, y = 0.4194, worldX = 1893.3, worldY = 3092.6, continentID = 1220, node = "Crimson Thicket, Suramar" },
+    [739] = { x = 0.3646, y = 0.2782, worldX = 4634.3, worldY = 5339.4, continentID = 1220, node = "Trueshot Lodge, Highmountain" },
+    [790] = { x = 0.3825, y = 0.4592, worldX = -3362.3, worldY = 4823.0, continentID = 1220, node = "Eye of Azshara, Azsuna" },
+    [1187] = { x = 0.5617, y = 0.5896, worldX = -784.2, worldY = 6130.0, continentID = 1220, node = "Shackle's Den, Azsuna" },
     -- world map 1642
-    [862] = { x = 0.3473, y = 0.2955, worldX = -2303.2, worldY = -252.9, continentID = 1642, node = "Seeker's Outpost, Zuldazar" },
-    [863] = { x = 0.2194, y = 0.6106, worldX = 793.2, worldY = 1400.7, continentID = 1642, node = "Zul'jan, Nazmir" },
-    [864] = { x = 0.1614, y = 0.6027, worldX = 528.7, worldY = 3983.1, continentID = 1642, node = "Deadwood Cove, Vol'dun" },
-    [1165] = { x = 0.5879, y = 0.4835, worldX = -1036.0, worldY = 756.6, continentID = 1642, node = "The Great Seal" },
+    [862] = { x = 0.7045, y = 0.6527, worldX = -2303.2, worldY = -252.9, continentID = 1642, node = "Seeker's Outpost, Zuldazar" },
+    [863] = { x = 0.3894, y = 0.7806, worldX = 793.2, worldY = 1400.7, continentID = 1642, node = "Zul'jan, Nazmir" },
+    [864] = { x = 0.3973, y = 0.8386, worldX = 528.7, worldY = 3983.1, continentID = 1642, node = "Deadwood Cove, Vol'dun" },
+    [1165] = { x = 0.5165, y = 0.4121, worldX = -1036.0, worldY = 756.6, continentID = 1642, node = "The Great Seal" },
     -- world map 1643
-    [895] = { x = 0.5135, y = 0.2422, worldX = -93.7, worldY = -633.3, continentID = 1643, node = "Bridgeport, Tiragarde Sound" },
-    [896] = { x = 0.5917, y = 0.2895, worldX = -297.0, worldY = 1227.5, continentID = 1643, node = "Hangman's Point, Drustvar" },
-    [942] = { x = 0.6273, y = 0.5992, worldX = 3752.6, worldY = 1068.6, continentID = 1643, node = "Seekers Vista, Stormsong Valley" },
-    [1169] = { x = 0.0801, y = 0.6201, worldX = -80.0, worldY = -2648.4, continentID = 1643, node = "Tol Dagor, Tiragarde Sound" },
-    [1462] = { x = 0.7438, y = 0.2640, worldX = 3282.0, worldY = 4900.5, continentID = 1643, node = "Prospectus Bay, Mechagon" },
+    [895] = { x = 0.7578, y = 0.4865, worldX = -93.7, worldY = -633.3, continentID = 1643, node = "Bridgeport, Tiragarde Sound" },
+    [896] = { x = 0.7105, y = 0.4083, worldX = -297.0, worldY = 1227.5, continentID = 1643, node = "Hangman's Point, Drustvar" },
+    [942] = { x = 0.4008, y = 0.3727, worldX = 3752.6, worldY = 1068.6, continentID = 1643, node = "Seekers Vista, Stormsong Valley" },
+    [1169] = { x = 0.3799, y = 0.9199, worldX = -80.0, worldY = -2648.4, continentID = 1643, node = "Tol Dagor, Tiragarde Sound" },
+    [1462] = { x = 0.7360, y = 0.2562, worldX = 3282.0, worldY = 4900.5, continentID = 1643, node = "Prospectus Bay, Mechagon" },
     -- world map 1669
-    [830] = { x = 0.1309, y = 0.3801, worldX = 501.3, worldY = 1470.3, continentID = 1669, node = "Vindicaar, Krokuun" },
-    [882] = { x = 0.1282, y = 0.4834, worldX = 4728.6, worldY = 9862.5, continentID = 1669, node = "Vindicaar, Eredath" },
-    [885] = { x = 0.6265, y = 0.2414, worldX = -2636.1, worldY = 8699.9, continentID = 1669, node = "Vindicaar, Antoran Wastes" },
+    [830] = { x = 0.6199, y = 0.8691, worldX = 501.3, worldY = 1470.3, continentID = 1669, node = "Vindicaar, Krokuun" },
+    [882] = { x = 0.5166, y = 0.8718, worldX = 4728.6, worldY = 9862.5, continentID = 1669, node = "Vindicaar, Eredath" },
+    [885] = { x = 0.7586, y = 0.3735, worldX = -2636.1, worldY = 8699.9, continentID = 1669, node = "Vindicaar, Antoran Wastes" },
     -- world map 1718
-    [1355] = { x = 0.7505, y = 0.2580, worldX = 2077.9, worldY = -1566.3, continentID = 1718, node = "Kelya's Grave, Nazjatar" },
+    [1355] = { x = 0.7420, y = 0.2495, worldX = 2077.9, worldY = -1566.3, continentID = 1718, node = "Kelya's Grave, Nazjatar" },
     -- world map 2222
-    [1525] = { x = 0.3923, y = 0.3947, worldX = -2624.0, worldY = 6010.5, continentID = 2222, node = "Darkhaven, Revendreth" },
-    [1536] = { x = 0.4676, y = 0.5003, worldX = 2580.5, worldY = -2520.8, continentID = 2222, node = "Theater of Pain, Maldraxxus" },
-    [1565] = { x = 0.4895, y = 0.5361, worldX = -6788.6, worldY = 1006.8, continentID = 2222, node = "Heart of the Forest, Ardenweald" },
-    [1569] = { x = 0.6755, y = 0.5591, worldX = -2305.1, worldY = -4361.4, continentID = 2222, node = "Sagehaven, Bastion" },
+    [1525] = { x = 0.6053, y = 0.6077, worldX = -2624.0, worldY = 6010.5, continentID = 2222, node = "Darkhaven, Revendreth" },
+    [1536] = { x = 0.4997, y = 0.5324, worldX = 2580.5, worldY = -2520.8, continentID = 2222, node = "Theater of Pain, Maldraxxus" },
+    [1565] = { x = 0.4639, y = 0.5105, worldX = -6788.6, worldY = 1006.8, continentID = 2222, node = "Heart of the Forest, Ardenweald" },
+    [1569] = { x = 0.4409, y = 0.3245, worldX = -2305.1, worldY = -4361.4, continentID = 2222, node = "Sagehaven, Bastion" },
     -- world map 2374
-    [1970] = { x = 0.3496, y = 0.6439, worldX = -4213.0, worldY = 684.6, continentID = 2374, node = "Haven, Zereth Mortis" },
+    [1970] = { x = 0.3561, y = 0.6504, worldX = -4213.0, worldY = 684.6, continentID = 2374, node = "Haven, Zereth Mortis" },
     -- world map 2444
-    [2022] = { x = 0.3197, y = 0.4219, worldX = 1753.2, worldY = 42.1, continentID = 2444, node = "Ruby Life Pools, The Waking Shores" },
-    [2023] = { x = 0.5785, y = 0.3699, worldX = -706.5, worldY = 2048.9, continentID = 2444, node = "Maruukai, Ohn'ahran Plains" },
-    [2025] = { x = 0.3297, y = 0.4889, worldX = -318.0, worldY = -2056.0, continentID = 2444, node = "Gelikyr Post, Thaldraszus" },
-    [2112] = { x = 0.3209, y = 0.5553, worldX = -10.0, worldY = -844.2, continentID = 2444, node = "Valdrakken, Thaldraszus" },
-    [2151] = { x = 0.4082, y = 0.6426, worldX = 6407.7, worldY = -2560.3, continentID = 2444, node = "Morqut Village, The Forbidden Reach" },
+    [2022] = { x = 0.5781, y = 0.6803, worldX = 1753.2, worldY = 42.1, continentID = 2444, node = "Ruby Life Pools, The Waking Shores" },
+    [2023] = { x = 0.6301, y = 0.4215, worldX = -706.5, worldY = 2048.9, continentID = 2444, node = "Maruukai, Ohn'ahran Plains" },
+    [2025] = { x = 0.5111, y = 0.6703, worldX = -318.0, worldY = -2056.0, continentID = 2444, node = "Gelikyr Post, Thaldraszus" },
+    [2112] = { x = 0.4447, y = 0.6791, worldX = -10.0, worldY = -844.2, continentID = 2444, node = "Valdrakken, Thaldraszus" },
+    [2151] = { x = 0.3574, y = 0.5918, worldX = 6407.7, worldY = -2560.3, continentID = 2444, node = "Morqut Village, The Forbidden Reach" },
     -- world map 2454
-    [2133] = { x = 0.3211, y = 0.5969, worldX = -959.3, worldY = 3140.2, continentID = 2454, node = "Dragonscale Camp, Zaralek Cavern" },
+    [2133] = { x = 0.4031, y = 0.6789, worldX = -959.3, worldY = 3140.2, continentID = 2454, node = "Dragonscale Camp, Zaralek Cavern" },
     -- world map 2552
-    [2271] = { x = 0.2147, y = 0.6178, worldX = 985.5, worldY = -1847.6, continentID = 2552, node = "Freywold Village, Isle of Dorn" },
-    [2339] = { x = 0.4896, y = 0.5524, worldX = 2585.4, worldY = -2473.3, continentID = 2552, node = "Dornogal, Isle of Dorn" },
+    [2271] = { x = 0.3822, y = 0.7853, worldX = 985.5, worldY = -1847.6, continentID = 2552, node = "Freywold Village, Isle of Dorn" },
+    [2339] = { x = 0.4476, y = 0.5104, worldX = 2585.4, worldY = -2473.3, continentID = 2552, node = "Dornogal, Isle of Dorn" },
     -- world map 2601
-    [2255] = { x = 0.4886, y = 0.7680, worldX = -796.0, worldY = 876.1, continentID = 2601, node = "Wildcamp Or'lay, Azj-Kahet" },
-    [2272] = { x = 0.6565, y = 0.6157, worldX = 2224.3, worldY = -2735.8, continentID = 2601, node = "Gundargaz, The Ringing Deeps" },
-    [2273] = { x = 0.1990, y = 0.4561, worldX = 1552.8, worldY = 10.9, continentID = 2601, node = "Lightspark, Hallowfall" },
+    [2255] = { x = 0.2320, y = 0.5114, worldX = -796.0, worldY = 876.1, continentID = 2601, node = "Wildcamp Or'lay, Azj-Kahet" },
+    [2272] = { x = 0.3843, y = 0.3435, worldX = 2224.3, worldY = -2735.8, continentID = 2601, node = "Gundargaz, The Ringing Deeps" },
+    [2273] = { x = 0.5439, y = 0.8010, worldX = 1552.8, worldY = 10.9, continentID = 2601, node = "Lightspark, Hallowfall" },
     -- world map 2694
-    [2480] = { x = 0.4740, y = 0.3064, worldX = -128.2, worldY = -1673.3, continentID = 2694, node = "Har'athir, Harandar" },
+    [2480] = { x = 0.6936, y = 0.5260, worldX = -128.2, worldY = -1673.3, continentID = 2694, node = "Har'athir, Harandar" },
     -- world map 2706
-    [2346] = { x = 0.5380, y = 0.5707, worldX = 65.6, worldY = 535.8, continentID = 2706, node = "The Incontinental Hotel" },
+    [2346] = { x = 0.4293, y = 0.4620, worldX = 65.6, worldY = 535.8, continentID = 2706, node = "The Incontinental Hotel" },
     -- world map 2735
-    [2352] = { x = 0.5503, y = 0.5665, worldX = 3146.4, worldY = 599.0, continentID = 2735, node = "Small Aerie, Founder's Point" },
+    [2352] = { x = 0.4335, y = 0.4497, worldX = 3146.4, worldY = 599.0, continentID = 2735, node = "Small Aerie, Founder's Point" },
     -- world map 2736
-    [2351] = { x = 0.2811, y = 0.4082, worldX = 1067.3, worldY = -169.3, continentID = 2736, node = "The Bloom, Razorwind Shores" },
+    [2351] = { x = 0.5918, y = 0.7189, worldX = 1067.3, worldY = -169.3, continentID = 2736, node = "The Bloom, Razorwind Shores" },
     -- world map 2738
-    [2371] = { x = 0.7090, y = 0.3945, worldX = 1610.1, worldY = 227.2, continentID = 2738, node = "Shan'dorah, K'aresh" },
-    [2472] = { x = 0.4278, y = 0.5305, worldX = -1206.7, worldY = -217.3, continentID = 2738, node = "Tazavesh, the Veiled Market" },
+    [2371] = { x = 0.6055, y = 0.2910, worldX = 1610.1, worldY = 227.2, continentID = 2738, node = "Shan'dorah, K'aresh" },
+    [2472] = { x = 0.4695, y = 0.5722, worldX = -1206.7, worldY = -217.3, continentID = 2738, node = "Tazavesh, the Veiled Market" },
     -- world map 2771
-    [2405] = { x = 0.4110, y = 0.6310, worldX = 1661.9, worldY = 1050.3, continentID = 2771, node = "The Ingress, Voidstorm" },
+    [2405] = { x = 0.3690, y = 0.5890, worldX = 1661.9, worldY = 1050.3, continentID = 2771, node = "The Ingress, Voidstorm" },
     -- world map 3047
-    [2599] = { x = 0.8398, y = 0.3920, worldX = -3848.8, worldY = 445.9, continentID = 3047, node = "Umbral Base Camp" },
+    [2599] = { x = 0.6080, y = 0.1602, worldX = -3848.8, worldY = 445.9, continentID = 3047, node = "Umbral Base Camp" },
     -- world map 3075
-    [2600] = { x = 0.1710, y = 0.5333, worldX = -2180.0, worldY = -1709.0, continentID = 3075, node = "Umbral Base Camp" },
+    [2600] = { x = 0.4667, y = 0.8290, worldX = -2180.0, worldY = -1709.0, continentID = 3075, node = "Umbral Base Camp" },
 }
