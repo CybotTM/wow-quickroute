@@ -237,6 +237,16 @@ function PathCalculator:BuildGraph()
     -- Portal destinations and dungeon entrances may be the only node on their
     -- map, leaving them isolated. Give each one a hub/continent edge so
     -- Dijkstra can traverse across maps.
+    -- The player node last, once every other node and edge exists.
+    success, err = pcall(function()
+        self:ConnectPlayerNode()
+    end)
+    if not success then
+        QR:Error("ConnectPlayerNode failed: " .. tostring(err))
+        buildSuccess = false
+        buildError = buildError or err
+    end
+
     success, err = pcall(function()
         self:ConnectIslandNodes()
     end)
@@ -1217,6 +1227,25 @@ function PathCalculator:AddDungeonTeleportEdges()
     if added > 0 then
         QR:Debug(string_format("PathCalculator: %d dungeon teleport edge(s)", added))
     end
+end
+
+--- Give the player node its position-derived edges at build time.
+-- Without this the player is only connected by whatever teleports they own.
+-- ConnectSameMapNodes reaches them only when another node shares their map, and
+-- ConnectIslandNodes skips them by name, so a character with no teleports
+-- standing somewhere with no other node -- Thunder Bluff, Warspear, most of
+-- Pandaria and Draenor -- had a player node with zero edges and no route
+-- anywhere until they happened to move, because ReconnectPlayerNode is the only
+-- other caller and it is gated on the position having changed.
+--
+-- Measured on the tree before this change: 29 of the 153 zones in
+-- ZoneAdjacencies could not route a teleport-less character to Stormwind.
+function PathCalculator:ConnectPlayerNode()
+    local nodeData = self.graph.nodes[PLAYER_NODE]
+    if not nodeData or not nodeData.mapID then
+        return
+    end
+    self:ConnectNearbyNodes(PLAYER_NODE, nodeData.mapID, nodeData.x, nodeData.y)
 end
 
 --- Connect island nodes that lack cross-map edges
