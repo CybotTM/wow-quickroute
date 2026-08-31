@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- A pandaren who picks a faction is routed as that faction straight away. The addon read the faction once and kept the answer, so a character who chose Horde was routed as neutral until the next reload.
+
 ## [1.14.0] - 2026-08-31
 
 ### Fixed

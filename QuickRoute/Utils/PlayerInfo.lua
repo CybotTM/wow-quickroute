@@ -25,12 +25,24 @@ local cachedHasEngineering = nil
 -- Engineering skill line ID (works for all locales)
 local ENGINEERING_SKILL_LINE_ID = 202
 
---- Get player faction as "Alliance" or "Horde" (cached)
--- @return string "Alliance" or "Horde"
+--- Get player faction as "Alliance", "Horde" or "Neutral" (cached, with one
+--- exception).
+--
+-- "Neutral" is the only value that can change while the player is logged in: a
+-- pandaren begins neutral and picks a side at the end of the starting
+-- experience. So it is deliberately not cached, and every other value is,
+-- exactly as before. That needs no event registration and no guess at which
+-- event fires -- which matters, because the addon registers no faction events
+-- and nothing in it ever called InvalidateCache.
+--
+-- Without this a pandaren who chose Horde kept "Neutral" for the rest of the
+-- session, and every faction-gated decision was made for the wrong character.
+-- @return string "Alliance", "Horde" or "Neutral"
 function PlayerInfo:GetFaction()
-    if not cachedFaction then
-        cachedFaction = UnitFactionGroup("player") or "Alliance"
+    if cachedFaction and cachedFaction ~= "Neutral" then
+        return cachedFaction
     end
+    cachedFaction = UnitFactionGroup("player") or "Alliance"
     return cachedFaction
 end
 
