@@ -4,6 +4,7 @@
 
 ### Fixed
 - Two test files left shared state behind, so the suite passed in one file order and failed in others: a mock frame method deleted rather than restored, and two saved-variables keys. CI now runs both orders.
+- The last-resort node connection in continent routing took whichever candidate Lua's hash order yielded, behind variables named as if it searched for the cheapest. It is deterministic now.
 
 ## [1.11.0] - 2026-08-31
 
