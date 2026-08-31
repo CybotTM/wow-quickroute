@@ -2534,7 +2534,7 @@ T:run("A reverse-direction flight step navigates to the right flight master", fu
     for _, step in ipairs(route.steps or {}) do
         if step.type == "flight" then
             checked = checked + 1
-            local master = QR.FlightPoints[step.fromMapID]
+            local master = QR.PathCalculator:FlightPointFor(step.fromMapID)
             t:assertEqual(step.fromMapID, step.navMapID,
                 "the waypoint is in the zone the player is standing in (nav "
                     .. tostring(step.navMapID) .. ", from " .. tostring(step.fromMapID) .. ")")
@@ -2579,7 +2579,7 @@ T:run("A flight step navigates to the flight master, not the destination", funct
         -- ranked highest on that map, which for the Badlands is a dungeon
         -- entrance 0.48 of the zone from Fuselight -- the right map, the wrong
         -- building, and the player is told to fly from it.
-        local master = QR.FlightPoints[flightStep.fromMapID]
+        local master = QR.PathCalculator:FlightPointFor(flightStep.fromMapID)
         t:assertNotNil(master, "the departure zone has a flight master on file")
         if master then
             local dx = (flightStep.navX or 0) - master.x
