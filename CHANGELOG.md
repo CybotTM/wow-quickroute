@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Added
-- Flight paths are part of the travel graph. 166 zones with a flight master, positioned from the client's own tables, connected where the player has discovered them. The Hinterlands to Stormwind drops from 510 to 226 seconds for a character with no teleports.
+- Flight paths are part of the travel graph. 136 zones with a flight master, positioned from the client's own tables and connected where the player has discovered them. Measured for a character with no teleports routing to Stormwind: 16 zones get a faster route and none get a slower one; Tanaris drops from 855 to 542 seconds.
 
 ## [1.12.0] - 2026-08-31
 

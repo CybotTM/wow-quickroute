@@ -1256,7 +1256,6 @@ function PathCalculator:GetKnownFlightZones()
     end
 
     local known = {}
-    local found = false
     for uiMapID in pairs(QR.FlightPoints or {}) do
         local ok, nodes = pcall(C_TaxiMap.GetAllTaxiNodes, uiMapID)
         if ok and type(nodes) == "table" then
@@ -1265,23 +1264,101 @@ function PathCalculator:GetKnownFlightZones()
                 -- else is one they can fly from or to.
                 if node.state and node.state ~= 0 then
                     known[uiMapID] = true
-                    found = true
                     break
                 end
             end
         end
     end
-    if not found then
-        return nil
-    end
+    -- Empty on purpose when the client answered and the player has discovered
+    -- nothing: that is "they have none", which AddFlightEdges handles by
+    -- writing no edges. Only an absent API returns nil above.
     return known
 end
 
+--- The graph node a zone's flight edges attach to.
+-- NodesOnMap yields whatever pairs() order the node table happens to have, so
+-- taking its first element makes the graph depend on hash order: adding an
+-- unrelated teleport rehashes the table and re-anchors flight edges on maps
+-- that have nothing to do with it. Sorting fixes that.
+--
+-- The player node is excluded outright. It carries the position the graph was
+-- built at, and ReconnectPlayerNode drops only walk and travel edges when the
+-- player moves -- a flight edge would survive the move and price a flight from
+-- a zone the player has left, which is a route that cannot be taken rather
+-- than merely a bad estimate.
+--
+-- A zone node is preferred over a dungeon node so the edge lands on the zone
+-- the flight master is in rather than on an instance portal inside it.
+function PathCalculator:FlightAnchorForMap(mapID)
+    local candidates = {}
+    for _, name in ipairs(self:NodesOnMap(mapID)) do
+        if name ~= PLAYER_NODE then
+            candidates[#candidates + 1] = name
+        end
+    end
+    if #candidates == 0 then
+        return nil
+    end
+    table_sort(candidates, function(a, b)
+        local aDungeon = a:sub(1, 9) == "Dungeon: "
+        local bDungeon = b:sub(1, 9) == "Dungeon: "
+        if aDungeon ~= bDungeon then
+            return bDungeon
+        end
+        return a < b
+    end)
+    return candidates[1]
+end
+
+--- True when two flight zones are on the same taxi network.
+-- Sharing a world map (continentID) is necessary but not sufficient. World map
+-- 530 holds Outland and the Burning Crusade starting zones together, because
+-- they share a coordinate space, and they are not one flight network -- without
+-- the second test the graph offered 50 flights that cannot be taken, including
+-- Azuremyst Isle to Shattrath. The addon's own continent is the second opinion,
+-- and it is the same notion the rest of the routing uses.
+local function SameFlightNetwork(a, b)
+    if a.point.continentID ~= b.point.continentID then
+        return false
+    end
+    local ca = QR.GetContinentForZone and QR.GetContinentForZone(a.mapID)
+    local cb = QR.GetContinentForZone and QR.GetContinentForZone(b.mapID)
+    if ca and cb then
+        return ca == cb
+    end
+    return true
+end
+
+--- Write one direction of a flight edge, if it is allowed and worth writing.
+--
+-- The teleport guard below is defence in depth, not covered code, and the same
+-- kind as the backward half of HasTeleportEdge. Teleport edges are only ever
+-- written PLAYER_NODE -> destination, and FlightAnchorForMap excludes the
+-- player node, so no flight write can currently meet one: replacing the guard
+-- with `true` reddens nothing. It is kept for the case where a future anchor
+-- rule does reach a teleport destination from the other side.
+-- @return boolean true when an edge was written
+function PathCalculator:WriteFlightEdge(from, to, seconds, data)
+    if not CanOverwriteWithWalk(self.graph, from, to) then
+        return false
+    end
+    local existing = self.graph:GetEdge(from, to)
+    -- Flying is only worth an edge where it beats what is already there;
+    -- otherwise it clutters the graph with a slower alternative Dijkstra would
+    -- never take, and -- worse -- discards the portal or transport data the
+    -- edge it replaced was carrying.
+    if existing and seconds >= existing.weight then
+        return false
+    end
+    self.graph:AddEdge(from, to, seconds, "flight", data)
+    return true
+end
+
 --- Connect the zones the player can fly between.
--- Two flight zones are connected exactly when they share a world map, which is
--- what continentID records: from any flight master the game auto-routes
--- multi-hop to every point you have discovered on that map, so the per-path
--- topology adds nothing at this granularity.
+-- Two flight zones are connected when they share both a world map and the
+-- addon's own continent: from any flight master the game auto-routes multi-hop
+-- to every point you have discovered on that map, so the per-path topology adds
+-- nothing at this granularity.
 --
 -- The weight is the real distance between the two flight points divided by
 -- FLIGHT_SPEED, plus a fixed overhead for talking to the flight master and the
@@ -1312,26 +1389,31 @@ function PathCalculator:AddFlightEdges()
     for i = 1, #usable do
         for j = i + 1, #usable do
             local a, b = usable[i], usable[j]
-            if a.point.continentID == b.point.continentID then
-                local nodeA = self:NodesOnMap(a.mapID)[1]
-                local nodeB = self:NodesOnMap(b.mapID)[1]
-                if nodeA and nodeB and nodeA ~= nodeB
-                    and CanOverwriteWithWalk(self.graph, nodeA, nodeB) then
+            if SameFlightNetwork(a, b) then
+                local nodeA = self:FlightAnchorForMap(a.mapID)
+                local nodeB = self:FlightAnchorForMap(b.mapID)
+                if nodeA and nodeB and nodeA ~= nodeB then
                     local dx = a.point.worldX - b.point.worldX
                     local dy = a.point.worldY - b.point.worldY
                     local yards = math_sqrt(dx * dx + dy * dy)
                     local seconds = overhead + yards / speed
-                    local existing = self.graph:GetEdge(nodeA, nodeB)
-                    -- Flying is only worth an edge where it beats what is
-                    -- already there; otherwise it clutters the graph with a
-                    -- slower alternative Dijkstra would never take.
-                    if not existing or seconds < existing.weight then
-                        self.graph:AddBidirectionalEdge(nodeA, nodeB, seconds, "flight", {
-                            fromMapID = a.mapID,
-                            toMapID = b.mapID,
-                            fromNode = a.point.node,
-                            toNode = b.point.node,
-                        })
+                    local data = {
+                        fromMapID = a.mapID,
+                        toMapID = b.mapID,
+                        fromNode = a.point.node,
+                        toNode = b.point.node,
+                    }
+                    -- Each direction is decided on its own. The graph holds one
+                    -- edge per ordered pair and portals and one-way transports
+                    -- are written unpaired, so a bidirectional write guarded by
+                    -- the forward edge alone replaces a portal nobody looked at:
+                    -- Valdrakken -> The Waking Shores went from a 10s portal to
+                    -- a 101s flight that way, because the guard checked the
+                    -- other direction.
+                    if self:WriteFlightEdge(nodeA, nodeB, seconds, data) then
+                        added = added + 1
+                    end
+                    if self:WriteFlightEdge(nodeB, nodeA, seconds, data) then
                         added = added + 1
                     end
                 end
@@ -1500,6 +1582,11 @@ function PathCalculator:BuildSteps(path, edges)
             step.action = string_format(L["STEP_TAKE_ZEPPELIN"], localizedToNode)
         elseif edge.edgeType == "tram" then
             step.action = string_format(L["STEP_TAKE_TRAM"], localizedToNode)
+        elseif edge.edgeType == "flight" then
+            -- ACTION_FLY_TO already exists in every locale because the route
+            -- list uses it; without this branch a flight leg fell through to
+            -- STEP_GO_TO and every text surface but that list read "Go to X".
+            step.action = string_format(L["ACTION_FLY_TO"], localizedToNode)
         else
             step.action = string_format(L["STEP_GO_TO"], localizedToNode)
         end
@@ -1512,8 +1599,11 @@ function PathCalculator:BuildSteps(path, edges)
         step.navY = step.destY
         step.navTitle = toNode
 
+        -- A flight starts at the flight master, so navigation points at the
+        -- from node like every other boarded transport, not at the destination.
         if edge.edgeType == "portal" or edge.edgeType == "boat"
-            or edge.edgeType == "zeppelin" or edge.edgeType == "tram" then
+            or edge.edgeType == "zeppelin" or edge.edgeType == "tram"
+            or edge.edgeType == "flight" then
             if fromNodeData then
                 step.navMapID = fromNodeData.mapID
                 step.navX = fromNodeData.x or 0.5
