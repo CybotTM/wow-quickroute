@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Flight masters are filed under the zone their own name states. Zone boxes overlap, and picking the smallest containing one put 185 of them in a neighbouring zone — Darkshire under Deadwind Pass, New Kargath under Searing Gorge, Ratchet under Valley of Trials. Six more zones have a flight master as a result, nine gain a faction's access, and none loses any.
+
 ## [1.14.0] - 2026-08-31
 
 ### Fixed

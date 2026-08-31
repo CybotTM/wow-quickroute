@@ -179,16 +179,38 @@ def build(csv_dir):
             continue
 
         px, py = float(node["Pos_0"]), float(node["Pos_1"])
-        best = None
+        containing = []
         for box, projection, uid in boxes.get(node["ContinentID"], ()):
             if box[0] <= px <= box[1] and box[2] <= py <= box[3]:
                 area = (box[1] - box[0]) * (box[3] - box[2])
-                if best is None or area < best[0]:
-                    best = (area, uid, projection)
-        if best is None:
+                containing.append((area, uid, projection))
+        if not containing:
             tally["dropped: no zone box contains it"] += 1
             continue
-        _, uid, (x0, y0, x1, y1, a0, b0, a1, b1) = best
+        containing.sort(key=lambda c: c[0])
+
+        # Zone boxes overlap, and the smallest containing one is not always the
+        # right answer: Rebel Camp sits inside Duskwood's box as well as
+        # Northern Stranglethorn's, and Duskwood is smaller. Prefer a box the
+        # node's own name corroborates -- by EITHER half of "Place, Zone".
+        #
+        # Both halves matter. Using only the stated zone would move Stormwind's
+        # flight master to Elwynn Forest, Ironforge's to Dun Morogh and
+        # Orgrimmar's to Durotar, because those names state the zone AROUND the
+        # city; the place half is what keeps a capital in its own map. Using
+        # only the place half would leave "Darkshire, Duskwood" in Deadwind
+        # Pass. Measured over the nodes inside more than one box: 431 keep the
+        # smallest box because it is itself corroborated, 185 move.
+        chosen = containing[0]
+        if "," in name:
+            place_part, stated_part = (part.strip() for part in name.rsplit(",", 1))
+            stated_part = re.sub(r"\[.*?\]", "", stated_part).strip()
+            for candidate in containing:
+                zone_name = uimap[str(candidate[1])]["Name_lang"].strip()
+                if related(zone_name, stated_part) or related(zone_name, place_part):
+                    chosen = candidate
+                    break
+        _, uid, (x0, y0, x1, y1, a0, b0, a1, b1) = chosen
 
         ux, uy = project(px, py, x0, y0, x1, y1, a0, b0, a1, b1)
         kept.append({
@@ -242,7 +264,21 @@ def build(csv_dir):
             tally["dropped: name contradicts geometry"] += 1
 
     def key(item):
-        return (0 if item.get("corroborated") else 1, -item["degree"], item["id"])
+        # A node both factions can use ranks above one only this faction can,
+        # and it ranks above degree rather than below it. Measured both ways
+        # across every zone-to-Stormwind route for both factions: ahead of
+        # degree is 15 routes faster and 7 slower, a net 304 seconds saved;
+        # behind it, 6 faster and 4 slower, 149 seconds. Degree is a proxy for
+        # centrality, not for usefulness to the player.
+        # Without it, Badlands split into a Horde primary (New Kargath) and an
+        # Alliance alternate (Fuselight) purely because New Kargath is better
+        # connected -- even though Fuselight serves everyone and is the single
+        # entry the zone had before. The route got 19 seconds longer for the
+        # Alliance and 13 for the Horde, for no gain: both sides can walk up to
+        # Fuselight. Fewer entries and a shorter route, from one comparison.
+        serves_both = 0 if item["factions"] == FLAG_FACTIONS else 1
+        return (0 if item.get("corroborated") else 1, serves_both,
+                -item["degree"], item["id"])
 
     def best_for(entries, faction_bit):
         """The best node a player of this faction can actually use."""

@@ -248,6 +248,56 @@ class FilterTest(FixtureMixin, unittest.TestCase):
         self.assertEqual(result[self.ZONE_A]["name"], "Havenhold, Alpha Vale")
 
 
+    def test_the_name_picks_the_box_when_the_smallest_disagrees(self):
+        # Zone boxes overlap. Rebel Camp sits inside Duskwood's box as well as
+        # Northern Stranglethorn's, and Duskwood's is smaller -- so the
+        # smallest-wins rule filed it under Duskwood and the name check then
+        # threw it away. Here Gamma Hold is the smaller box and the node says
+        # it is in Beta Reach; the name has to win.
+        result = self.resolve([
+            self.node(1, "Waypost, Beta Reach", 250, 250),
+            self.node(2, "Havenhold, Alpha Vale", 50, 50),
+            self.node(3, "Outpost, Alpha Vale", 60, 60),
+        ])
+        self.assertIn(self.ZONE_B, result)
+        self.assertEqual("Waypost, Beta Reach", result[self.ZONE_B]["name"])
+        self.assertNotIn(self.ZONE_C, result)
+
+    def test_a_city_keeps_its_own_box_against_the_zone_it_names(self):
+        # The other half, and the reason the name cannot simply win: a capital
+        # states the zone AROUND it. "Gamma Hold, Beta Reach" is in Gamma Hold,
+        # the smaller box, and using only the stated zone would move Stormwind
+        # to Elwynn Forest, Ironforge to Dun Morogh and Orgrimmar to Durotar.
+        # The place half is what holds them in place.
+        result = self.resolve([
+            self.node(1, "Gamma Hold, Beta Reach", 250, 250),
+            self.node(2, "Havenhold, Alpha Vale", 50, 50),
+            self.node(3, "Outpost, Alpha Vale", 60, 60),
+        ])
+        self.assertIn(self.ZONE_C, result)
+        self.assertNotIn(self.ZONE_B, result)
+
+    def test_a_node_both_factions_use_beats_a_better_connected_one(self):
+        # Badlands: Fuselight serves everyone, New Kargath is Horde-only and
+        # better connected. Ranking by degree alone split the zone into a Horde
+        # primary and an Alliance alternate for no gain -- both sides can walk
+        # up to Fuselight -- and cost 19 seconds on the Alliance route.
+        rows = [
+            self.node(1, "Bothpost, Alpha Vale", 50, 50, flags="3"),
+            self.node(2, "Hordepost, Alpha Vale", 60, 60, flags="2"),
+            self.node(3, "Farpost, Beta Reach", 250, 250),
+            self.node(4, "Waypost, Beta Reach", 260, 260),
+        ]
+        # Hordepost is the better connected of the two in Alpha Vale.
+        paths = [{"FromTaxiNode": "2", "ToTaxiNode": t} for t in ("1", "3", "4")]
+        paths += [{"FromTaxiNode": "1", "ToTaxiNode": "3"}]
+        paths += [{"FromTaxiNode": "3", "ToTaxiNode": "4"}]
+        result = self.resolve(rows, paths)
+        entry = result[self.ZONE_A]
+        self.assertEqual("Bothpost, Alpha Vale", entry["name"])
+        self.assertEqual("both", entry["faction"])
+        self.assertIsNone(entry["alt"], "one node serves everyone, so no split")
+
     def test_the_smallest_containing_zone_wins(self):
         # (250, 250) is inside Beta Reach and inside the smaller Gamma Hold
         # nested in it. The smaller box is the answer; taking the larger one
