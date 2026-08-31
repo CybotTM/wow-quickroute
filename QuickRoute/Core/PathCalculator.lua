@@ -1106,29 +1106,45 @@ function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
             end
         end
 
-        -- Fallback: if no hub/city nodes found, connect to single best node.
+        -- Fallback: no hub or city was connected, so attach the node to one
+        -- other node rather than leaving it isolated.
+        --
+        -- Every candidate costs the same. This branch runs only when the node
+        -- has no continent the hub pass could price against, so there is
+        -- nothing to compare and no cheapest to find -- the previous shape
+        -- looked like a search (bestNode, bestTime, a < comparison) while the
+        -- compared value was the constant CROSS_CONTINENT_TIME, so it always
+        -- took whichever name pairs() happened to yield first. That is Lua hash
+        -- order: not stable between runs, and not reproducible from a bug
+        -- report. Sorting picks the same node every time; it is for
+        -- determinism, not for optimality.
+        --
         -- Candidates the overwrite rules refuse are skipped rather than
-        -- overwritten: this branch was the one write in the whole strategy
-        -- without that check, so it replaced measured walk edges and teleport
-        -- edges with a flat 300-second estimate. When every candidate is
-        -- refused there is nothing to do -- the node already has real edges to
-        -- them, which is the opposite of isolated.
+        -- overwritten: this was the one write in the whole strategy without
+        -- that check, so it replaced measured walk edges and teleport edges
+        -- with a flat estimate. When every candidate is refused there is
+        -- nothing to do -- the node already has real edges to them, which is
+        -- the opposite of isolated.
+        --
+        -- Not reached by any graph the addon builds: instrumented over 612
+        -- builds (every zone in ZoneAdjacencies, both factions, with and
+        -- without class portals) the branch was entered 0 times. It is kept as
+        -- defence in depth against a data change that leaves a node with no
+        -- continent, which is exactly the state it exists for.
         if connectCount == 0 then
-            local bestNode, bestTime = nil, math_huge
+            local eligible = {}
             for otherName, otherData in pairs(self.graph.nodes) do
                 if otherName ~= nodeName and otherData.mapID
                     and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
-                    local baseTime = CROSS_CONTINENT_TIME
-                    if baseTime < bestTime then
-                        bestTime = baseTime
-                        bestNode = otherName
-                    end
+                    eligible[#eligible + 1] = otherName
                 end
             end
+            table_sort(eligible)
+            local bestNode = eligible[1]
             if bestNode then
                 local bestData = self.graph.nodes[bestNode]
                 local otherContinent = QR.GetContinentForZone and QR.GetContinentForZone(bestData.mapID)
-                self.graph:AddBidirectionalEdge(nodeName, bestNode, bestTime, "travel", {
+                self.graph:AddBidirectionalEdge(nodeName, bestNode, CROSS_CONTINENT_TIME, "travel", {
                     note = "Cross-continent travel (fallback)",
                     fromMapID = mapID,
                     toMapID = bestData.mapID,

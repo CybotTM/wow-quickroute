@@ -1547,3 +1547,40 @@ T:run("Strategy 4 connects an unreachable node without a sub-second edge", funct
     t:assertEqual(0, #tooCheap,
         "no edge is under a second (" .. table.concat(tooCheap, ", ") .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- The last-resort fallback picks the same node every time
+-------------------------------------------------------------------------------
+
+-- Regression: the fallback read like a search -- bestNode, bestTime, a "<"
+-- comparison -- while the value compared was the constant CROSS_CONTINENT_TIME,
+-- so the condition was true exactly once and the node taken was whichever name
+-- pairs() yielded first. That is Lua hash order: it can differ between runs and
+-- between clients, and a bug report naming a route through it is not
+-- reproducible. Every candidate really does cost the same here, so the fix is
+-- determinism rather than a cheapest-first search.
+T:run("Strategy 4 fallback picks the lexicographically first candidate", function(t)
+    local graph = scratchGraph()
+    -- Map 99999 has no continent, so strategies 1-3 cannot connect it. The
+    -- candidates are plain zone nodes, not hubs or cities, so the hub pass
+    -- writes nothing and the fallback is what runs.
+    graph:AddNode("Orphan", { mapID = 99999, x = 0.5, y = 0.5, nodeType = "zone" })
+    local names = { "Zeta Outpost", "Alpha Landing", "Mid Station", "Beta Camp" }
+    for i, name in ipairs(names) do
+        graph:AddNode(name, { mapID = 84, x = 0.1 * i, y = 0.2, nodeType = "zone" })
+    end
+    QR.PathCalculator:BuildNodeIndex()
+
+    QR.PathCalculator:ConnectViaContinentRouting("Orphan", 99999, 0.5, 0.5)
+
+    local written = {}
+    for to, edge in pairs(graph.edges["Orphan"] or {}) do
+        written[#written + 1] = to
+        t:assertEqual("travel", edge.edgeType, "the fallback writes a travel edge")
+    end
+    t:assertEqual(1, #written,
+        "exactly one node is connected (got: " .. table.concat(written, ", ") .. ")")
+    t:assertEqual("Alpha Landing", written[1],
+        "and it is the lexicographically first candidate, not whichever the "
+            .. "hash order yielded (got: " .. tostring(written[1]) .. ")")
+end)
