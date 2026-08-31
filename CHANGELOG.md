@@ -4,6 +4,7 @@
 
 ### Fixed
 - Zen Pilgrimage sends Monks to Kun-Lai Summit, where it actually lands. It pointed at a Karazhan instance floor on another continent, and now carries the landing position rather than the middle of the zone.
+- Dalaran is one place in the route graph again. Three teleports and a mage portal called their destination "Dalaran (Legion)" while the rest of the addon called the same spot "Dalaran (Broken Isles)", so anyone holding a Dalaran teleport got two nodes at identical coordinates with the portals attached to one and the teleport to the other.
 
 ## [1.15.0] - 2026-08-31
 

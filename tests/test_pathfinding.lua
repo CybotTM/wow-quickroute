@@ -2127,6 +2127,52 @@ T:run("Undiscovered flight points do not count as discovered", function(t)
     _G.C_TaxiMap = saved
 end)
 
+T:run("No two nodes describe the same spot under different names", function(t)
+    -- A teleport's destination string becomes a graph node name, and three
+    -- Dalaran teleports said "Dalaran (Legion)" while the capital-city table
+    -- and the portal data said "Dalaran (Broken Isles)" -- same map 627, same
+    -- (0.5044, 0.5313). A player holding any of them got two nodes at one
+    -- point, with the portals attached to one and the teleport to the other.
+    --
+    -- Two exclusions, both deliberate. Dungeon entrances share a map and a
+    -- single entrance coordinate by design. Transport endpoints -- the
+    -- "(Start)" and "(End)" nodes -- sit on the place they serve on purpose,
+    -- so "Hallowfall to Dornogal (End)" coinciding with Dornogal is the model
+    -- working, not a duplicate. That is a pre-existing shape this test does
+    -- not judge; what it judges is a teleport destination inventing a second
+    -- name for a place the graph already names.
+    resetState()
+    MockWoW.config.playerClass = "MAGE"
+    MockWoW.config.knownSpells = { [3561] = true, [3562] = true, [3565] = true,
+                                   [33690] = true, [224869] = true, [53140] = true }
+    QR.PlayerInventory:ScanAll()
+    QR.PathCalculator.graph = nil
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+
+    local bySpot, clash = {}, nil
+    for name, data in pairs(QR.PathCalculator.graph.nodes or {}) do
+        -- (0.5, 0.5) is the addon's "position unknown" placeholder, not a
+        -- place: two portals whose source coordinates are both unknown are not
+        -- the same spot, they are two unknowns.
+        local placeholder = math.abs(data.x - 0.5) < 1e-9 and math.abs(data.y - 0.5) < 1e-9
+        if data.mapID and data.x and data.y and name ~= "Player Location"
+            and name:sub(1, 9) ~= "Dungeon: " and not placeholder
+            and not name:find("%(Start%)$") and not name:find("%(End%)$") then
+            local key = string.format("%d:%.4f:%.4f", data.mapID, data.x, data.y)
+            if bySpot[key] and bySpot[key] ~= name and not clash then
+                clash = string.format("map %d at (%.4f, %.4f) is both %q and %q",
+                    data.mapID, data.x, data.y, bySpot[key], name)
+            end
+            bySpot[key] = name
+        end
+    end
+    t:assertEqual(nil, clash, "one spot, one name: " .. tostring(clash))
+
+    MockWoW.config.knownSpells = {}
+    QR.PlayerInventory:ScanAll()
+end)
+
 T:run("Every step's waypoint takes its map and its coordinates from one place", function(t)
     -- Three lines in BuildSteps set navMapID, navX and navY, and until now
     -- nothing checked they agree: a map from one node and coordinates from
