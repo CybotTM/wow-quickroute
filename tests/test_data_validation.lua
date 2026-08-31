@@ -1422,21 +1422,58 @@ T:run("Data: FlightPoints coordinates agree with a surveyed landmark", function(
     -- unit square is still the unit square, so that check passed on all 134
     -- wrong entries.
     --
-    -- Stormwind is the anchor because this repo surveys it independently:
-    -- ServicePOIs puts two Trade District services within about a tenth of the
-    -- map of the flight master. The tolerance is loose on purpose -- these are
-    -- different buildings, not the same point -- but the transposed value was
-    -- 0.54 away, five times the bound.
-    local point = QR.FlightPoints and QR.FlightPoints[84]
-    t:assertNotNil(point, "Stormwind City has a flight point")
-    if not point then return end
-    local anchorX, anchorY = 0.6105, 0.7064   -- ServicePOIs, Stormwind auction house
-    local dx, dy = point.x - anchorX, point.y - anchorY
-    local apart = math.sqrt(dx * dx + dy * dy)
-    t:assert(apart < 0.25, string.format(
-        "the Stormwind flight point is near the surveyed city services "
-        .. "(%.4f, %.4f) vs (%.4f, %.4f), %.3f apart",
-        point.x, point.y, anchorX, anchorY, apart))
+    -- Two anchors, because one is not enough. Stormwind's flight point sits
+    -- almost on the diagonal (0.7098 vs 0.7297), so swapping the axes without
+    -- mirroring moves it 0.028 and slips past any tolerance worth having.
+    -- Undercity's does not, and this repo surveys its bank to within 0.009 of
+    -- the flight master, which is tight enough to see a transposition. The
+    -- Stormwind bound is 0.25 against a defect that measured 0.538 -- only
+    -- 2.15x, so it is the loose one of the two, not the strict one.
+    --
+    -- The tolerances differ because the anchors do: these are surveyed
+    -- buildings, not the flight masters themselves, and Stormwind's are a
+    -- tenth of the map away while Undercity's is on top of it.
+    local anchors = {
+        -- uiMapID, anchor x, anchor y, tolerance, what the anchor is
+        { 84, 0.6105, 0.7064, 0.25, "Stormwind auction house" },
+        { 90, 0.6397, 0.4865, 0.10, "Undercity bank" },
+    }
+    for _, a in ipairs(anchors) do
+        local uiMapID, anchorX, anchorY, tolerance, what = a[1], a[2], a[3], a[4], a[5]
+        local point = QR.FlightPoints and QR.FlightPoints[uiMapID]
+        t:assertNotNil(point, "map " .. uiMapID .. " has a flight point")
+        if point then
+            local dx, dy = point.x - anchorX, point.y - anchorY
+            local apart = math.sqrt(dx * dx + dy * dy)
+            t:assert(apart < tolerance, string.format(
+                "the map %d flight point is near the surveyed %s: "
+                .. "(%.4f, %.4f) vs (%.4f, %.4f), %.3f apart, tolerance %.2f",
+                uiMapID, what, point.x, point.y, anchorX, anchorY, apart, tolerance))
+        end
+    end
+end)
+
+T:run("Data: FlightPoints covers every capital city", function(t)
+    -- A name rule in the generator once dropped six of these at once and
+    -- nothing noticed: the addon simply believed the Horde capital had no
+    -- flight master. Every one of them has a flight master in game, so their
+    -- absence is always a generator bug, never a data fact.
+    local capitals = {
+        [84] = "Stormwind City",
+        [85] = "Orgrimmar",
+        [87] = "Ironforge",
+        [88] = "Thunder Bluff",
+        [89] = "Darnassus",
+        [90] = "Undercity",
+        [111] = "Shattrath City",
+        [1165] = "Dazar'alor",
+        [2112] = "Valdrakken",
+        [2339] = "Dornogal",
+    }
+    for uiMapID, name in pairs(capitals) do
+        t:assertNotNil(QR.FlightPoints and QR.FlightPoints[uiMapID],
+            name .. " (map " .. uiMapID .. ") has a flight point")
+    end
 end)
 
 T:run("Data: FlightPoints zones are zones, not continents", function(t)
