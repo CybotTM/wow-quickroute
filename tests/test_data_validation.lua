@@ -1373,6 +1373,42 @@ T:run("PathCalculator: Silvermoon City uses the revamped map", function(t)
         "Silvermoon City is uiMapID 2393, not the pre-revamp 110")
 end)
 
+-- The generalisation of the Silvermoon assertion above. The client still ships
+-- maps for cities that no longer exist in the present day; a character only
+-- reaches them by asking Zidormi to send them back. Standing on one is
+-- possible, so these maps keep their graph nodes -- but the bank, auction
+-- house and void storage a player is sent to are not there in the default
+-- phase, and the addon cannot tell which phase anyone is in.
+--
+-- Each entry names why the map is past-only. Removing one from this list is a
+-- claim that the place came back.
+local PAST_ONLY_MAPS = {
+    [57]  = "Teldrassil, burned in Battle for Azeroth",
+    [89]  = "Darnassus, burned in Battle for Azeroth",
+    [90]  = "Undercity, destroyed and plagued in Battle for Azeroth",
+    [94]  = "Eversong Woods, pre-revamp version",
+    [95]  = "Ghostlands, pre-revamp version",
+    [110] = "Silvermoon, pre-revamp version, superseded by 2393",
+    [122] = "Isle of Quel'Danas, pre-revamp version",
+}
+
+T:run("ServicePOIs: no service sits on a map only reachable in the past", function(t)
+    local offenders = {}
+    for serviceType, locations in pairs(QR.ServicePOIs or {}) do
+        for _, loc in ipairs(locations) do
+            local reason = PAST_ONLY_MAPS[loc.mapID]
+            if reason then
+                offenders[#offenders + 1] = string.format(
+                    "%s on map %d (%s)", serviceType, loc.mapID, reason)
+            end
+        end
+    end
+    table.sort(offenders)
+    t:assertEqual(0, #offenders,
+        "no service is offered in a destroyed or superseded city: "
+        .. table.concat(offenders, "; "))
+end)
+
 -------------------------------------------------------------------------------
 -- FlightPoints
 -------------------------------------------------------------------------------
