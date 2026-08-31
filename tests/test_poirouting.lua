@@ -5,6 +5,25 @@
 
 local T, QR, MockWoW = ...
 
+-- The mock defines HookScript as an own field on each frame (no metatable) and
+-- creates WorldMapFrame exactly once, so setting it to nil as "cleanup" does not
+-- restore anything -- it deletes the method for the rest of the process. Any test
+-- file running after this one whose module hooks the world map then errors:
+-- MapTeleportButton:Initialize is the one that did. Cleanup restores the original.
+local origHookScript = WorldMapFrame.HookScript
+
+-- The saved-variables table is shared too. These tests drive the real
+-- POIRouting:RouteToMapPosition, which writes QR.db.lastDestination, and the
+-- real UI path that sets QR.db.destinationLocked. UI:RefreshRoute reads both, so
+-- leaving them set routes a later file's tests to a destination they never
+-- picked -- four assertions in test_ui.lua, and only in orders where this file
+-- runs first.
+local origDb = {
+    lastDestination = QR.db.lastDestination,
+    destinationLocked = QR.db.destinationLocked,
+    activeTab = QR.db.activeTab,
+}
+
 -------------------------------------------------------------------------------
 -- Helper
 -------------------------------------------------------------------------------
@@ -326,7 +345,7 @@ T:run("RegisterMapHook: registers hook on WorldMapFrame", function(t)
     t:assertTrue(QR.POIRouting.hookRegistered, "hookRegistered flag set")
 
     -- Cleanup
-    WorldMapFrame.HookScript = nil
+    WorldMapFrame.HookScript = origHookScript
 end)
 
 T:run("RegisterMapHook: does not double-register", function(t)
@@ -342,7 +361,7 @@ T:run("RegisterMapHook: does not double-register", function(t)
 
     t:assertFalse(hookCalled, "HookScript not called when already registered")
 
-    WorldMapFrame.HookScript = nil
+    WorldMapFrame.HookScript = origHookScript
 end)
 
 T:run("RegisterMapHook: falls back to SetScript when HookScript unavailable", function(t)
@@ -366,6 +385,7 @@ T:run("RegisterMapHook: falls back to SetScript when HookScript unavailable", fu
     t:assertTrue(QR.POIRouting.hookRegistered, "hookRegistered flag set via fallback")
 
     WorldMapFrame.SetScript = origSetScript
+    WorldMapFrame.HookScript = origHookScript
 end)
 
 T:run("RegisterMapHook: handles missing WorldMapFrame", function(t)
@@ -398,7 +418,7 @@ T:run("Initialize: sets initialized flag", function(t)
 
     t:assertTrue(QR.POIRouting.initialized, "initialized flag set")
 
-    WorldMapFrame.HookScript = nil
+    WorldMapFrame.HookScript = origHookScript
 end)
 
 T:run("Initialize: does not run twice", function(t)
@@ -414,7 +434,7 @@ T:run("Initialize: does not run twice", function(t)
 
     t:assertFalse(hookCalled, "HookScript not called when already initialized")
 
-    WorldMapFrame.HookScript = nil
+    WorldMapFrame.HookScript = origHookScript
 end)
 
 -------------------------------------------------------------------------------
@@ -793,7 +813,7 @@ T:run("Initialize: calls RegisterDungeonPinHook", function(t)
     t:assertTrue(dungeonHookCalled, "RegisterDungeonPinHook was called during Initialize")
 
     QR.POIRouting.RegisterDungeonPinHook = origDungeonHook
-    WorldMapFrame.HookScript = nil
+    WorldMapFrame.HookScript = origHookScript
 end)
 
 -------------------------------------------------------------------------------
@@ -874,3 +894,12 @@ T:run("POIRouting: RouteToMapPosition does not call UpdateRoute when calc fails"
     QR.PathCalculator.CalculatePath = origCalc
     QR.UI = origUI
 end)
+
+-------------------------------------------------------------------------------
+-- Put back what this file borrowed from the shared mock and the shared db
+-------------------------------------------------------------------------------
+
+WorldMapFrame.HookScript = origHookScript
+QR.db.lastDestination = origDb.lastDestination
+QR.db.destinationLocked = origDb.destinationLocked
+QR.db.activeTab = origDb.activeTab

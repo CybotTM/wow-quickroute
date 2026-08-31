@@ -9,6 +9,7 @@ World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, po
 | Command | What it does | ~Time |
 |---------|-------------|-------|
 | `~/.local/bin/lua5.1 tests/run_tests.lua` | Run the suite (33 test files). Compare the assertion count to the previous run rather than to a number written down here | ~5s |
+| `QR_TEST_ORDER=reverse ~/.local/bin/lua5.1 tests/run_tests.lua` | Same suite, files back to front. CI runs both; a file that borrows shared state and does not restore it fails here and nowhere else | ~5s |
 | `./scripts/lint.sh` | Luacheck over `QuickRoute/` and `tests/`, native or via Docker. Fails when no linter is available | ~3s |
 | `luacheck QuickRoute/ tests/ --config .luacheckrc` | Lint only, native luacheck 1.2.0 | ~2s |
 | `docker run --rm -v "$(pwd):/src" -w /src ghcr.io/lunarmodules/luacheck:v1.2.0 QuickRoute/ tests/ --config .luacheckrc` | Lint without a native luacheck — same version CI pins | ~5s |
@@ -98,6 +99,7 @@ Single unified window with portrait header and tab bar. `UI.lua` and `TeleportPa
 ## Testing
 
 - **Runner**: `~/.local/bin/lua5.1 tests/run_tests.lua`
+- **File order**: `QR_TEST_ORDER` is `discovery` (default) or `reverse`. The files share one mock and one addon namespace, so a test that borrows a global -- a frame method, a `QR.db` key -- must put it back, or it breaks whichever file happens to run next.
 - **Mock**: `tests/mock_wow_api.lua` provides full WoW API simulation (frames, events, tooltips, spells, items, C_Map, C_Timer, etc.)
 - **Loader**: `tests/addon_loader.lua` loads addon in .toc order
 - **In-game**: `/qrtest graph` runs graph tests inside WoW

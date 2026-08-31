@@ -208,15 +208,35 @@ _G.QR = QR
 -- Discover and run test files
 -------------------------------------------------------------------------------
 
--- Use io.popen to find test files (portable across POSIX systems)
+-- Use io.popen to find test files (portable across POSIX systems).
+-- LC_ALL=C so the order is byte order rather than the runner's locale collation:
+-- "discovery order" has to mean the same thing on every machine, or a CI failure
+-- cannot be reproduced locally.
 local testFiles = {}
-local handle = io.popen("ls " .. scriptDir .. "test_*.lua 2>/dev/null")
+local handle = io.popen("LC_ALL=C ls " .. scriptDir .. "test_*.lua 2>/dev/null")
 if handle then
     for line in handle:lines() do
         testFiles[#testFiles + 1] = line
     end
     handle:close()
 end
+
+-- QR_TEST_ORDER=reverse runs the files back to front. Test files share one mock
+-- and one addon namespace, so a file that borrows global state and does not put
+-- it back only breaks whatever runs after it -- which in discovery order may be
+-- nothing. Running both orders is what turns that into a failing test instead of
+-- a surprise months later.
+local testOrder = os.getenv("QR_TEST_ORDER") or "discovery"
+if testOrder == "reverse" then
+    for i = 1, math.floor(#testFiles / 2) do
+        local j = #testFiles - i + 1
+        testFiles[i], testFiles[j] = testFiles[j], testFiles[i]
+    end
+elseif testOrder ~= "discovery" then
+    print("[RUNNER] Unknown QR_TEST_ORDER '" .. testOrder .. "', using discovery order")
+    testOrder = "discovery"
+end
+print("[RUNNER] File order: " .. testOrder)
 
 if #testFiles == 0 then
     print("[RUNNER] No test_*.lua files found in " .. scriptDir)
