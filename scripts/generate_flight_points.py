@@ -139,11 +139,12 @@ def build(csv_dir):
             flags = int(node["Flags"])
         except (KeyError, ValueError):
             flags = 0
-        # The faction half currently drops nothing on its own -- every
-        # faction-less survivor of the filters above already carries 0x400 --
-        # so only the 0x400 test is covered. It is kept because "shown to
-        # nobody" and "internal" are different claims and a future table could
-        # separate them, not because it is doing work today.
+        # The faction half drops nothing on the current tables -- every
+        # faction-less survivor of the filters above already carries 0x400, so
+        # removing it regenerates a byte-identical file. It is kept because
+        # "shown to nobody" and "internal" are different claims and a future
+        # table could separate them, and it is covered by a test of its own
+        # rather than left as an untested assertion.
         if flags & FLAG_INTERNAL or not flags & FLAG_FACTIONS:
             tally["dropped: not shown to players"] += 1
             continue

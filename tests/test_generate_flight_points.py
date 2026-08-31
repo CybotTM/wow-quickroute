@@ -84,7 +84,7 @@ class NameRuleTest(unittest.TestCase):
 class FixtureMixin:
     """A minimal but complete input set, one world map, two zones."""
 
-    ZONE_A, ZONE_B = 100, 200
+    ZONE_A, ZONE_B, ZONE_C = 100, 200, 300
 
     def build_inputs(self, taxi_rows, path_rows=None):
         directory = tempfile.mkdtemp()
@@ -111,6 +111,7 @@ class FixtureMixin:
             [
                 {"Name_lang": "Alpha Vale", "ID": str(self.ZONE_A), "Type": "3"},
                 {"Name_lang": "Beta Reach", "ID": str(self.ZONE_B), "Type": "3"},
+                {"Name_lang": "Gamma Hold", "ID": str(self.ZONE_C), "Type": "3"},
             ],
         )
         write_csv(
@@ -123,6 +124,13 @@ class FixtureMixin:
                  "UiMin_0": "0", "UiMin_1": "0", "UiMax_0": "1", "UiMax_1": "1"},
                 {"UiMapID": str(self.ZONE_B), "MapID": "1",
                  "Region_0": "200", "Region_1": "200", "Region_3": "300", "Region_4": "300",
+                 "UiMin_0": "0", "UiMin_1": "0", "UiMax_0": "1", "UiMax_1": "1"},
+                # A small zone nested inside Beta Reach. Zone boxes really do
+                # overlap -- a city sits inside the zone around it -- so the
+                # fixture has to contain a case where "smallest wins" decides,
+                # or that rule and the containment test are both invisible.
+                {"UiMapID": str(self.ZONE_C), "MapID": "1",
+                 "Region_0": "240", "Region_1": "240", "Region_3": "260", "Region_4": "260",
                  "UiMin_0": "0", "UiMin_1": "0", "UiMax_0": "1", "UiMax_1": "1"},
             ],
         )
@@ -207,6 +215,61 @@ class FilterTest(FixtureMixin, unittest.TestCase):
         paths += [{"FromTaxiNode": "3", "ToTaxiNode": "4"}]
         result = self.resolve(rows, paths)
         self.assertEqual(result[self.ZONE_A]["name"], "Havenhold, Alpha Vale")
+
+
+    def test_the_smallest_containing_zone_wins(self):
+        # (250, 250) is inside Beta Reach and inside the smaller Gamma Hold
+        # nested in it. The smaller box is the answer; taking the larger one
+        # would file every city flight master under the zone around it.
+        result = self.resolve([
+            self.node(1, "Keep, Gamma Hold", 250, 250),
+            self.node(2, "Havenhold, Alpha Vale", 50, 50),
+            self.node(3, "Outpost, Alpha Vale", 60, 60),
+        ])
+        self.assertIn(self.ZONE_C, result)
+        self.assertNotIn(self.ZONE_B, result)
+
+    def test_a_node_outside_every_zone_is_dropped(self):
+        result = self.resolve([
+            self.node(1, "Nowhere, Alpha Vale", 5000, 5000),
+            self.node(2, "Havenhold, Alpha Vale", 50, 50),
+            self.node(3, "Outpost, Alpha Vale", 60, 60),
+        ])
+        self.assertEqual(len(result), 1)
+        self.assertIn(self.ZONE_A, result)
+
+    def test_the_most_connected_node_represents_its_zone(self):
+        # Both names corroborate, so the corroboration tier cannot decide and
+        # the degree has to. Reversing the direction picks Quietpost, which is
+        # what shipped for 84 of 134 zones under an untested ranking.
+        rows = [
+            self.node(1, "Busypost, Alpha Vale", 50, 50),
+            self.node(2, "Quietpost, Alpha Vale", 60, 60),
+            self.node(3, "Farpost, Beta Reach", 250, 250),
+            self.node(4, "Waypost, Beta Reach", 260, 260),
+        ]
+        # Busypost: 3 neighbours. Quietpost: 2.
+        paths = [{"FromTaxiNode": "1", "ToTaxiNode": t} for t in ("2", "3", "4")]
+        paths += [{"FromTaxiNode": "2", "ToTaxiNode": "3"}]
+        paths += [{"FromTaxiNode": "3", "ToTaxiNode": "4"}]
+        result = self.resolve(rows, paths)
+        self.assertEqual(result[self.ZONE_A]["name"], "Busypost, Alpha Vale")
+
+    def test_equal_candidates_are_broken_by_the_lowest_node_id(self):
+        # Same name shape, same degree: the tie-break is the only thing left,
+        # and it has to be stable or regeneration churns the data file.
+        rows = [
+            self.node(7, "Sevenpost, Alpha Vale", 50, 50),
+            self.node(3, "Threepost, Alpha Vale", 60, 60),
+            self.node(9, "Farpost, Beta Reach", 250, 250),
+        ]
+        paths = []
+        for a in ("7", "3", "9"):
+            for b in ("7", "3", "9"):
+                if a != b:
+                    paths.append({"FromTaxiNode": a, "ToTaxiNode": b})
+        result = self.resolve(rows, paths)
+        self.assertEqual(result[self.ZONE_A]["name"], "Threepost, Alpha Vale")
 
 
 class InputGuardTest(FixtureMixin, unittest.TestCase):

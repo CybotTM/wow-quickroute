@@ -2081,6 +2081,34 @@ T:run("Undiscovered flight points do not count as discovered", function(t)
     _G.C_TaxiMap = saved
 end)
 
+T:run("A flight step navigates to the flight master, not the destination", function(t)
+    -- A flight starts where the flight master stands, so the waypoint has to
+    -- be the node the player walks to. Pointed at the destination it names a
+    -- place reachable only by taking the flight it is supposed to start --
+    -- and the wording branch beside it is guarded while this was not.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 15)
+    local route = QR.PathCalculator:CalculatePath(84, 0.55, 0.60, "Stormwind")
+    t:assertNotNil(route, "the Badlands route exists")
+    if not route then QR.PathCalculator.knownFlightZonesOverride = nil return end
+
+    local flightStep
+    for _, step in ipairs(route.steps or {}) do
+        if step.type == "flight" then flightStep = step break end
+    end
+    t:assertNotNil(flightStep, "and it contains a flight leg")
+    if flightStep then
+        t:assertNotNil(flightStep.navMapID, "the leg has a navigation target")
+        t:assertEqual(flightStep.fromMapID, flightStep.navMapID,
+            "which is the map the flight departs from (nav "
+                .. tostring(flightStep.navMapID) .. ", from "
+                .. tostring(flightStep.fromMapID) .. ")")
+        t:assert(flightStep.navMapID ~= flightStep.destMapID,
+            "and not the map it arrives on (dest " .. tostring(flightStep.destMapID) .. ")")
+    end
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
 T:run("An answering client with nothing discovered is not the same as no client", function(t)
     -- nil means "the client did not say, do not model flight at all"; empty
     -- means "the player has none". Collapsing them made a level-one character
