@@ -42,7 +42,7 @@ FLAG_FACTIONS = 0x3
 FLAG_INTERNAL = 0x400
 
 
-MIN_ZONES = 100   # a healthy run yields ~134; far below that means bad input
+MIN_ZONES = 100   # a healthy run yields ~141; far below that means bad input
 
 
 def load(csv_dir, name, required_columns=()):
@@ -216,7 +216,7 @@ def build(csv_dir):
         # Ironforge zone, and the place part says so.
         #
         # There is deliberately no "unless the stated zone is also represented"
-        # test here. One was tried and destroyed six capitals: an entry always
+        # test here. One was tried and destroyed eight capitals: an entry always
         # claims the zone the GEOMETRY put it in, never the zone its name
         # mentions, so "Orgrimmar, Durotar" claiming uid 85 takes nothing away
         # from Durotar. Worse, whether it fired depended on whether the client

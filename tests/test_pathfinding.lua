@@ -2084,6 +2084,65 @@ T:run("Undiscovered flight points do not count as discovered", function(t)
     _G.C_TaxiMap = saved
 end)
 
+T:run("Every flight step in the graph names its own departure zone", function(t)
+    -- The single-route test below inspects one flight leg, and that leg
+    -- happens to be the forward direction of its pair. Both directions shared
+    -- one data table, so on the reverse half "from" meant the far end -- 301
+    -- of 599 edges -- and the waypoint landed in the wrong zone entirely. A
+    -- test that walks one route cannot see that; this walks the graph.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+    local graph = QR.PathCalculator.graph
+
+    local checked, wrong = 0, nil
+    for from, tos in pairs(graph.edges or {}) do
+        for _, e in pairs(tos) do
+            if e.edgeType == "flight" and e.data then
+                checked = checked + 1
+                local nodeMapID = graph.nodes[from] and graph.nodes[from].mapID
+                if nodeMapID ~= e.data.fromMapID and not wrong then
+                    wrong = string.format("%s sits on map %s but its edge says it departs from %s",
+                        from, tostring(nodeMapID), tostring(e.data.fromMapID))
+                end
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 100,
+        "enough flight edges to cover both directions (" .. checked .. ")")
+    t:assertEqual(nil, wrong, "and every one departs from its own node's map: " .. tostring(wrong))
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A reverse-direction flight step navigates to the right flight master", function(t)
+    -- Routing out of Mount Hyjal takes the half of a pair that was written
+    -- second, which is the half the shared data table got wrong: the player
+    -- was sent to Teldrassil to board a flight leaving Mount Hyjal.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 198)
+    local route = QR.PathCalculator:CalculatePath(84, 0.55, 0.60, "Stormwind")
+    t:assertNotNil(route, "the Mount Hyjal route exists")
+    if not route then QR.PathCalculator.knownFlightZonesOverride = nil return end
+
+    local checked = 0
+    for _, step in ipairs(route.steps or {}) do
+        if step.type == "flight" then
+            checked = checked + 1
+            local master = QR.FlightPoints[step.fromMapID]
+            t:assertEqual(step.fromMapID, step.navMapID,
+                "the waypoint is in the zone the player is standing in (nav "
+                    .. tostring(step.navMapID) .. ", from " .. tostring(step.fromMapID) .. ")")
+            if master then
+                local dx = (step.navX or 0) - master.x
+                local dy = (step.navY or 0) - master.y
+                t:assert(math.sqrt(dx * dx + dy * dy) < 0.001,
+                    "and it is that zone's flight master, " .. tostring(master.node))
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 0, "the route has a flight leg to check")
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
 T:run("A flight step navigates to the flight master, not the destination", function(t)
     -- A flight starts where the flight master stands, so the waypoint has to
     -- be the node the player walks to. Pointed at the destination it names a
@@ -2133,7 +2192,7 @@ end)
 T:run("A node the client reports without a state is not discovered", function(t)
     -- C_TaxiMap's live shape is the one thing here that could not be verified
     -- offline, so the gate has to be defensive in both directions. Dropping
-    -- the "node.state and" half counted all 134 zones as discovered from a
+    -- the "node.state and" half counted every zone as discovered from a
     -- client that never said so -- flights offered from masters the player has
     -- never visited, which is the failure the gate exists to prevent.
     resetState()

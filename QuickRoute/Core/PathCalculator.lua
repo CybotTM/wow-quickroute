@@ -1471,12 +1471,6 @@ function PathCalculator:AddFlightEdges()
                     local dy = a.point.worldY - b.point.worldY
                     local yards = math_sqrt(dx * dx + dy * dy)
                     local seconds = overhead + yards / speed
-                    local data = {
-                        fromMapID = a.mapID,
-                        toMapID = b.mapID,
-                        fromNode = a.point.node,
-                        toNode = b.point.node,
-                    }
                     -- Each direction is decided on its own. The graph holds one
                     -- edge per ordered pair and portals and one-way transports
                     -- are written unpaired, so a bidirectional write guarded by
@@ -1484,10 +1478,22 @@ function PathCalculator:AddFlightEdges()
                     -- Valdrakken -> The Waking Shores went from a 10s portal to
                     -- a 101s flight that way, because the guard checked the
                     -- other direction.
-                    if self:WriteFlightEdge(nodeA, nodeB, seconds, data) then
+                    --
+                    -- Each direction also gets its OWN data. Sharing one table
+                    -- made "from" mean the far end on half the edges: 301 of
+                    -- 599. That was invisible while nothing read it, and became
+                    -- a wrong waypoint the moment something did -- a player in
+                    -- Mount Hyjal was sent to Teldrassil to board the flight.
+                    if self:WriteFlightEdge(nodeA, nodeB, seconds, {
+                        fromMapID = a.mapID, toMapID = b.mapID,
+                        fromNode = a.point.node, toNode = b.point.node,
+                    }) then
                         added = added + 1
                     end
-                    if self:WriteFlightEdge(nodeB, nodeA, seconds, data) then
+                    if self:WriteFlightEdge(nodeB, nodeA, seconds, {
+                        fromMapID = b.mapID, toMapID = a.mapID,
+                        fromNode = b.point.node, toNode = a.point.node,
+                    }) then
                         added = added + 1
                     end
                 end
@@ -1692,10 +1698,13 @@ function PathCalculator:BuildSteps(path, edges)
         -- 0.48 of the zone away from Fuselight. QR.FlightPoints has the flight
         -- master's own position -- until now nothing read it, which is why a
         -- transposed x/y went unnoticed for four review rounds.
+        -- The block above already put the waypoint on the right MAP, via the
+        -- from node. Only the position needs correcting: the from node is
+        -- whatever FlightAnchorForMap ranked highest there, which for the
+        -- Badlands is a dungeon entrance 0.48 of the zone from Fuselight.
         if edge.edgeType == "flight" and edge.data and QR.FlightPoints then
             local master = QR.FlightPoints[edge.data.fromMapID]
             if master and master.x and master.y then
-                step.navMapID = edge.data.fromMapID
                 step.navX = master.x
                 step.navY = master.y
             end
