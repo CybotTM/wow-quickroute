@@ -150,6 +150,7 @@ globals = {
     "SLASH_QRDUNGEONS1",
     "SLASH_QRSCREENSHOT1",
     "SLASH_QREXTRACT1",
+    "SLASH_QRVERIFYMAP1",
 
     -- Addon compartment functions (referenced in TOC)
     "QuickRoute_OnAddonCompartmentClick",

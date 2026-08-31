@@ -1668,3 +1668,53 @@ T:run("UI: a step frame does not come back from the pool dimmed", function(t)
         "at full alpha (got: " .. tostring(reused:GetAlpha()) .. ")")
     QR.UI:ReleaseStepLabelFrame(reused)
 end)
+
+-------------------------------------------------------------------------------
+-- /qrverifymap
+-------------------------------------------------------------------------------
+
+-- Two open questions cannot be settled from the repository: which map Zen
+-- Pilgrimage actually lands on (#5), and whether the Darnassus and Undercity
+-- services still exist (#3). Both need a character standing in the place. This
+-- command is what they stand there and run: it prints what the client says
+-- about the map, what the addon believes about it, and everything in the data
+-- that points at it, so the answer comes back in one paste instead of a round
+-- trip per question.
+T:run("GenerateMapVerification: reports the client's view of the current map", function(t)
+    resetState()
+    MockWoW.config.currentMapID = 84
+
+    local report = QR.UI:GenerateMapVerification()
+    t:assertNotNil(report, "a report is produced")
+    if not report then return end
+    t:assert(report:find("map 84", 1, true) ~= nil,
+        "it names the map the client reports")
+    t:assert(report:find("Stormwind City", 1, true) ~= nil,
+        "and the name the client gives it")
+    t:assert(report:find("client", 1, true) ~= nil, "the client's chain is labelled")
+    t:assert(report:find("addon", 1, true) ~= nil, "and the addon's belief separately")
+end)
+
+T:run("GenerateMapVerification: lists what the addon points at that map", function(t)
+    resetState()
+    -- 2393 is the revamped Silvermoon, which several teleports target.
+    local report = QR.UI:GenerateMapVerification(2393)
+    t:assertNotNil(report, "a report is produced")
+    if not report then return end
+    t:assert(report:find("Silvermoon", 1, true) ~= nil,
+        "it names the destination the data claims (got: " .. tostring(report:sub(1, 200)) .. ")")
+end)
+
+T:run("GenerateMapVerification: says so when nothing points at a map", function(t)
+    resetState()
+    local report = QR.UI:GenerateMapVerification(99999)
+    t:assertNotNil(report, "a report is produced for an unknown map")
+    if not report then return end
+    t:assert(report:find("Nothing in the addon's data", 1, true) ~= nil,
+        "and says nothing points at it rather than printing an empty list")
+end)
+
+T:run("/qrverifymap is registered", function(t)
+    t:assertEqual("/qrverifymap", _G.SLASH_QRVERIFYMAP1, "the command exists")
+    t:assertNotNil(SlashCmdList and SlashCmdList["QRVERIFYMAP"], "and has a handler")
+end)

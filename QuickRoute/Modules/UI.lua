@@ -2767,3 +2767,146 @@ SlashCmdList["QREXTRACT"] = function(msg)
         QR.UI.copyFrame.editBox:HighlightText()
     end
 end
+
+-------------------------------------------------------------------------------
+-- Map verification (/qrverifymap)
+-------------------------------------------------------------------------------
+
+--- Report what the client says about a map, and what this addon believes about
+-- it. Written for the questions the repo cannot answer from data alone: which
+-- map a teleport spell actually lands on, and whether a service is still where
+-- the addon thinks it is. Both need a character standing in the place.
+-- @param mapID number|nil The map to report on; defaults to where the player is
+-- @return string The report
+function UI:GenerateMapVerification(mapID)
+    local lines = {}
+    local function add(fmt, ...)
+        local n = select("#", ...)
+        lines[#lines + 1] = n > 0 and string_format(fmt, ...) or fmt
+    end
+
+    local currentMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    local target = mapID or currentMapID
+
+    add("QuickRoute map verification")
+    add("addon %s", tostring(QR.version))
+    add("")
+
+    if not target then
+        add("C_Map.GetBestMapForUnit returned nothing -- no map to report.")
+        return table_concat(lines, "\n")
+    end
+
+    if mapID and currentMapID and mapID ~= currentMapID then
+        add("Reporting map %d on request. The player is on %d.", mapID, currentMapID)
+    else
+        add("The client places the player on map %d.", target)
+    end
+
+    -- The client's own view, walked up the parent chain: a wrong map is usually
+    -- recognisable by its parent rather than by its name.
+    local chain, seen, walk = {}, {}, target
+    while walk and not seen[walk] do
+        seen[walk] = true
+        local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(walk)
+        if not info then
+            chain[#chain + 1] = string_format("%d (the client has no info for this map)", walk)
+            break
+        end
+        chain[#chain + 1] = string_format("%d %s (type %s)", walk,
+            tostring(info.name), tostring(info.mapType))
+        walk = info.parentMapID
+        if walk == 0 then walk = nil end
+    end
+    add("client   : %s", table_concat(chain, "  <-  "))
+
+    if target == currentMapID and C_Map and C_Map.GetPlayerMapPosition then
+        local pos = C_Map.GetPlayerMapPosition(target, "player")
+        if pos then
+            local x, y = pos:GetXY()
+            if x and y then
+                add("position : %.4f, %.4f", x, y)
+            end
+        end
+    end
+
+    -- What the addon believes, so a mismatch is visible in one screen rather
+    -- than after a round trip.
+    local continent = QR.GetContinentForZone and QR.GetContinentForZone(target)
+    local adjacent = QR.GetAdjacentZones and QR.GetAdjacentZones(target) or {}
+    add("addon    : continent %s, %d adjacent zone(s)",
+        tostring(continent), #adjacent)
+
+    local nodes = {}
+    local graph = QR.PathCalculator and QR.PathCalculator.graph
+    if graph then
+        for name, data in pairs(graph.nodes or {}) do
+            if data.mapID == target then nodes[#nodes + 1] = name end
+        end
+        table_sort(nodes)
+    end
+    add("graph    : %d node(s)%s", #nodes,
+        #nodes > 0 and (" -- " .. table_concat(nodes, ", ")) or "")
+
+    -- Anything in the data that claims this map. This is the half that answers
+    -- "does the addon send people here, and for what".
+    local claims = {}
+    local sources = {
+        TeleportItemsData = QR.TeleportItemsData,
+        ClassTeleportSpells = QR.ClassTeleportSpells,
+        RacialTeleportSpells = QR.RacialTeleportSpells,
+        GeneralTeleportSpells = QR.GeneralTeleportSpells,
+        MageTeleports = QR.MageTeleports,
+    }
+    local function claim(source, id, entry)
+        if type(entry) ~= "table" then return end
+        if entry.mapID == target then
+            claims[#claims + 1] = string_format("  %s[%s] %s -> %s",
+                source, tostring(id), tostring(entry.name or "?"),
+                tostring(entry.destination or "?"))
+        end
+        for key, nested in pairs(entry) do
+            if type(nested) == "table" and nested.mapID then
+                claim(source, tostring(id) .. "." .. tostring(key), nested)
+            end
+        end
+    end
+    for source, data in pairs(sources) do
+        for id, entry in pairs(data or {}) do
+            claim(source, id, entry)
+        end
+    end
+    for _, poi in ipairs((QR.ServicePOIs and QR.ServicePOIs[target]) or {}) do
+        claims[#claims + 1] = string_format("  ServicePOIs %s (%s)",
+            tostring(poi.name or "?"), tostring(poi.serviceType or "?"))
+    end
+    table_sort(claims)
+    if #claims > 0 then
+        add("")
+        add("The addon points these at map %d:", target)
+        for _, line in ipairs(claims) do add(line) end
+    else
+        add("")
+        add("Nothing in the addon's data points at map %d.", target)
+    end
+
+    return table_concat(lines, "\n")
+end
+
+SLASH_QRVERIFYMAP1 = "/qrverifymap"
+SlashCmdList["QRVERIFYMAP"] = function(msg)
+    local arg = msg and msg:match("%d+")
+    local report = QR.UI:GenerateMapVerification(arg and tonumber(arg) or nil)
+
+    for line in report:gmatch("[^\n]+") do
+        print(line)
+    end
+
+    -- Same copy window the other diagnostics use, so the report can be pasted
+    -- straight back rather than retyped from the chat frame.
+    QR.UI:CopyDebugToClipboard()
+    if QR.UI.copyFrame and QR.UI.copyFrame.editBox then
+        QR.UI.copyFrame.editBox:SetText(report)
+        QR.UI.copyFrame.editBox:HighlightText()
+    end
+end
