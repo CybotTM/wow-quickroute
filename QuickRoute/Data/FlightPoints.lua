@@ -53,6 +53,7 @@ QR.FlightPoints = {
     [52] = { x = 0.5063, y = 0.4336, worldX = -10551.9, worldY = 1034.4, continentID = 0, node = "Sentinel Hill, Westfall" },
     [56] = { x = 0.4050, y = 0.9061, worldX = -3787.8, worldY = -777.7, continentID = 0, node = "Menethil Harbor, Wetlands" },
     [84] = { x = 0.2703, y = 0.2902, worldX = -8841.1, worldY = 489.7, continentID = 0, node = "Stormwind, Elwynn" },
+    [87] = { x = 0.5213, y = 0.4411, worldX = -4821.8, worldY = -1155.4, continentID = 0, node = "Ironforge, Dun Morogh" },
     [90] = { x = 0.5168, y = 0.3691, worldX = 1568.6, worldY = 268.0, continentID = 0, node = "Undercity, Tirisfal" },
     [241] = { x = 0.4719, y = 0.2616, worldX = -4012.4, worldY = -6329.2, continentID = 0, node = "Dragonmaw Port, Twilight Highlands" },
     [2393] = { x = 0.2898, y = 0.4903, worldX = 8444.3, worldY = -4765.7, continentID = 0, node = "Sanctum of Light, Silvermoon City" },
@@ -60,6 +61,7 @@ QR.FlightPoints = {
     [2424] = { x = 0.6619, y = 0.4225, worldX = 11245.3, worldY = -4781.4, continentID = 0, node = "Terrace of the Sun, Isle of Quel'Danas" },
     [2437] = { x = 0.7682, y = 0.6120, worldX = 6916.6, worldY = -7114.0, continentID = 0, node = "Witherbark Bluffs, Zul'Aman" },
     [2512] = { x = 0.5424, y = 0.4212, worldX = 6098.5, worldY = -12045.8, continentID = 0, node = "Tokka's Landing, The Coiled Isle" },
+    [2536] = { x = 0.5884, y = 0.5992, worldX = 5114.3, worldY = -6473.8, continentID = 0, node = "Atal'Aman, Zul'Aman" },
     -- world map 1
     [1] = { x = 0.5636, y = 0.4696, worldX = 269.9, worldY = -4766.8, continentID = 1, node = "Razor Hill, Durotar" },
     [57] = { x = 0.1155, y = 0.4461, worldX = 8383.8, worldY = 981.0, continentID = 1, node = "Rut'theran Village, Teldrassil" },
@@ -77,6 +79,9 @@ QR.FlightPoints = {
     [80] = { x = 0.3289, y = 0.5209, worldX = 7458.5, worldY = -2487.2, continentID = 1, node = "Moonglade" },
     [81] = { x = 0.6532, y = 0.4711, worldX = -6811.4, worldY = 836.7, continentID = 1, node = "Cenarion Hold, Silithus" },
     [83] = { x = 0.5169, y = 0.4115, worldX = 6813.1, worldY = -4611.1, continentID = 1, node = "Everlook, Winterspring" },
+    [85] = { x = 0.4063, y = 0.5073, worldX = 1798.3, worldY = -4363.3, continentID = 1, node = "Orgrimmar, Durotar" },
+    [88] = { x = 0.5010, y = 0.5335, worldX = -1197.2, worldY = 29.7, continentID = 1, node = "Thunder Bluff, Mulgore" },
+    [89] = { x = 0.5173, y = 0.6328, worldX = 9968.8, worldY = 2622.1, continentID = 1, node = "Darnassus, Teldrassil" },
     [249] = { x = 0.6644, y = 0.4374, worldX = -9415.0, worldY = -1043.0, continentID = 1, node = "Ramkahen, Uldum" },
     -- world map 530
     [94] = { x = 0.3007, y = 0.5601, worldX = 8745.8, worldY = -6654.1, continentID = 530, node = "Fairbreeze Village, Eversong Woods" },
@@ -90,6 +95,8 @@ QR.FlightPoints = {
     [108] = { x = 0.4480, y = 0.4055, worldX = -2987.2, worldY = 3872.8, continentID = 530, node = "Allerian Stronghold, Terokkar Forest" },
     [109] = { x = 0.6506, y = 0.5473, worldX = 4157.6, worldY = 2959.7, continentID = 530, node = "The Stormspire, Netherstorm" },
     [110] = { x = 0.0351, y = 0.3684, worldX = 9375.2, worldY = -7165.9, continentID = 530, node = "Silvermoon City" },
+    [111] = { x = 0.5828, y = 0.3620, worldX = -1837.2, worldY = 5301.9, continentID = 530, node = "Shattrath, Terokkar Forest" },
+    [122] = { x = 0.7494, y = 0.5172, worldX = 13012.7, worldY = -6908.4, continentID = 530, node = "Shattered Sun Staging Area" },
     -- world map 571
     [114] = { x = 0.3162, y = 0.4107, worldX = 2269.5, worldY = 5173.7, continentID = 571, node = "Valiance Keep, Borean Tundra" },
     [115] = { x = 0.3764, y = 0.2345, worldX = 3243.0, worldY = -666.2, continentID = 571, node = "Venomspite, Dragonblight" },
@@ -126,16 +133,19 @@ QR.FlightPoints = {
     [646] = { x = 0.7892, y = 0.5026, worldX = -545.2, worldY = 3001.8, continentID = 1220, node = "Vengeance Point, Broken Shore" },
     [650] = { x = 0.6065, y = 0.7003, worldX = 5108.3, worldY = 5570.6, continentID = 1220, node = "Felbane Camp, Highmountain" },
     [680] = { x = 0.5806, y = 0.3578, worldX = 1893.3, worldY = 3092.6, continentID = 1220, node = "Crimson Thicket, Suramar" },
-    [739] = { x = 0.7175, y = 0.6119, worldX = 4632.0, worldY = 5321.0, continentID = 1220, node = "Trueshot Lodge" },
+    [739] = { x = 0.7218, y = 0.6354, worldX = 4634.3, worldY = 5339.4, continentID = 1220, node = "Trueshot Lodge, Highmountain" },
+    [790] = { x = 0.5408, y = 0.6175, worldX = -3362.3, worldY = 4823.0, continentID = 1220, node = "Eye of Azshara, Azsuna" },
     [1187] = { x = 0.4104, y = 0.4383, worldX = -784.2, worldY = 6130.0, continentID = 1220, node = "Shackle's Den, Azsuna" },
     -- world map 1642
     [862] = { x = 0.3473, y = 0.2955, worldX = -2303.2, worldY = -252.9, continentID = 1642, node = "Seeker's Outpost, Zuldazar" },
     [863] = { x = 0.2194, y = 0.6106, worldX = 793.2, worldY = 1400.7, continentID = 1642, node = "Zul'jan, Nazmir" },
     [864] = { x = 0.1614, y = 0.6027, worldX = 528.7, worldY = 3983.1, continentID = 1642, node = "Deadwood Cove, Vol'dun" },
+    [1165] = { x = 0.5879, y = 0.4835, worldX = -1036.0, worldY = 756.6, continentID = 1642, node = "The Great Seal" },
     -- world map 1643
     [895] = { x = 0.5135, y = 0.2422, worldX = -93.7, worldY = -633.3, continentID = 1643, node = "Bridgeport, Tiragarde Sound" },
     [896] = { x = 0.5917, y = 0.2895, worldX = -297.0, worldY = 1227.5, continentID = 1643, node = "Hangman's Point, Drustvar" },
     [942] = { x = 0.6273, y = 0.5992, worldX = 3752.6, worldY = 1068.6, continentID = 1643, node = "Seekers Vista, Stormsong Valley" },
+    [1169] = { x = 0.0801, y = 0.6201, worldX = -80.0, worldY = -2648.4, continentID = 1643, node = "Tol Dagor, Tiragarde Sound" },
     [1462] = { x = 0.7438, y = 0.2640, worldX = 3282.0, worldY = 4900.5, continentID = 1643, node = "Prospectus Bay, Mechagon" },
     -- world map 1669
     [830] = { x = 0.1309, y = 0.3801, worldX = 501.3, worldY = 1470.3, continentID = 1669, node = "Vindicaar, Krokuun" },
@@ -154,17 +164,21 @@ QR.FlightPoints = {
     [2022] = { x = 0.3197, y = 0.4219, worldX = 1753.2, worldY = 42.1, continentID = 2444, node = "Ruby Life Pools, The Waking Shores" },
     [2023] = { x = 0.5785, y = 0.3699, worldX = -706.5, worldY = 2048.9, continentID = 2444, node = "Maruukai, Ohn'ahran Plains" },
     [2025] = { x = 0.3297, y = 0.4889, worldX = -318.0, worldY = -2056.0, continentID = 2444, node = "Gelikyr Post, Thaldraszus" },
+    [2112] = { x = 0.3209, y = 0.5553, worldX = -10.0, worldY = -844.2, continentID = 2444, node = "Valdrakken, Thaldraszus" },
     [2151] = { x = 0.4082, y = 0.6426, worldX = 6407.7, worldY = -2560.3, continentID = 2444, node = "Morqut Village, The Forbidden Reach" },
     -- world map 2454
     [2133] = { x = 0.3211, y = 0.5969, worldX = -959.3, worldY = 3140.2, continentID = 2454, node = "Dragonscale Camp, Zaralek Cavern" },
     -- world map 2552
     [2271] = { x = 0.2147, y = 0.6178, worldX = 985.5, worldY = -1847.6, continentID = 2552, node = "Freywold Village, Isle of Dorn" },
+    [2339] = { x = 0.4896, y = 0.5524, worldX = 2585.4, worldY = -2473.3, continentID = 2552, node = "Dornogal, Isle of Dorn" },
     -- world map 2601
     [2255] = { x = 0.4886, y = 0.7680, worldX = -796.0, worldY = 876.1, continentID = 2601, node = "Wildcamp Or'lay, Azj-Kahet" },
     [2272] = { x = 0.6565, y = 0.6157, worldX = 2224.3, worldY = -2735.8, continentID = 2601, node = "Gundargaz, The Ringing Deeps" },
     [2273] = { x = 0.1990, y = 0.4561, worldX = 1552.8, worldY = 10.9, continentID = 2601, node = "Lightspark, Hallowfall" },
     -- world map 2694
     [2480] = { x = 0.4740, y = 0.3064, worldX = -128.2, worldY = -1673.3, continentID = 2694, node = "Har'athir, Harandar" },
+    -- world map 2706
+    [2346] = { x = 0.5380, y = 0.5707, worldX = 65.6, worldY = 535.8, continentID = 2706, node = "The Incontinental Hotel" },
     -- world map 2735
     [2352] = { x = 0.5503, y = 0.5665, worldX = 3146.4, worldY = 599.0, continentID = 2735, node = "Small Aerie, Founder's Point" },
     -- world map 2736
@@ -174,4 +188,8 @@ QR.FlightPoints = {
     [2472] = { x = 0.4278, y = 0.5305, worldX = -1206.7, worldY = -217.3, continentID = 2738, node = "Tazavesh, the Veiled Market" },
     -- world map 2771
     [2405] = { x = 0.4110, y = 0.6310, worldX = 1661.9, worldY = 1050.3, continentID = 2771, node = "The Ingress, Voidstorm" },
+    -- world map 3047
+    [2599] = { x = 0.8398, y = 0.3920, worldX = -3848.8, worldY = 445.9, continentID = 3047, node = "Umbral Base Camp" },
+    -- world map 3075
+    [2600] = { x = 0.1710, y = 0.5333, worldX = -2180.0, worldY = -1709.0, continentID = 3075, node = "Umbral Base Camp" },
 }

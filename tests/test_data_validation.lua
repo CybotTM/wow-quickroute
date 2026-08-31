@@ -1395,8 +1395,9 @@ T:run("Data: FlightPoints entries have required fields", function(t)
         t:assert(type(point.worldX) == "number", where .. " has a numeric worldX")
         t:assert(type(point.worldY) == "number", where .. " has a numeric worldY")
         t:assert(type(point.continentID) == "number", where .. " has a numeric continentID")
-        t:assert(type(point.node) == "string" and point.node ~= "",
-            where .. " names the flight point it was derived from")
+        t:assert(type(point.node) == "string" and point.node:match("%S") ~= nil,
+            where .. " names the flight point it was derived from (got: "
+                .. tostring(point.node) .. ")")
     end
 end)
 
@@ -1417,10 +1418,14 @@ end)
 T:run("Data: FlightPoints zones are zones, not continents", function(t)
     -- The generator filters on UiMap Type 3. A continent or cosmic map slipping
     -- in would connect a whole landmass as if it were one flight point.
+    -- CONTINENT_MAPS and NOT_ZONES are the file-locals this suite already uses
+    -- for the other data tables. An earlier version of this test guarded on
+    -- QR.CONTINENT_MAPS, which does not exist, so it asserted nothing and let
+    -- the Azeroth cosmic map through.
     for uiMapID in pairs(QR.FlightPoints or {}) do
-        if QR.CONTINENT_MAPS then
-            t:assertEqual(nil, QR.CONTINENT_MAPS[uiMapID],
-                "map " .. tostring(uiMapID) .. " is not a continent map")
-        end
+        t:assertEqual(nil, CONTINENT_MAPS[uiMapID],
+            "map " .. tostring(uiMapID) .. " is not a continent map")
+        t:assertEqual(nil, NOT_ZONES[uiMapID],
+            "map " .. tostring(uiMapID) .. " is a zone")
     end
 end)

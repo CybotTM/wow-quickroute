@@ -1780,6 +1780,60 @@ T:run("Adding flight never makes an existing edge worse", function(t)
     QR.PathCalculator.knownFlightZonesOverride = nil
 end)
 
+T:run("Adding flight makes nothing worse at any speed", function(t)
+    -- The test above runs at the shipped FLIGHT_SPEED, where the invariant
+    -- also held under the OLD build order -- the two regressions only appeared
+    -- below about 17 yd/s. So that test passed by numeric margin and could not
+    -- see a reordering. TravelTime.lua invites recalibrating this constant, so
+    -- the invariant is checked at a speed where the margin is gone.
+    resetState()
+    local realSpeed = QR.TravelTime.FLIGHT_SPEED
+    local before = flightGraphSnapshot(nil, 84)
+    QR.TravelTime.FLIGHT_SPEED = 5
+    local after = flightGraphSnapshot(allFlightZones(), 84)
+    QR.TravelTime.FLIGHT_SPEED = realSpeed
+
+    local worse
+    for key, a in pairs(after) do
+        local b = before[key]
+        if b and a.weight > b.weight + 0.001 and not worse then
+            local from, to = key:match("^(.-)\1(.*)$")
+            worse = string.format("%s -> %s (%s %.1f became %s %.1f)",
+                from, to, b.edgeType, b.weight, a.edgeType, a.weight)
+        end
+    end
+    t:assertEqual(nil, worse,
+        "at a speed slow enough to lose every race: " .. tostring(worse))
+
+    -- And the graph is rebuilt at the real speed so nothing leaks out.
+    flightGraphSnapshot(nil, 84)
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A neutral continent still flies to its own world map", function(t)
+    -- The continent test below suppresses flights between two named
+    -- continents. That rule, applied bluntly, also suppressed Kul Tiras to
+    -- Mechagon, which is a real flight -- the addon files Mechagon under
+    -- BFA_NEUTRAL while the rest of Kul Tiras is KUL_TIRAS. Nothing caught
+    -- that, so removing the wildcard again would go unnoticed.
+    resetState()
+    flightGraphSnapshot(allFlightZones(), 84)
+
+    local neutralCrossings = 0
+    for _, tos in pairs(QR.PathCalculator.graph.edges or {}) do
+        for _, e in pairs(tos) do
+            if e.edgeType == "flight" and e.data then
+                local ca = QR.GetContinentForZone(e.data.fromMapID)
+                local cb = QR.GetContinentForZone(e.data.toMapID)
+                if ca and cb and ca ~= cb then neutralCrossings = neutralCrossings + 1 end
+            end
+        end
+    end
+    t:assertGreaterThan(neutralCrossings, 0,
+        "flights across a neutral continent boundary exist (got " .. neutralCrossings .. ")")
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
 T:run("Flight edges stay inside one continent", function(t)
     -- continentID is a world map, not a taxi network: world map 530 holds
     -- Outland and the Burning Crusade starting zones together. Flying from
@@ -1817,10 +1871,14 @@ T:run("Flight edges never attach to the player node", function(t)
     -- ReconnectPlayerNode drops only walk and travel edges on movement. A
     -- flight edge would survive the move and price a flight from a zone the
     -- player has left -- a route that cannot be taken, not just a bad estimate.
-    -- Built in Orgrimmar, which has both a flight master and a permanent
-    -- graph node, so the player node genuinely competes to be the anchor.
+    -- Built in Elwynn Forest, which has a flight master and NO other graph
+    -- node, so the player node is the only candidate and this guard is the
+    -- only thing standing between it and a flight edge. An earlier version of
+    -- this test built in a zone that had a dungeon node too, where the
+    -- alphabetical tiebreak decided instead and deleting the guard changed
+    -- nothing.
     resetState()
-    flightGraphSnapshot(allFlightZones(), 85)
+    flightGraphSnapshot(allFlightZones(), 37)
 
     local attached = 0
     for _, e in pairs((QR.PathCalculator.graph.edges or {})["Player Location"] or {}) do
@@ -1830,9 +1888,14 @@ T:run("Flight edges never attach to the player node", function(t)
         "player node carries no flight edges (got " .. attached .. ")")
 
     -- And the anchor the zone does use is a real node, chosen the documented way.
-    local anchor = QR.PathCalculator:FlightAnchorForMap(85)
-    t:assertNotNil(anchor, "the zone still has an anchor")
-    t:assert(anchor ~= "Player Location", "and it is not the player node")
+    -- With the player excluded and nothing else on the map, there is no
+    -- anchor at all -- which is the correct answer, and the one that stops a
+    -- flight edge being priced from a position the player is about to leave.
+    t:assertEqual(nil, QR.PathCalculator:FlightAnchorForMap(37),
+        "a map whose only node is the player has no anchor")
+    local elsewhere = QR.PathCalculator:FlightAnchorForMap(84)
+    t:assertNotNil(elsewhere, "a map with a real node still has one")
+    t:assert(elsewhere ~= "Player Location", "and it is never the player node")
     QR.PathCalculator.knownFlightZonesOverride = nil
 end)
 

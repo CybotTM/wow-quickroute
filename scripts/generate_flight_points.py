@@ -33,13 +33,35 @@ MIN_NEIGHBOURS = 2       # a flight master connects to more than one node
 # 2101 yards from the real Ohn'ahran Plains flight master.
 INTERNAL_NAME = re.compile(r"\[(hidden|disabled|ph|temp|internal)\b", re.IGNORECASE)
 
+# TaxiNodes.Flags. The low two bits are the factions the node is shown to, so a
+# node with neither is shown to nobody. Bit 0x400 marks the client's own
+# scripted and internal nodes: every row this generator was getting wrong
+# carried it ("Grand Rampart" = 1027, the Exile's Reach troll bat = 1024) and
+# no real flight master does -- Stormwind is 1, Orgrimmar 2, Maruukai 3.
+FLAG_FACTIONS = 0x3
+FLAG_INTERNAL = 0x400
 
-def load(csv_dir, name):
+
+MIN_ZONES = 100   # a healthy run yields ~134; far below that means bad input
+
+
+def load(csv_dir, name, required_columns=()):
     path = os.path.join(csv_dir, name)
     if not os.path.exists(path):
         sys.exit(f"missing input: {path}")
     with open(path, encoding="utf-8") as handle:
-        return list(csv.DictReader(handle))
+        rows = list(csv.DictReader(handle))
+    if not rows:
+        sys.exit(f"{name} has no data rows")
+    missing = [c for c in required_columns if c not in rows[0]]
+    if missing:
+        sys.exit(f"{name} is missing column(s): {', '.join(missing)}")
+    # A ragged row makes DictReader yield None keys, which every lookup below
+    # would silently read as absent and blame on the wrong filter.
+    ragged = sum(1 for row in rows if None in row or any(v is None for v in row.values()))
+    if ragged:
+        sys.exit(f"{name} has {ragged} row(s) with the wrong number of fields")
+    return rows
 
 
 def norm(text):
@@ -53,10 +75,13 @@ def related(a, b):
 
 
 def build(csv_dir):
-    nodes = load(csv_dir, "TaxiNodes.csv")
-    paths = load(csv_dir, "TaxiPath.csv")
-    uimaps = load(csv_dir, "UiMap.csv")
-    assignments = load(csv_dir, "UiMapAssignment.csv")
+    nodes = load(csv_dir, "TaxiNodes.csv",
+                 ("Name_lang", "Pos_0", "Pos_1", "ID", "ContinentID", "Flags"))
+    paths = load(csv_dir, "TaxiPath.csv", ("FromTaxiNode", "ToTaxiNode"))
+    uimaps = load(csv_dir, "UiMap.csv", ("Name_lang", "ID", "Type"))
+    assignments = load(csv_dir, "UiMapAssignment.csv",
+                       ("UiMapID", "MapID", "Region_0", "Region_1", "Region_3",
+                        "Region_4", "UiMin_0", "UiMin_1", "UiMax_0", "UiMax_1"))
 
     neighbours = collections.defaultdict(set)
     for row in paths:
@@ -90,6 +115,13 @@ def build(csv_dir):
         if INTERNAL_NAME.search(name):
             tally["dropped: internal or disabled node"] += 1
             continue
+        try:
+            flags = int(node["Flags"])
+        except (KeyError, ValueError):
+            flags = 0
+        if flags & FLAG_INTERNAL or not flags & FLAG_FACTIONS:
+            tally["dropped: not shown to players"] += 1
+            continue
 
         px, py = float(node["Pos_0"]), float(node["Pos_1"])
         best = None
@@ -121,33 +153,35 @@ def build(csv_dir):
     # the geometric pass. A node named "Place, Zone" states where it is; the
     # geometry has to agree, because zone boxes overlap at borders and without
     # this "New Kargath, Badlands" lands in Searing Gorge 1103 yards away.
-    present = {entry["uid"] for entry in kept}
     corroborated = []
     for entry in kept:
         name = entry["name"]
         if "," not in name:
-            # A bare name has to BE the zone. Without this the client's
-            # comma-less internal rows walk straight through: "Dalaran" was
-            # representing Broken Shore, 1332 yards from its real flight
-            # master, and "Grand Rampart" was representing Nerub-ar Palace.
-            if related(entry["zone"], name):
-                corroborated.append(entry)
-            else:
-                tally["dropped: bare name is not the zone"] += 1
+            # A bare name neither confirms nor contradicts the zone. Keep it --
+            # "The Great Seal" is the Dazar'alor flight master and says nothing
+            # about Dazar'alor -- but rank it below a name that does confirm,
+            # so Broken Shore picks "Vengeance Point, Broken Shore" over the
+            # bare "Dalaran" sitting 1332 yards away rather than by degree.
+            entry["corroborated"] = related(entry["zone"], name)
+            corroborated.append(entry)
             continue
+        entry["corroborated"] = True
         place, stated = (part.strip() for part in name.rsplit(",", 1))
         stated = re.sub(r"\[.*?\]", "", stated).strip()
         if related(entry["zone"], stated):
             corroborated.append(entry)
             continue
         # The city-inside-a-zone case: "Ironforge, Dun Morogh" is in the
-        # Ironforge zone, and the place part says so. Only accept it when the
-        # stated zone is not itself represented -- otherwise "Trueshot Lodge,
-        # Highmountain" would claim a zone that Highmountain already holds.
-        stated_present = any(
-            norm(uimap[str(u)]["Name_lang"].strip()) == norm(stated) for u in present
-        )
-        if related(entry["zone"], place) and not stated_present:
+        # Ironforge zone, and the place part says so.
+        #
+        # There is deliberately no "unless the stated zone is also represented"
+        # test here. One was tried and destroyed six capitals: an entry always
+        # claims the zone the GEOMETRY put it in, never the zone its name
+        # mentions, so "Orgrimmar, Durotar" claiming uid 85 takes nothing away
+        # from Durotar. Worse, whether it fired depended on whether the client
+        # abbreviated the suffix -- "Stormwind, Elwynn" survived because
+        # "Elwynn" is not a zone name, "Orgrimmar, Durotar" did not.
+        if related(entry["zone"], place):
             corroborated.append(entry)
         else:
             tally["dropped: name contradicts geometry"] += 1
@@ -157,7 +191,9 @@ def build(csv_dir):
     best_per_zone = {}
     for entry in corroborated:
         current = best_per_zone.get(entry["uid"])
-        if current is None or (-entry["degree"], entry["id"]) < (-current["degree"], current["id"]):
+        def key(item):
+            return (0 if item.get("corroborated") else 1, -item["degree"], item["id"])
+        if current is None or key(entry) < key(current):
             best_per_zone[entry["uid"]] = entry
 
     final = {
@@ -169,6 +205,11 @@ def build(csv_dir):
     for key in sorted(tally):
         print(f"{key:<38}: {tally[key]}", file=sys.stderr)
     print(f"{'zones with a flight master':<38}: {len(final)}", file=sys.stderr)
+    # Exit status is what a script or CI reads, and a truncated TaxiPath.csv
+    # makes every degree 0 -- which produced an empty data file and exit 0.
+    if len(final) < MIN_ZONES:
+        sys.exit(f"only {len(final)} zones resolved, expected at least {MIN_ZONES}; "
+                 "the inputs look truncated -- nothing was written")
     return final
 
 

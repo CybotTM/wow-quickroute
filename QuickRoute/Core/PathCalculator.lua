@@ -1383,11 +1383,15 @@ local function SameFlightNetwork(a, b)
     if not WorldMapMixesContinents(a.point.continentID) then
         return true
     end
+    -- No IsNeutral test here. One was written and was dead code: a world map
+    -- carrying a neutral continent alongside a single named one is not
+    -- "mixed", so it returns above and never reaches this line. Kul Tiras and
+    -- Mechagon are allowed by that early return, not by a wildcard. Removing
+    -- the dead clause is also what lets a test see the difference -- with it
+    -- present, forcing every world map through the strict path changed
+    -- nothing observable.
     local ca = QR.GetContinentForZone and QR.GetContinentForZone(a.mapID)
     local cb = QR.GetContinentForZone and QR.GetContinentForZone(b.mapID)
-    if IsNeutral(ca) or IsNeutral(cb) then
-        return true
-    end
     return ca ~= nil and cb ~= nil and ca == cb
 end
 
