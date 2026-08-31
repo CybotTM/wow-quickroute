@@ -1425,7 +1425,7 @@ T:run("Data: FlightPoints coordinates agree with a surveyed landmark", function(
     -- Two anchors, because one is not enough. Stormwind's flight point sits
     -- almost on the diagonal (0.7098 vs 0.7297), so swapping the axes without
     -- mirroring moves it 0.028 and slips past any tolerance worth having.
-    -- Undercity's does not, and this repo surveys its bank to within 0.009 of
+    -- Undercity's does not, and this repo surveys its bank to within 0.01 of
     -- the flight master, which is tight enough to see a transposition. The
     -- Stormwind bound is 0.25 against a defect that measured 0.538 -- only
     -- 2.15x, so it is the loose one of the two, not the strict one.
@@ -1454,10 +1454,10 @@ T:run("Data: FlightPoints coordinates agree with a surveyed landmark", function(
 end)
 
 T:run("Data: FlightPoints covers every capital city", function(t)
-    -- A name rule in the generator once dropped six of these at once and
+    -- A name rule in the generator once dropped eight of these at once and
     -- nothing noticed: the addon simply believed the Horde capital had no
-    -- flight master. Every one of them has a flight master in game, so their
-    -- absence is always a generator bug, never a data fact.
+    -- flight master. Every one has a flight master in the client's taxi
+    -- tables, so an absence here is always a generator bug, never a data fact.
     local capitals = {
         [84] = "Stormwind City",
         [85] = "Orgrimmar",
@@ -1471,6 +1471,51 @@ T:run("Data: FlightPoints covers every capital city", function(t)
         [2339] = "Dornogal",
     }
     for uiMapID, name in pairs(capitals) do
+        t:assertNotNil(QR.FlightPoints and QR.FlightPoints[uiMapID],
+            name .. " (map " .. uiMapID .. ") has a flight point")
+    end
+end)
+
+T:run("Data: FlightPoints world coordinates are pinned where routing reads them", function(t)
+    -- worldX and worldY are the only fields the routing reads: every edge
+    -- weight is the distance between two of them. Nothing checked their VALUE
+    -- -- swapping Stormwind's pair made its edge to the Badlands 67% heavier
+    -- and the whole suite stayed green.
+    --
+    -- Two golden values, from the client's TaxiNodes table. They change only
+    -- when Blizzard moves a flight master, which is a deliberate data update,
+    -- not something a refactor should be able to do quietly.
+    local golden = {
+        [84] = { -8841.1, 489.7, "Stormwind" },
+        [90] = { 1568.6, 268.0, "Undercity" },
+    }
+    for uiMapID, want in pairs(golden) do
+        local point = QR.FlightPoints and QR.FlightPoints[uiMapID]
+        t:assertNotNil(point, want[3] .. " is in the data")
+        if point then
+            t:assert(math.abs(point.worldX - want[1]) < 0.05,
+                want[3] .. " worldX is " .. want[1] .. " (got " .. tostring(point.worldX) .. ")")
+            t:assert(math.abs(point.worldY - want[2]) < 0.05,
+                want[3] .. " worldY is " .. want[2] .. " (got " .. tostring(point.worldY) .. ")")
+        end
+    end
+end)
+
+T:run("Data: FlightPoints covers the zones a route is most likely to start in", function(t)
+    -- Deleting a single non-capital entry left the suite green: the assertion
+    -- total simply dropped. These are ordinary zones with flight masters that
+    -- the graph has nodes for, so losing one is a generator bug like losing a
+    -- capital, just quieter.
+    local zones = {
+        [1] = "Durotar",
+        [14] = "Arathi Highlands",
+        [15] = "Badlands",
+        [50] = "Northern Stranglethorn",
+        [371] = "The Jade Forest",
+        [2024] = "The Azure Span",
+        [2200] = "Emerald Dream",
+    }
+    for uiMapID, name in pairs(zones) do
         t:assertNotNil(QR.FlightPoints and QR.FlightPoints[uiMapID],
             name .. " (map " .. uiMapID .. ") has a flight point")
     end

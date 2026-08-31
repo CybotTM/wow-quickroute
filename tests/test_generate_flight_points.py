@@ -76,9 +76,33 @@ class NameRuleTest(unittest.TestCase):
         self.assertTrue(gen.related("Elwynn Forest", "Elwynn"))
         self.assertTrue(gen.related("Arathi", "Arathi Highlands"))
 
+    def test_related_accepts_a_leading_or_trailing_qualifier(self):
+        # The client and UiMap disagree about articles and qualifiers far more
+        # often than about the place. A prefix test rejected all of these and
+        # shipped the zones with no flight master at all.
+        for zone, stated in (
+            ("The Azure Span", "Azure Span"),
+            ("Emerald Dream", "The Emerald Dream"),
+            ("The Jade Forest", "Jade Forest"),
+            ("Mount Hyjal", "Hyjal"),
+            ("Ruins of Gilneas", "Gilneas"),
+            ("Northern Stranglethorn", "Stranglethorn"),
+            ("The Cape of Stranglethorn", "Stranglethorn"),
+        ):
+            self.assertTrue(gen.related(zone, stated), f"{zone} vs {stated}")
+
     def test_related_rejects_a_different_zone(self):
-        self.assertFalse(gen.related("Searing Gorge", "Badlands"))
-        self.assertFalse(gen.related("Broken Shore", "Dalaran"))
+        # The border cases the rule exists for. Loosening to substring must not
+        # cost any of these.
+        for zone, stated in (
+            ("Searing Gorge", "Badlands"),
+            ("Broken Shore", "Dalaran"),
+            ("Deadwind Pass", "Duskwood"),
+            ("Mulgore", "Southern Barrens"),
+            ("Durotar", "Northern Barrens"),
+            ("Swamp of Sorrows", "Blasted Lands"),
+        ):
+            self.assertFalse(gen.related(zone, stated), f"{zone} vs {stated}")
 
 
 class FixtureMixin:
@@ -270,6 +294,32 @@ class FilterTest(FixtureMixin, unittest.TestCase):
                     paths.append({"FromTaxiNode": a, "ToTaxiNode": b})
         result = self.resolve(rows, paths)
         self.assertEqual(result[self.ZONE_A]["name"], "Threepost, Alpha Vale")
+
+
+    def test_a_single_faction_node_is_kept(self):
+        # flags 2 is Horde-only. Narrowing the mask to 0x1 keeps every fixture
+        # node here green while dropping ten real zones, so the mask's VALUE
+        # needs a node that only one faction can see.
+        result = self.resolve([
+            self.node(1, "Warpost, Alpha Vale", 50, 50, flags="2"),
+            self.node(2, "Farpost, Beta Reach", 250, 250),
+            self.node(3, "Waypost, Beta Reach", 260, 260),
+        ])
+        self.assertIn(self.ZONE_A, result)
+
+    def test_a_city_named_for_the_zone_around_it_is_kept(self):
+        # "Ironforge, Dun Morogh" is in the Ironforge zone: the place part
+        # names the zone, the stated part names the zone around it. Dropping
+        # this branch costs seven capitals and both suites stay green, because
+        # the Lua capitals guard reads the committed file rather than the
+        # generator.
+        result = self.resolve([
+            self.node(1, "Gamma Hold, Beta Reach", 250, 250),
+            self.node(2, "Havenhold, Alpha Vale", 50, 50),
+            self.node(3, "Outpost, Alpha Vale", 60, 60),
+        ])
+        self.assertIn(self.ZONE_C, result)
+        self.assertEqual(result[self.ZONE_C]["name"], "Gamma Hold, Beta Reach")
 
 
 class InputGuardTest(FixtureMixin, unittest.TestCase):

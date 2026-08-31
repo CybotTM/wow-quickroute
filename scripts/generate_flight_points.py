@@ -69,9 +69,25 @@ def norm(text):
 
 
 def related(a, b):
-    """One name is an abbreviation or expansion of the other."""
+    """One name contains the other, ignoring case, spaces and punctuation.
+
+    Substring rather than prefix, because the client and the UiMap table
+    disagree about leading and trailing qualifiers far more often than they
+    disagree about the place: "Camp Antonidas, Azure Span" is in The Azure
+    Span, "Nordrassil, Hyjal" is in Mount Hyjal, "Booty Bay, Stranglethorn" is
+    in The Cape of Stranglethorn. A prefix test rejected all seven such zones
+    as name-contradicts-geometry and shipped them with no flight master at all,
+    including Emerald Dream and The Azure Span -- current content, and exactly
+    the zones a player wants flying out of.
+
+    Loosening it costs nothing: substring accepts those seven and still rejects
+    every genuine border case the rule exists for -- Badlands for Searing
+    Gorge, Duskwood for Deadwind Pass, Dalaran for Broken Shore, Southern
+    Barrens for Mulgore, Northern Barrens for Durotar, Blasted Lands for Swamp
+    of Sorrows. Regenerating with it adds 7 zones and removes 0.
+    """
     a, b = norm(a), norm(b)
-    return bool(a) and bool(b) and (a.startswith(b) or b.startswith(a))
+    return bool(a) and bool(b) and (a in b or b in a)
 
 
 def project(px, py, x0, y0, x1, y1, a0, b0, a1, b1):

@@ -60,12 +60,15 @@ QR.FlightPoints = {
     [47] = { x = 0.2097, y = 0.5672, worldX = -10737.6, worldY = 267.0, continentID = 0, node = "Raven Hill, Duskwood" },
     [48] = { x = 0.3394, y = 0.5079, worldX = -5421.9, worldY = -2930.0, continentID = 0, node = "Thelsamar, Loch Modan" },
     [49] = { x = 0.2928, y = 0.5340, worldX = -9429.1, worldY = -2231.4, continentID = 0, node = "Lakeshire, Redridge" },
+    [50] = { x = 0.3896, y = 0.5113, worldX = -12414.2, worldY = 146.3, continentID = 0, node = "Grom'gol, Stranglethorn" },
     [51] = { x = 0.7214, y = 0.1205, worldX = -9737.1, worldY = -3890.7, continentID = 0, node = "Bogpaddle, Swamp of Sorrows" },
     [52] = { x = 0.5664, y = 0.4937, worldX = -10551.9, worldY = 1034.4, continentID = 0, node = "Sentinel Hill, Westfall" },
     [56] = { x = 0.0939, y = 0.5950, worldX = -3787.8, worldY = -777.7, continentID = 0, node = "Menethil Harbor, Wetlands" },
     [84] = { x = 0.7098, y = 0.7297, worldX = -8841.1, worldY = 489.7, continentID = 0, node = "Stormwind, Elwynn" },
     [87] = { x = 0.5589, y = 0.4787, worldX = -4821.8, worldY = -1155.4, continentID = 0, node = "Ironforge, Dun Morogh" },
     [90] = { x = 0.6309, y = 0.4832, worldX = 1568.6, worldY = 268.0, continentID = 0, node = "Undercity, Tirisfal" },
+    [210] = { x = 0.4167, y = 0.7435, worldX = -14473.0, worldY = 464.1, continentID = 0, node = "Booty Bay, Stranglethorn" },
+    [217] = { x = 0.5725, y = 0.1796, worldX = -910.2, worldY = 1638.6, continentID = 0, node = "Forsaken Forward Command, Gilneas" },
     [241] = { x = 0.7384, y = 0.5281, worldX = -4012.4, worldY = -6329.2, continentID = 0, node = "Dragonmaw Port, Twilight Highlands" },
     [2393] = { x = 0.5097, y = 0.7102, worldX = 8444.3, worldY = -4765.7, continentID = 0, node = "Sanctum of Light, Silvermoon City" },
     [2395] = { x = 0.3106, y = 0.9005, worldX = 4512.1, worldY = -2780.1, continentID = 0, node = "Silverglade Refuge, Eversong Woods" },
@@ -93,6 +96,7 @@ QR.FlightPoints = {
     [85] = { x = 0.4927, y = 0.5937, worldX = 1798.3, worldY = -4363.3, continentID = 1, node = "Orgrimmar, Durotar" },
     [88] = { x = 0.4665, y = 0.4990, worldX = -1197.2, worldY = 29.7, continentID = 1, node = "Thunder Bluff, Mulgore" },
     [89] = { x = 0.3672, y = 0.4827, worldX = 9968.8, worldY = 2622.1, continentID = 1, node = "Darnassus, Teldrassil" },
+    [198] = { x = 0.6219, y = 0.2161, worldX = 5584.1, worldY = -3569.8, continentID = 1, node = "Nordrassil, Hyjal" },
     [249] = { x = 0.5626, y = 0.3356, worldX = -9415.0, worldY = -1043.0, continentID = 1, node = "Ramkahen, Uldum" },
     -- world map 530
     [94] = { x = 0.4399, y = 0.6993, worldX = 8745.8, worldY = -6654.1, continentID = 530, node = "Fairbreeze Village, Eversong Woods" },
@@ -120,6 +124,7 @@ QR.FlightPoints = {
     [123] = { x = 0.7205, y = 0.3105, worldX = 5100.8, worldY = 2185.6, continentID = 571, node = "Valiance Landing Camp, Wintergrasp" },
     [127] = { x = 0.7212, y = 0.8081, worldX = 5035.6, worldY = -520.0, continentID = 571, node = "Windrunner's Overlook, Crystalsong Forest" },
     -- world map 870
+    [371] = { x = 0.4703, y = 0.4616, worldX = 1503.7, worldY = -1832.1, continentID = 870, node = "Dawn's Blossom, Jade Forest" },
     [376] = { x = 0.5642, y = 0.5034, worldX = -221.3, worldY = 464.6, continentID = 870, node = "Halfhill, Valley of the Four Winds" },
     [379] = { x = 0.6244, y = 0.8071, worldX = 2250.6, worldY = 931.6, continentID = 870, node = "Eastwind Rest, Kun-Lai Summit" },
     [388] = { x = 0.7112, y = 0.5733, worldX = 2363.2, worldY = 2994.4, continentID = 870, node = "Longying Outpost, Townlong Steppes" },
@@ -174,11 +179,14 @@ QR.FlightPoints = {
     -- world map 2444
     [2022] = { x = 0.5781, y = 0.6803, worldX = 1753.2, worldY = 42.1, continentID = 2444, node = "Ruby Life Pools, The Waking Shores" },
     [2023] = { x = 0.6301, y = 0.4215, worldX = -706.5, worldY = 2048.9, continentID = 2444, node = "Maruukai, Ohn'ahran Plains" },
+    [2024] = { x = 0.4674, y = 0.3959, worldX = -3801.0, worldY = 404.5, continentID = 2444, node = "Camp Antonidas, Azure Span" },
     [2025] = { x = 0.5111, y = 0.6703, worldX = -318.0, worldY = -2056.0, continentID = 2444, node = "Gelikyr Post, Thaldraszus" },
     [2112] = { x = 0.4447, y = 0.6791, worldX = -10.0, worldY = -844.2, continentID = 2444, node = "Valdrakken, Thaldraszus" },
     [2151] = { x = 0.3574, y = 0.5918, worldX = 6407.7, worldY = -2560.3, continentID = 2444, node = "Morqut Village, The Forbidden Reach" },
     -- world map 2454
     [2133] = { x = 0.4031, y = 0.6789, worldX = -959.3, worldY = 3140.2, continentID = 2454, node = "Dragonscale Camp, Zaralek Cavern" },
+    -- world map 2548
+    [2200] = { x = 0.5106, y = 0.6241, worldX = -1716.3, worldY = 7074.1, continentID = 2548, node = "Central Encampment, The Emerald Dream" },
     -- world map 2552
     [2271] = { x = 0.3822, y = 0.7853, worldX = 985.5, worldY = -1847.6, continentID = 2552, node = "Freywold Village, Isle of Dorn" },
     [2339] = { x = 0.4476, y = 0.5104, worldX = 2585.4, worldY = -2473.3, continentID = 2552, node = "Dornogal, Isle of Dorn" },

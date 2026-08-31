@@ -1985,8 +1985,11 @@ T:run("A flight leg reads as a flight in every text surface", function(t)
     t:assertNotNil(flightStep, "and it contains a flight leg")
     if flightStep then
         t:assertNotNil(flightStep.action, "the leg has an action line")
-        t:assertEqual(false, flightStep.action:find("^Go to ") ~= nil,
-            "which is not the walk wording (got: " .. tostring(flightStep.action) .. ")")
+        -- Pinned to the wording itself, not merely to "not the walk wording":
+        -- a flight leg reading "Take Deeprun Tram to X" passed that.
+        local want = string.format(QR.L["ACTION_FLY_TO"], flightStep.localizedTo or "")
+        t:assertEqual(want, flightStep.action,
+            "and reads as a flight (got: " .. tostring(flightStep.action) .. ")")
     end
     QR.PathCalculator.knownFlightZonesOverride = nil
 end)
@@ -2105,8 +2108,47 @@ T:run("A flight step navigates to the flight master, not the destination", funct
                 .. tostring(flightStep.fromMapID) .. ")")
         t:assert(flightStep.navMapID ~= flightStep.destMapID,
             "and not the map it arrives on (dest " .. tostring(flightStep.destMapID) .. ")")
+
+        -- The map alone is not enough. The edge attaches to whatever node was
+        -- ranked highest on that map, which for the Badlands is a dungeon
+        -- entrance 0.48 of the zone from Fuselight -- the right map, the wrong
+        -- building, and the player is told to fly from it.
+        local master = QR.FlightPoints[flightStep.fromMapID]
+        t:assertNotNil(master, "the departure zone has a flight master on file")
+        if master then
+            local dx = (flightStep.navX or 0) - master.x
+            local dy = (flightStep.navY or 0) - master.y
+            local apart = math.sqrt(dx * dx + dy * dy)
+            t:assert(apart < 0.001, string.format(
+                "and the waypoint is the flight master itself, not the graph "
+                .. "node the edge happens to hang off: (%.4f, %.4f) vs %s at "
+                .. "(%.4f, %.4f), %.4f apart",
+                flightStep.navX or -1, flightStep.navY or -1,
+                tostring(master.node), master.x, master.y, apart))
+        end
     end
     QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+T:run("A node the client reports without a state is not discovered", function(t)
+    -- C_TaxiMap's live shape is the one thing here that could not be verified
+    -- offline, so the gate has to be defensive in both directions. Dropping
+    -- the "node.state and" half counted all 134 zones as discovered from a
+    -- client that never said so -- flights offered from masters the player has
+    -- never visited, which is the failure the gate exists to prevent.
+    resetState()
+    local saved = _G.C_TaxiMap
+    _G.C_TaxiMap = {
+        GetAllTaxiNodes = function() return { { name = "A node with no state" } } end,
+    }
+    QR.PathCalculator.knownFlightZonesOverride = nil
+    local known = QR.PathCalculator:GetKnownFlightZones()
+    t:assertNotNil(known, "the client answered, so this is not the nil case")
+    if known then
+        t:assertEqual(nil, next(known),
+            "and nothing it failed to describe counts as discovered")
+    end
+    _G.C_TaxiMap = saved
 end)
 
 T:run("An answering client with nothing discovered is not the same as no client", function(t)

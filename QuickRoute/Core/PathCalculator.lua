@@ -1673,8 +1673,8 @@ function PathCalculator:BuildSteps(path, edges)
         step.navY = step.destY
         step.navTitle = toNode
 
-        -- A flight starts at the flight master, so navigation points at the
-        -- from node like every other boarded transport, not at the destination.
+        -- A boarded transport starts where you board it, so navigation points
+        -- at the from node rather than at the destination.
         if edge.edgeType == "portal" or edge.edgeType == "boat"
             or edge.edgeType == "zeppelin" or edge.edgeType == "tram"
             or edge.edgeType == "flight" then
@@ -1683,6 +1683,21 @@ function PathCalculator:BuildSteps(path, edges)
                 step.navX = fromNodeData.x or 0.5
                 step.navY = fromNodeData.y or 0.5
                 step.navTitle = step.action
+            end
+        end
+
+        -- A flight is boarded at the flight master, and the from node is not
+        -- it: the edge attaches to whatever node FlightAnchorForMap ranked
+        -- highest on that map, which for the Badlands is a dungeon entrance
+        -- 0.48 of the zone away from Fuselight. QR.FlightPoints has the flight
+        -- master's own position -- until now nothing read it, which is why a
+        -- transposed x/y went unnoticed for four review rounds.
+        if edge.edgeType == "flight" and edge.data and QR.FlightPoints then
+            local master = QR.FlightPoints[edge.data.fromMapID]
+            if master and master.x and master.y then
+                step.navMapID = edge.data.fromMapID
+                step.navX = master.x
+                step.navY = master.y
             end
         end
 
