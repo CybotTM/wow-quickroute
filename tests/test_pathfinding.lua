@@ -2092,8 +2092,11 @@ T:run("A Horde route is waypointed to Horde flight masters", function(t)
     -- The waypoint tests elsewhere run as Alliance, and for most zones the
     -- Alliance master is also the primary entry -- so reading the primary
     -- instead of the player's own point changed nothing they could see. As
-    -- Horde it changes 17 zones that have an Alliance primary and a Horde
-    -- alternate, and those are the ones this walks.
+    -- Horde it changes 26 zones that have an Alliance primary and a Horde
+    -- alternate, and those are the ones this walks. (17 is a different set --
+    -- the Alliance-only zones, where a Horde player gets nothing rather than
+    -- something else. An earlier revision of this comment, and commit
+    -- 142b139's message, used that number for this sentence.)
     resetState()
     MockWoW.config.playerFaction = "Horde"
     QR.PlayerInfo:InvalidateCache()
