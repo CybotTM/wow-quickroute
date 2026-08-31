@@ -41,7 +41,7 @@ QR.TeleportItemsData = {
     },
     [140192] = {
         name = "Dalaran Hearthstone",
-        destination = "Dalaran (Legion)",
+        destination = "Dalaran (Broken Isles)",
         mapID = 627,  -- Dalaran (Broken Isles)
         x = 0.5044,
         y = 0.5313,
@@ -452,7 +452,7 @@ QR.TeleportItemsData = {
     -- Empowered Ring (Legion Dalaran)
     [139599] = {
         name = "Empowered Ring of the Kirin Tor",
-        destination = "Dalaran (Legion)",
+        destination = "Dalaran (Broken Isles)",
         mapID = 627,
         x = 0.5044,
         y = 0.5313,
@@ -975,7 +975,7 @@ QR.TeleportItemsData = {
     },
     [142542] = {
         name = "Tome of Town Portal",
-        destination = "Dalaran (Legion)",
+        destination = "Dalaran (Broken Isles)",
         mapID = 627,
         x = 0.5044,
         y = 0.5313,
@@ -1475,7 +1475,7 @@ QR.MageTeleports = {
         -- Legion
         [224869] = {
             name = "Teleport: Dalaran - Broken Isles",
-            destination = "Dalaran (Legion)",
+            destination = "Dalaran (Broken Isles)",
             mapID = 627,
             x = 0.5044,
             y = 0.5313,
