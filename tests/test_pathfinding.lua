@@ -1648,3 +1648,36 @@ T:run("An unknown dungeon teleport creates no edge", function(t)
     t:assert(edge == nil or edge.edgeType ~= "teleport",
         "no teleport edge for a spell the player does not know")
 end)
+
+-------------------------------------------------------------------------------
+-- The player node has to be connected before the player moves
+-------------------------------------------------------------------------------
+
+-- Regression: nothing connected the player node at build time except the
+-- teleports they own. ConnectSameMapNodes reaches it only when another node
+-- shares its map, ConnectIslandNodes skips it by name, and ReconnectPlayerNode
+-- -- the only other caller -- is gated on the position having changed. So a
+-- character with no teleports, standing somewhere the graph has no other node
+-- for, had a player node with zero edges and no route anywhere.
+T:run("A teleport-less character in Thunder Bluff can route out", function(t)
+    resetState()
+    MockWoW.config.playerClass = "WARRIOR"
+    MockWoW.config.playerClassName = "Warrior"
+    MockWoW.config.knownSpells = {}
+    QR.PlayerInventory:ScanAll()
+    MockWoW.config.currentMapID = 88  -- Thunder Bluff: no other node on that map
+    QR.PathCalculator.graphDirty = true
+    QR:InitializeGraph()
+
+    local graph = QR.PathCalculator.graph
+    local edges = graph and graph.edges and graph.edges["Player Location"]
+    local count = 0
+    for _ in pairs(edges or {}) do count = count + 1 end
+    t:assertGreaterThan(count, 0,
+        "the player node has edges straight after the build (got " .. tostring(count) .. ")")
+
+    local route = QR.PathCalculator:CalculatePath(84, 0.4965, 0.8725, "Stormwind City")
+    t:assertNotNil(route, "and a route to Stormwind exists")
+    if not route then return end
+    t:assertGreaterThan(#(route.steps or {}), 0, "with at least one step")
+end)
