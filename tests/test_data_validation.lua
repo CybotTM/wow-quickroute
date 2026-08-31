@@ -1535,3 +1535,54 @@ T:run("Data: FlightPoints zones are zones, not continents", function(t)
             "map " .. tostring(uiMapID) .. " is a zone")
     end
 end)
+
+-------------------------------------------------------------------------------
+-- Teleport landing coordinates
+-------------------------------------------------------------------------------
+
+T:run("Data: teleport landings are all-or-nothing", function(t)
+    -- BuildSteps applies a teleport's mapID, x and y under three separate
+    -- guards, each overriding the node. An entry with a mapID but no x or y
+    -- therefore produces a step naming one place's map and another place's
+    -- position -- the exact mix the waypoint invariant exists to prevent, and
+    -- the one case that invariant cannot see, because the edge carrying the
+    -- landing data is gone by the time a finished route can be inspected.
+    --
+    -- So it is checked here instead, at the source: a teleport that says where
+    -- it lands has to say it completely.
+    --
+    -- This covers the DATA, not the code that applies it. Deleting the three
+    -- overrides in BuildSteps is still invisible to the suite -- reaching them
+    -- needs a route whose teleport lands somewhere other than the destination
+    -- the caller asked for, and no fixture here produces one. Written down
+    -- rather than papered over with a test that would not fail.
+    local tables = {
+        TeleportItemsData = QR.TeleportItemsData,
+        ClassTeleportSpells = QR.ClassTeleportSpells,
+        RacialTeleportSpells = QR.RacialTeleportSpells,
+        GeneralTeleportSpells = QR.GeneralTeleportSpells,
+    }
+    local checked, withMap = 0, 0
+    for label, data in pairs(tables) do
+        for id, entry in pairs(data or {}) do
+            if type(entry) == "table" then
+                checked = checked + 1
+                if entry.mapID then
+                    withMap = withMap + 1
+                    t:assert(type(entry.x) == "number" and type(entry.y) == "number",
+                        label .. "[" .. tostring(id) .. "] states a landing map ("
+                            .. tostring(entry.mapID) .. ") so it must state where in it "
+                            .. "(x=" .. tostring(entry.x) .. ", y=" .. tostring(entry.y) .. ")")
+                end
+                if entry.x or entry.y then
+                    t:assert(entry.mapID ~= nil,
+                        label .. "[" .. tostring(id) .. "] states a landing position "
+                            .. "so it must state which map it is on")
+                end
+            end
+        end
+    end
+    t:assertGreaterThan(checked, 20, "over a real number of teleports (" .. checked .. ")")
+    t:assertGreaterThan(withMap, 5,
+        "of which enough name a landing map (" .. withMap .. ")")
+end)
