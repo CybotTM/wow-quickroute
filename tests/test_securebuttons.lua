@@ -545,3 +545,65 @@ T:run("QR.combatFrame: exists and has correct events registered", function(t)
     t:assertNotNil(QR.combatFrame, "QR.combatFrame exists")
     t:assertNotNil(QR.combatFrame:GetScript("OnEvent"), "combatFrame has OnEvent handler")
 end)
+
+-------------------------------------------------------------------------------
+-- Equippable teleport items
+--
+-- /equip searches the bags only. Aimed at an item the player is already
+-- wearing it prints "Item not found" and the teleport never happens -- which
+-- is what every guild cloak did, because a cloak is worn. Whether the item is
+-- worn is only known at click time, so PreClick picks the macro.
+-------------------------------------------------------------------------------
+
+T:run("SecureButtons: a worn item is used from its slot, not re-equipped", function(t)
+    resetState()
+    local btn = QR.SecureButtons:GetButton()
+    t:assertNotNil(btn, "a button is available")
+    if not btn then return end
+
+    -- Shroud of Cooperation, Horde: back slot, and already on the character.
+    t:assertTrue(QR.SecureButtons:ConfigureForEquippable(btn, 63353, 15),
+        "the button configures")
+    MockWoW.config.equippedItems[15] = 63353
+
+    local preClick = btn:GetScript("PreClick")
+    t:assertNotNil(preClick, "PreClick is set")
+    if not preClick then return end
+    preClick(btn, "LeftButton", false)
+
+    local macro = btn:GetAttribute("macrotext")
+    t:assertEqual("/use 15", macro,
+        "an item already worn is used straight from its slot")
+end)
+
+T:run("SecureButtons: an item in the bags is equipped first", function(t)
+    resetState()
+    local btn = QR.SecureButtons:GetButton()
+    if not btn then return end
+    t:assertTrue(QR.SecureButtons:ConfigureForEquippable(btn, 63353, 15),
+        "the button configures")
+    -- A different cloak is worn, so the teleport cloak has to go on first.
+    MockWoW.config.equippedItems[15] = 12345
+
+    local preClick = btn:GetScript("PreClick")
+    if not preClick then return end
+    preClick(btn, "LeftButton", false)
+
+    t:assertEqual("/equip item:63353\n/use 15", btn:GetAttribute("macrotext"),
+        "an item that is not worn is equipped before use")
+end)
+
+T:run("SecureButtons: an empty slot still equips before use", function(t)
+    resetState()
+    local btn = QR.SecureButtons:GetButton()
+    if not btn then return end
+    QR.SecureButtons:ConfigureForEquippable(btn, 63353, 15)
+    MockWoW.config.equippedItems[15] = nil
+
+    local preClick = btn:GetScript("PreClick")
+    if not preClick then return end
+    preClick(btn, "LeftButton", false)
+
+    t:assertEqual("/equip item:63353\n/use 15", btn:GetAttribute("macrotext"),
+        "nothing worn means the item is equipped first")
+end)

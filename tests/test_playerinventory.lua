@@ -346,3 +346,62 @@ T:run("ScanAll: returns combined result", function(t)
     t:assertNotNil(result.toys, "Result has toys key")
     t:assertNotNil(result.spells, "Result has spells key")
 end)
+
+-------------------------------------------------------------------------------
+-- Equipped teleport items
+--
+-- A worn item is not in the bags, so it is only found if ScanEquipped looks at
+-- its slot. The slot list used to be hand-written -- rings, tabard, trinkets --
+-- while TeleportItemsData declared eleven items in three further slots: the six
+-- guild cloaks and Mountebank's Colorful Cloak on the back, three pairs of
+-- slippers on the feet, and the Blessed Medallion of Karabor on the neck. While
+-- worn, none of them was owned, so the panel drew a plain icon instead of a
+-- button and clicking it did nothing.
+-------------------------------------------------------------------------------
+
+T:run("PlayerInventory: an equipped teleport item is found in every slot the data uses", function(t)
+    local slots = {}
+    for id, data in pairs(QR.TeleportItemsData or {}) do
+        if data.equipSlot and data.type ~= QR.TeleportTypes.TOY and not slots[data.equipSlot] then
+            slots[data.equipSlot] = id
+        end
+    end
+
+    local ordered = {}
+    for slot in pairs(slots) do ordered[#ordered + 1] = slot end
+    table.sort(ordered)
+    t:assertGreaterThan(#ordered, 1, "the data declares more than one equip slot")
+
+    local missed = {}
+    for _, slot in ipairs(ordered) do
+        local itemID = slots[slot]
+        resetState()
+        MockWoW.config.equippedItems[slot] = itemID
+        QR.PlayerInventory:ScanEquipped()
+        if not QR.PlayerInventory:HasTeleport(itemID) then
+            missed[#missed + 1] = string.format("slot %d (item %d, %s)",
+                slot, itemID, QR.TeleportItemsData[itemID].name or "?")
+        end
+    end
+    t:assertEqual(0, #missed,
+        "every declared equip slot is scanned; missed: " .. table.concat(missed, ", "))
+end)
+
+T:run("PlayerInventory: a worn guild cloak is owned", function(t)
+    resetState()
+    -- Shroud of Cooperation, Horde. Back slot, which the old list omitted.
+    MockWoW.config.equippedItems[15] = 63353
+    QR.PlayerInventory:ScanEquipped()
+    t:assertTrue(QR.PlayerInventory:HasTeleport(63353),
+        "a cloak worn in slot 15 counts as owned")
+end)
+
+T:run("PlayerInventory: a ring declared for finger 1 is found on finger 2", function(t)
+    resetState()
+    -- Signet of the Kirin Tor declares INVSLOT_FINGER1, but a ring can be worn
+    -- in either finger, so both slots have to be scanned.
+    MockWoW.config.equippedItems[12] = 40585
+    QR.PlayerInventory:ScanEquipped()
+    t:assertTrue(QR.PlayerInventory:HasTeleport(40585),
+        "the paired finger slot is scanned too")
+end)

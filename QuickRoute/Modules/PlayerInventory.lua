@@ -26,14 +26,48 @@ local PlayerInventory = QR.PlayerInventory
 -- Cache for GetAllTeleports() result (invalidated by ScanAll)
 local allTeleportsCache = nil
 
--- Equipment slot constants
-local EQUIP_SLOTS = {
-    INVSLOT_FINGER1,
-    INVSLOT_FINGER2,
-    INVSLOT_TABARD,
-    INVSLOT_TRINKET1,
-    INVSLOT_TRINKET2,
+-- Which equipment slots to scan. Derived from the data rather than written
+-- out, because a hand-kept list beside a table that declares the same thing
+-- drifts: this one named rings, tabard and trinkets while TeleportItemsData
+-- had eleven items in three slots it did not name -- the six guild cloaks and
+-- Mountebank's Colorful Cloak on the back (15), three pairs of slippers on the
+-- feet (8), and the Blessed Medallion of Karabor on the neck (2). While any of
+-- those was worn it was invisible: not owned, so no button, so nothing to
+-- click.
+--
+-- Rings are the reason slot 12 is in here without being in the data. An item
+-- that declares INVSLOT_FINGER1 can be worn in either finger, so both are
+-- scanned; the same holds for the two trinket slots.
+local PAIRED_SLOTS = {
+    [11] = 12,  -- finger
+    [12] = 11,
+    [13] = 14,  -- trinket
+    [14] = 13,
 }
+
+local equipSlotsCache = nil
+
+local function EquipSlots()
+    if equipSlotsCache then
+        return equipSlotsCache
+    end
+    local seen = {}
+    for _, data in pairs(QR.TeleportItemsData or {}) do
+        local slot = data.equipSlot
+        if slot then
+            seen[slot] = true
+            if PAIRED_SLOTS[slot] then
+                seen[PAIRED_SLOTS[slot]] = true
+            end
+        end
+    end
+    equipSlotsCache = {}
+    for slot in pairs(seen) do
+        equipSlotsCache[#equipSlotsCache + 1] = slot
+    end
+    table.sort(equipSlotsCache)
+    return equipSlotsCache
+end
 
 -------------------------------------------------------------------------------
 -- Scanning Methods
@@ -114,10 +148,11 @@ function PlayerInventory:ScanBags()
 end
 
 --- Scan equipped items for teleport items
--- Checks rings, tabard, and trinkets
+-- Checks every slot TeleportItemsData declares, plus the paired finger and
+-- trinket slots
 function PlayerInventory:ScanEquipped()
     if not GetInventoryItemID then return self.teleportItems end
-    for _, slotID in ipairs(EQUIP_SLOTS) do
+    for _, slotID in ipairs(EquipSlots()) do
         local itemID = GetInventoryItemID("player", slotID)
         if itemID and QR.TeleportItemsData[itemID] then
             local data = QR.TeleportItemsData[itemID]
