@@ -31,8 +31,16 @@ jobs:
         run: luacheck QuickRoute/ tests/ --config .luacheckrc
 
   tests:
-    name: Tests
+    # Both file orders. The files share one mock and one addon namespace, so a
+    # file that borrows global state and does not put it back only breaks
+    # whatever runs after it -- which in discovery order was nothing, for as long
+    # as nobody added a file at the wrong position.
+    name: Tests (${{ matrix.order }} order)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        order: [discovery, reverse]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -42,4 +50,6 @@ jobs:
           luaVersion: "5.1"
 
       - name: Run tests
+        env:
+          QR_TEST_ORDER: ${{ matrix.order }}
         run: lua tests/run_tests.lua

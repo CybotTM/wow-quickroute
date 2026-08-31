@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- Two test files left shared state behind, so the suite passed in one file order and failed in others: a mock frame method deleted rather than restored, and two saved-variables keys. CI now runs both orders.
+
 ## [1.11.0] - 2026-08-31
 
 ### Fixed
