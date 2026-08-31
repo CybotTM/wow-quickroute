@@ -450,6 +450,8 @@ T:run("MapTeleportButton: UpdateForMap configures spell attributes", function(t)
         },
     })
 
+    -- Known, because the spell action type resolves through the spellbook.
+    MockWoW.config.knownSpells[999] = true
     QR.MapTeleportButton:UpdateForMap(84)
     local btn = QR.MapTeleportButton.button
     -- SecureButtons:ConfigureButton should have set attributes

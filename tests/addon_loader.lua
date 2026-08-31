@@ -66,6 +66,7 @@ function AddonLoader:Load(MockWoW, options)
         "Modules/ServiceRouter.lua",
         "Modules/EncounterJournalButton.lua",
         "Modules/SettingsPanel.lua",
+        "Modules/ZoneSurvey.lua",
         "QuickRoute.lua",
     }
 

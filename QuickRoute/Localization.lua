@@ -59,6 +59,10 @@ L["CALCULATING"] = "Calculating..."
 L["SCANNING"] = "Scanning..."
 L["IN_COMBAT"] = "In Combat"
 L["CANNOT_USE_IN_COMBAT"] = "Cannot use during combat"
+-- An equippable teleport has to be worn before it can be used, and a macro
+-- cannot do both in one click: the item reaches the slot only after the
+-- server answers. So the first click equips and says this.
+L["EQUIP_THEN_CLICK_AGAIN"] = "%s equipped. Click again to teleport."
 L["WAYPOINT_SET"] = "Waypoint set for %s"
 L["NO_PATH_FOUND"] = "No route found"
 L["NO_DESTINATION"] = "No destination for this step"
@@ -373,6 +377,7 @@ if GetLocale() == "deDE" then
     L["SCANNING"] = "Scanne..."
     L["IN_COMBAT"] = "Im Kampf"
     L["CANNOT_USE_IN_COMBAT"] = "Im Kampf nicht nutzbar"
+    L["EQUIP_THEN_CLICK_AGAIN"] = "%s angelegt. Zum Teleportieren erneut klicken."
     L["WAYPOINT_SET"] = "Wegpunkt gesetzt für %s"
     L["NO_PATH_FOUND"] = "Keine Route gefunden"
     L["NO_DESTINATION"] = "Kein Ziel für diesen Schritt"

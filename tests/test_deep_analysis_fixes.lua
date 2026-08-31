@@ -144,6 +144,9 @@ T:run("B1: ConfigureForSpell accepts valid spellID", function(t)
         SetAttribute = function(self, key, val) attrs[key] = val end,
         poolIndex = 1,
     }
+    -- Known, because the spell action type resolves through the
+    -- spellbook; an unknown spell now takes the macro path below.
+    MockWoW.config.knownSpells[12345] = true
     local result = QR.SecureButtons:ConfigureForSpell(btn, 12345)
     t:assertTrue(result, "ConfigureForSpell accepts valid positive integer spellID")
     t:assertEqual("spell", attrs["type"], "Sets type attribute to spell")
@@ -818,6 +821,7 @@ T:run("B1: ConfigureButton dispatches to correct handler", function(t)
 
     -- Test spell dispatch
     attrs = {}
+    MockWoW.config.knownSpells[12345] = true
     local result = QR.SecureButtons:ConfigureButton(btn, 12345, "spell")
     t:assertTrue(result, "ConfigureButton dispatches spell correctly")
     t:assertEqual("spell", attrs["type"], "ConfigureButton spell sets type=spell")
