@@ -96,7 +96,7 @@ QR.PortalHubs = {
     -- NEUTRAL PORTAL HUBS
     -- =========================================================================
     ["Dalaran (Broken Isles)"] = {
-        mapID = 627,  -- Dalaran (Legion)
+        mapID = 627,
         x = 0.5044,
         y = 0.5313,
         faction = "both",
