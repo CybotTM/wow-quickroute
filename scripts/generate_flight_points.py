@@ -86,13 +86,16 @@ def related(a, b):
     Southern Barrens for Mulgore, Northern Barrens for Durotar, Blasted Lands
     for Swamp of Sorrows. Regenerating with it adds 7 zones and removes 0.
 
-    Substring does admit a theoretical false positive that prefix did not: a
-    very short zone name inside a longer one. Across the 211 zone-type UiMap
-    names the only case is the placeholder map "Val", a substring of Ashenvale,
-    Val'sharah, Valdrakken and Stranglethorn Vale among others. No taxi node
-    states "Val" as its zone and neither Val map holds a kept node, so it
-    cannot fire on the current tables -- but a future one-syllable zone name
-    would want checking here.
+    Substring does admit a false positive that prefix did not: a very short
+    zone name inside a longer one. Across the 211 zone-type UiMap names the
+    only case is the placeholder map "Val" (UiMap 2599 and 2622), a substring
+    of Ashenvale, Val'sharah, Valdrakken and Stranglethorn Vale among others.
+
+    It cannot fire on the current tables, but not because those maps are
+    unused -- 2599 ships, as "Umbral Base Camp". It cannot fire because that
+    node's name contains no "val", and no taxi node states "Val" as its zone.
+    A node on 2599 named "Valley Watch" WOULD match and be marked corroborated
+    wrongly, so a future one-syllable zone name wants checking here.
     """
     a, b = norm(a), norm(b)
     return bool(a) and bool(b) and (a in b or b in a)

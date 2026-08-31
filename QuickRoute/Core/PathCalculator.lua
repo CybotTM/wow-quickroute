@@ -1694,16 +1694,13 @@ function PathCalculator:BuildSteps(path, edges)
             end
         end
 
-        -- A flight is boarded at the flight master, and the from node is not
-        -- it: the edge attaches to whatever node FlightAnchorForMap ranked
-        -- highest on that map, which for the Badlands is a dungeon entrance
-        -- 0.48 of the zone away from Fuselight. QR.FlightPoints has the flight
-        -- master's own position -- until now nothing read it, which is why a
-        -- transposed x/y went unnoticed for four review rounds.
         -- The block above already put the waypoint on the right MAP, via the
-        -- from node. Only the position needs correcting: the from node is
-        -- whatever FlightAnchorForMap ranked highest there, which for the
+        -- from node. Only the position still needs correcting: that node is
+        -- whatever FlightAnchorForMap ranked highest on the map, which for the
         -- Badlands is a dungeon entrance 0.48 of the zone from Fuselight.
+        -- QR.FlightPoints carries the flight master's own position -- nothing
+        -- read it until this block, which is why a transposed x/y went
+        -- unnoticed for four review rounds.
         if edge.edgeType == "flight" and edge.data and QR.FlightPoints then
             local master = QR.FlightPoints[edge.data.fromMapID]
             if master and master.x and master.y then
