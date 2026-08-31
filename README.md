@@ -4,9 +4,9 @@
 
 <h1 align="center">QuickRoute</h1>
 
-![WoW 12.0](https://img.shields.io/badge/WoW-12.0%20Retail-148EFF)
+![WoW 12.1](https://img.shields.io/badge/WoW-12.1%20Retail-148EFF)
 ![Lua](https://img.shields.io/badge/Lua-5.1-2C2D72?logo=lua&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-7754%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/tests-11626%20assertions-brightgreen)
 [![CI](https://github.com/CybotTM/wow-quickroute/actions/workflows/ci.yml/badge.svg)](https://github.com/CybotTM/wow-quickroute/actions/workflows/ci.yml)
 ![License](https://img.shields.io/github/license/CybotTM/wow-quickroute)
 
@@ -39,12 +39,20 @@ A World of Warcraft addon that calculates and displays the shortest path to any 
 
 ## Installation
 
-### Via CurseForge/WoWUp (Recommended)
-Install from CurseForge or WoWUp - dependencies are resolved automatically.
+Every release goes to all three at once, from the same build.
 
-### Manual Installation
-1. Download and extract to `World of Warcraft\_retail_\Interface\AddOns\QuickRoute`
-2. Restart WoW or `/reload`
+| Source | |
+|---|---|
+| CurseForge | [QuickRoute](https://www.curseforge.com/wow/addons/quickroute) — or search "QuickRoute" in the CurseForge app or WoWUp |
+| Wago | [QuickRoute](https://addons.wago.io/addons/quickroute) — or in the WagoApp |
+| GitHub | [Latest release](https://github.com/CybotTM/wow-quickroute/releases/latest) |
+
+An addon manager keeps QuickRoute current on its own, which matters here: the addon declares the game version it was built for, and WoW skips an addon whose declared version is behind the live patch unless "Load out of date AddOns" is ticked.
+
+### Manual installation
+1. Download `QuickRoute-<version>.zip` from the [latest release](https://github.com/CybotTM/wow-quickroute/releases/latest)
+2. Extract into `World of Warcraft\_retail_\Interface\AddOns\` so the folder is named `QuickRoute`
+3. Restart WoW or `/reload`
 
 ## Usage
 
