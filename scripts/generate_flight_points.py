@@ -194,6 +194,9 @@ def build(csv_dir):
         # Northern Stranglethorn's, and Duskwood is smaller. Prefer a box the
         # node's own name corroborates -- by EITHER half of "Place, Zone".
         #
+        # Of the 756 nodes that survive the filters above, 662 sit inside more
+        # than one box and 185 end up somewhere other than the smallest.
+        #
         # Both halves matter. Using only the stated zone would move Stormwind's
         # flight master to Elwynn Forest, Ironforge's to Dun Morogh and
         # Orgrimmar's to Durotar, because those names state the zone AROUND the
