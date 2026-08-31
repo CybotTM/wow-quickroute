@@ -274,6 +274,10 @@ function PathCalculator:BuildGraph()
 
     -- Only mark clean if all steps succeeded
     self.graphDirty = not buildSuccess
+    -- Remembered so CalculatePath can notice a faction change. Recorded even
+    -- on a failed build: a half-built graph belongs to the faction it was
+    -- attempted for.
+    self.graphFaction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
 
     -- Log graph stats
     local nodeCount, edgeCount = 0, 0
@@ -607,7 +611,17 @@ end
 -- @param destY number The destination Y coordinate (0-1)
 -- @return table|nil {path, totalTime, edges, steps} or nil if no path found
 function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
-    -- Rebuild graph if needed
+    -- Rebuild graph if needed. Faction is part of "needed": AddZoneNodes and
+    -- AddFlightEdges both read it at build time, so a graph built before a
+    -- pandaren picked a side describes the wrong character. Nothing else can
+    -- change faction mid-session, so this comparison is free the rest of the
+    -- time.
+    local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    if self.graph and self.graphFaction and faction and self.graphFaction ~= faction then
+        QR:Debug("PathCalculator: faction changed from " .. tostring(self.graphFaction)
+            .. " to " .. tostring(faction) .. ", rebuilding the graph")
+        self.graphDirty = true
+    end
     if self.graphDirty or not self.graph then
         self:BuildGraph()
     end

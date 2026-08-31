@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Fixed
+- A pandaren who picks a faction is routed as that faction straight away. The addon read the faction once and kept the answer, so a character who chose Horde was routed as neutral until the next reload.
 - Flight masters are filed under the zone their own name states. Zone boxes overlap, and picking the smallest containing one put 185 of them in a neighbouring zone — Darkshire under Deadwind Pass, New Kargath under Searing Gorge, Ratchet under Valley of Trials. Six more zones have a flight master as a result, nine gain a faction's access, and none loses any.
 
 ## [1.14.0] - 2026-08-31
