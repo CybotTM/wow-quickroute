@@ -14,7 +14,8 @@
 local ADDON_NAME, QR = ...
 
 -- Cache frequently-used globals
-local pairs, ipairs, pcall, tostring, tonumber = pairs, ipairs, pcall, tostring, tonumber
+local pairs, ipairs, pcall, tostring, tonumber, type =
+    pairs, ipairs, pcall, tostring, tonumber, type
 local string_format = string.format
 local table_concat, table_sort = table.concat, table.sort
 local date = date
@@ -88,14 +89,19 @@ local function RecordArrival(store, mapID)
     local record = store[mapID]
     if not record then return end
 
-    record.from = record.from or {}
-    -- Read defensively: this table comes back from SavedVariables, which is a
-    -- file on disk that survives version changes and hand-editing. An entry
-    -- missing one of its counters would otherwise throw here and take the whole
-    -- capture with it.
-    local entry = record.from[from] or {}
-    entry.walked = entry.walked or 0
-    entry.loaded = entry.loaded or 0
+    -- Everything below comes back from SavedVariables, a file on disk that
+    -- survives version changes and hand-editing, so nothing about its shape is
+    -- given. Guarding only the counters was half a job: a non-table entry threw
+    -- on the first index. A throw here is caught by the pcall around Capture,
+    -- so the addon survives -- what is lost is that zone's record.
+    --
+    -- tonumber rather than a plain nil test, so "3" from a hand-edited file
+    -- counts and "corrupt" restarts at zero instead of throwing on the add.
+    if type(record.from) ~= "table" then record.from = {} end
+    local entry = record.from[from]
+    if type(entry) ~= "table" then entry = {} end
+    entry.walked = tonumber(entry.walked) or 0
+    entry.loaded = tonumber(entry.loaded) or 0
     if hadLoadingScreen then
         entry.loaded = entry.loaded + 1
     else

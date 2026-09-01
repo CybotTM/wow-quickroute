@@ -288,3 +288,56 @@ T:run("ZoneSurvey: a loading screen while off does not classify a later crossing
         "as a walk -- the loading screen belonged to a journey nobody recorded")
     t:assertEqual(0, entry.loaded, "and not as a portal")
 end)
+
+T:run("ZoneSurvey: a crossing entry that is not a table at all is replaced", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    -- Hand-edited SavedVariables can hold anything. Guarding only the counters
+    -- was half a job: this threw on the first index into the entry.
+    QR.db.zoneSurvey[77].from[63] = "corrupt"
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    local ok = pcall(function() return QR.ZoneSurvey:Capture() end)
+
+    t:assertTrue(ok, "the capture survives a non-table entry")
+    local entry = QR.db.zoneSurvey[77] and QR.db.zoneSurvey[77].from
+        and QR.db.zoneSurvey[77].from[63]
+    t:assertNotNil(entry, "and replaces it with a usable one")
+    if not entry then return end
+    t:assertEqual(1, entry.walked, "counting from zero again")
+end)
+
+T:run("ZoneSurvey: a counter that is not a number at all restarts at zero", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    -- A numeric string would need no guard -- Lua adds "3" + 1 to 4 by itself,
+    -- so a test on that asserts nothing about tonumber. This is the case
+    -- tonumber actually buys: a value that cannot be added at all, which
+    -- without it throws on the increment.
+    QR.db.zoneSurvey[77].from[63] = { walked = "corrupt", loaded = 0 }
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local entry = QR.db.zoneSurvey[77] and QR.db.zoneSurvey[77].from
+        and QR.db.zoneSurvey[77].from[63]
+    t:assertNotNil(entry, "the entry is still there")
+    if not entry then return end
+    t:assertEqual(1, entry.walked, "restarted at zero and counted, rather than throwing")
+end)
