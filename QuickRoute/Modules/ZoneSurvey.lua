@@ -243,9 +243,14 @@ end
 -- first `/qrsurvey` then died in `pairs`.
 --
 -- One pass on load beats a guard per read: the reads can then say what they
--- mean, and a shape this module never writes cannot reach them at all. Clearing
--- keys during a pairs traversal is defined behaviour in Lua; adding them is not,
--- and this only clears.
+-- mean, and a shape this module never writes cannot reach them at all.
+--
+-- Clearing keys while traversing is deliberate and permitted. Lua 5.1 on `next`:
+-- "The behavior of next is undefined if, during the traversal, you assign any
+-- value to a non-existent field in the table. You may however modify existing
+-- fields. In particular, you may clear existing fields." This only ever clears
+-- fields that exist, and never adds one. Measured on this interpreter as well:
+-- traversing 200 keys while clearing 100 of them visits all 200.
 local function Sanitize(store)
     if type(store) ~= "table" then return {}, 0 end
     local dropped = 0

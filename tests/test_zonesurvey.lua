@@ -95,8 +95,14 @@ T:run("ZoneSurvey: Render lists every record", function(t)
     -- Only the records section. The crossings table below it also has rows
     -- beginning "| 63 |", so matching the whole output passed even with the
     -- records table entirely missing -- verified by removing it.
+    --
+    -- No fallback to the whole output: if the header is ever renamed, falling
+    -- back would silently restore the ambiguity this narrowing exists to close.
+    -- Better to fail here and be told.
     local out = QR.ZoneSurvey:Render()
-    local records = out:match("^(.-)### Observed crossings") or out
+    local records = out:match("^(.-)### Observed crossings")
+    t:assertNotNil(records, "the output has a records section to look at")
+    if not records then return end
     t:assertNotNil(records:match("| 63 |"), "map 63 appears as a record row")
     t:assertNotNil(records:match("| 84 |"), "map 84 appears as a record row")
 end)
