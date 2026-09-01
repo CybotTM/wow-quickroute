@@ -2756,16 +2756,19 @@ end)
 -- something a test should settle by being written first.
 -------------------------------------------------------------------------------
 
+-- @return table|nil The city nodes, or nil when the graph could not be built --
+--   BuildGraph really does return nil on failure, and reading through that
+--   would surface as an ERROR rather than a failed assertion, which says much
+--   less about what went wrong.
 local function capitalNodes(QR, MockWoW, faction)
-    MockWoW:Reset()
+    resetState()
     MockWoW.config.playerFaction = faction
     MockWoW:FireEvent("ZONE_CHANGED_NEW_AREA")
-    QR.PathCalculator.graph = nil
-    QR.PathCalculator.graphDirty = true
     if QR.PlayerInfo and QR.PlayerInfo.InvalidateCache then
         QR.PlayerInfo:InvalidateCache()
     end
     local graph = QR.PathCalculator:BuildGraph()
+    if not graph then return nil end
     -- Only nodes AddZoneNodes made. Shattrath and both Dalarans are portal hubs
     -- as well, so testing for their mere presence passes whatever this filter
     -- does -- which it did, until dropping the "both" case reddened nothing.
@@ -2780,6 +2783,8 @@ end
 
 T:run("AddZoneNodes: an Alliance character gets no Horde capital", function(t)
     local nodes = capitalNodes(QR, MockWoW, "Alliance")
+    t:assertNotNil(nodes, "the graph was built")
+    if not nodes then return end
 
     t:assertTrue(nodes["Stormwind City"], "their own capital is there")
     t:assertTrue(nodes["Ironforge"], "and the rest of their side")
@@ -2789,6 +2794,8 @@ end)
 
 T:run("AddZoneNodes: a Horde character gets no Alliance capital", function(t)
     local nodes = capitalNodes(QR, MockWoW, "Horde")
+    t:assertNotNil(nodes, "the graph was built")
+    if not nodes then return end
 
     t:assertTrue(nodes["Orgrimmar"], "their own capital is there")
     t:assertTrue(nodes["Thunder Bluff"], "and the rest of their side")
@@ -2799,9 +2806,16 @@ end)
 T:run("AddZoneNodes: a neutral city is there for both sides", function(t)
     local alliance = capitalNodes(QR, MockWoW, "Alliance")
     local horde = capitalNodes(QR, MockWoW, "Horde")
+    t:assertNotNil(alliance and horde, "both graphs were built")
+    if not (alliance and horde) then return end
 
     t:assertTrue(alliance["Shattrath City"], "Shattrath for the Alliance")
     t:assertTrue(horde["Shattrath City"], "and for the Horde")
     t:assertTrue(alliance["Dalaran (Northrend)"], "Dalaran for the Alliance")
     t:assertTrue(horde["Dalaran (Northrend)"], "and for the Horde")
+
+    -- Each test here resets on the way in, so each cleans up after the one
+    -- before it -- which leaves the last one's state for the next file. This
+    -- helper leaves the faction on Horde and a graph built for it.
+    resetState()
 end)
