@@ -1195,3 +1195,43 @@ T:run("ClearCards: cards and their icons both go back to the pools", function(t)
 
     QR.TeleportPanel:ClearIcons()
 end)
+
+T:run("ClearCards: an icon frame reaches the pool exactly once", function(t)
+    resetState()
+    ensureTeleportPanelFrame()
+    QR.TeleportPanel.frame:SetWidth(820)
+    QR.TeleportPanel.iconPool = {}
+    QR.TeleportPanel.iconFrames = {}
+    QR.TeleportPanel.cardPool = {}
+    QR.TeleportPanel.cards = {}
+
+    local teleports = {}
+    for i = 1, 3 do
+        teleports[i] = {
+            id = 6940 + i,
+            data = { name = "T" .. i, destination = "Dalaran" },
+            isSpell = false,
+            status = { sortOrder = 1, color = "|cFF00FF00", text = "Ready", key = "STATUS_READY" },
+            cooldownRemaining = 0,
+        }
+    end
+    QR.TeleportPanel:CreateGroupCards({ { name = "Dalaran", mapID = 125,
+        teleports = teleports } }, 0)
+
+    -- Both clearing calls, in the order RefreshList makes them. The card holds
+    -- its icons but does not release them; ClearIcons owns that. When both did
+    -- it, three icons produced six pool entries and the next GetIconFrame
+    -- handed the same frame to two callers.
+    QR.TeleportPanel:ClearIcons()
+    QR.TeleportPanel:ClearCards()
+
+    t:assertEqual(3, #QR.TeleportPanel.iconPool,
+        "three icons built, three in the pool")
+
+    local seen, duplicates = {}, 0
+    for _, frame in ipairs(QR.TeleportPanel.iconPool) do
+        if seen[frame] then duplicates = duplicates + 1 end
+        seen[frame] = true
+    end
+    t:assertEqual(0, duplicates, "and none of them twice")
+end)

@@ -1578,8 +1578,12 @@ end
 --- Give a card back, and its icon frames with it.
 function TeleportPanel:ReleaseCardFrame(card)
     if not card then return end
+    -- The icons are let go of, not released: ClearIcons owns that, and doing
+    -- it here as well returned each frame to the pool twice.
     for _, iconFrame in ipairs(card.iconFrames or {}) do
-        self:ReleaseIconFrame(iconFrame)
+        iconFrame:Hide()
+        iconFrame:SetParent(nil)
+        iconFrame:ClearAllPoints()
     end
     if card.iconFrames then wipe(card.iconFrames) end
     card:Hide()
@@ -1640,6 +1644,12 @@ function TeleportPanel:ConfigureCard(card, group, cardWidth)
             CARD_PADDING + (i - 1) * (GRID_ICON_SIZE + GRID_ICON_GAP), CARD_PADDING)
         iconFrame:Show()
         self:ConfigureGridIcon(iconFrame, entry)
+        -- Two lists, one owner. The card holds references so it can hide them
+        -- with itself; releasing them back to the pool is the panel's job,
+        -- through ClearIcons. Doing it in both places put the same frame into
+        -- iconPool twice -- measured: three icons built, six pool entries,
+        -- three duplicates, and the next GetIconFrame handing one frame to two
+        -- callers.
         table_insert(card.iconFrames, iconFrame)
         table_insert(self.iconFrames, iconFrame)
         shown = i
