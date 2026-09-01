@@ -59,6 +59,7 @@ T:run("ZoneSurvey: records what the addon knows about the map", function(t)
     QR.ZoneSurvey:Capture()
 
     local record = QR.db.zoneSurvey[63]
+    t:assertNotNil(record, "the map was recorded")
     if not record then return end
     t:assertNotNil(record.flightPoint,
         "a zone with a flight master records it")
@@ -120,7 +121,8 @@ T:run("ZoneSurvey: a crossing without a loading screen is recorded as walked", f
     QR.ZoneSurvey:Capture()
 
     local record = QR.db.zoneSurvey[77]
-    t:assertNotNil(record and record.from, "the arrival is recorded on the destination")
+    t:assertNotNil(record and record.from and record.from[63],
+        "the arrival is recorded on the destination")
     if not (record and record.from and record.from[63]) then return end
     t:assertEqual(1, record.from[63].walked, "counted as walked")
     t:assertEqual(0, record.from[63].loaded, "and not as a portal")
@@ -175,6 +177,8 @@ T:run("ZoneSurvey: crossings survive a revisit rebuilding the record", function(
     QR.ZoneSurvey:Capture()
 
     local record = QR.db.zoneSurvey[77]
+    t:assertNotNil(record and record.from and record.from[63],
+        "the crossing is on record at all")
     if not (record and record.from and record.from[63]) then return end
     t:assertEqual(2, record.from[63].walked, "both crossings counted")
 end)
@@ -217,7 +221,70 @@ T:run("ZoneSurvey: a crossing entry missing a counter does not break the capture
     t:assertTrue(ok, "the capture survives an entry with a missing counter")
     local entry = QR.db.zoneSurvey[77] and QR.db.zoneSurvey[77].from
         and QR.db.zoneSurvey[77].from[63]
+    t:assertNotNil(entry, "the entry survives and is still there")
     if not entry then return end
     t:assertEqual(1, entry.loaded, "the missing counter starts at zero and counts")
     t:assertEqual(1, entry.walked, "and the one that was there is kept")
+end)
+
+T:run("ZoneSurvey: switching off and on again invents no crossing", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    -- Somewhere, recorded.
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+
+    -- Off. The player then travels -- by portal, several zones -- and none of
+    -- it is recorded, so none of it may be remembered either.
+    --
+    -- Driven through the real event handler, not by calling
+    -- ForgetArrivalState here: doing that by hand proves the function and says
+    -- nothing about whether anything calls it. Removing the guard from the
+    -- handler left this test green until it went through the handler.
+    local onEvent = QR.ZoneSurvey.frame and QR.ZoneSurvey.frame:GetScript("OnEvent")
+    t:assertNotNil(onEvent, "the survey has an event handler to drive")
+    if not onEvent then return end
+
+    QR.db.zoneSurveyEnabled = false
+    MockWoW.config.currentMapID = 1670
+    onEvent(QR.ZoneSurvey.frame, "PLAYER_ENTERING_WORLD")
+    MockWoW.config.currentMapID = 2339
+    onEvent(QR.ZoneSurvey.frame, "ZONE_CHANGED_NEW_AREA")
+
+    -- Back on, in a zone far from where the survey was switched off.
+    QR.db.zoneSurveyEnabled = true
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[2339]
+    t:assertNotNil(record, "the current map is recorded again")
+    if not record then return end
+    t:assertNil(record.from,
+        "and no crossing from the map the survey was switched off in")
+end)
+
+T:run("ZoneSurvey: a loading screen while off does not classify a later crossing", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    local onEvent = QR.ZoneSurvey.frame and QR.ZoneSurvey.frame:GetScript("OnEvent")
+    t:assertNotNil(onEvent, "the survey has an event handler to drive")
+    if not onEvent then return end
+
+    QR.db.zoneSurveyEnabled = false
+    onEvent(QR.ZoneSurvey.frame, "PLAYER_ENTERING_WORLD")
+
+    QR.db.zoneSurveyEnabled = true
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local entry = QR.db.zoneSurvey[77] and QR.db.zoneSurvey[77].from
+        and QR.db.zoneSurvey[77].from[63]
+    t:assertNotNil(entry, "the crossing after switching on is recorded")
+    if not entry then return end
+    t:assertEqual(1, entry.walked,
+        "as a walk -- the loading screen belonged to a journey nobody recorded")
+    t:assertEqual(0, entry.loaded, "and not as a portal")
 end)

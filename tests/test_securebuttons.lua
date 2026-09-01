@@ -583,6 +583,7 @@ end)
 T:run("SecureButtons: an item in the bags is only equipped, not used", function(t)
     resetState()
     local btn = QR.SecureButtons:GetButton()
+    t:assertNotNil(btn, "a button is available")
     if not btn then return end
     t:assertTrue(QR.SecureButtons:ConfigureForEquippable(btn, 63353, 15),
         "the button configures")
@@ -590,6 +591,7 @@ T:run("SecureButtons: an item in the bags is only equipped, not used", function(
     MockWoW.config.equippedItems[15] = 12345
 
     local preClick = btn:GetScript("PreClick")
+    t:assertNotNil(preClick, "PreClick is set")
     if not preClick then return end
     preClick(btn, "LeftButton", false)
 
@@ -604,11 +606,13 @@ end)
 T:run("SecureButtons: an empty slot equips without using", function(t)
     resetState()
     local btn = QR.SecureButtons:GetButton()
+    t:assertNotNil(btn, "a button is available")
     if not btn then return end
     QR.SecureButtons:ConfigureForEquippable(btn, 63353, 15)
     MockWoW.config.equippedItems[15] = nil
 
     local preClick = btn:GetScript("PreClick")
+    t:assertNotNil(preClick, "PreClick is set")
     if not preClick then return end
     preClick(btn, "LeftButton", false)
 
@@ -629,6 +633,7 @@ T:run("SecureButtons: an unlearned spell is cast by name", function(t)
     resetState()
     reinitializePool()
     local btn = QR.SecureButtons:GetButton()
+    t:assertNotNil(btn, "a button is available")
     if not btn then return end
 
     -- Not in knownSpells, which is what the housing teleport looks like.
@@ -646,6 +651,7 @@ T:run("SecureButtons: a learned spell keeps the spell action type", function(t)
     resetState()
     reinitializePool()
     local btn = QR.SecureButtons:GetButton()
+    t:assertNotNil(btn, "a button is available")
     if not btn then return end
 
     MockWoW.config.knownSpells[50977] = true
@@ -659,6 +665,7 @@ T:run("SecureButtons: an unlearned spell with no name is refused", function(t)
     resetState()
     reinitializePool()
     local btn = QR.SecureButtons:GetButton()
+    t:assertNotNil(btn, "a button is available")
     if not btn then return end
 
     -- Spell data not cached yet, which is the state right after login.

@@ -90,6 +90,7 @@ T:run("Diagnostics: an empty list next to a full inventory is visible in the rec
 
     QR.Diagnostics:RecordRefresh()
     local r = QR.db.refreshes[1]
+    t:assertNotNil(r, "the rebuild was recorded")
     if not r then return end
     t:assertEqual(0, r.shown, "nothing drawn")
     t:assertEqual(3, r.invItems, "while three items were owned")

@@ -61,6 +61,14 @@ function ZoneSurvey:NoteLoadingScreen()
     loadedSince = true
 end
 
+--- Forget where the player came from and how they got there.
+-- Used when the survey is switched off and by Clear, so that whatever happens
+-- while nothing is being recorded cannot become the first crossing afterwards.
+function ZoneSurvey:ForgetArrivalState()
+    lastMapID = nil
+    loadedSince = false
+end
+
 --- Record how the player arrived at a map.
 -- Zone boxes are rectangles and overlap across a whole continent, so geometry
 -- cannot say which zones border each other -- measured against the current
@@ -154,8 +162,7 @@ function ZoneSurvey:Clear()
     if QR.db then QR.db.zoneSurvey = {} end
     -- Also forget where the player came from, so the first capture after a
     -- clear does not invent an arrival from a map no longer on record.
-    lastMapID = nil
-    loadedSince = false
+    self:ForgetArrivalState()
 end
 
 function ZoneSurvey:Count()
@@ -229,6 +236,16 @@ function ZoneSurvey:Initialize()
     frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
     frame:SetScript("OnEvent", function(_, event)
+        -- While the survey is off, nothing is recorded -- so nothing may be
+        -- remembered either. Letting loadedSince and lastMapID accumulate here
+        -- means the first capture after switching back on describes a crossing
+        -- between two zones the player never crossed directly, classified by a
+        -- loading screen that belonged to some other journey. That is precisely
+        -- the kind of invented evidence this recorder exists to avoid.
+        if not (QR.db and QR.db.zoneSurveyEnabled) then
+            ZoneSurvey:ForgetArrivalState()
+            return
+        end
         -- A loading screen means the next crossing was a portal or an
         -- instance, not a step over a border. Noted before the debounce, so it
         -- is not lost when the two events arrive together.
@@ -260,6 +277,9 @@ SlashCmdList["QRSURVEY"] = function(msg)
         QR:Print("Zone survey cleared.")
     elseif cmd == "off" then
         if QR.db then QR.db.zoneSurveyEnabled = false end
+        -- Immediately, not at the next zone change: switching off and back on
+        -- without moving would otherwise keep the stale map.
+        ZoneSurvey:ForgetArrivalState()
         QR:Print("Zone survey off.")
     elseif cmd == "on" then
         if QR.db then QR.db.zoneSurveyEnabled = true end
