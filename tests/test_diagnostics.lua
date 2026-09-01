@@ -114,3 +114,25 @@ T:run("Diagnostics: Render reports both sections", function(t)
     t:assertNotNil(out:match("a nil value"), "the error text appears")
     t:assertNotNil(out:match("Teleport list rebuilds"), "the rebuild table appears")
 end)
+
+T:run("Diagnostics: the RefreshList hook is actually wired", function(t)
+    resetState()
+    -- Every other test here calls RecordRefresh directly, which proves the
+    -- recorder and nothing about whether anything ever calls it. This drives
+    -- the real path.
+    -- No re-initialise: the addon installed the hook at load, and installing a
+    -- second one would record every rebuild twice and hide whether the first
+    -- exists at all.
+    QR.db.refreshes = {}
+
+    if not (QR.TeleportPanel and QR.TeleportPanel.RefreshList) then
+        t:assertTrue(false, "TeleportPanel:RefreshList exists to be hooked")
+        return
+    end
+    -- RefreshList returns early without a frame, which is enough: the hook runs
+    -- after the call either way, and that is the wiring under test.
+    QR.TeleportPanel:RefreshList()
+
+    t:assertEqual(1, #QR.db.refreshes,
+        "a rebuild reaches the recorder without anyone calling it by hand")
+end)
