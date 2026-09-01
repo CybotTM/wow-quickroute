@@ -107,3 +107,34 @@ T:run("SettingsPanel: Open does not error", function(t)
     -- Should not error even without full WoW UI
     QR.SettingsPanel:Open()
 end)
+
+-------------------------------------------------------------------------------
+-- The section header
+--
+-- Settings.RegisterVerticalLayoutCategory returns the category AND its layout.
+-- Checkboxes, sliders and dropdowns take the category and register themselves;
+-- a section header does not, so it has to be handed to the layout. It used not
+-- to be: the initializer was built and the return value dropped, which left ten
+-- translations of SETTINGS_GENERAL with nowhere to appear. See issue #44.
+-------------------------------------------------------------------------------
+
+T:run("SettingsPanel: the General section header reaches the layout", function(t)
+    MockWoW:Reset()
+    QR.SettingsPanel.initialized = false
+    QR.SettingsPanel.category = nil
+    QR.SettingsPanel.layout = nil
+    QR.SettingsPanel:Initialize()
+
+    local layout = QR.SettingsPanel.layout
+    t:assertNotNil(layout, "the layout was captured, not thrown away")
+    if not layout then return end
+
+    local found
+    for _, init in ipairs(layout._initializers or {}) do
+        if init._type == "sectionHeader" then found = init end
+    end
+    t:assertNotNil(found, "a section header was added to the layout")
+    if not found then return end
+    t:assertEqual(QR.L["SETTINGS_GENERAL"], found._name,
+        "and it carries the localised name")
+end)

@@ -822,6 +822,12 @@ function MockWoW:Install()
     end
 
     -- wipe (clears a table in-place)
+    -- A plain global, not a Settings member -- this is the documented helper
+    -- for a section header in a vertical layout.
+    _G.CreateSettingsListSectionHeaderInitializer = function(name)
+        return { _type = "sectionHeader", _name = name }
+    end
+
     _G.wipe = function(t)
         if type(t) == "table" then
             for k in pairs(t) do
@@ -1649,8 +1655,20 @@ function MockWoW:Install()
         RegisterAddOnCategory = function(category) end,
         OpenToCategory = function(id) end,
         -- Native vertical layout API (WoW 11.0+)
+        -- Returns the category AND its layout. The second value is what a
+        -- custom element has to be added to; returning only the first made a
+        -- discarded initializer indistinguishable from a used one.
         RegisterVerticalLayoutCategory = function(name)
-            return { GetID = function() return name end, _name = name }
+            local layout = {
+                _initializers = {},
+                AddInitializer = function(self, initializer)
+                    table.insert(self._initializers, initializer)
+                    return initializer
+                end,
+            }
+            local category = { GetID = function() return name end, _name = name,
+                               _layout = layout }
+            return category, layout
         end,
         RegisterProxySetting = function(category, variable, varType, name, defaultValue, getValue, setValue)
             return {

@@ -87,6 +87,7 @@ globals = {
     "PlaySound",
     "Screenshot",
     "hooksecurefunc",
+    "CreateSettingsListSectionHeaderInitializer",
     "seterrorhandler",
     "geterrorhandler",
     "debugstack",
