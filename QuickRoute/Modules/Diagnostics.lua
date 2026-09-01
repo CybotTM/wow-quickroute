@@ -8,6 +8,12 @@
 -- transcription.
 local ADDON_NAME, QR = ...
 
+-- Cache frequently-used globals
+local pairs, ipairs, pcall, tostring = pairs, ipairs, pcall, tostring
+local string_format = string.format
+local table_concat, table_remove = table.concat, table.remove
+local date = date
+
 QR.Diagnostics = {}
 local Diagnostics = QR.Diagnostics
 
@@ -19,7 +25,7 @@ local MAX_REFRESHES = 60
 local function push(list, entry, cap)
     list[#list + 1] = entry
     while #list > cap do
-        table.remove(list, 1)
+        table_remove(list, 1)
     end
 end
 
@@ -79,27 +85,27 @@ end
 function Diagnostics:Render()
     local lines = { "## QuickRoute Diagnostics", "" }
     local errors = (QR.db and QR.db.errors) or {}
-    lines[#lines + 1] = string.format("### Errors (%d)", #errors)
+    lines[#lines + 1] = string_format("### Errors (%d)", #errors)
     lines[#lines + 1] = ""
     for _, e in ipairs(errors) do
-        lines[#lines + 1] = string.format("- `%s` x%d — %s",
+        lines[#lines + 1] = string_format("- `%s` x%d — %s",
             tostring(e.message), e.count or 1, tostring(e.seen))
     end
     if #errors == 0 then lines[#lines + 1] = "  (none)" end
 
     local refreshes = (QR.db and QR.db.refreshes) or {}
     lines[#lines + 1] = ""
-    lines[#lines + 1] = string.format("### Teleport list rebuilds (%d)", #refreshes)
+    lines[#lines + 1] = string_format("### Teleport list rebuilds (%d)", #refreshes)
     lines[#lines + 1] = ""
     lines[#lines + 1] = "| time | shown | filter | items | toys | spells | combat |"
     lines[#lines + 1] = "|---|---|---|---|---|---|---|"
     for _, r in ipairs(refreshes) do
-        lines[#lines + 1] = string.format("| %s | %d | %s | %d | %d | %d | %s |",
+        lines[#lines + 1] = string_format("| %s | %d | %s | %d | %d | %d | %s |",
             tostring(r.seen), r.shown or 0, tostring(r.filter),
             r.invItems or -1, r.invToys or -1, r.invSpells or -1,
             tostring(r.combat))
     end
-    return table.concat(lines, "\n")
+    return table_concat(lines, "\n")
 end
 
 function Diagnostics:Initialize()
@@ -140,7 +146,7 @@ SlashCmdList["QRDIAG"] = function(msg)
         return
     end
     local report = Diagnostics:Render()
-    QR:Print(string.format("Diagnostics: %d error(s), %d rebuild(s).",
+    QR:Print(string_format("Diagnostics: %d error(s), %d rebuild(s).",
         #((QR.db and QR.db.errors) or {}), #((QR.db and QR.db.refreshes) or {})))
     if QR.UI and QR.UI.CopyDebugToClipboard then
         QR.UI:CopyDebugToClipboard()

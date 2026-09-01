@@ -13,6 +13,12 @@
 -- counter instead of appending.
 local ADDON_NAME, QR = ...
 
+-- Cache frequently-used globals
+local pairs, ipairs, pcall, tostring, tonumber = pairs, ipairs, pcall, tostring, tonumber
+local string_format = string.format
+local table_concat, table_sort = table.concat, table.sort
+local date = date
+
 QR.ZoneSurvey = {}
 local ZoneSurvey = QR.ZoneSurvey
 
@@ -46,7 +52,9 @@ local function RecordCount(store)
 end
 
 --- Capture the current map, if there is one to capture.
--- @return number|nil The mapID recorded, or nil when nothing was
+-- @return number|nil The mapID recorded, or nil when nothing was recorded --
+--   the survey is switched off, the client has no map for the player, or the
+--   record cap has been reached.
 function ZoneSurvey:Capture()
     if not (QR.db and QR.db.zoneSurveyEnabled) then return nil end
     if not (C_Map and C_Map.GetBestMapForUnit) then return nil end
@@ -80,8 +88,8 @@ function ZoneSurvey:Capture()
         parent = info and info.parentMapID or nil,
         -- Rounded because four decimals is the precision the data files use,
         -- and a full float per visit is noise in a diff.
-        x = x and tonumber(string.format("%.4f", x)) or nil,
-        y = y and tonumber(string.format("%.4f", y)) or nil,
+        x = x and tonumber(string_format("%.4f", x)) or nil,
+        y = y and tonumber(string_format("%.4f", y)) or nil,
         continent = QR.GetContinentForZone and QR.GetContinentForZone(mapID) or nil,
         adjacent = CountAdjacent(mapID),
         graphNodes = CountGraphNodes(mapID),
@@ -107,7 +115,7 @@ function ZoneSurvey:Render()
     local lines = {
         "## QuickRoute Zone Survey",
         "",
-        string.format("| Records | %d |", self:Count()),
+        string_format("| Records | %d |", self:Count()),
         "",
         "| map | name | type | parent | x | y | continent | adj | nodes | flight | visits |",
         "|---|---|---|---|---|---|---|---|---|---|---|",
@@ -116,10 +124,10 @@ function ZoneSurvey:Render()
     for mapID in pairs((QR.db and QR.db.zoneSurvey) or {}) do
         ids[#ids + 1] = mapID
     end
-    table.sort(ids)
+    table_sort(ids)
     for _, mapID in ipairs(ids) do
         local r = QR.db.zoneSurvey[mapID]
-        lines[#lines + 1] = string.format(
+        lines[#lines + 1] = string_format(
             "| %d | %s | %s | %s | %s | %s | %s | %s | %s | %s | %d |",
             mapID, tostring(r.name or "?"), tostring(r.mapType or "?"),
             tostring(r.parent or "-"), tostring(r.x or "-"), tostring(r.y or "-"),
@@ -127,7 +135,7 @@ function ZoneSurvey:Render()
             tostring(r.graphNodes or "-"), tostring(r.flightPoint or "-"),
             r.visits or 0)
     end
-    return table.concat(lines, "\n")
+    return table_concat(lines, "\n")
 end
 
 function ZoneSurvey:Initialize()
@@ -176,7 +184,7 @@ SlashCmdList["QRSURVEY"] = function(msg)
         QR:Print(mapID and ("Recorded map " .. mapID) or "Nothing recorded.")
     else
         local report = ZoneSurvey:Render()
-        QR:Print(string.format("Zone survey: %d record(s). /qrsurvey clear|on|off|here",
+        QR:Print(string_format("Zone survey: %d record(s). /qrsurvey clear|on|off|here",
             ZoneSurvey:Count()))
         -- Same copy window the other diagnostics use.
         if QR.UI and QR.UI.CopyDebugToClipboard then
