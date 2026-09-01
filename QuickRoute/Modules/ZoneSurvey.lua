@@ -157,7 +157,11 @@ function ZoneSurvey:Capture()
         visits = (existing and existing.visits or 0) + 1,
         -- Carried forward, because the record is rebuilt rather than patched
         -- and the arrivals are the part that accumulates across a session.
-        from = existing and existing.from or nil,
+        -- Only a table survives the carry-forward. Sanitize clears the store
+        -- on load, but a record can also be reached before any capture has
+        -- touched it, so the shape is re-checked where it is copied.
+        from = (type(existing) == "table" and type(existing.from) == "table")
+            and existing.from or nil,
         seen = date("%Y-%m-%d %H:%M:%S"),
     }
     RecordArrival(store, mapID)
@@ -230,12 +234,55 @@ function ZoneSurvey:Render()
     return table_concat(lines, "\n")
 end
 
+--- Drop anything in the loaded store that is not the shape this module writes.
+-- Checked once, here, rather than guarded at every read. The store comes back
+-- from SavedVariables, so nothing about it is given -- and a value of the wrong
+-- type does not announce itself: a `from` field holding a string survived every
+-- guard downstream, because RecordArrival returns before its own check when
+-- there is no previous map yet, which is exactly the state after a login. The
+-- first `/qrsurvey` then died in `pairs`.
+--
+-- One pass on load beats a guard per read: the reads can then say what they
+-- mean, and a shape this module never writes cannot reach them at all. Clearing
+-- keys during a pairs traversal is defined behaviour in Lua; adding them is not,
+-- and this only clears.
+local function Sanitize(store)
+    if type(store) ~= "table" then return {}, 0 end
+    local dropped = 0
+    for mapID, record in pairs(store) do
+        if type(mapID) ~= "number" or type(record) ~= "table" then
+            store[mapID] = nil
+            dropped = dropped + 1
+        elseif record.from ~= nil then
+            if type(record.from) ~= "table" then
+                record.from = nil
+                dropped = dropped + 1
+            else
+                for origin, entry in pairs(record.from) do
+                    if type(origin) ~= "number" or type(entry) ~= "table" then
+                        record.from[origin] = nil
+                        dropped = dropped + 1
+                    else
+                        entry.walked = tonumber(entry.walked) or 0
+                        entry.loaded = tonumber(entry.loaded) or 0
+                    end
+                end
+            end
+        end
+    end
+    return store, dropped
+end
+
 function ZoneSurvey:Initialize()
     if QR.db then
         if QR.db.zoneSurveyEnabled == nil then
             QR.db.zoneSurveyEnabled = true
         end
-        QR.db.zoneSurvey = QR.db.zoneSurvey or {}
+        local store, dropped = Sanitize(QR.db.zoneSurvey or {})
+        QR.db.zoneSurvey = store
+        if dropped > 0 then
+            QR:Debug(string_format("ZoneSurvey: dropped %d malformed record(s) on load", dropped))
+        end
     end
 
     local frame = CreateFrame("Frame")

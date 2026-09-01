@@ -341,3 +341,61 @@ T:run("ZoneSurvey: a counter that is not a number at all restarts at zero", func
     if not entry then return end
     t:assertEqual(1, entry.walked, "restarted at zero and counted, rather than throwing")
 end)
+
+-------------------------------------------------------------------------------
+-- The shape of what comes back from disk
+--
+-- Checked once on load rather than guarded at every read. A `from` field
+-- holding a string survived every downstream guard, because RecordArrival
+-- returns before its own check when there is no previous map yet -- which is
+-- exactly the state after a login. The first /qrsurvey then died in pairs().
+-------------------------------------------------------------------------------
+
+T:run("ZoneSurvey: a malformed store is cleaned when it is loaded", function(t)
+    resetState()
+    QR.db.zoneSurvey = {
+        [77]  = { name = "Felwood", visits = 1, from = "corrupt" },
+        [63]  = { name = "Ashenvale", visits = 1,
+                  from = { [84] = "also corrupt", [62] = { walked = "3", loaded = 1 } } },
+        ["x"] = { name = "not a map id" },
+        [99]  = "not a record",
+    }
+    QR.ZoneSurvey:Initialize()
+
+    local store = QR.db.zoneSurvey
+    t:assertNil(store["x"], "a non-numeric map key is dropped")
+    t:assertNil(store[99], "a record that is not a table is dropped")
+    t:assertNil(store[77].from, "a from field that is not a table is dropped")
+    t:assertNotNil(store[63].from, "a well-formed from field is kept")
+    if not store[63].from then return end
+    t:assertNil(store[63].from[84], "a crossing entry that is not a table is dropped")
+    t:assertNotNil(store[63].from[62], "and the good one beside it survives")
+    if not store[63].from[62] then return end
+    t:assertEqual(3, store[63].from[62].walked, "with its counters made numeric")
+end)
+
+T:run("ZoneSurvey: rendering a store loaded from disk does not throw", function(t)
+    resetState()
+    -- The exact shape that killed /qrsurvey: corrupt, and never revisited, so
+    -- no capture ever reaches it.
+    QR.db.zoneSurvey = { [77] = { name = "Felwood", visits = 1, from = "corrupt" } }
+    QR.ZoneSurvey:Initialize()
+    QR.ZoneSurvey:ForgetArrivalState()
+
+    local ok = pcall(function() return QR.ZoneSurvey:Render() end)
+    t:assertTrue(ok, "/qrsurvey renders a store that came back malformed")
+end)
+
+T:run("ZoneSurvey: a malformed record is not carried forward by a capture", function(t)
+    resetState()
+    QR.db.zoneSurvey = { [77] = { name = "Felwood", visits = 1, from = "corrupt" } }
+    QR.ZoneSurvey:ForgetArrivalState()
+
+    -- No Initialize here: a record can be reached before the load pass has
+    -- touched it, so the copy has to check the shape too.
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    t:assertNil(QR.db.zoneSurvey[77].from,
+        "the capture drops it rather than copying it into the new record")
+end)
