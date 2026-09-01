@@ -761,15 +761,19 @@ function TeleportPanel:CreateContent(parentFrame)
     refreshButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.refreshButton = refreshButton
 
-    -- Column headers
+    -- Column headers. They label the columns of the flat list; over the card
+    -- view they name nothing, so RefreshList hides them there. Kept on the
+    -- frame rather than created per refresh, like everything else here.
     local headerY = -32
     local nameHeader = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     nameHeader:SetPoint("TOPLEFT", PADDING + ICON_SIZE + 10, headerY)
     nameHeader:SetText(C.WHITE .. L["NAME"] .. C.R)
+    frame.nameHeader = nameHeader
 
     local statusHeader = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     statusHeader:SetPoint("TOPRIGHT", -PADDING - 5, headerY)
     statusHeader:SetText(C.WHITE .. L["STATUS"] .. C.R)
+    frame.statusHeader = statusHeader
 
     -- Header separator
     local headerSep = frame:CreateTexture(nil, "ARTWORK")
@@ -777,6 +781,7 @@ function TeleportPanel:CreateContent(parentFrame)
     headerSep:SetHeight(1)
     headerSep:SetPoint("TOPLEFT", PADDING, headerY - 12)
     headerSep:SetPoint("TOPRIGHT", -PADDING, headerY - 12)
+    frame.headerSep = headerSep
 
     -- Create scroll frame for teleport list
     local scrollFrame = CreateFrame("ScrollFrame", "QRTeleportScrollFrame", frame, "UIPanelScrollFrameTemplate")
@@ -1797,6 +1802,14 @@ function TeleportPanel:RefreshList()
     local readyCount = 0
     local ownedCount = 0
     local totalCount = 0
+
+    -- The column headers belong to the flat list. Over cards they label
+    -- nothing -- visible in a render of the card view as a stray "Name" and
+    -- "Status" floating above the first row.
+    local showColumnHeaders = not self.groupByDestination
+    if self.frame.nameHeader then self.frame.nameHeader:SetShown(showColumnHeaders) end
+    if self.frame.statusHeader then self.frame.statusHeader:SetShown(showColumnHeaders) end
+    if self.frame.headerSep then self.frame.headerSep:SetShown(showColumnHeaders) end
 
     if self.groupByDestination then
         -- Grouped display: one card per destination, in as many columns as the

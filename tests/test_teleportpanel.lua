@@ -1235,3 +1235,31 @@ T:run("ClearCards: an icon frame reaches the pool exactly once", function(t)
     end
     t:assertEqual(0, duplicates, "and none of them twice")
 end)
+
+T:run("RefreshList: the column headers belong to the list, not the cards", function(t)
+    resetState()
+    ensureTeleportPanelFrame()
+    QR.TeleportPanel.frame:SetWidth(820)
+
+    -- Rendered proof this was needed: a screenshot of the card view showed a
+    -- stray "Name" and "Status" floating above the first row of cards, left
+    -- over from the flat list they label.
+    QR.TeleportPanel.groupByDestination = true
+    QR.TeleportPanel:RefreshList()
+    t:assertFalse(QR.TeleportPanel.frame.nameHeader:IsShown(),
+        "no Name column over cards")
+    t:assertFalse(QR.TeleportPanel.frame.statusHeader:IsShown(),
+        "no Status column over cards")
+    t:assertFalse(QR.TeleportPanel.frame.headerSep:IsShown(),
+        "and no separator under them")
+
+    QR.TeleportPanel.groupByDestination = false
+    QR.TeleportPanel:RefreshList()
+    t:assertTrue(QR.TeleportPanel.frame.nameHeader:IsShown(),
+        "but they are back over the flat list")
+    t:assertTrue(QR.TeleportPanel.frame.statusHeader:IsShown(), "both of them")
+    t:assertTrue(QR.TeleportPanel.frame.headerSep:IsShown(), "separator too")
+
+    QR.TeleportPanel:ClearCards()
+    QR.TeleportPanel:ClearIcons()
+end)
