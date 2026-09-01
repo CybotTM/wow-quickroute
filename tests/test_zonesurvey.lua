@@ -59,6 +59,7 @@ T:run("ZoneSurvey: records what the addon knows about the map", function(t)
     QR.ZoneSurvey:Capture()
 
     local record = QR.db.zoneSurvey[63]
+    t:assertNotNil(record, "the map was recorded")
     if not record then return end
     t:assertNotNil(record.flightPoint,
         "a zone with a flight master records it")
@@ -91,7 +92,316 @@ T:run("ZoneSurvey: Render lists every record", function(t)
     MockWoW.config.currentMapID = 84
     QR.ZoneSurvey:Capture()
 
+    -- Only the records section. The crossings table below it also has rows
+    -- beginning "| 63 |", so matching the whole output passed even with the
+    -- records table entirely missing -- verified by removing it.
+    --
+    -- No fallback to the whole output: if the header is ever renamed, falling
+    -- back would silently restore the ambiguity this narrowing exists to close.
+    -- Better to fail here and be told.
     local out = QR.ZoneSurvey:Render()
-    t:assertNotNil(out:match("| 63 |"), "map 63 appears as a row")
-    t:assertNotNil(out:match("| 84 |"), "map 84 appears as a row")
+    local records = out:match("^(.-)### Observed crossings")
+    t:assertNotNil(records, "the output has a records section to look at")
+    if not records then return end
+    t:assertNotNil(records:match("| 63 |"), "map 63 appears as a record row")
+    t:assertNotNil(records:match("| 84 |"), "map 84 appears as a record row")
+end)
+
+-------------------------------------------------------------------------------
+-- Observed crossings
+--
+-- Zone boxes are rectangles and overlap across a whole continent, so geometry
+-- cannot say which zones border each other: measured against the current
+-- tables it claims 148 pairs that are not neighbours, Durotar to Mulgore among
+-- them. A player crossing from one zone into the next can, provided a walk is
+-- told apart from a portal.
+-------------------------------------------------------------------------------
+
+T:run("ZoneSurvey: a crossing without a loading screen is recorded as walked", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[77]
+    t:assertNotNil(record and record.from and record.from[63],
+        "the arrival is recorded on the destination")
+    if not (record and record.from and record.from[63]) then return end
+    t:assertEqual(1, record.from[63].walked, "counted as walked")
+    t:assertEqual(0, record.from[63].loaded, "and not as a portal")
+end)
+
+T:run("ZoneSurvey: a crossing after a loading screen is not counted as walked", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:NoteLoadingScreen()
+    MockWoW.config.currentMapID = 84
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[84]
+    if not (record and record.from and record.from[63]) then
+        t:assertTrue(false, "the arrival should still be recorded")
+        return
+    end
+    t:assertEqual(0, record.from[63].walked,
+        "a portal says nothing about two zones bordering each other")
+    t:assertEqual(1, record.from[63].loaded, "and is counted on its own")
+end)
+
+T:run("ZoneSurvey: staying in one zone records no crossing", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[63]
+    t:assertNil(record and record.from, "no arrival from itself")
+end)
+
+T:run("ZoneSurvey: crossings survive a revisit rebuilding the record", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+    -- Back and forth. The record for 77 is rebuilt on the second arrival, and
+    -- the crossings are the part that has to accumulate rather than reset.
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[77]
+    t:assertNotNil(record and record.from and record.from[63],
+        "the crossing is on record at all")
+    if not (record and record.from and record.from[63]) then return end
+    t:assertEqual(2, record.from[63].walked, "both crossings counted")
+end)
+
+T:run("ZoneSurvey: Clear forgets where the player came from", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:Clear()
+    -- Without forgetting, this would record an arrival from a map the store no
+    -- longer holds.
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[77]
+    t:assertNil(record and record.from, "no crossing invented across a clear")
+end)
+
+T:run("ZoneSurvey: a crossing entry missing a counter does not break the capture", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    -- This table comes back from SavedVariables, a file that survives version
+    -- changes and hand-editing, so an entry can arrive without its counters.
+    QR.db.zoneSurvey[77].from[63] = { walked = 1 }
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:NoteLoadingScreen()
+    MockWoW.config.currentMapID = 77
+    local ok = pcall(function() return QR.ZoneSurvey:Capture() end)
+
+    t:assertTrue(ok, "the capture survives an entry with a missing counter")
+    local entry = QR.db.zoneSurvey[77] and QR.db.zoneSurvey[77].from
+        and QR.db.zoneSurvey[77].from[63]
+    t:assertNotNil(entry, "the entry survives and is still there")
+    if not entry then return end
+    t:assertEqual(1, entry.loaded, "the missing counter starts at zero and counts")
+    t:assertEqual(1, entry.walked, "and the one that was there is kept")
+end)
+
+T:run("ZoneSurvey: switching off and on again invents no crossing", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    -- Somewhere, recorded.
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+
+    -- Off. The player then travels -- by portal, several zones -- and none of
+    -- it is recorded, so none of it may be remembered either.
+    --
+    -- Driven through the real event handler, not by calling
+    -- ForgetArrivalState here: doing that by hand proves the function and says
+    -- nothing about whether anything calls it. Removing the guard from the
+    -- handler left this test green until it went through the handler.
+    local onEvent = QR.ZoneSurvey.frame and QR.ZoneSurvey.frame:GetScript("OnEvent")
+    t:assertNotNil(onEvent, "the survey has an event handler to drive")
+    if not onEvent then return end
+
+    QR.db.zoneSurveyEnabled = false
+    MockWoW.config.currentMapID = 1670
+    onEvent(QR.ZoneSurvey.frame, "PLAYER_ENTERING_WORLD")
+    MockWoW.config.currentMapID = 2339
+    onEvent(QR.ZoneSurvey.frame, "ZONE_CHANGED_NEW_AREA")
+
+    -- Back on, in a zone far from where the survey was switched off.
+    QR.db.zoneSurveyEnabled = true
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[2339]
+    t:assertNotNil(record, "the current map is recorded again")
+    if not record then return end
+    t:assertNil(record.from,
+        "and no crossing from the map the survey was switched off in")
+end)
+
+T:run("ZoneSurvey: a loading screen while off does not classify a later crossing", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    local onEvent = QR.ZoneSurvey.frame and QR.ZoneSurvey.frame:GetScript("OnEvent")
+    t:assertNotNil(onEvent, "the survey has an event handler to drive")
+    if not onEvent then return end
+
+    QR.db.zoneSurveyEnabled = false
+    onEvent(QR.ZoneSurvey.frame, "PLAYER_ENTERING_WORLD")
+
+    QR.db.zoneSurveyEnabled = true
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local entry = QR.db.zoneSurvey[77] and QR.db.zoneSurvey[77].from
+        and QR.db.zoneSurvey[77].from[63]
+    t:assertNotNil(entry, "the crossing after switching on is recorded")
+    if not entry then return end
+    t:assertEqual(1, entry.walked,
+        "as a walk -- the loading screen belonged to a journey nobody recorded")
+    t:assertEqual(0, entry.loaded, "and not as a portal")
+end)
+
+T:run("ZoneSurvey: a crossing entry that is not a table at all is replaced", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    -- Hand-edited SavedVariables can hold anything. Guarding only the counters
+    -- was half a job: this threw on the first index into the entry.
+    QR.db.zoneSurvey[77].from[63] = "corrupt"
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    local ok = pcall(function() return QR.ZoneSurvey:Capture() end)
+
+    t:assertTrue(ok, "the capture survives a non-table entry")
+    local entry = QR.db.zoneSurvey[77] and QR.db.zoneSurvey[77].from
+        and QR.db.zoneSurvey[77].from[63]
+    t:assertNotNil(entry, "and replaces it with a usable one")
+    if not entry then return end
+    t:assertEqual(1, entry.walked, "counting from zero again")
+end)
+
+T:run("ZoneSurvey: a counter that is not a number at all restarts at zero", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    -- A numeric string would need no guard -- Lua adds "3" + 1 to 4 by itself,
+    -- so a test on that asserts nothing about tonumber. This is the case
+    -- tonumber actually buys: a value that cannot be added at all, which
+    -- without it throws on the increment.
+    QR.db.zoneSurvey[77].from[63] = { walked = "corrupt", loaded = 0 }
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local entry = QR.db.zoneSurvey[77] and QR.db.zoneSurvey[77].from
+        and QR.db.zoneSurvey[77].from[63]
+    t:assertNotNil(entry, "the entry is still there")
+    if not entry then return end
+    t:assertEqual(1, entry.walked, "restarted at zero and counted, rather than throwing")
+end)
+
+-------------------------------------------------------------------------------
+-- The shape of what comes back from disk
+--
+-- Checked once on load rather than guarded at every read. A `from` field
+-- holding a string survived every downstream guard, because RecordArrival
+-- returns before its own check when there is no previous map yet -- which is
+-- exactly the state after a login. The first /qrsurvey then died in pairs().
+-------------------------------------------------------------------------------
+
+T:run("ZoneSurvey: a malformed store is cleaned when it is loaded", function(t)
+    resetState()
+    QR.db.zoneSurvey = {
+        [77]  = { name = "Felwood", visits = 1, from = "corrupt" },
+        [63]  = { name = "Ashenvale", visits = 1,
+                  from = { [84] = "also corrupt", [62] = { walked = "3", loaded = 1 } } },
+        ["x"] = { name = "not a map id" },
+        [99]  = "not a record",
+    }
+    QR.ZoneSurvey:Initialize()
+
+    local store = QR.db.zoneSurvey
+    t:assertNil(store["x"], "a non-numeric map key is dropped")
+    t:assertNil(store[99], "a record that is not a table is dropped")
+    t:assertNil(store[77].from, "a from field that is not a table is dropped")
+    t:assertNotNil(store[63].from, "a well-formed from field is kept")
+    if not store[63].from then return end
+    t:assertNil(store[63].from[84], "a crossing entry that is not a table is dropped")
+    t:assertNotNil(store[63].from[62], "and the good one beside it survives")
+    if not store[63].from[62] then return end
+    t:assertEqual(3, store[63].from[62].walked, "with its counters made numeric")
+end)
+
+T:run("ZoneSurvey: rendering a store loaded from disk does not throw", function(t)
+    resetState()
+    -- The exact shape that killed /qrsurvey: corrupt, and never revisited, so
+    -- no capture ever reaches it.
+    QR.db.zoneSurvey = { [77] = { name = "Felwood", visits = 1, from = "corrupt" } }
+    QR.ZoneSurvey:Initialize()
+    QR.ZoneSurvey:ForgetArrivalState()
+
+    local ok = pcall(function() return QR.ZoneSurvey:Render() end)
+    t:assertTrue(ok, "/qrsurvey renders a store that came back malformed")
+end)
+
+T:run("ZoneSurvey: a malformed record is not carried forward by a capture", function(t)
+    resetState()
+    QR.db.zoneSurvey = { [77] = { name = "Felwood", visits = 1, from = "corrupt" } }
+    QR.ZoneSurvey:ForgetArrivalState()
+
+    -- No Initialize here: a record can be reached before the load pass has
+    -- touched it, so the copy has to check the shape too.
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    t:assertNil(QR.db.zoneSurvey[77].from,
+        "the capture drops it rather than copying it into the new record")
 end)
