@@ -813,24 +813,30 @@ T:run("CreateGroupIconRow: icons laid out in grid", function(t)
         },
     }
 
-    local newYOffset = QR.TeleportPanel:CreateGroupIconRow(group, 0)
+    -- The grouped view draws a card per destination now; the icons live along
+    -- the foot of the card instead of in a full-width grid below a header.
+    -- The width is set here rather than taken from whatever the mock frame
+    -- happens to report, because it is what the layout is being tested on.
+    QR.TeleportPanel.frame:SetWidth(820)
+    local newYOffset = QR.TeleportPanel:CreateGroupCards({ group }, 0)
     t:assertEqual(3, #QR.TeleportPanel.iconFrames, "3 icon frames created")
     t:assertGreaterThan(newYOffset, 0, "yOffset advanced")
+    t:assertEqual(1, #QR.TeleportPanel.cards, "one card for one group")
 
-    -- Verify all icons are shown
     for i, icon in ipairs(QR.TeleportPanel.iconFrames) do
         t:assertTrue(icon:IsShown(), "Icon " .. i .. " is shown")
     end
 
+    QR.TeleportPanel:ClearCards()
     QR.TeleportPanel:ClearIcons()
 end)
 
-T:run("CreateGroupIconRow: wraps to next row when full", function(t)
+T:run("CreateGroupCards: a group with more teleports than fit says how many are hidden", function(t)
     resetState()
     ensureTeleportPanelFrame()
 
-    -- Panel width ~500, avail ~450. At 36+4=40px per icon, fits ~11 per row
-    -- Create 15 icons to force wrap
+    -- A card is narrower than the panel, so 15 teleports cannot all show. The
+    -- ones that do not fit are stated on the card rather than dropped silently.
     local teleports = {}
     for i = 1, 15 do
         table.insert(teleports, {
@@ -844,13 +850,23 @@ T:run("CreateGroupIconRow: wraps to next row when full", function(t)
     end
 
     local group = { name = "Dalaran", mapID = 125, teleports = teleports }
-    local newYOffset = QR.TeleportPanel:CreateGroupIconRow(group, 0)
+    QR.TeleportPanel.frame:SetWidth(820)
+    local newYOffset = QR.TeleportPanel:CreateGroupCards({ group }, 0)
 
-    t:assertEqual(15, #QR.TeleportPanel.iconFrames, "15 icon frames created")
-    -- With 2 rows (11+4), height should be more than one row of icons
-    -- One row: 6+36+6 = 48, two rows: 6 + 36 + 4 + 36 + 6 = 88
-    t:assertGreaterThan(newYOffset, 48, "yOffset reflects multiple rows")
+    local cardWidth = QR.TeleportPanel:CardWidth(QR.TeleportPanel.frame:GetWidth())
+    local fit = QR.TeleportPanel:IconsPerCard(cardWidth)
+    t:assertTrue(fit < 15, "15 teleports do not all fit on one card (" .. fit .. ")")
+    t:assertEqual(fit, #QR.TeleportPanel.iconFrames, "only the ones that fit get a frame")
+    t:assertGreaterThan(newYOffset, 0, "yOffset advanced")
 
+    local card = QR.TeleportPanel.cards[1]
+    t:assertNotNil(card, "a card was made")
+    if card then
+        t:assertNotNil(card.contText:GetText():match("%+" .. (15 - fit)),
+            "the card says how many are not shown")
+    end
+
+    QR.TeleportPanel:ClearCards()
     QR.TeleportPanel:ClearIcons()
 end)
 
@@ -1106,4 +1122,76 @@ T:run("Zone restriction: the beacon counts as owned on a Throne of Thunder floor
     t:assertNotNil(entry, "The beacon is listed")
     t:assertTrue(entry.status.key ~= "STATUS_ZONE", "Inside the restriction the zone status does not apply")
     t:assertTrue(entry.status.key ~= "STATUS_MISSING", "The owned toy is not reported missing")
+end)
+
+-------------------------------------------------------------------------------
+-- Card layout
+--
+-- The design is explicit that the column count must follow the window width
+-- rather than being hard-coded: at the panel minimum of 500 a 254-wide card
+-- leaves nothing for an icon, a name and a status. These pin the arithmetic,
+-- which is the part of the design that can be checked without seeing it.
+-------------------------------------------------------------------------------
+
+T:run("CardsPerRow: the column count follows the window", function(t)
+    local TP = QR.TeleportPanel
+    t:assertEqual(1, TP:CardsPerRow(500), "one column at the panel minimum")
+    t:assertEqual(2, TP:CardsPerRow(540), "two once there is room for two")
+    t:assertEqual(3, TP:CardsPerRow(820), "three at the width the design was drawn at")
+    t:assertEqual(4, TP:CardsPerRow(1200), "and it keeps going")
+end)
+
+T:run("CardsPerRow: never fewer than one, whatever it is given", function(t)
+    local TP = QR.TeleportPanel
+    t:assertEqual(1, TP:CardsPerRow(0), "zero width")
+    t:assertEqual(1, TP:CardsPerRow(-100), "negative width")
+    t:assertEqual(1, TP:CardsPerRow(nil), "no width at all")
+end)
+
+T:run("CardWidth: cards divide the row without spilling out of it", function(t)
+    local TP = QR.TeleportPanel
+    for _, panel in ipairs({500, 540, 760, 820, 1200}) do
+        local width, perRow = TP:CardWidth(panel)
+        -- Every card, plus the gaps between them, plus the padding either side.
+        local used = perRow * width + (perRow - 1) * 12 + 16
+        t:assertTrue(used <= panel + 0.5,
+            string.format("at %d: %d card(s) of %.1f fit in %d (used %.1f)",
+                panel, perRow, width, panel, used))
+        t:assertTrue(width > 0, "and the card has a width at " .. panel)
+    end
+end)
+
+T:run("IconsPerCard: the status dot keeps its place", function(t)
+    local TP = QR.TeleportPanel
+    -- A card at the design's own width takes five icons, which is what the
+    -- design says. Fewer than that and the dot would be pushed off the card.
+    t:assertEqual(5, TP:IconsPerCard(254), "five at the design's card width")
+    t:assertEqual(1, TP:IconsPerCard(0), "never fewer than one")
+    t:assertEqual(1, TP:IconsPerCard(nil), "even with no width")
+end)
+
+T:run("ClearCards: cards and their icons both go back to the pools", function(t)
+    resetState()
+    ensureTeleportPanelFrame()
+    QR.TeleportPanel.frame:SetWidth(820)
+    QR.TeleportPanel.cardPool = {}
+    QR.TeleportPanel.cards = {}
+    QR.TeleportPanel.iconFrames = {}
+
+    local group = {
+        name = "Dalaran", mapID = 125,
+        teleports = {
+            { id = 6948, data = { name = "Hearthstone", destination = "Dalaran" },
+              isSpell = false, status = { sortOrder = 1, color = "|cFF00FF00",
+              text = "Ready", key = "STATUS_READY" }, cooldownRemaining = 0 },
+        },
+    }
+    QR.TeleportPanel:CreateGroupCards({ group }, 0)
+    t:assertEqual(1, #QR.TeleportPanel.cards, "one card on screen")
+
+    QR.TeleportPanel:ClearCards()
+    t:assertEqual(0, #QR.TeleportPanel.cards, "none after clearing")
+    t:assertEqual(1, #QR.TeleportPanel.cardPool, "and it went back to the pool")
+
+    QR.TeleportPanel:ClearIcons()
 end)
