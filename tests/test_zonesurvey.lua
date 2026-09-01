@@ -91,9 +91,13 @@ T:run("ZoneSurvey: Render lists every record", function(t)
     MockWoW.config.currentMapID = 84
     QR.ZoneSurvey:Capture()
 
+    -- Only the records section. The crossings table below it also has rows
+    -- beginning "| 63 |", so matching the whole output passed even with the
+    -- records table entirely missing -- verified by removing it.
     local out = QR.ZoneSurvey:Render()
-    t:assertNotNil(out:match("| 63 |"), "map 63 appears as a row")
-    t:assertNotNil(out:match("| 84 |"), "map 84 appears as a row")
+    local records = out:match("^(.-)### Observed crossings") or out
+    t:assertNotNil(records:match("| 63 |"), "map 63 appears as a record row")
+    t:assertNotNil(records:match("| 84 |"), "map 84 appears as a record row")
 end)
 
 -------------------------------------------------------------------------------
@@ -189,4 +193,31 @@ T:run("ZoneSurvey: Clear forgets where the player came from", function(t)
 
     local record = QR.db.zoneSurvey[77]
     t:assertNil(record and record.from, "no crossing invented across a clear")
+end)
+
+T:run("ZoneSurvey: a crossing entry missing a counter does not break the capture", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    -- This table comes back from SavedVariables, a file that survives version
+    -- changes and hand-editing, so an entry can arrive without its counters.
+    QR.db.zoneSurvey[77].from[63] = { walked = 1 }
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:NoteLoadingScreen()
+    MockWoW.config.currentMapID = 77
+    local ok = pcall(function() return QR.ZoneSurvey:Capture() end)
+
+    t:assertTrue(ok, "the capture survives an entry with a missing counter")
+    local entry = QR.db.zoneSurvey[77] and QR.db.zoneSurvey[77].from
+        and QR.db.zoneSurvey[77].from[63]
+    if not entry then return end
+    t:assertEqual(1, entry.loaded, "the missing counter starts at zero and counts")
+    t:assertEqual(1, entry.walked, "and the one that was there is kept")
 end)

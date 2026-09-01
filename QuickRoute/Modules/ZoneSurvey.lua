@@ -81,7 +81,13 @@ local function RecordArrival(store, mapID)
     if not record then return end
 
     record.from = record.from or {}
-    local entry = record.from[from] or { walked = 0, loaded = 0 }
+    -- Read defensively: this table comes back from SavedVariables, which is a
+    -- file on disk that survives version changes and hand-editing. An entry
+    -- missing one of its counters would otherwise throw here and take the whole
+    -- capture with it.
+    local entry = record.from[from] or {}
+    entry.walked = entry.walked or 0
+    entry.loaded = entry.loaded or 0
     if hadLoadingScreen then
         entry.loaded = entry.loaded + 1
     else
