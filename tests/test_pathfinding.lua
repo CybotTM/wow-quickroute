@@ -2761,12 +2761,12 @@ end)
 --   would surface as an ERROR rather than a failed assertion, which says much
 --   less about what went wrong.
 local function capitalNodes(QR, MockWoW, faction)
+    -- resetState already fires ZONE_CHANGED_NEW_AREA and invalidates the
+    -- PlayerInfo cache. Doing either again here changes nothing: measured by
+    -- removing each in turn, with the suite green both times -- and the Horde
+    -- test would fail if the faction were being read stale, so it is not.
     resetState()
     MockWoW.config.playerFaction = faction
-    MockWoW:FireEvent("ZONE_CHANGED_NEW_AREA")
-    if QR.PlayerInfo and QR.PlayerInfo.InvalidateCache then
-        QR.PlayerInfo:InvalidateCache()
-    end
     local graph = QR.PathCalculator:BuildGraph()
     if not graph then return nil end
     -- Only nodes AddZoneNodes made. Shattrath and both Dalarans are portal hubs
