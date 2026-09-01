@@ -2740,3 +2740,68 @@ T:run("An answering client with nothing discovered is not the same as no client"
         "an absent API returns nil")
     _G.C_TaxiMap = saved
 end)
+
+-------------------------------------------------------------------------------
+-- AddZoneNodes: the faction filter
+--
+-- Uncovered until now: replacing the condition with `true` left all 13702
+-- assertions green in both file orders, so an Alliance character could have
+-- been given Orgrimmar and Thunder Bluff as graph nodes and nothing would have
+-- noticed. See issue #28.
+--
+-- These pin what the filter does for the two factions. They deliberately say
+-- nothing about a character who is neither -- a neutral pandaren before
+-- choosing a side -- because AddZoneNodes and FlightPointFor disagree about
+-- that case and which of them is right is an open question on #28, not
+-- something a test should settle by being written first.
+-------------------------------------------------------------------------------
+
+local function capitalNodes(QR, MockWoW, faction)
+    MockWoW:Reset()
+    MockWoW.config.playerFaction = faction
+    MockWoW:FireEvent("ZONE_CHANGED_NEW_AREA")
+    QR.PathCalculator.graph = nil
+    QR.PathCalculator.graphDirty = true
+    if QR.PlayerInfo and QR.PlayerInfo.InvalidateCache then
+        QR.PlayerInfo:InvalidateCache()
+    end
+    local graph = QR.PathCalculator:BuildGraph()
+    -- Only nodes AddZoneNodes made. Shattrath and both Dalarans are portal hubs
+    -- as well, so testing for their mere presence passes whatever this filter
+    -- does -- which it did, until dropping the "both" case reddened nothing.
+    local present = {}
+    for name, data in pairs(graph.nodes or {}) do
+        if type(data) == "table" and data.nodeType == "city" then
+            present[name] = true
+        end
+    end
+    return present
+end
+
+T:run("AddZoneNodes: an Alliance character gets no Horde capital", function(t)
+    local nodes = capitalNodes(QR, MockWoW, "Alliance")
+
+    t:assertTrue(nodes["Stormwind City"], "their own capital is there")
+    t:assertTrue(nodes["Ironforge"], "and the rest of their side")
+    t:assertFalse(nodes["Orgrimmar"] or false, "Orgrimmar is not")
+    t:assertFalse(nodes["Thunder Bluff"] or false, "nor Thunder Bluff")
+end)
+
+T:run("AddZoneNodes: a Horde character gets no Alliance capital", function(t)
+    local nodes = capitalNodes(QR, MockWoW, "Horde")
+
+    t:assertTrue(nodes["Orgrimmar"], "their own capital is there")
+    t:assertTrue(nodes["Thunder Bluff"], "and the rest of their side")
+    t:assertFalse(nodes["Stormwind City"] or false, "Stormwind is not")
+    t:assertFalse(nodes["Ironforge"] or false, "nor Ironforge")
+end)
+
+T:run("AddZoneNodes: a neutral city is there for both sides", function(t)
+    local alliance = capitalNodes(QR, MockWoW, "Alliance")
+    local horde = capitalNodes(QR, MockWoW, "Horde")
+
+    t:assertTrue(alliance["Shattrath City"], "Shattrath for the Alliance")
+    t:assertTrue(horde["Shattrath City"], "and for the Horde")
+    t:assertTrue(alliance["Dalaran (Northrend)"], "Dalaran for the Alliance")
+    t:assertTrue(horde["Dalaran (Northrend)"], "and for the Horde")
+end)
