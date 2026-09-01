@@ -51,6 +51,45 @@ local function RecordCount(store)
     return n
 end
 
+-- The map the last capture recorded, and whether a loading screen happened
+-- since. Together they say how the player got from one to the other.
+local lastMapID = nil
+local loadedSince = false
+
+--- Note that a loading screen happened, so the next transition is not a walk.
+function ZoneSurvey:NoteLoadingScreen()
+    loadedSince = true
+end
+
+--- Record how the player arrived at a map.
+-- Zone boxes are rectangles and overlap across a whole continent, so geometry
+-- cannot say which zones border each other -- measured against the current
+-- tables it claims 148 pairs that are not neighbours, Durotar to Mulgore among
+-- them. A player crossing from one zone to the next can.
+--
+-- A crossing with no loading screen is a walk or a flight, and both follow the
+-- ground. One with a loading screen is a portal or an instance and says
+-- nothing about geography, so the two are counted apart rather than mixed.
+local function RecordArrival(store, mapID)
+    local from = lastMapID
+    lastMapID = mapID
+    local hadLoadingScreen = loadedSince
+    loadedSince = false
+
+    if not from or from == mapID then return end
+    local record = store[mapID]
+    if not record then return end
+
+    record.from = record.from or {}
+    local entry = record.from[from] or { walked = 0, loaded = 0 }
+    if hadLoadingScreen then
+        entry.loaded = entry.loaded + 1
+    else
+        entry.walked = entry.walked + 1
+    end
+    record.from[from] = entry
+end
+
 --- Capture the current map, if there is one to capture.
 -- @return number|nil The mapID recorded, or nil when nothing was recorded --
 --   the survey is switched off, the client has no map for the player, or the
@@ -96,13 +135,21 @@ function ZoneSurvey:Capture()
         flightPoint = flight and (flight.node or true) or nil,
         flightAlt = flight and flight.alt and (flight.alt.node or true) or nil,
         visits = (existing and existing.visits or 0) + 1,
+        -- Carried forward, because the record is rebuilt rather than patched
+        -- and the arrivals are the part that accumulates across a session.
+        from = existing and existing.from or nil,
         seen = date("%Y-%m-%d %H:%M:%S"),
     }
+    RecordArrival(store, mapID)
     return mapID
 end
 
 function ZoneSurvey:Clear()
     if QR.db then QR.db.zoneSurvey = {} end
+    -- Also forget where the player came from, so the first capture after a
+    -- clear does not invent an arrival from a map no longer on record.
+    lastMapID = nil
+    loadedSince = false
 end
 
 function ZoneSurvey:Count()
@@ -135,6 +182,32 @@ function ZoneSurvey:Render()
             tostring(r.graphNodes or "-"), tostring(r.flightPoint or "-"),
             r.visits or 0)
     end
+
+    -- Observed crossings. A walk or a flight follows the ground, so it is
+    -- evidence that two zones border each other; a portal is not, and is
+    -- counted separately rather than thrown away.
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "### Observed crossings"
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "| into | from | walked | loaded |"
+    lines[#lines + 1] = "|---|---|---|---|"
+    local any = false
+    for _, mapID in ipairs(ids) do
+        local r = QR.db.zoneSurvey[mapID]
+        local froms = {}
+        for f in pairs(r.from or {}) do froms[#froms + 1] = f end
+        table_sort(froms)
+        for _, f in ipairs(froms) do
+            local e = r.from[f]
+            lines[#lines + 1] = string_format("| %d | %d | %d | %d |",
+                mapID, f, e.walked or 0, e.loaded or 0)
+            any = true
+        end
+    end
+    if not any then
+        lines[#lines + 1] = "| - | - | - | - |"
+    end
+
     return table_concat(lines, "\n")
 end
 
@@ -149,7 +222,13 @@ function ZoneSurvey:Initialize()
     local frame = CreateFrame("Frame")
     frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    frame:SetScript("OnEvent", function()
+    frame:SetScript("OnEvent", function(_, event)
+        -- A loading screen means the next crossing was a portal or an
+        -- instance, not a step over a border. Noted before the debounce, so it
+        -- is not lost when the two events arrive together.
+        if event == "PLAYER_ENTERING_WORLD" then
+            ZoneSurvey:NoteLoadingScreen()
+        end
         -- The map the client reports right on the event is sometimes still the
         -- old one, so the capture waits a beat. Debounced, because a zone
         -- change can fire both events together.

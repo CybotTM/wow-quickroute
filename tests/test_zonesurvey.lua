@@ -95,3 +95,98 @@ T:run("ZoneSurvey: Render lists every record", function(t)
     t:assertNotNil(out:match("| 63 |"), "map 63 appears as a row")
     t:assertNotNil(out:match("| 84 |"), "map 84 appears as a row")
 end)
+
+-------------------------------------------------------------------------------
+-- Observed crossings
+--
+-- Zone boxes are rectangles and overlap across a whole continent, so geometry
+-- cannot say which zones border each other: measured against the current
+-- tables it claims 148 pairs that are not neighbours, Durotar to Mulgore among
+-- them. A player crossing from one zone into the next can, provided a walk is
+-- told apart from a portal.
+-------------------------------------------------------------------------------
+
+T:run("ZoneSurvey: a crossing without a loading screen is recorded as walked", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[77]
+    t:assertNotNil(record and record.from, "the arrival is recorded on the destination")
+    if not (record and record.from and record.from[63]) then return end
+    t:assertEqual(1, record.from[63].walked, "counted as walked")
+    t:assertEqual(0, record.from[63].loaded, "and not as a portal")
+end)
+
+T:run("ZoneSurvey: a crossing after a loading screen is not counted as walked", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:NoteLoadingScreen()
+    MockWoW.config.currentMapID = 84
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[84]
+    if not (record and record.from and record.from[63]) then
+        t:assertTrue(false, "the arrival should still be recorded")
+        return
+    end
+    t:assertEqual(0, record.from[63].walked,
+        "a portal says nothing about two zones bordering each other")
+    t:assertEqual(1, record.from[63].loaded, "and is counted on its own")
+end)
+
+T:run("ZoneSurvey: staying in one zone records no crossing", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[63]
+    t:assertNil(record and record.from, "no arrival from itself")
+end)
+
+T:run("ZoneSurvey: crossings survive a revisit rebuilding the record", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+    -- Back and forth. The record for 77 is rebuilt on the second arrival, and
+    -- the crossings are the part that has to accumulate rather than reset.
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[77]
+    if not (record and record.from and record.from[63]) then return end
+    t:assertEqual(2, record.from[63].walked, "both crossings counted")
+end)
+
+T:run("ZoneSurvey: Clear forgets where the player came from", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+
+    MockWoW.config.currentMapID = 63
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:Clear()
+    -- Without forgetting, this would record an arrival from a map the store no
+    -- longer holds.
+    MockWoW.config.currentMapID = 77
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[77]
+    t:assertNil(record and record.from, "no crossing invented across a clear")
+end)
