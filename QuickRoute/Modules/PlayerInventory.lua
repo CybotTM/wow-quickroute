@@ -116,12 +116,42 @@ PlayerInventory.SafeGetContainerItemID = SafeGetContainerItemID
 
 -- Uses C_Container API (with fallback for older clients) to iterate through all bag slots
 function PlayerInventory:ScanBags()
+    local maxBags = NUM_BAG_SLOTS or 4
+
+    -- SafeGetContainerNumSlots answers 0 both for "this bag has no slots" and
+    -- for "the container API cannot answer right now", and the second happens:
+    -- a teleport is followed by a loading screen, and the rescan that the
+    -- teleport's own bag event scheduled lands inside it.
+    --
+    -- Wiping on that answer turns a full inventory into an empty one that stays
+    -- empty until something schedules another scan. The teleport panel rebuilds
+    -- 0.2s after the scan runs, and with its availability filter on "usable" it
+    -- then draws nothing at all -- which is the empty list reported from the
+    -- client, cured by closing and reopening the window because that rebuilds
+    -- from an inventory that has since been rescanned.
+    --
+    -- A character always has a backpack with slots, so every bag reporting none
+    -- is the API declining to answer rather than a real result. A real empty
+    -- result -- bags that exist and hold no teleport item -- still writes,
+    -- because those bags report their slots.
+    local slotsPerBag, totalSlots = {}, 0
+    for bagID = 0, maxBags do
+        local n = SafeGetContainerNumSlots(bagID) or 0
+        slotsPerBag[bagID] = n
+        totalSlots = totalSlots + n
+    end
+    if totalSlots == 0 then
+        QR:Debug("ScanBags: no bag reported any slot, keeping the previous scan")
+        return self.teleportItems
+    end
+
     wipe(self.teleportItems)
 
-    -- Scan bags 0 (backpack) through NUM_BAG_SLOTS
-    local maxBags = NUM_BAG_SLOTS or 4
+    -- Scan bags 0 (backpack) through NUM_BAG_SLOTS. The slot counts come from
+    -- the pass above rather than being asked for a second time -- this runs on
+    -- every bag event.
     for bagID = 0, maxBags do
-        local numSlots = SafeGetContainerNumSlots(bagID)
+        local numSlots = slotsPerBag[bagID]
         for slot = 1, numSlots do
             local itemInfo = SafeGetContainerItemInfo(bagID, slot)
             if itemInfo and itemInfo.itemID then

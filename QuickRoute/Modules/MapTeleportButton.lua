@@ -239,8 +239,20 @@ function MapTeleportButton:UpdateForMap(mapID)
     end
 
     -- Configure secure attributes via SecureButtons helper (left-click teleport)
+    --
+    -- Six of the seven callers of ConfigureButton check whether it succeeded;
+    -- this one did not, and a button that failed to configure looks exactly
+    -- like a working one and does nothing when clicked. It can fail: in combat,
+    -- and now also for a spell the player can cast but has not learned whose
+    -- name the client has not cached yet -- the state right after login.
     if QR.SecureButtons then
-        QR.SecureButtons:ConfigureButton(btn, teleportID, sourceType)
+        if not QR.SecureButtons:ConfigureButton(btn, teleportID, sourceType) then
+            btn:Hide()
+            self.currentTeleportID = nil
+            self.currentSourceType = nil
+            self.currentMapID = mapID
+            return
+        end
     end
 
     -- Re-set PostClick after ConfigureButton (which overwrites it with debug logging)

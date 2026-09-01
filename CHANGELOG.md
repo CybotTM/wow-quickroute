@@ -3,14 +3,18 @@
 ## [Unreleased]
 
 ### Fixed
+- "Teleport Home" works. The button cast it through the spellbook, and the housing teleport is granted rather than learned, so clicking it did nothing at all — no cast, no error. Spells you can use without having learned them are now cast by name.
+- The teleport list no longer empties itself after a teleport. The bag rescan a teleport triggers lands during the loading screen that follows it, where the game answers "no bags" rather than declining, and the scan wrote that down as an empty inventory. With the availability filter on "usable" the list then had nothing left to show, until the window was closed and reopened. A scan that cannot read the bags at all now keeps the previous one.
+- Teleport cloaks and rings no longer report that the item was not found. The button always tried to equip first, which searches the bags only, so aiming it at something already on the character failed on that line and never reached the teleport. An item already in its slot is now used straight from the slot. One you are not wearing takes two clicks — equipping and using cannot happen in the same one, because the item reaches the slot only after the server answers — so the first click equips and says so.
+- `/qrverifymap` answered "nothing in the addon's data points at this map" for zones that have a flight master, because it never looked at flight points or portals. Its service check could not report anything for any map at all.
 - Six zones had a flight master in the data and no flight edge in the graph. The client ships a second set of zone maps that repeats zones under different IDs, and the flight-point generator was filing masters under those: Azsuna as 1187 rather than 630, Isle of Dorn as 2271 rather than 2248, and the same for Bastion, The Ringing Deeps, Hallowfall and Harandar. Five of those IDs are ones the addon's zone tables do not know at all. Azj-Kahet had two entries and keeps the right one. No route changes as a result — 0 of 1824 measured routes into those zones and 0 of 306 to the faction capitals — but the graph gains 18 flight edges that were previously attached to nothing.
-
-### Fixed
 - Teleport items you are wearing work again. Eleven of them sit in slots the inventory scan never looked at — the six guild cloaks and Mountebank's Colorful Cloak on the back, three pairs of slippers on the feet, and the Blessed Medallion of Karabor on the neck — so while worn they counted as not owned and the panel drew a plain icon with nothing behind it. The slot list is now taken from the item data instead of being kept by hand.
-- Clicking a worn teleport item no longer reports that the item was not found. The button ran `/equip` first, which searches the bags only, so aiming it at something already on the character failed on that line and never reached the teleport. An item already in its slot is now used straight from the slot.
 - Zen Pilgrimage sends Monks to Kun-Lai Summit, where it actually lands. It pointed at a Karazhan instance floor on another continent, and now carries the landing position rather than the middle of the zone.
 - Dalaran is one place in the route graph again. Three teleports and a mage portal called their destination "Dalaran (Legion)" while the rest of the addon called the same spot "Dalaran (Broken Isles)", so anyone holding a Dalaran teleport got two nodes at identical coordinates with the portals attached to one and the teleport to the other.
 - No more routes to a bank or auction house in Darnassus or Undercity. Both cities were destroyed in Battle for Azeroth, and the maps the client still ships are the pre-destruction versions a character only reaches by asking Zidormi to send them back — so the five services the addon listed there are not standing in the present day. Both cities keep their graph nodes, because standing on those maps is possible and a character who is there needs a way out; no route changes as a result.
+
+### Added
+- `/qrsurvey` records what the client says about each map you stand on, and `/qrdiag` records Lua errors and teleport-list rebuilds. Both keep their results across sessions, for the questions that can only be answered from a running game.
 
 ## [1.15.0] - 2026-08-31
 

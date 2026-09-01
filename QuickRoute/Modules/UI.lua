@@ -2876,9 +2876,43 @@ function UI:GenerateMapVerification(mapID)
             claim(source, id, entry)
         end
     end
-    for _, poi in ipairs((QR.ServicePOIs and QR.ServicePOIs[target]) or {}) do
-        claims[#claims + 1] = string_format("  ServicePOIs %s (%s)",
-            tostring(poi.name or "?"), tostring(poi.serviceType or "?"))
+    -- ServicePOIs is keyed by service type, each holding a list of positions --
+    -- not by map. Indexing it by the map yielded nil for every map in the game,
+    -- so this branch could never report anything, and the fields it read do not
+    -- exist in that data either.
+    for serviceType, locations in pairs(QR.ServicePOIs or {}) do
+        for _, poi in ipairs(locations) do
+            if poi.mapID == target then
+                claims[#claims + 1] = string_format("  ServicePOIs %s (%s) at %.4f, %.4f",
+                    tostring(serviceType), tostring(poi.faction or "both"),
+                    poi.x or 0, poi.y or 0)
+            end
+        end
+    end
+
+    -- Flight points and portals are data pointing at a map too. Without them
+    -- this reported "nothing points at map 63" for Ashenvale, which has a
+    -- flight master for each faction.
+    local flight = QR.FlightPoints and QR.FlightPoints[target]
+    if flight then
+        claims[#claims + 1] = string_format("  FlightPoints %s (%s)",
+            tostring(flight.node or "?"), tostring(flight.faction or "?"))
+        if flight.alt then
+            claims[#claims + 1] = string_format("  FlightPoints %s (%s, alt)",
+                tostring(flight.alt.node or "?"), tostring(flight.alt.faction or "?"))
+        end
+    end
+
+    for hubName, hub in pairs(QR.PortalHubs or {}) do
+        if hub.mapID == target then
+            claims[#claims + 1] = string_format("  PortalHubs %s (hub is here)", hubName)
+        end
+        for _, portal in ipairs(hub.portals or {}) do
+            if portal.mapID == target then
+                claims[#claims + 1] = string_format("  PortalHubs %s -> %s",
+                    hubName, tostring(portal.destination or "?"))
+            end
+        end
     end
     table_sort(claims)
     if #claims > 0 then

@@ -204,6 +204,9 @@ T:run("ConfigureForSpell: sets spell attributes", function(t)
     resetState()
     reinitializePool()
 
+    -- Known, because the spell action type resolves through the
+    -- spellbook; an unknown spell now takes the macro path below.
+    MockWoW.config.knownSpells[12345] = true
     local btn = QR.SecureButtons:GetButton()
     local result = QR.SecureButtons:ConfigureForSpell(btn, 12345)
 
@@ -286,6 +289,7 @@ T:run("ConfigureButton: dispatches to correct method by sourceType", function(t)
     resetState()
     reinitializePool()
 
+    MockWoW.config.knownSpells[100] = true
     local btn1 = QR.SecureButtons:GetButton()
     QR.SecureButtons:ConfigureButton(btn1, 100, "spell")
     t:assertEqual("spell", btn1:GetAttribute("type"), "Spell dispatch correct")
@@ -576,7 +580,7 @@ T:run("SecureButtons: a worn item is used from its slot, not re-equipped", funct
         "an item already worn is used straight from its slot")
 end)
 
-T:run("SecureButtons: an item in the bags is equipped first", function(t)
+T:run("SecureButtons: an item in the bags is only equipped, not used", function(t)
     resetState()
     local btn = QR.SecureButtons:GetButton()
     if not btn then return end
@@ -589,11 +593,15 @@ T:run("SecureButtons: an item in the bags is equipped first", function(t)
     if not preClick then return end
     preClick(btn, "LeftButton", false)
 
-    t:assertEqual("/equip item:63353\n/use 15", btn:GetAttribute("macrotext"),
-        "an item that is not worn is equipped before use")
+    -- Equip only. A macro runs all its lines in one frame and the item does
+    -- not reach the slot until the server answers, so a "/use 15" on the next
+    -- line acted on the old cloak or on nothing. Verified in the client: the
+    -- first click always failed, the second always worked.
+    t:assertEqual("/equip item:63353", btn:GetAttribute("macrotext"),
+        "the click that equips does not also try to use")
 end)
 
-T:run("SecureButtons: an empty slot still equips before use", function(t)
+T:run("SecureButtons: an empty slot equips without using", function(t)
     resetState()
     local btn = QR.SecureButtons:GetButton()
     if not btn then return end
@@ -604,6 +612,57 @@ T:run("SecureButtons: an empty slot still equips before use", function(t)
     if not preClick then return end
     preClick(btn, "LeftButton", false)
 
-    t:assertEqual("/equip item:63353\n/use 15", btn:GetAttribute("macrotext"),
-        "nothing worn means the item is equipped first")
+    t:assertEqual("/equip item:63353", btn:GetAttribute("macrotext"),
+        "nothing worn means the item is equipped and nothing else")
+end)
+
+-------------------------------------------------------------------------------
+-- Spells the player can cast but has not learned
+--
+-- The "spell" action type resolves through the spellbook, so it does nothing
+-- for a granted ability. Verified in the client: the housing teleport 1233637
+-- reports IsSpellKnown=false with usable=true and the name "Nach Hause
+-- teleportieren", and clicking its button did nothing at all, with no error.
+-------------------------------------------------------------------------------
+
+T:run("SecureButtons: an unlearned spell is cast by name", function(t)
+    resetState()
+    reinitializePool()
+    local btn = QR.SecureButtons:GetButton()
+    if not btn then return end
+
+    -- Not in knownSpells, which is what the housing teleport looks like.
+    t:assertTrue(QR.SecureButtons:ConfigureForSpell(btn, 1233637),
+        "the button still configures")
+    t:assertEqual("macro", btn:GetAttribute("type"),
+        "not the spell action type, which needs the spellbook")
+    t:assertEqual("/cast Spell 1233637", btn:GetAttribute("macrotext"),
+        "cast by the name the client reports, so it is already localised")
+    t:assertEqual(1233637, btn.teleportID, "teleportID is still the spell")
+    t:assertEqual("spell", btn.sourceType, "and it still counts as a spell")
+end)
+
+T:run("SecureButtons: a learned spell keeps the spell action type", function(t)
+    resetState()
+    reinitializePool()
+    local btn = QR.SecureButtons:GetButton()
+    if not btn then return end
+
+    MockWoW.config.knownSpells[50977] = true
+    QR.SecureButtons:ConfigureForSpell(btn, 50977)
+    t:assertEqual("spell", btn:GetAttribute("type"),
+        "Death Gate is known, so nothing changes for it")
+    t:assertEqual(50977, btn:GetAttribute("spell"), "and it casts by ID")
+end)
+
+T:run("SecureButtons: an unlearned spell with no name is refused", function(t)
+    resetState()
+    reinitializePool()
+    local btn = QR.SecureButtons:GetButton()
+    if not btn then return end
+
+    -- Spell data not cached yet, which is the state right after login.
+    MockWoW.config.uncachedSpells[1233637] = true
+    t:assertFalse(QR.SecureButtons:ConfigureForSpell(btn, 1233637),
+        "refused rather than handed back a button that does nothing")
 end)

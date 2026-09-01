@@ -405,3 +405,53 @@ T:run("PlayerInventory: a ring declared for finger 1 is found on finger 2", func
     t:assertTrue(QR.PlayerInventory:HasTeleport(40585),
         "the paired finger slot is scanned too")
 end)
+
+-------------------------------------------------------------------------------
+-- A scan the container API cannot answer
+--
+-- The empty teleport list, reported from the client: use a teleport, and the
+-- list is empty until the window is closed and reopened. The bag event the
+-- teleport fires schedules a rescan, the teleport is followed by a loading
+-- screen, and the rescan lands inside it. The container API answers 0 slots
+-- there -- indistinguishable, to the caller, from bags that are simply empty --
+-- and ScanBags wiped on that answer. With the panel's availability filter on
+-- "usable" the list then draws nothing at all.
+-------------------------------------------------------------------------------
+
+T:run("PlayerInventory: a scan the container API cannot answer keeps the last one", function(t)
+    resetState()
+    MockWoW.config.bagItems = {
+        [6948]  = { bagID = 0, slot = 1, count = 1 },
+        [63352] = { bagID = 0, slot = 2, count = 1 },
+    }
+    QR.PlayerInventory:ScanAll()
+    local before = 0
+    for _ in pairs(QR.PlayerInventory.teleportItems) do before = before + 1 end
+    t:assertEqual(2, before, "two items to begin with")
+
+    -- Every bag reports no slots, which is what the API does while it has no
+    -- answer. A character always has a backpack, so this cannot be real.
+    local realNumSlots = C_Container.GetContainerNumSlots
+    C_Container.GetContainerNumSlots = function() return 0 end
+    QR.PlayerInventory:ScanAll()
+    local during = 0
+    for _ in pairs(QR.PlayerInventory.teleportItems) do during = during + 1 end
+    C_Container.GetContainerNumSlots = realNumSlots
+
+    t:assertEqual(2, during,
+        "the previous scan survives instead of being wiped to nothing")
+end)
+
+T:run("PlayerInventory: bags that answer and hold nothing do write an empty result", function(t)
+    resetState()
+    MockWoW.config.bagItems = { [6948] = { bagID = 0, slot = 1, count = 1 } }
+    QR.PlayerInventory:ScanAll()
+    t:assertTrue(QR.PlayerInventory:HasTeleport(6948), "the item is there first")
+
+    -- Sold, dropped, or used up. The bags report their slots, so zero is a real
+    -- answer and has to be written -- the guard above must not swallow it.
+    MockWoW.config.bagItems = {}
+    QR.PlayerInventory:ScanAll()
+    t:assertFalse(QR.PlayerInventory:HasTeleport(6948),
+        "a genuine empty result still replaces the previous scan")
+end)

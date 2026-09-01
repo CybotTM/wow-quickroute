@@ -57,6 +57,8 @@ Modules\DestinationSearch.lua
 Modules\ServiceRouter.lua
 Modules\EncounterJournalButton.lua
 Modules\SettingsPanel.lua
+Modules\ZoneSurvey.lua
+Modules\Diagnostics.lua
 
 # Main
 QuickRoute.lua

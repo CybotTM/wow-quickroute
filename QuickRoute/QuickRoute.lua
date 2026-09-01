@@ -210,6 +210,8 @@ function QR:OnPlayerLogin()
             { "DestinationSearch",  function() QR.DestinationSearch:Initialize() end },
             { "ServiceRouter",      function() QR.ServiceRouter:Initialize() end },
             { "SettingsPanel",      function() QR.SettingsPanel:Initialize() end },
+            { "ZoneSurvey",         function() QR.ZoneSurvey:Initialize() end },
+            { "Diagnostics",        function() QR.Diagnostics:Initialize() end },
         }
         for _, step in ipairs(steps) do
             local ok, err = pcall(step[2])

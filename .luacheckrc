@@ -86,6 +86,9 @@ globals = {
     "PlaySound",
     "Screenshot",
     "hooksecurefunc",
+    "seterrorhandler",
+    "geterrorhandler",
+    "debugstack",
     "wipe",
     "GameTooltip",
     "GameTooltip_Hide",
@@ -152,6 +155,8 @@ globals = {
     "SLASH_QRSCREENSHOT1",
     "SLASH_QREXTRACT1",
     "SLASH_QRVERIFYMAP1",
+    "SLASH_QRSURVEY1",
+    "SLASH_QRDIAG1",
 
     -- Addon compartment functions (referenced in TOC)
     "QuickRoute_OnAddonCompartmentClick",

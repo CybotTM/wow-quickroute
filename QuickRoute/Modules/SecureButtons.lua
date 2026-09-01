@@ -314,6 +314,30 @@ function SecureButtons:ConfigureForSpell(btn, spellID)
         return false
     end
 
+    -- The "spell" action type resolves through the spellbook, so it does
+    -- nothing for a spell the player can cast but has not learned. The housing
+    -- teleport is one: verified in the client, 1233637 reports
+    -- IsSpellKnown=false with usable=true and the name "Nach Hause
+    -- teleportieren". Clicking it did nothing at all, with no error.
+    --
+    -- Casting by name works for both kinds, so the unknown case falls back to
+    -- a macro. The name comes from the client, so it is already localised.
+    local known = IsSpellKnown and IsSpellKnown(spellID)
+    if not known then
+        local info = C_Spell and C_Spell.GetSpellInfo and C_Spell.GetSpellInfo(spellID)
+        local spellName = info and info.name
+        if spellName and spellName ~= "" then
+            btn:SetAttribute("type", "macro")
+            btn:SetAttribute("macrotext", "/cast " .. spellName)
+            btn.teleportID = spellID
+            btn.sourceType = "spell"
+            return true
+        end
+        -- No name to cast by. "spell" would do nothing, so report the failure
+        -- rather than hand back a button that silently does nothing.
+        return false
+    end
+
     btn:SetAttribute("type", "spell")
     btn:SetAttribute("spell", spellID)
     btn.teleportID = spellID
@@ -387,8 +411,20 @@ function SecureButtons:ConfigureForEquippable(btn, itemID, equipSlot)
             pendingRestore = true
             QR:Debug(string_format("Saved equipment slot %d: item %d", equipSlot, currentItemID))
         end
-        self:SetAttribute("macrotext",
-            string_format("/equip item:%d\n/use %d", itemID, equipSlot))
+        -- Equip only. A macro runs all its lines in one frame, but the item
+        -- does not reach the slot until the server answers, so a "/use SLOT"
+        -- on the next line acts on whatever was in the slot before -- the old
+        -- cloak, or nothing, which is where "item not found" came from.
+        -- Reported from the client: the first click always failed and the
+        -- second always worked. So the first click equips and says so, and the
+        -- click after it teleports through the branch above.
+        self:SetAttribute("macrotext", string_format("/equip item:%d", itemID))
+        local itemName
+        if C_Item and C_Item.GetItemInfo then
+            itemName = C_Item.GetItemInfo(itemID)
+        end
+        QR:Print(string_format(QR.L["EQUIP_THEN_CLICK_AGAIN"],
+            itemName or ("item:" .. itemID)))
     end)
 
     btn:SetAttribute("type", "macro")
