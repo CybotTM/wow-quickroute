@@ -36,7 +36,11 @@ local function Count(t)
 end
 
 --- Record one Lua error.
-function Diagnostics:RecordError(message)
+-- @param message string The error text the handler was given
+-- @param stack string|nil The stack, captured by the caller. It has to be
+--   taken in the error handler itself: read from in here it describes this
+--   function and the pcall wrapping it, not where the error came from.
+function Diagnostics:RecordError(message, stack)
     if not QR.db then return end
     QR.db.errors = QR.db.errors or {}
     local text = tostring(message)
@@ -49,7 +53,7 @@ function Diagnostics:RecordError(message)
     end
     push(QR.db.errors, {
         message = text,
-        stack = debugstack and debugstack(2, 12, 0) or nil,
+        stack = stack,
         seen = date("%Y-%m-%d %H:%M:%S"),
         count = 1,
     }, MAX_ERRORS)
@@ -119,7 +123,9 @@ function Diagnostics:Initialize()
     if seterrorhandler and geterrorhandler and not self.errorHandlerInstalled then
         local previous = geterrorhandler()
         seterrorhandler(function(err)
-            pcall(function() Diagnostics:RecordError(err) end)
+            -- Captured here, where the erroring frames are still on the stack.
+            local stack = debugstack and debugstack(2, 12, 0) or nil
+            pcall(function() Diagnostics:RecordError(err, stack) end)
             if previous then return previous(err) end
         end)
         self.errorHandlerInstalled = true

@@ -522,3 +522,39 @@ T:run("MapTeleportButton: button hidden during combat lockdown", function(t)
 
     MockWoW.config.inCombatLockdown = false
 end)
+
+T:run("MapTeleportButton: a button that could not be configured is hidden", function(t)
+    reinitialize()
+    QR.MapTeleportButton:CreateButton()
+    setupMockTeleports({
+        [1233637] = {
+            sourceType = "spell",
+            data = {
+                name = "Teleport Home",
+                destination = "Homestead",
+                mapID = 84,
+                x = 0.5, y = 0.5,
+            },
+        },
+    })
+
+    -- Not learned, and the client has not cached the name yet -- the state
+    -- right after login. ConfigureForSpell has nothing to cast by and refuses.
+    MockWoW.config.uncachedSpells[1233637] = true
+
+    QR.MapTeleportButton:UpdateForMap(84)
+
+    -- Six of the seven callers of ConfigureButton check the result; this one
+    -- did not, so a button that failed to configure stayed on screen looking
+    -- exactly like a working one and did nothing when clicked.
+    t:assertFalse(QR.MapTeleportButton.button:IsShown(),
+        "no button rather than one that does nothing")
+    t:assertNil(QR.MapTeleportButton.currentTeleportID,
+        "and no teleport recorded as current")
+
+    -- Every test here calls reinitialize() first, so each one cleans up after
+    -- the one before it -- which leaves whatever the LAST test did in place for
+    -- the next file. setupMockTeleports replaces PlayerInventory.GetAllTeleports,
+    -- and leaking that override reddened 36 assertions in other files.
+    reinitialize()
+end)

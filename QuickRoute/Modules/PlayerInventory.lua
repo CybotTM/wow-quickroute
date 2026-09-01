@@ -134,9 +134,11 @@ function PlayerInventory:ScanBags()
     -- is the API declining to answer rather than a real result. A real empty
     -- result -- bags that exist and hold no teleport item -- still writes,
     -- because those bags report their slots.
-    local totalSlots = 0
+    local slotsPerBag, totalSlots = {}, 0
     for bagID = 0, maxBags do
-        totalSlots = totalSlots + (SafeGetContainerNumSlots(bagID) or 0)
+        local n = SafeGetContainerNumSlots(bagID) or 0
+        slotsPerBag[bagID] = n
+        totalSlots = totalSlots + n
     end
     if totalSlots == 0 then
         QR:Debug("ScanBags: no bag reported any slot, keeping the previous scan")
@@ -145,9 +147,11 @@ function PlayerInventory:ScanBags()
 
     wipe(self.teleportItems)
 
-    -- Scan bags 0 (backpack) through NUM_BAG_SLOTS
+    -- Scan bags 0 (backpack) through NUM_BAG_SLOTS. The slot counts come from
+    -- the pass above rather than being asked for a second time -- this runs on
+    -- every bag event.
     for bagID = 0, maxBags do
-        local numSlots = SafeGetContainerNumSlots(bagID)
+        local numSlots = slotsPerBag[bagID]
         for slot = 1, numSlots do
             local itemInfo = SafeGetContainerItemInfo(bagID, slot)
             if itemInfo and itemInfo.itemID then
