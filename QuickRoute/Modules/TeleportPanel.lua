@@ -182,7 +182,9 @@ local STATUS = {
     ON_CD = { key = "STATUS_ON_CD", color = "|cFFFF6600", sortOrder = 2 },     -- Orange
     OWNED = { key = "STATUS_OWNED", color = "|cFF00CC00", sortOrder = 3 },     -- Green (fallback)
     MISSING = { key = "STATUS_MISSING", color = "|cFFFFFF00", sortOrder = 4 }, -- Yellow
-    NA = { key = "STATUS_NA", color = "|cFF666666", sortOrder = 5 },          -- Gray
+    NA = { key = "STATUS_NA", color = "|cFF666666", sortOrder = 5 },
+    -- Owned, but the game only accepts it on certain maps and the player is elsewhere
+    ZONE = { key = "STATUS_ZONE", color = "|cFF888888", sortOrder = 4 },          -- Gray
 }
 
 -- Initialize localized status text
@@ -257,6 +259,12 @@ local function GetTeleportStatus(id, data, isSpell)
     if not owned then
         return STATUS.MISSING, nil
     end
+
+    -- Zone restriction (Kirin Tor Beacon: Isle of Thunder only, and so on)
+    if data.usableOnMaps and not QR.PlayerInfo:IsOnAnyMap(data.usableOnMaps) then
+        return STATUS.ZONE, nil
+    end
+
 
     -- Check cooldown
     if QR.CooldownTracker then
@@ -971,8 +979,9 @@ function TeleportPanel:ConfigureRowTexts(row, entry)
 
     -- Apply status color to name (localized via WoW API)
     local name = GetLocalizedTeleportName(entry) or ("ID: " .. entry.id)
-    nameText:SetText(entry.status.color .. name .. "|r")
-    if nameText.SetTextToFit then nameText:SetTextToFit() end
+    local coloredName = entry.status.color .. name .. "|r"
+    nameText:SetText(coloredName)
+    if nameText.SetTextToFit then nameText:SetTextToFit(coloredName) end
     nameText:Show()
 
     -- Reuse or create destination text (bottom line, below name)
@@ -986,8 +995,9 @@ function TeleportPanel:ConfigureRowTexts(row, entry)
         row.destText = destText
     end
     destText:SetTextColor(0.6, 0.6, 0.6)
-    destText:SetText(GetLocalizedDestination(entry) or L["UNKNOWN"])
-    if destText.SetTextToFit then destText:SetTextToFit() end
+    local destLabel = GetLocalizedDestination(entry) or L["UNKNOWN"]
+    destText:SetText(destLabel)
+    if destText.SetTextToFit then destText:SetTextToFit(destLabel) end
     destText:Show()
 
     -- Reuse or create status text (right-aligned, vertically centered)

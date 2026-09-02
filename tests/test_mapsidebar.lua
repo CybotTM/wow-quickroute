@@ -457,3 +457,51 @@ T:run("MapSidebar: sidebarCollapsed default exists in db defaults", function(t)
     -- sidebarCollapsed should be false by default (set during Initialize)
     t:assertEqual(type(QR.db.sidebarCollapsed), "boolean")
 end)
+
+-------------------------------------------------------------------------------
+-- Row texts and zone-restricted teleports
+-------------------------------------------------------------------------------
+
+T:run("MapSidebar: rows keep their names after SetTextToFit", function(t)
+    reinitialize()
+    QR.MapSidebar:CreatePanel()
+    QR.MapSidebar.frame:Show()
+    setupMockTeleports({
+        [8690] = {
+            data = { mapID = 84, name = "Hearthstone", destination = "Stormwind" },
+            sourceType = "item",
+        },
+    })
+
+    QR.MapSidebar:UpdateForMap(84, true)
+
+    local row = QR.MapSidebar.rows[1]
+    t:assertTrue(row:IsShown(), "The matching teleport has a row")
+    t:assertTrue(#(row.nameText:GetText() or "") > 0, "The name survives the fit call")
+    t:assertTrue(#(row.destText:GetText() or "") > 0, "The destination survives the fit call")
+    restoreTeleports()
+end)
+
+T:run("MapSidebar: a teleport the game refuses here is not offered", function(t)
+    reinitialize()
+    QR.MapSidebar:CreatePanel()
+    QR.MapSidebar.frame:Show()
+    setupMockTeleports({
+        [95567] = {
+            data = { mapID = 504, name = "Kirin Tor Beacon", destination = "Isle of Thunder", usableOnMaps = { 504 } },
+            sourceType = "toy",
+        },
+    })
+
+    MockWoW.config.currentMapID = 84
+    QR.MapSidebar:UpdateForMap(504, true)
+    for _, row in ipairs(QR.MapSidebar.rows) do
+        t:assertFalse(row:IsShown(), "Away from Isle of Thunder the beacon is no way there")
+    end
+
+    MockWoW.config.currentMapID = 504
+    QR.MapSidebar:UpdateForMap(504, true)
+    t:assertTrue(QR.MapSidebar.rows[1]:IsShown(), "On Isle of Thunder it is")
+    MockWoW.config.currentMapID = 84
+    restoreTeleports()
+end)

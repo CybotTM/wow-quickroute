@@ -932,6 +932,9 @@ QR.TeleportItemsData = {
         type = QR.TeleportTypes.TOY,
         faction = "Alliance",
         restriction = "Only works on Isle of Thunder or in Throne of Thunder",
+        -- The Throne of Thunder floors (uiMapIDs 508-515) are children of
+        -- Isle of Thunder, so the one map covers both.
+        usableOnMaps = { 504 },
     },
     [95568] = {
         name = "Sunreaver Beacon",
@@ -943,6 +946,9 @@ QR.TeleportItemsData = {
         type = QR.TeleportTypes.TOY,
         faction = "Horde",
         restriction = "Only works on Isle of Thunder or in Throne of Thunder",
+        -- The Throne of Thunder floors (uiMapIDs 508-515) are children of
+        -- Isle of Thunder, so the one map covers both.
+        usableOnMaps = { 504 },
     },
     [128353] = {
         name = "Admiral's Compass",
@@ -1003,6 +1009,8 @@ QR.TeleportItemsData = {
         type = QR.TeleportTypes.TOY,
         faction = "both",
         acquisition = "Honored with The Nightfallen",
+        restriction = "Only works in Suramar",
+        usableOnMaps = { 680 },
     },
     [129276] = {
         name = "Beginner's Guide to Dimensional Rifting",

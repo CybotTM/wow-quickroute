@@ -99,7 +99,8 @@ function MapSidebar:FindTeleportsForMap(viewedMapID)
     local candidates = {}
     for id, entry in pairs(teleports) do
         if entry.data and entry.data.mapID
-            and not entry.data.isDynamic and not entry.data.isRandom then
+            and not entry.data.isDynamic and not entry.data.isRandom
+            and (not entry.data.usableOnMaps or QR.PlayerInfo:IsOnAnyMap(entry.data.usableOnMaps)) then
             local isReady = false
             if QR.CooldownTracker then
                 local cdInfo = QR.CooldownTracker:GetCooldown(id, entry.sourceType)
@@ -406,7 +407,7 @@ function MapSidebar:UpdateForMap(mapID, force)
         -- Name (localized)
         local localizedName = GetLocalizedName(entry.id, entry.sourceType, entry.data.name)
         row.nameText:SetText(localizedName)
-        if row.nameText.SetTextToFit then row.nameText:SetTextToFit() end
+        if row.nameText.SetTextToFit then row.nameText:SetTextToFit(localizedName) end
 
         -- Destination (localized via map API)
         local destName = entry.data.destination or ""
@@ -417,7 +418,7 @@ function MapSidebar:UpdateForMap(mapID, force)
             end
         end
         row.destText:SetText(destName)
-        if row.destText.SetTextToFit then row.destText:SetTextToFit() end
+        if row.destText.SetTextToFit then row.destText:SetTextToFit(destName) end
 
         -- Status / cooldown
         local statusStr = ""

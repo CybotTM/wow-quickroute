@@ -92,6 +92,31 @@ function PlayerInfo:HasEngineering()
     return cachedHasEngineering
 end
 
+--- Whether the player stands on one of the given maps or on a map nested
+-- inside one of them (a raid floor inside its island, a city inside its zone).
+-- Teleports with a `usableOnMaps` list only work there; the game refuses
+-- them elsewhere, so the addon must not offer them as ready.
+-- @param mapIDs table Array of uiMapIDs
+-- @return boolean true when the player's map, or one of its ancestors, is listed;
+--   also true when the map API cannot say where the player is
+function PlayerInfo:IsOnAnyMap(mapIDs)
+    if not mapIDs or #mapIDs == 0 then return true end
+    if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetMapInfo) then return true end
+    local mapID = C_Map.GetBestMapForUnit("player")
+    if not mapID then return true end
+    local wanted = {}
+    for _, id in ipairs(mapIDs) do wanted[id] = true end
+    local guard = 0
+    while mapID and guard < 16 do
+        if wanted[mapID] then return true end
+        local info = C_Map.GetMapInfo(mapID)
+        mapID = info and info.parentMapID
+        if mapID == 0 then mapID = nil end
+        guard = guard + 1
+    end
+    return false
+end
+
 --- Clear all cached values
 -- Call when profession changes or for testing purposes.
 function PlayerInfo:InvalidateCache()

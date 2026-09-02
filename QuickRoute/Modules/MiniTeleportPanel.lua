@@ -45,6 +45,8 @@ local STATUS = {
     OWNED = { key = "STATUS_OWNED", color = "|cFF00CC00", sortOrder = 3 },
     MISSING = { key = "STATUS_MISSING", color = "|cFFFFFF00", sortOrder = 4 },
     NA = { key = "STATUS_NA", color = "|cFF666666", sortOrder = 5 },
+    -- Owned, but the game only accepts it on certain maps and the player is elsewhere
+    ZONE = { key = "STATUS_ZONE", color = "|cFF888888", sortOrder = 4 },
 }
 
 --- Get teleport status for a given ID (simplified from TeleportPanel)
@@ -100,6 +102,12 @@ local function GetTeleportStatus(id, data, isSpell)
     if not owned then
         return STATUS.MISSING, nil
     end
+
+    -- Zone restriction (Kirin Tor Beacon: Isle of Thunder only, and so on)
+    if data.usableOnMaps and not QR.PlayerInfo:IsOnAnyMap(data.usableOnMaps) then
+        return STATUS.ZONE, nil
+    end
+
 
     -- Check cooldown
     if QR.CooldownTracker then
