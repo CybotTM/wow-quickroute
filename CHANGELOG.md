@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 ### Added
-- The settings page opens with the header from the design ("C2"): the logo, the addon's name, a subtitle and a line with version, author and site, drawn over a travel network with one route in gold; below it a status bar that says whether TomTom was found (and which version), how many teleports the character has, and a button that opens the route window. The settings themselves are unchanged, and Blizzard's own Defaults button stays where it is.
+- The settings page opens with the header from the design ("C2"): the logo, the addon's name, a subtitle, a line with version and author and the site below it, drawn over a travel network with one route in gold; below it a status bar that says whether TomTom was found (and which version), how many teleports the character has, and a button that opens the route window. The settings themselves are unchanged, and Blizzard's own Defaults button stays where it is.
 
 ### Fixed
 - The Kirin Tor Beacon, the Sunreaver Beacon and the Mobile Telemancy Beacon no longer count as ready everywhere. The game accepts the first two only on Isle of Thunder and in the Throne of Thunder, the third only in Suramar; away from there they read NOT HERE in the teleport inventory, the "usable" filter hides them, and the quick-teleport list and the map sidebar leave them out. The data carries the maps as `usableOnMaps`, next to the free-text `restriction` that was already there.
