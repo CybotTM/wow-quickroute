@@ -7,6 +7,7 @@ local pairs, ipairs, type, tostring = pairs, ipairs, type, tostring
 local math_max = math.max
 local string_format = string.format
 local table_insert, table_sort, table_concat = table.insert, table.sort, table.concat
+local math_floor = math.floor
 local CreateFrame = CreateFrame
 local GetTime = GetTime
 local InCombatLockdown = InCombatLockdown
@@ -22,6 +23,8 @@ QR.TeleportPanel = {
     headerPool = {},  -- Pool of reusable header frames
     rowPool = {},  -- Pool of reusable row frames
     iconPool = {},   -- Pool of reusable icon frames for grid mode
+    cardPool = {},   -- Pool of reusable group cards
+    cards = {},      -- Cards currently on screen
     iconFrames = {}, -- Active icon frames (parallel to teleportRows for grid mode)
     currentFilter = "All",
     sortedTeleports = {},
@@ -57,6 +60,27 @@ local ICON_SIZE = 32
 local PADDING = 10
 
 -- Grid icon constants (grouped mode)
+-- Cards, for the grouped view.
+--
+-- The column count follows the window rather than being fixed, using the same
+-- arithmetic the icon grid already used for iconsPerRow. With a 254 minimum --
+-- below that an icon, a name and a status stop fitting side by side -- the
+-- thresholds fall out as: one column up to 537, two to 803, three above. The
+-- design asked for "about 540" and "about 760"; the second is 804 rather than
+-- 760 because three 254-wide cards plus their gaps and padding need it, and a
+-- threshold that follows from the card is worth more than one that matches a
+-- round number.
+local CARD_MIN_WIDTH = 254
+local CARD_GAP = 12
+local CARD_PADDING = 10
+-- K2 from the design canvas: a 68px picture banner carrying the name and the
+-- continent, then a foot with the teleport icons and a status dot.
+local CARD_BANNER_HEIGHT = 68
+local CARD_FOOT_HEIGHT = 56          -- CARD_PADDING + 36px icons + CARD_PADDING
+local CARD_HEIGHT = CARD_BANNER_HEIGHT + CARD_FOOT_HEIGHT
+local CARD_DOT_SIZE = 8
+local CARD_ICON_SOURCE_SIZE = 64     -- WoW icons are 64x64
+
 local GRID_ICON_SIZE = 36
 local GRID_ICON_GAP = 4
 local GRID_ROW_PADDING = 6
@@ -741,15 +765,19 @@ function TeleportPanel:CreateContent(parentFrame)
     refreshButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.refreshButton = refreshButton
 
-    -- Column headers
+    -- Column headers. They label the columns of the flat list; over the card
+    -- view they name nothing, so RefreshList hides them there. Kept on the
+    -- frame rather than created per refresh, like everything else here.
     local headerY = -32
     local nameHeader = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     nameHeader:SetPoint("TOPLEFT", PADDING + ICON_SIZE + 10, headerY)
     nameHeader:SetText(C.WHITE .. L["NAME"] .. C.R)
+    frame.nameHeader = nameHeader
 
     local statusHeader = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     statusHeader:SetPoint("TOPRIGHT", -PADDING - 5, headerY)
     statusHeader:SetText(C.WHITE .. L["STATUS"] .. C.R)
+    frame.statusHeader = statusHeader
 
     -- Header separator
     local headerSep = frame:CreateTexture(nil, "ARTWORK")
@@ -757,6 +785,7 @@ function TeleportPanel:CreateContent(parentFrame)
     headerSep:SetHeight(1)
     headerSep:SetPoint("TOPLEFT", PADDING, headerY - 12)
     headerSep:SetPoint("TOPRIGHT", -PADDING, headerY - 12)
+    frame.headerSep = headerSep
 
     -- Create scroll frame for teleport list
     local scrollFrame = CreateFrame("ScrollFrame", "QRTeleportScrollFrame", frame, "UIPanelScrollFrameTemplate")
@@ -767,7 +796,10 @@ function TeleportPanel:CreateContent(parentFrame)
 
     -- Content frame inside scroll frame
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(PANEL_MIN_WIDTH - 40, 1)
+    local window = QR.MainFrame and QR.MainFrame.frame
+    local contentWidth = window and window:GetWidth() or 0
+    if contentWidth < PANEL_MIN_WIDTH then contentWidth = PANEL_MIN_WIDTH end
+    scrollChild:SetSize(contentWidth - 40, 1)
     scrollFrame:SetScrollChild(scrollChild)
     frame.scrollChild = scrollChild
 
@@ -1469,41 +1501,249 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
     end)
 end
 
---- Create a group's icon row (grid of icons for grouped mode)
--- @param group table The group data with teleports array
--- @param yOffset number Vertical offset for the icon row
--- @return number The new yOffset after the icon row
-function TeleportPanel:CreateGroupIconRow(group, yOffset)
-    local scrollChild = self.frame.scrollChild
-    local panelWidth = self.frame:GetWidth()
-    local availWidth = panelWidth - 50
-    local iconsPerRow = math.floor((availWidth + GRID_ICON_GAP) / (GRID_ICON_SIZE + GRID_ICON_GAP))
-    if iconsPerRow < 1 then iconsPerRow = 1 end
+-------------------------------------------------------------------------------
+-- Group cards
+--
+-- The grouped view draws one card per destination instead of a full-width
+-- header followed by a grid. Name and continent sit one above the other rather
+-- than side by side, because at a card's width they collide; the status is a
+-- dot rather than a dot and a word, for the same reason.
+-------------------------------------------------------------------------------
 
-    local rowStartY = yOffset + GRID_ROW_PADDING
-    local currentRow = 0
+--- Texture coordinates that make a square icon cover a banner the way the
+-- design specifies ("beschnitten statt gestaucht", xMidYMid slice): the icon
+-- is scaled to the banner's width and the middle band shown, never squashed.
+-- A banner taller than the scaled icon shows the whole icon.
+-- @param cardWidth number
+-- @param bannerHeight number
+-- @param iconSize number Source icon edge in pixels (WoW: 64)
+-- @return number, number, number, number left, right, top, bottom
+function TeleportPanel.BannerTexCoords(cardWidth, bannerHeight, iconSize)
+    iconSize = iconSize or CARD_ICON_SOURCE_SIZE
+    if not cardWidth or not bannerHeight or cardWidth <= 0 or bannerHeight <= 0 then
+        return 0, 1, 0, 1
+    end
+    local visible = bannerHeight / cardWidth   -- the icon is scaled to cardWidth square
+    if visible >= 1 then
+        return 0, 1, 0, 1
+    end
+    local band = (1 - visible) / 2
+    return 0, 1, band, 1 - band
+end
 
-    for i, entry in ipairs(group.teleports) do
-        local col = (i - 1) % iconsPerRow
-        if col == 0 and i > 1 then
-            currentRow = currentRow + 1
-        end
+--- How many cards fit across the panel.
+-- @param panelWidth number The panel's current width
+-- @return number At least one
+function TeleportPanel:CardsPerRow(panelWidth)
+    local avail = (panelWidth or 0) - CARD_PADDING * 2
+    local perRow = math_floor((avail + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP))
+    if perRow < 1 then perRow = 1 end
+    return perRow
+end
 
+--- How wide each card is once they share the row.
+-- Cards stretch to fill rather than leaving a ragged right edge, so the width
+-- is a result of the column count, not the other way round.
+-- @param panelWidth number The panel's current width
+-- @return number, number The card width and the number per row
+function TeleportPanel:CardWidth(panelWidth)
+    local perRow = self:CardsPerRow(panelWidth)
+    local avail = (panelWidth or 0) - CARD_PADDING * 2
+    local width = (avail - (perRow - 1) * CARD_GAP) / perRow
+    if width < 1 then width = 1 end
+    return width, perRow
+end
+
+--- How many teleport icons fit along the foot of a card.
+-- The status dot sits at the right-hand end and is not negotiable, so it comes
+-- off the top before the icons are counted.
+-- @param cardWidth number
+-- @return number At least one
+function TeleportPanel:IconsPerCard(cardWidth)
+    local avail = (cardWidth or 0) - CARD_PADDING * 2 - CARD_DOT_SIZE - CARD_GAP
+    local n = math_floor((avail + GRID_ICON_GAP) / (GRID_ICON_SIZE + GRID_ICON_GAP))
+    if n < 1 then n = 1 end
+    return n
+end
+
+--- Take a card frame from the pool, building one if the pool is empty.
+function TeleportPanel:GetCardFrame()
+    local card = table.remove(self.cardPool)
+    if not card then
+        card = CreateFrame("Frame", nil, nil, "BackdropTemplate")
+        card:SetHeight(CARD_HEIGHT)
+        card:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        card:SetBackdropColor(0.082, 0.086, 0.110, 1)        -- #15161c
+        card:SetBackdropBorderColor(0.239, 0.227, 0.200, 1)  -- #3d3a33
+
+        -- The picture: the group's icon scaled to the card's width and cut to
+        -- the banner's height (ConfigureCard sets the band).
+        local banner = card:CreateTexture(nil, "ARTWORK")
+        banner:SetPoint("TOPLEFT", card, "TOPLEFT", 1, -1)
+        banner:SetPoint("TOPRIGHT", card, "TOPRIGHT", -1, -1)
+        banner:SetHeight(CARD_BANNER_HEIGHT)
+        card.banner = banner
+
+        -- Darkens towards the bottom so the name stays readable on any picture.
+        local scrim = card:CreateTexture(nil, "ARTWORK", nil, 1)
+        scrim:SetAllPoints(banner)
+        scrim:SetColorTexture(1, 1, 1, 1)
+        scrim:SetGradient("VERTICAL", CreateColor(0.03, 0.035, 0.055, 0.92), CreateColor(0.03, 0.035, 0.055, 0.06))
+        card.scrim = scrim
+
+        -- Name over continent, both at the banner's bottom-left, stacked: at a
+        -- card's width they collide side by side.
+        local contText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        contText:SetPoint("BOTTOMLEFT", banner, "BOTTOMLEFT", CARD_PADDING, 5)
+        contText:SetPoint("RIGHT", banner, "RIGHT", -CARD_PADDING, 0)
+        contText:SetJustifyH("LEFT")
+        contText:SetWordWrap(false)
+        contText:SetShadowOffset(0, -1)
+        contText:SetShadowColor(0, 0, 0, 0.95)
+        card.contText = contText
+
+        local nameText = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        nameText:SetFont(STANDARD_TEXT_FONT, 14, "")
+        nameText:SetPoint("BOTTOMLEFT", contText, "TOPLEFT", 0, 1)
+        nameText:SetPoint("RIGHT", banner, "RIGHT", -CARD_PADDING, 0)
+        nameText:SetJustifyH("LEFT")
+        nameText:SetWordWrap(false)
+        nameText:SetShadowOffset(0, -1)
+        nameText:SetShadowColor(0, 0, 0, 0.95)
+        card.nameText = nameText
+
+        -- Round status dot, right end of the foot, on the icons' centre line.
+        local dot = card:CreateTexture(nil, "OVERLAY")
+        dot:SetSize(CARD_DOT_SIZE, CARD_DOT_SIZE)
+        dot:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -CARD_PADDING, (CARD_FOOT_HEIGHT - CARD_DOT_SIZE) / 2)
+        card.dot = dot
+
+        card.iconFrames = {}
+    end
+    return card
+end
+
+--- Give a card back, and its icon frames with it.
+function TeleportPanel:ReleaseCardFrame(card)
+    if not card then return end
+    -- The icons are let go of, not released: ClearIcons owns that, and doing
+    -- it here as well returned each frame to the pool twice.
+    for _, iconFrame in ipairs(card.iconFrames or {}) do
+        iconFrame:Hide()
+        iconFrame:SetParent(nil)
+        iconFrame:ClearAllPoints()
+    end
+    if card.iconFrames then wipe(card.iconFrames) end
+    card:Hide()
+    card:SetParent(nil)
+    card:ClearAllPoints()
+    table_insert(self.cardPool, card)
+end
+
+--- Return every card on screen to the pool.
+function TeleportPanel:ClearCards()
+    for _, card in ipairs(self.cards or {}) do
+        self:ReleaseCardFrame(card)
+    end
+    self.cards = {}
+end
+
+--- The status dot for a group, taken from its best entry: a round indicator
+-- texture, green when ready, yellow on cooldown, grey otherwise.
+local function GroupStatusDot(group)
+    local best = group.teleports and group.teleports[1]
+    local key = best and best.status and best.status.key
+    if key == "STATUS_READY" then return "Interface\\COMMON\\Indicator-Green" end
+    if key == "STATUS_ON_CD" then return "Interface\\COMMON\\Indicator-Yellow" end
+    return "Interface\\COMMON\\Indicator-Gray"
+end
+
+--- Fill one card for one group.
+-- @param card Frame
+-- @param group table
+-- @param cardWidth number
+function TeleportPanel:ConfigureCard(card, group, cardWidth)
+    card:SetWidth(cardWidth)
+
+    -- The destination icon. There is no artwork for destinations, so this is
+    -- the icon of the group's first-sorted teleport -- which always resolves,
+    -- and is visibly different between hearthstones, portals and toys.
+    local best = group.teleports and group.teleports[1]
+    card.banner:SetTexture(best and GetIconTexture(best)
+        or "Interface\\Icons\\INV_Misc_QuestionMark")
+    card.banner:SetTexCoord(TeleportPanel.BannerTexCoords(cardWidth, CARD_BANNER_HEIGHT, CARD_ICON_SOURCE_SIZE))
+
+    card.nameText:SetText(C.GOLD .. tostring(group.name or "?") .. C.R)
+
+    local continentKey = group.mapID and QR.GetContinentForZone
+        and QR.GetContinentForZone(group.mapID)
+    local continentName = continentKey and QR.GetLocalizedContinentName
+        and QR.GetLocalizedContinentName(continentKey)
+    card.contText:SetText(C.GRAY .. (continentName or "") .. C.R)
+
+    card.dot:SetTexture(GroupStatusDot(group))
+
+    local maxIcons = self:IconsPerCard(cardWidth)
+    local shown = 0
+    for i, entry in ipairs(group.teleports or {}) do
+        if i > maxIcons then break end
         local iconFrame = self:GetIconFrame()
-        iconFrame:SetParent(scrollChild)
-        iconFrame:SetPoint("TOPLEFT", scrollChild, "TOPLEFT",
-            col * (GRID_ICON_SIZE + GRID_ICON_GAP),
-            -(rowStartY + currentRow * (GRID_ICON_SIZE + GRID_ICON_GAP)))
+        iconFrame:SetParent(card)
+        iconFrame:SetPoint("BOTTOMLEFT", card, "BOTTOMLEFT",
+            CARD_PADDING + (i - 1) * (GRID_ICON_SIZE + GRID_ICON_GAP), CARD_PADDING)
         iconFrame:Show()
-
         self:ConfigureGridIcon(iconFrame, entry)
+        -- Two lists, one owner. The card holds references so it can hide them
+        -- with itself; releasing them back to the pool is the panel's job,
+        -- through ClearIcons. Doing it in both places put the same frame into
+        -- iconPool twice -- measured: three icons built, six pool entries,
+        -- three duplicates, and the next GetIconFrame handing one frame to two
+        -- callers.
+        table_insert(card.iconFrames, iconFrame)
         table_insert(self.iconFrames, iconFrame)
+        shown = i
     end
 
-    local numRows = math.ceil(#group.teleports / iconsPerRow)
-    local totalHeight = GRID_ROW_PADDING * 2 + numRows * (GRID_ICON_SIZE + GRID_ICON_GAP) - GRID_ICON_GAP
-    return yOffset + totalHeight
+    -- Anything that did not fit is stated rather than silently dropped.
+    local hidden = #(group.teleports or {}) - shown
+    if hidden > 0 then
+        card.contText:SetText(C.GRAY .. (continentName or "")
+            .. (continentName and "  " or "") .. "+" .. hidden .. C.R)
+    end
 end
+
+--- Lay the group cards out in as many columns as the panel allows.
+-- @param groups table Array of groups
+-- @param yOffset number
+-- @return number The offset below the last row of cards
+function TeleportPanel:CreateGroupCards(groups, yOffset)
+    local scrollChild = self.frame.scrollChild
+    local cardWidth, perRow = self:CardWidth(self.frame:GetWidth())
+
+    for i, group in ipairs(groups) do
+        local col = (i - 1) % perRow
+        local row = math_floor((i - 1) / perRow)
+
+        local card = self:GetCardFrame()
+        card:SetParent(scrollChild)
+        card:SetPoint("TOPLEFT", scrollChild, "TOPLEFT",
+            CARD_PADDING + col * (cardWidth + CARD_GAP),
+            -(yOffset + row * (CARD_HEIGHT + CARD_GAP)))
+        card:Show()
+
+        self:ConfigureCard(card, group, cardWidth)
+        table_insert(self.cards, card)
+    end
+
+    local rows = math.ceil(#groups / perRow)
+    if rows < 1 then rows = 0 end
+    return yOffset + rows * (CARD_HEIGHT + CARD_GAP)
+end
+
 
 -------------------------------------------------------------------------------
 -- List Management
@@ -1552,7 +1792,9 @@ function TeleportPanel:GetRowFrame()
     local row = table.remove(self.rowPool)
     if not row then
         row = CreateFrame("Frame", nil, nil)
-        row:SetSize(PANEL_MIN_WIDTH - 50, ROW_HEIGHT)
+        local panelWidth = self.frame and self.frame:GetWidth() or 0
+        if panelWidth < PANEL_MIN_WIDTH then panelWidth = PANEL_MIN_WIDTH end
+        row:SetSize(panelWidth - 50, ROW_HEIGHT)
     end
     return row
 end
@@ -1565,39 +1807,9 @@ function TeleportPanel:ClearRows()
     wipe(self.teleportRows)
     self:ClearIcons()
     self:ClearHeaders()
+    self:ClearCards()
 end
 
---- Create a zone group header row
--- @param group table The group data with name, mapID, teleports
--- @param yOffset number Vertical offset for the header
--- @return Frame The created header frame
--- @return number The new yOffset after the header
-function TeleportPanel:CreateGroupHeader(group, yOffset)
-    local scrollChild = self.frame.scrollChild
-    local panelWidth = self.frame:GetWidth()
-
-    local header = self:GetHeaderFrame()
-    header:SetParent(scrollChild)
-    header:SetWidth(panelWidth - 50)
-    header:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -yOffset)
-    header:Show()
-
-    -- Zone name in gold
-    local zoneName = group.name
-    local continentKey = group.mapID and QR.GetContinentForZone and QR.GetContinentForZone(group.mapID)
-    local continentName = continentKey and QR.GetLocalizedContinentName and QR.GetLocalizedContinentName(continentKey)
-    if continentName then
-        header.zoneText:SetText(C.GOLD .. zoneName .. C.R .. "  " .. C.GRAY .. continentName .. C.R)
-    else
-        header.zoneText:SetText(C.GOLD .. zoneName .. C.R)
-    end
-
-    -- Count in gray
-    header.countText:SetText(C.GRAY .. string_format(L["TELEPORTS_COUNT"], #group.teleports) .. C.R)
-
-    table_insert(self.headerRows, header)
-    return header, yOffset + 24
-end
 
 --- Refresh the teleport list
 function TeleportPanel:RefreshList()
@@ -1641,19 +1853,23 @@ function TeleportPanel:RefreshList()
     local ownedCount = 0
     local totalCount = 0
 
+    -- The column headers belong to the flat list. Over cards they label
+    -- nothing -- visible in a render of the card view as a stray "Name" and
+    -- "Status" floating above the first row.
+    local showColumnHeaders = not self.groupByDestination
+    if self.frame.nameHeader then self.frame.nameHeader:SetShown(showColumnHeaders) end
+    if self.frame.statusHeader then self.frame.statusHeader:SetShown(showColumnHeaders) end
+    if self.frame.headerSep then self.frame.headerSep:SetShown(showColumnHeaders) end
+
     if self.groupByDestination then
-        -- Grouped display with icon grid
+        -- Grouped display: one card per destination, in as many columns as the
+        -- window allows. Replaces the full-width header and icon grid a group
+        -- used to get, which cost 576px of height for eight groups.
         local groups = self:GroupTeleportsByDestination(filtered)
 
+        yOffset = self:CreateGroupCards(groups, yOffset)
+
         for _, group in ipairs(groups) do
-            -- Create group header
-            local _, newOffset = self:CreateGroupHeader(group, yOffset)
-            yOffset = newOffset
-
-            -- Icon grid instead of list rows
-            yOffset = self:CreateGroupIconRow(group, yOffset)
-
-            -- Count stats
             for _, entry in ipairs(group.teleports) do
                 totalCount = totalCount + 1
                 if entry.status == STATUS.READY or entry.status == STATUS.ON_CD or entry.status == STATUS.OWNED then

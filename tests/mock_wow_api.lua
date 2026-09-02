@@ -387,7 +387,8 @@ local function CreateMockTexture(parent)
     function tex:Hide() self._shown = false end
     function tex:SetShown(show) if show then self:Show() else self:Hide() end end
     function tex:IsShown() return self._shown end
-    function tex:SetTexCoord() end
+    function tex:SetTexCoord(...) self._texCoord = { ... } end
+    function tex:GetTexCoord() if self._texCoord then return unpack(self._texCoord) end end
     function tex:SetVertexColor(r, g, b, a) self._vertexColor = { r, g, b, a } end
     function tex:SetGradient(orientation, minColor, maxColor) self._gradient = { orientation, minColor, maxColor } end
     function tex:SetAlpha(alpha) self._alpha = alpha end
@@ -406,6 +407,9 @@ local function CreateMockFontString(parent)
         _size = { w = 0, h = 12 },  -- Default font height
         _wordWrap = true,
     }
+    -- Real regions have SetShown, and so does the simulator; the mock only
+    -- had it on frames and textures, so hiding a FontString by mode threw.
+    function fs:SetShown(show) if show then self:Show() else self:Hide() end end
     function fs:SetText(text) self._text = text or "" end
     function fs:GetText() return self._text end
     function fs:SetPoint(point, ...) self._points[#self._points + 1] = { point, ... } end
