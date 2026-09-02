@@ -1397,3 +1397,47 @@ T:run("Card: without map art the icon banner stays", function(t)
     t:assertTrue(card.banner:IsShown(), "icon banner shown")
     t:assertFalse(card.tiles[1]:IsShown() or card.tiles[2]:IsShown(), "no map tiles")
 end)
+
+T:run("PictureMapFor: a destination's own map first, then the stand-in", function(t)
+    resetState()
+    local TP = QR.TeleportPanel
+    t:assertEqual(627, TP.PictureMapFor({ mapID = 627, destination = "Garrison" }), "own map wins")
+    MockWoW.config.playerFaction = "Alliance"; QR.PlayerInfo:InvalidateCache()
+    t:assertEqual(582, TP.PictureMapFor({ destination = "Garrison" }), "Lunarfall for the Alliance")
+    t:assertEqual(2352, TP.PictureMapFor({ destination = "Homestead" }), "Founder's Point for the Alliance")
+    MockWoW.config.playerFaction = "Horde"; QR.PlayerInfo:InvalidateCache()
+    t:assertEqual(590, TP.PictureMapFor({ destination = "Garrison Shipyard" }), "Frostwall for the Horde")
+    t:assertEqual(2351, TP.PictureMapFor({ destination = "Homestead" }), "Razorwind Shores for the Horde")
+    MockWoW.config.playerFaction = "Alliance"; QR.PlayerInfo:InvalidateCache()
+    t:assertEqual(2274, TP.PictureMapFor({ destination = "Random Delve" }), "delves are in Khaz Algar")
+    t:assertEqual(947, TP.PictureMapFor({ destination = "Random location worldwide" }), "the world")
+    t:assertEqual(619, TP.PictureMapFor({ destination = "Random Broken Isles Ley Line" }), "Broken Isles")
+    t:assertNil(TP.PictureMapFor({ destination = "Bound Location" }), "no map the client could name")
+    t:assertNil(TP.PictureMapFor({ destination = "Camp Location" }), "nor here")
+end)
+
+T:run("Card: the garrison is pictured by the faction's garrison map", function(t)
+    resetState()
+    ensureTeleportPanelFrame()
+    QR.TeleportPanel.cardPool = {}
+    QR.TeleportPanel.iconFrames = {}
+    MockWoW.config.mapArt[582] = gridTiles(4, 3)
+    MockWoW.config.playerFaction = "Alliance"; QR.PlayerInfo:InvalidateCache()
+    local group = { name = "Garrison", destination = "Garrison", teleports = {
+        { id = 110560, isSpell = false, data = { name = "Garrison Hearthstone", destination = "Garrison" },
+          status = { sortOrder = 1, color = "|cFF00FF00", text = "Ready", key = "STATUS_READY" }, cooldownRemaining = 0 },
+    } }
+    local card = QR.TeleportPanel:GetCardFrame()
+    QR.TeleportPanel:ConfigureCard(card, group, 254)
+    t:assertEqual(1006, card.tiles[1]:GetTexture(), "Lunarfall's middle tile")
+    t:assertFalse(card.banner:IsShown(), "no icon banner")
+end)
+
+T:run("GroupTeleportsByDestination: a group remembers its English destination", function(t)
+    resetState()
+    local groups = QR.TeleportPanel:GroupTeleportsByDestination({
+        { id = 110560, isSpell = false, data = { name = "Garrison Hearthstone", destination = "Garrison" },
+          status = { sortOrder = 1, color = "", text = "", key = "STATUS_READY" }, cooldownRemaining = 0 },
+    })
+    t:assertEqual("Garrison", groups[1].destination, "the key PictureMapFor looks up")
+end)

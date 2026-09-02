@@ -488,12 +488,16 @@ function TeleportPanel:GroupTeleportsByDestination(teleports)
     for _, entry in ipairs(teleports) do
         local dest = GetLocalizedDestination(entry) or entry.data.name or L["UNKNOWN"]
         if not groups[dest] then
-            groups[dest] = { name = dest, teleports = {}, mapID = entry.data.mapID }
+            groups[dest] = { name = dest, teleports = {}, mapID = entry.data.mapID,
+                             destination = entry.data.destination }
             table_insert(groupOrder, dest)
         end
         -- Adopt mapID from later entries if group has none
         if not groups[dest].mapID and entry.data.mapID then
             groups[dest].mapID = entry.data.mapID
+        end
+        if not groups[dest].destination and entry.data.destination then
+            groups[dest].destination = entry.data.destination
         end
         table_insert(groups[dest].teleports, entry)
     end
@@ -1531,6 +1535,51 @@ function TeleportPanel.BannerTexCoords(cardWidth, bannerHeight, iconSize)
     return 0, 1, band, 1 - band
 end
 
+-- Destinations without a map of their own still have a place that stands for
+-- them: the garrison and the housing plot have a map per faction, a random
+-- location somewhere on a continent has that continent, a random delve has
+-- Khaz Algar, where the delves are. uiMapIDs verified against the client's
+-- UiMap table (12.1.0). Keyed by the English destination from the data.
+local function byFaction(alliance, horde)
+    return function(faction) return faction == "Horde" and horde or alliance end
+end
+local PICTURE_MAPS = {
+    ["Garrison"]                     = byFaction(582, 590),   -- Lunarfall / Frostwall
+    ["Garrison Shipyard"]            = byFaction(582, 590),
+    ["Homestead"]                    = byFaction(2352, 2351), -- Founder's Point / Razorwind Shores
+    ["Random location worldwide"]    = 947,                   -- Azeroth
+    ["Random natural location"]      = 947,
+    ["Random Northrend Location"]    = 113,
+    ["Random Pandaria Location"]     = 424,
+    ["Random Draenor Location"]      = 572,
+    ["Random Argus Location"]        = 905,
+    ["Random Kul Tiras Location"]    = 876,
+    ["Random Zandalar Location"]     = 875,
+    ["Random Shadowlands Location"]  = 1550,
+    ["Random Dragon Isles Location"] = 1978,
+    ["Random Khaz Algar Location"]   = 2274,
+    ["Random Delve"]                 = 2274,
+    ["Random Broken Isles Ley Line"] = 619,
+    ["Illidari Camp"]                = 619,
+    -- "Bound Location", "Camp Location" and "Random location" have no map
+    -- the client could name; they keep the icon.
+}
+
+--- The map whose art pictures a group: its own map, or the stand-in for a
+-- destination without one.
+-- @param group table { mapID, destination }
+-- @return number|nil uiMapID
+function TeleportPanel.PictureMapFor(group)
+    if not group then return nil end
+    if group.mapID then return group.mapID end
+    local pick = group.destination and PICTURE_MAPS[group.destination]
+    if type(pick) == "function" then
+        local faction = QR.PlayerInfo and QR.PlayerInfo.GetFaction and QR.PlayerInfo:GetFaction()
+        return pick(faction)
+    end
+    return pick
+end
+
 --- The two map tiles that picture a destination: the middle two of the
 -- middle row of the zone map's base art layer, side by side. A zone map is
 -- tiled (256px squares, row-major), so its centre is where the zone is.
@@ -1716,10 +1765,10 @@ end
 function TeleportPanel:ConfigureCard(card, group, cardWidth)
     card:SetWidth(cardWidth)
 
-    -- The picture is the destination: the middle of its zone map. Only a
-    -- destination without a map (a random one, the garrison) falls back to
-    -- the icon of the group's first-sorted teleport, which always resolves.
-    local left, right, tileSize = TeleportPanel.ZoneBannerTiles(group.mapID)
+    -- The picture is the destination: the middle of its zone map, or of the
+    -- map that stands for it (PictureMapFor). Only a destination with neither
+    -- falls back to the icon of the group's first-sorted teleport.
+    local left, right, tileSize = TeleportPanel.ZoneBannerTiles(TeleportPanel.PictureMapFor(group))
     if left then
         local half = (cardWidth - 2) / 2
         card.tiles[1]:SetTexture(left)
