@@ -49,6 +49,7 @@ L["STATUS_ON_CD"] = "ON CD"
 L["STATUS_OWNED"] = "OWNED"
 L["STATUS_MISSING"] = "MISSING"
 L["STATUS_NA"] = "N/A"
+L["STATUS_ZONE"] = "NOT HERE"
 
 -- Panels
 L["TELEPORT_INVENTORY"] = "Teleport Inventory"
@@ -367,6 +368,7 @@ if GetLocale() == "deDE" then
     L["STATUS_OWNED"] = "BESITZT"
     L["STATUS_MISSING"] = "FEHLT"
     L["STATUS_NA"] = "N/V"
+    L["STATUS_ZONE"] = "NICHT HIER"
 
     -- Panels
     L["TELEPORT_INVENTORY"] = "Teleport-Inventar"

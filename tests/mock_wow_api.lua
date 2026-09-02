@@ -419,7 +419,9 @@ local function CreateMockFontString(parent)
         self._textColorB = b
         self._textColorA = a
     end
-    function fs:SetTextToFit() end
+    -- The client sets the text it is given; the argument defaults to "", so a
+    -- call without one clears the string. The old no-op hid exactly that.
+    function fs:SetTextToFit(text) self._text = text or "" end
     function fs:SetFontObject() end
     function fs:SetFont() end
     function fs:Show() self._shown = true end

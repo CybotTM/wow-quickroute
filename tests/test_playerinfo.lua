@@ -91,3 +91,34 @@ T:run("PlayerInfo:GetFaction: reads the mock's faction and caches it", function(
     QR.PlayerInfo:InvalidateCache()
     t:assertEqual("Alliance", QR.PlayerInfo:GetFaction(), "then re-read")
 end)
+
+-------------------------------------------------------------------------------
+-- IsOnAnyMap: the player's map or one of its ancestors
+-------------------------------------------------------------------------------
+
+T:run("PlayerInfo:IsOnAnyMap: true on the listed map itself", function(t)
+    MockWoW:Reset()
+    MockWoW.config.currentMapID = 504
+    t:assertTrue(QR.PlayerInfo:IsOnAnyMap({ 504 }))
+end)
+
+T:run("PlayerInfo:IsOnAnyMap: true on a map nested inside a listed one", function(t)
+    MockWoW:Reset()
+    MockWoW.mapDatabase[508] = { mapID = 508, name = "Throne of Thunder", mapType = 4, parentMapID = 504 }
+    MockWoW.config.currentMapID = 508
+    local result = QR.PlayerInfo:IsOnAnyMap({ 504 })
+    MockWoW.mapDatabase[508] = nil
+    t:assertTrue(result)
+end)
+
+T:run("PlayerInfo:IsOnAnyMap: false elsewhere", function(t)
+    MockWoW:Reset()
+    MockWoW.config.currentMapID = 84  -- Stormwind City, under Eastern Kingdoms
+    t:assertFalse(QR.PlayerInfo:IsOnAnyMap({ 504, 680 }))
+end)
+
+T:run("PlayerInfo:IsOnAnyMap: true when the game cannot say where the player is", function(t)
+    MockWoW:Reset()
+    MockWoW.config.currentMapID = nil
+    t:assertTrue(QR.PlayerInfo:IsOnAnyMap({ 504 }))
+end)

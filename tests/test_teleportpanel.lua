@@ -1070,3 +1070,40 @@ T:run("ReleaseIconFrame: restores border visibility", function(t)
 
     QR.TeleportPanel:ReleaseIconFrame(reused)
 end)
+
+-------------------------------------------------------------------------------
+-- Zone-restricted teleports (usableOnMaps)
+-------------------------------------------------------------------------------
+
+local function findEntry(teleports, id)
+    for _, entry in ipairs(teleports) do
+        if entry.id == id then return entry end
+    end
+    return nil
+end
+
+T:run("Zone restriction: Kirin Tor Beacon reads NOT HERE away from Isle of Thunder", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    MockWoW.config.ownedToys[95567] = true
+    MockWoW.config.currentMapID = 84  -- Stormwind City
+
+    local entry = findEntry(QR.TeleportPanel:CollectAllTeleports(), 95567)
+    t:assertNotNil(entry, "The beacon is listed")
+    t:assertEqual(entry.status.key, "STATUS_ZONE", "Owned, but the game refuses it here")
+end)
+
+T:run("Zone restriction: the beacon counts as owned on a Throne of Thunder floor", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    MockWoW.config.ownedToys[95567] = true
+    -- A raid floor nested inside Isle of Thunder (uiMap 508 -> 504)
+    MockWoW.mapDatabase[508] = { mapID = 508, name = "Throne of Thunder", mapType = 4, parentMapID = 504 }
+    MockWoW.config.currentMapID = 508
+
+    local entry = findEntry(QR.TeleportPanel:CollectAllTeleports(), 95567)
+    MockWoW.mapDatabase[508] = nil
+    t:assertNotNil(entry, "The beacon is listed")
+    t:assertTrue(entry.status.key ~= "STATUS_ZONE", "Inside the restriction the zone status does not apply")
+    t:assertTrue(entry.status.key ~= "STATUS_MISSING", "The owned toy is not reported missing")
+end)

@@ -505,3 +505,46 @@ T:run("MiniTP: closing the panel hides the separator", function(t)
     t:assertFalse(separator:IsShown(),
         "and hidden once the rows around it are released")
 end)
+
+-------------------------------------------------------------------------------
+-- Zone-restricted toys
+-------------------------------------------------------------------------------
+
+-- The test double names unknown items "Item <id>", so a listed beacon
+-- shows up as either its data name or that label.
+local function listsBeacon()
+    for _, row in ipairs(QR.MiniTeleportPanel.rows) do
+        if row.nameLabel then
+            local name = row.nameLabel:GetText() or ""
+            if name:find("Kirin Tor", 1, true) or name:find("95567", 1, true) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+T:run("MiniTP: a zone-restricted toy is not listed away from its zone", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    setupOwnedToys({ 95567 }) -- Kirin Tor Beacon: Isle of Thunder only
+    MockWoW.config.currentMapID = 84
+
+    QR.MiniTeleportPanel:CreateFrame()
+    QR.MiniTeleportPanel:RefreshList()
+
+    t:assertFalse(listsBeacon(), "Not offered in Stormwind")
+end)
+
+T:run("MiniTP: the same toy is listed on Isle of Thunder", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    setupOwnedToys({ 95567 })
+    MockWoW.config.currentMapID = 504
+
+    QR.MiniTeleportPanel:CreateFrame()
+    QR.MiniTeleportPanel:RefreshList()
+
+    t:assertTrue(listsBeacon(), "Offered on Isle of Thunder")
+    MockWoW.config.currentMapID = 84
+end)
