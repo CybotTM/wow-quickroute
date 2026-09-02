@@ -115,7 +115,12 @@ local function RegisterNativeSettings()
         layout = _G.SettingsPanel:GetLayout(category)
         SettingsPanel.layout = layout
     end
-    if layout then
+    -- Only when the client knows the template: the settings list asks for
+    -- its extent while laying out, and an unknown template is an error that
+    -- takes the whole page down (seen in game with a TOC that lacked the XML).
+    local headerKnown = C_XMLUtil and C_XMLUtil.GetTemplateInfo
+        and C_XMLUtil.GetTemplateInfo("QuickRouteSettingsHeaderTemplate") ~= nil
+    if layout and headerKnown then
         SettingsPanel.headerInitializer = Settings.CreateElementInitializer("QuickRouteSettingsHeaderTemplate", {})
         layout:AddInitializer(SettingsPanel.headerInitializer)
     end

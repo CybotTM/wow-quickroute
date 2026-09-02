@@ -29,6 +29,7 @@ globals = {
 
     -- WoW API namespaces
     "C_AddOns",
+    "C_XMLUtil",
     "C_Map",
     "C_Container",
     "C_Spell",

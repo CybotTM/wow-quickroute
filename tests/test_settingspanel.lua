@@ -138,3 +138,19 @@ T:run("SettingsPanel: the General section header reaches the layout", function(t
     t:assertEqual(QR.L["SETTINGS_GENERAL"], found._name,
         "and it carries the localised name")
 end)
+
+T:run("SettingsPanel: without its template the header element stays out of the layout", function(t)
+    MockWoW:Reset()
+    MockWoW.config.unknownTemplates = { QuickRouteSettingsHeaderTemplate = true }
+    QR.SettingsPanel.initialized = false
+    QR.SettingsPanel.category = nil
+    QR.SettingsPanel.layout = nil
+    QR.SettingsPanel.headerInitializer = nil
+    QR.SettingsPanel:Initialize()
+    MockWoW.config.unknownTemplates = nil
+
+    t:assertNil(QR.SettingsPanel.headerInitializer, "no initializer for a template the client does not know")
+    for _, init in ipairs(QR.SettingsPanel.layout._initializers or {}) do
+        t:assertTrue(init._template ~= "QuickRouteSettingsHeaderTemplate", "and none reached the layout")
+    end
+end)

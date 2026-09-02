@@ -1726,6 +1726,14 @@ function MockWoW:Install()
         end,
     }
 
+    -- Templates the addon's XML declares; the settings list asks for their
+    -- extent, and an unknown one is an error there.
+    _G.C_XMLUtil = _G.C_XMLUtil or {}
+    _G.C_XMLUtil.GetTemplateInfo = function(name)
+        if cfg.unknownTemplates and cfg.unknownTemplates[name] then return nil end
+        return { type = "Frame", width = 0, height = 236, keyValues = {} }
+    end
+
     _G.C_AddOns = _G.C_AddOns or {}
     _G.C_AddOns.GetAddOnMetadata = function(name, field)
         local meta = cfg.addonMetadata and cfg.addonMetadata[name]
