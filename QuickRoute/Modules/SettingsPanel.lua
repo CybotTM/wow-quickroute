@@ -108,10 +108,13 @@ local function RegisterNativeSettings()
     )
     SettingsPanel.layout = layout
 
-    -- The header element ("C2" on the design canvas) comes first; the global
-    -- SettingsPanel is Blizzard's frame, not this module.
-    local layout = _G.SettingsPanel and _G.SettingsPanel.GetLayout
-        and _G.SettingsPanel:GetLayout(category)
+    -- The header element ("C2" on the design canvas) comes first. Should the
+    -- category not bring its layout along, ask Blizzard's SettingsPanel frame
+    -- (the global, not this module) for it.
+    if not layout and _G.SettingsPanel and _G.SettingsPanel.GetLayout then
+        layout = _G.SettingsPanel:GetLayout(category)
+        SettingsPanel.layout = layout
+    end
     if layout then
         SettingsPanel.headerInitializer = Settings.CreateElementInitializer("QuickRouteSettingsHeaderTemplate", {})
         layout:AddInitializer(SettingsPanel.headerInitializer)

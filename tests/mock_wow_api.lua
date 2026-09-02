@@ -1659,15 +1659,11 @@ function MockWoW:Install()
         -- custom element has to be added to; returning only the first made a
         -- discarded initializer indistinguishable from a used one.
         RegisterVerticalLayoutCategory = function(name)
-            local layout = {
-                _initializers = {},
-                AddInitializer = function(self, initializer)
-                    table.insert(self._initializers, initializer)
-                    return initializer
-                end,
-            }
-            local category = { GetID = function() return name end, _name = name,
-                               _layout = layout }
+            -- The same layout SettingsPanel:GetLayout(category) hands out, as
+            -- in the client; two lookups must not yield two lists.
+            local category = { GetID = function() return name end, _name = name }
+            local layout = _G.SettingsPanel:GetLayout(category)
+            category._layout = layout
             return category, layout
         end,
         RegisterProxySetting = function(category, variable, varType, name, defaultValue, getValue, setValue)
