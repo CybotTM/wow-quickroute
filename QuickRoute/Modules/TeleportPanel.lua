@@ -72,10 +72,14 @@ local PADDING = 10
 -- round number.
 local CARD_MIN_WIDTH = 254
 local CARD_GAP = 12
-local CARD_PADDING = 8
-local CARD_ICON_SIZE = 36
-local CARD_HEIGHT = 94
+local CARD_PADDING = 10
+-- K2 from the design canvas: a 68px picture banner carrying the name and the
+-- continent, then a foot with the teleport icons and a status dot.
+local CARD_BANNER_HEIGHT = 68
+local CARD_FOOT_HEIGHT = 56          -- CARD_PADDING + 36px icons + CARD_PADDING
+local CARD_HEIGHT = CARD_BANNER_HEIGHT + CARD_FOOT_HEIGHT
 local CARD_DOT_SIZE = 8
+local CARD_ICON_SOURCE_SIZE = 64     -- WoW icons are 64x64
 
 local GRID_ICON_SIZE = 36
 local GRID_ICON_GAP = 4
@@ -792,7 +796,10 @@ function TeleportPanel:CreateContent(parentFrame)
 
     -- Content frame inside scroll frame
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(PANEL_MIN_WIDTH - 40, 1)
+    local window = QR.MainFrame and QR.MainFrame.frame
+    local contentWidth = window and window:GetWidth() or 0
+    if contentWidth < PANEL_MIN_WIDTH then contentWidth = PANEL_MIN_WIDTH end
+    scrollChild:SetSize(contentWidth - 40, 1)
     scrollFrame:SetScrollChild(scrollChild)
     frame.scrollChild = scrollChild
 
@@ -1506,6 +1513,27 @@ end
 --- How many cards fit across the panel.
 -- @param panelWidth number The panel's current width
 -- @return number At least one
+--- Texture coordinates that make a square icon cover a banner the way the
+-- design specifies ("beschnitten statt gestaucht", xMidYMid slice): the icon
+-- is scaled to the banner's width and the middle band shown, never squashed.
+-- A banner taller than the scaled icon shows the whole icon.
+-- @param cardWidth number
+-- @param bannerHeight number
+-- @param iconSize number Source icon edge in pixels (WoW: 64)
+-- @return number, number, number, number left, right, top, bottom
+function TeleportPanel.BannerTexCoords(cardWidth, bannerHeight, iconSize)
+    iconSize = iconSize or CARD_ICON_SOURCE_SIZE
+    if not cardWidth or not bannerHeight or cardWidth <= 0 or bannerHeight <= 0 then
+        return 0, 1, 0, 1
+    end
+    local visible = bannerHeight / cardWidth   -- the icon is scaled to cardWidth square
+    if visible >= 1 then
+        return 0, 1, 0, 1
+    end
+    local band = (1 - visible) / 2
+    return 0, 1, band, 1 - band
+end
+
 function TeleportPanel:CardsPerRow(panelWidth)
     local avail = (panelWidth or 0) - CARD_PADDING * 2
     local perRow = math_floor((avail + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP))
@@ -1542,37 +1570,56 @@ end
 function TeleportPanel:GetCardFrame()
     local card = table.remove(self.cardPool)
     if not card then
-        card = CreateFrame("Frame", nil, nil)
+        card = CreateFrame("Frame", nil, nil, "BackdropTemplate")
         card:SetHeight(CARD_HEIGHT)
+        card:SetBackdrop({
+            bgFile = "Interface\\Buttons\\WHITE8x8",
+            edgeFile = "Interface\\Buttons\\WHITE8x8",
+            edgeSize = 1,
+        })
+        card:SetBackdropColor(0.082, 0.086, 0.110, 1)        -- #15161c
+        card:SetBackdropBorderColor(0.239, 0.227, 0.200, 1)  -- #3d3a33
 
-        local bg = card:CreateTexture(nil, "BACKGROUND")
-        bg:SetAllPoints()
-        bg:SetColorTexture(0.12, 0.12, 0.14, 0.85)
-        card.bg = bg
+        -- The picture: the group's icon scaled to the card's width and cut to
+        -- the banner's height (ConfigureCard sets the band).
+        local banner = card:CreateTexture(nil, "ARTWORK")
+        banner:SetPoint("TOPLEFT", card, "TOPLEFT", 1, -1)
+        banner:SetPoint("TOPRIGHT", card, "TOPRIGHT", -1, -1)
+        banner:SetHeight(CARD_BANNER_HEIGHT)
+        card.banner = banner
 
-        local icon = card:CreateTexture(nil, "ARTWORK")
-        icon:SetSize(CARD_ICON_SIZE, CARD_ICON_SIZE)
-        icon:SetPoint("TOPLEFT", card, "TOPLEFT", CARD_PADDING, -CARD_PADDING)
-        card.icon = icon
+        -- Darkens towards the bottom so the name stays readable on any picture.
+        local scrim = card:CreateTexture(nil, "ARTWORK", nil, 1)
+        scrim:SetAllPoints(banner)
+        scrim:SetColorTexture(1, 1, 1, 1)
+        scrim:SetGradient("VERTICAL", CreateColor(0.03, 0.035, 0.055, 0.92), CreateColor(0.03, 0.035, 0.055, 0.06))
+        card.scrim = scrim
 
-        -- Stacked, not side by side: at a card's width they collide.
-        local nameText = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        nameText:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -2)
-        nameText:SetPoint("RIGHT", card, "RIGHT", -CARD_PADDING, 0)
-        nameText:SetJustifyH("LEFT")
-        nameText:SetWordWrap(false)
-        card.nameText = nameText
-
+        -- Name over continent, both at the banner's bottom-left, stacked: at a
+        -- card's width they collide side by side.
         local contText = card:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-        contText:SetPoint("TOPLEFT", nameText, "BOTTOMLEFT", 0, -2)
-        contText:SetPoint("RIGHT", card, "RIGHT", -CARD_PADDING, 0)
+        contText:SetPoint("BOTTOMLEFT", banner, "BOTTOMLEFT", CARD_PADDING, 5)
+        contText:SetPoint("RIGHT", banner, "RIGHT", -CARD_PADDING, 0)
         contText:SetJustifyH("LEFT")
         contText:SetWordWrap(false)
+        contText:SetShadowOffset(0, -1)
+        contText:SetShadowColor(0, 0, 0, 0.95)
         card.contText = contText
 
+        local nameText = card:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        nameText:SetFont(STANDARD_TEXT_FONT, 14, "")
+        nameText:SetPoint("BOTTOMLEFT", contText, "TOPLEFT", 0, 1)
+        nameText:SetPoint("RIGHT", banner, "RIGHT", -CARD_PADDING, 0)
+        nameText:SetJustifyH("LEFT")
+        nameText:SetWordWrap(false)
+        nameText:SetShadowOffset(0, -1)
+        nameText:SetShadowColor(0, 0, 0, 0.95)
+        card.nameText = nameText
+
+        -- Round status dot, right end of the foot, on the icons' centre line.
         local dot = card:CreateTexture(nil, "OVERLAY")
         dot:SetSize(CARD_DOT_SIZE, CARD_DOT_SIZE)
-        dot:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -CARD_PADDING, CARD_PADDING + 14)
+        dot:SetPoint("BOTTOMRIGHT", card, "BOTTOMRIGHT", -CARD_PADDING, (CARD_FOOT_HEIGHT - CARD_DOT_SIZE) / 2)
         card.dot = dot
 
         card.iconFrames = {}
@@ -1605,14 +1652,14 @@ function TeleportPanel:ClearCards()
     self.cards = {}
 end
 
---- Colour of the status dot for a group, taken from its best entry.
-local function GroupStatusColor(group)
+--- The status dot for a group, taken from its best entry: a round indicator
+-- texture, green when ready, yellow on cooldown, grey otherwise.
+local function GroupStatusDot(group)
     local best = group.teleports and group.teleports[1]
-    local status = best and best.status
-    if status == STATUS.READY then return 0.2, 0.9, 0.3 end
-    if status == STATUS.ON_CD then return 0.95, 0.75, 0.2 end
-    if status == STATUS.OWNED then return 0.6, 0.8, 1.0 end
-    return 0.5, 0.5, 0.5
+    local key = best and best.status and best.status.key
+    if key == "STATUS_READY" then return "Interface\\COMMON\\Indicator-Green" end
+    if key == "STATUS_ON_CD" then return "Interface\\COMMON\\Indicator-Yellow" end
+    return "Interface\\COMMON\\Indicator-Gray"
 end
 
 --- Fill one card for one group.
@@ -1626,8 +1673,9 @@ function TeleportPanel:ConfigureCard(card, group, cardWidth)
     -- the icon of the group's first-sorted teleport -- which always resolves,
     -- and is visibly different between hearthstones, portals and toys.
     local best = group.teleports and group.teleports[1]
-    card.icon:SetTexture(best and GetIconTexture(best)
+    card.banner:SetTexture(best and GetIconTexture(best)
         or "Interface\\Icons\\INV_Misc_QuestionMark")
+    card.banner:SetTexCoord(TeleportPanel.BannerTexCoords(cardWidth, CARD_BANNER_HEIGHT, CARD_ICON_SOURCE_SIZE))
 
     card.nameText:SetText(C.GOLD .. tostring(group.name or "?") .. C.R)
 
@@ -1637,7 +1685,7 @@ function TeleportPanel:ConfigureCard(card, group, cardWidth)
         and QR.GetLocalizedContinentName(continentKey)
     card.contText:SetText(C.GRAY .. (continentName or "") .. C.R)
 
-    card.dot:SetColorTexture(GroupStatusColor(group))
+    card.dot:SetTexture(GroupStatusDot(group))
 
     local maxIcons = self:IconsPerCard(cardWidth)
     local shown = 0
@@ -1744,7 +1792,9 @@ function TeleportPanel:GetRowFrame()
     local row = table.remove(self.rowPool)
     if not row then
         row = CreateFrame("Frame", nil, nil)
-        row:SetSize(PANEL_MIN_WIDTH - 50, ROW_HEIGHT)
+        local panelWidth = self.frame and self.frame:GetWidth() or 0
+        if panelWidth < PANEL_MIN_WIDTH then panelWidth = PANEL_MIN_WIDTH end
+        row:SetSize(panelWidth - 50, ROW_HEIGHT)
     end
     return row
 end

@@ -427,7 +427,11 @@ function UI:CreateContent(parentFrame)
 
     -- Content frame inside scroll frame
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetSize(FRAME_MIN_WIDTH - 50, 1)
+    -- Follows the window: at 820 the route tab is 770 wide, not the old minimum.
+    local window = QR.MainFrame and QR.MainFrame.frame
+    local contentWidth = window and window:GetWidth() or 0
+    if contentWidth < FRAME_MIN_WIDTH then contentWidth = FRAME_MIN_WIDTH end
+    scrollChild:SetSize(contentWidth - 50, 1)
     scrollFrame:SetScrollChild(scrollChild)
     frame.scrollChild = scrollChild
 

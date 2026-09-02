@@ -1263,3 +1263,73 @@ T:run("RefreshList: the column headers belong to the list, not the cards", funct
     QR.TeleportPanel:ClearCards()
     QR.TeleportPanel:ClearIcons()
 end)
+
+-------------------------------------------------------------------------------
+-- K2 picture cards: banner crop, card anatomy, card height
+-------------------------------------------------------------------------------
+
+T:run("BannerTexCoords: a 254px card shows the middle band of the icon (xMidYMid slice)", function(t)
+    local l, r, top, bottom = QR.TeleportPanel.BannerTexCoords(254, 68, 64)
+    t:assertEqual(0, l)
+    t:assertEqual(1, r)
+    t:assertTrue(math.abs(top - 0.366) < 0.002, "top of the band, got " .. tostring(top))
+    t:assertTrue(math.abs(bottom - 0.634) < 0.002, "bottom of the band, got " .. tostring(bottom))
+end)
+
+T:run("BannerTexCoords: the band is symmetric and never squashes", function(t)
+    local _, _, top, bottom = QR.TeleportPanel.BannerTexCoords(100, 68, 64)
+    t:assertTrue(math.abs((1 - bottom) - top) < 1e-9, "centred band")
+    t:assertTrue(math.abs((bottom - top) - 0.68) < 1e-9, "the visible fraction is height over width")
+end)
+
+T:run("BannerTexCoords: a banner taller than the scaled icon shows the whole icon", function(t)
+    local l, r, top, bottom = QR.TeleportPanel.BannerTexCoords(50, 68, 64)
+    t:assertEqual(0, top)
+    t:assertEqual(1, bottom)
+    t:assertEqual(0, l)
+    t:assertEqual(1, r)
+    local _, _, t2, b2 = QR.TeleportPanel.BannerTexCoords(nil, 68, 64)
+    t:assertEqual(0, t2)
+    t:assertEqual(1, b2)
+end)
+
+T:run("Card: has a picture banner, a scrim, stacked texts and a status dot", function(t)
+    resetState()
+    QR.TeleportPanel.cardPool = {}
+    local card = QR.TeleportPanel:GetCardFrame()
+    t:assertNotNil(card.banner, "banner texture")
+    t:assertNotNil(card.scrim, "scrim over the banner")
+    t:assertNotNil(card.scrim._gradient, "the scrim is a gradient")
+    t:assertNotNil(card.nameText, "name")
+    t:assertNotNil(card.contText, "continent")
+    t:assertNotNil(card.dot, "status dot")
+    t:assertNil(card.icon, "no 36px corner icon: the banner is the picture")
+end)
+
+T:run("Card: ConfigureCard crops the banner and picks the round dot by status", function(t)
+    resetState()
+    ensureTeleportPanelFrame()
+    QR.TeleportPanel.cardPool = {}
+    QR.TeleportPanel.iconFrames = {}
+    local group = { name = "Dalaran", mapID = 627, teleports = {
+        { id = 140192, isSpell = false, data = { name = "Dalaran Hearthstone", mapID = 627 },
+          status = { sortOrder = 1, color = "|cFF00FF00", text = "Ready", key = "STATUS_READY" }, cooldownRemaining = 0 },
+    } }
+    local card = QR.TeleportPanel:GetCardFrame()
+    QR.TeleportPanel:ConfigureCard(card, group, 254)
+    local _, _, top, bottom = card.banner:GetTexCoord()
+    t:assertTrue(top > 0.3 and bottom < 0.7, "banner shows the middle band")
+    t:assertEqual("Interface\\COMMON\\Indicator-Green", card.dot:GetTexture(), "ready -> green dot")
+    t:assertNotNil(card.nameText:GetText():find("Dalaran", 1, true), "name in the banner")
+end)
+
+T:run("CreateGroupCards: a row is a 124px card plus the gap", function(t)
+    resetState()
+    ensureTeleportPanelFrame()
+    QR.TeleportPanel.cardPool = {}
+    QR.TeleportPanel.cards = {}
+    QR.TeleportPanel.iconFrames = {}
+    local group = { name = "Dalaran", mapID = 627, teleports = {} }
+    local newYOffset = QR.TeleportPanel:CreateGroupCards({ group }, 0)
+    t:assertEqual(124 + 12, newYOffset, "68px banner + 56px foot, then the 12px gap")
+end)

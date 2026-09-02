@@ -387,7 +387,8 @@ local function CreateMockTexture(parent)
     function tex:Hide() self._shown = false end
     function tex:SetShown(show) if show then self:Show() else self:Hide() end end
     function tex:IsShown() return self._shown end
-    function tex:SetTexCoord() end
+    function tex:SetTexCoord(...) self._texCoord = { ... } end
+    function tex:GetTexCoord() if self._texCoord then return unpack(self._texCoord) end end
     function tex:SetVertexColor(r, g, b, a) self._vertexColor = { r, g, b, a } end
     function tex:SetGradient(orientation, minColor, maxColor) self._gradient = { orientation, minColor, maxColor } end
     function tex:SetAlpha(alpha) self._alpha = alpha end

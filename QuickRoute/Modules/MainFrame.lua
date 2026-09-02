@@ -30,7 +30,9 @@ local MainFrame = QR.MainFrame
 local L
 
 -- Constants
-local FRAME_WIDTH = 500
+-- 820 is the width the teleport cards were designed at: three columns of
+-- 254px cards. At the former 500 the same cards fell into one column.
+local FRAME_WIDTH = 820
 local FRAME_HEIGHT = 550
 local HEADER_HEIGHT = 52
 local TAB_HEIGHT = 28
