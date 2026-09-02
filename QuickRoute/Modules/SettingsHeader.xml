@@ -1,0 +1,12 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+	<!-- The header of the settings page, designed as "C2 — Leyliniennetz":
+	     logo, name, subtitle and meta line over a travel network, with a
+	     status bar below. Everything is drawn in SettingsHeader.lua; the
+	     template only fixes the element's height for the settings list. -->
+	<Frame name="QuickRouteSettingsHeaderTemplate" mixin="QuickRouteSettingsHeaderMixin" virtual="true">
+		<Size y="236"/>
+		<Scripts>
+			<OnLoad method="OnLoad"/>
+		</Scripts>
+	</Frame>
+</Ui>

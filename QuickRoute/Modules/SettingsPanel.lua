@@ -101,6 +101,15 @@ local function RegisterNativeSettings()
         L["ADDON_TITLE"] or "QuickRoute"
     )
 
+    -- The header element ("C2" on the design canvas) comes first; the global
+    -- SettingsPanel is Blizzard's frame, not this module.
+    local layout = _G.SettingsPanel and _G.SettingsPanel.GetLayout
+        and _G.SettingsPanel:GetLayout(category)
+    if layout then
+        SettingsPanel.headerInitializer = Settings.CreateElementInitializer("QuickRouteSettingsHeaderTemplate", {})
+        layout:AddInitializer(SettingsPanel.headerInitializer)
+    end
+
     -- General
     Settings.CreateElementInitializer("SettingsListSectionHeaderTemplate", { name = L["SETTINGS_GENERAL"] })
 

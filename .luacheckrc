@@ -6,6 +6,7 @@ std = "lua51"
 
 -- WoW global variables (read-write)
 globals = {
+    "QuickRouteSettingsHeaderMixin",
     -- Addon namespace
     "QR",
 
@@ -166,6 +167,9 @@ globals = {
 
 -- Read-only globals
 read_globals = {
+    "CreateColor",
+    "STANDARD_TEXT_FONT",
+    "SettingsPanel",
     "print",
     "pairs",
     "ipairs",

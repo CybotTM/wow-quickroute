@@ -37,6 +37,7 @@ MockWoW.config = {
 
     -- Toys the player owns: { [itemID] = true }
     ownedToys = {},
+    addonMetadata = {},
 
     -- Spells the player knows: { [spellID] = true }
     knownSpells = {},
@@ -325,6 +326,9 @@ function MockWoW:Reset()
     self.config.inCombatLockdown = false
     self.config.bagItems = {}
     self.config.ownedToys = {}
+    self.config.addonMetadata = {}
+    _G.SettingsPanel._layouts = {}
+    _G.TomTom = nil
     self.config.knownSpells = {}
     self.config.uncachedSpells = {}
     self.config.uncachedItems = {}
@@ -384,7 +388,8 @@ local function CreateMockTexture(parent)
     function tex:SetShown(show) if show then self:Show() else self:Hide() end end
     function tex:IsShown() return self._shown end
     function tex:SetTexCoord() end
-    function tex:SetVertexColor() end
+    function tex:SetVertexColor(r, g, b, a) self._vertexColor = { r, g, b, a } end
+    function tex:SetGradient(orientation, minColor, maxColor) self._gradient = { orientation, minColor, maxColor } end
     function tex:SetAlpha(alpha) self._alpha = alpha end
     function tex:GetAlpha() return self._alpha end
     function tex:SetDesaturated(desat) self._desaturated = desat end
@@ -424,6 +429,8 @@ local function CreateMockFontString(parent)
     function fs:SetTextToFit(text) self._text = text or "" end
     function fs:SetFontObject() end
     function fs:SetFont() end
+    function fs:SetShadowOffset() end
+    function fs:SetShadowColor() end
     function fs:Show() self._shown = true end
     function fs:Hide() self._shown = false end
     function fs:IsShown() return self._shown end
@@ -627,6 +634,21 @@ local function CreateMockFrame(frameType, name, parent, template)
     end
 
     -- Texture and FontString creation
+    function frame:CreateLine(name, layer)
+        local line = {
+            _points = {},
+            SetColorTexture = function(self, r, g, b, a) self._color = { r, g, b, a } end,
+            SetThickness = function(self, thickness) self._thickness = thickness end,
+            SetStartPoint = function(self, point, rel, x, y) self._start = { point, rel, x, y } end,
+            SetEndPoint = function(self, point, rel, x, y) self._end = { point, rel, x, y } end,
+            Show = function(self) self._shown = true end,
+            Hide = function(self) self._shown = false end,
+        }
+        self._lines = self._lines or {}
+        self._lines[#self._lines + 1] = line
+        return line
+    end
+    function frame:GetTextWidth() return #(self._text or "") * 7 end
     function frame:CreateTexture(name, layer)
         return CreateMockTexture(self)
     end
@@ -1661,13 +1683,36 @@ function MockWoW:Install()
                 GetData = function() return items end,
             }
         end,
-        CreateElementInitializer = function(template, data) return {} end,
+        CreateElementInitializer = function(template, data) return { _template = template, _data = data } end,
         VarType = {
             Boolean = "boolean",
             Number = "number",
             String = "string",
         },
     }
+
+    _G.STANDARD_TEXT_FONT = "Fonts\\FRIZQT__.TTF"
+    _G.CreateColor = function(r, g, b, a) return { r = r, g = g, b = b, a = a, GetRGBA = function(self) return self.r, self.g, self.b, self.a end } end
+
+    -- Blizzard's settings panel frame: hands out one layout per category and
+    -- records what the addon adds to it, in order.
+    _G.SettingsPanel = {
+        _layouts = {},
+        GetLayout = function(self, category)
+            local layout = self._layouts[category]
+            if not layout then
+                layout = { _initializers = {}, AddInitializer = function(l, init) l._initializers[#l._initializers + 1] = init end }
+                self._layouts[category] = layout
+            end
+            return layout
+        end,
+    }
+
+    _G.C_AddOns = _G.C_AddOns or {}
+    _G.C_AddOns.GetAddOnMetadata = function(name, field)
+        local meta = cfg.addonMetadata and cfg.addonMetadata[name]
+        return meta and meta[field] or nil
+    end
 
     _G.MinimalSliderWithSteppersMixin = {
         Label = { Right = 1 },
