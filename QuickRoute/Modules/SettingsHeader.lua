@@ -1,7 +1,7 @@
 -- SettingsHeader.lua
 -- The header element of the settings page: "C2 — Leyliniennetz" from the
 -- design canvas. A 236px band with the logo (112px), the addon name, a
--- subtitle and a meta line (version, author, site), drawn over a travel
+-- subtitle, a line with version and author, and the site, drawn over a travel
 -- network -- nodes, edges and one route in gold -- and, below that, a status
 -- bar with the TomTom detection, the number of teleports found and a button
 -- that opens the route window. The settings themselves follow unchanged;
