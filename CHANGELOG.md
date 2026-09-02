@@ -6,6 +6,7 @@
 - The settings page opens with the header from the design ("C2"): the logo, the addon's name, a subtitle, a line with version and author and the site below it, drawn over a travel network with one route in gold; below it a status bar that says whether TomTom was found (and which version), how many teleports the character has, and a button that opens the route window. The settings themselves are unchanged, and Blizzard's own Defaults button stays where it is.
 
 ### Changed
+- The teleport cards picture the destination, not the teleport: the banner shows the middle of the destination's zone map (its two centre tiles, side by side), a little darker and less saturated so the name on it and the icons under it stand out. Destinations without a map, the random ones and the garrison, keep the icon of their first teleport as the picture.
 - The teleport cards are the picture cards of the design ("K2"): a 68px banner carrying the group's icon, scaled to the card's width and cut to the banner rather than squashed, with the destination and its continent at the banner's foot; below it the teleport icons and a round status dot. The window opens at the 820px the cards were designed for, three columns of them; at the former 500px they fell into a single column.
 
 ### Fixed

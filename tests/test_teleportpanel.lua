@@ -1333,3 +1333,67 @@ T:run("CreateGroupCards: a row is a 124px card plus the gap", function(t)
     local newYOffset = QR.TeleportPanel:CreateGroupCards({ group }, 0)
     t:assertEqual(124 + 12, newYOffset, "68px banner + 56px foot, then the 12px gap")
 end)
+
+-------------------------------------------------------------------------------
+-- Zone banners: the card pictures the destination's map
+-------------------------------------------------------------------------------
+
+local function gridTiles(cols, rows)
+    local tiles = {}
+    for i = 1, cols * rows do tiles[i] = 1000 + i end
+    return { cols = cols, rows = rows, tiles = tiles }
+end
+
+T:run("ZoneBannerTiles: the middle two tiles of the middle row", function(t)
+    resetState()
+    MockWoW.config.mapArt[627] = gridTiles(4, 3)     -- a zone map: 1002x668 in 256px tiles
+    MockWoW.config.mapArt[2112] = gridTiles(15, 10)  -- a continent map
+    local left, right, edge = QR.TeleportPanel.ZoneBannerTiles(627)
+    t:assertEqual(1006, left, "row 2 of 3, column 2 of 4")
+    t:assertEqual(1007, right, "and its right neighbour")
+    t:assertEqual(256, edge, "the tile edge, for the crop")
+    left, right = QR.TeleportPanel.ZoneBannerTiles(2112)
+    t:assertEqual(1067, left, "row 5 of 10, column 7 of 15")
+    t:assertEqual(1068, right, "and its right neighbour")
+end)
+
+T:run("ZoneBannerTiles: nothing without a map or without art", function(t)
+    resetState()
+    t:assertNil(QR.TeleportPanel.ZoneBannerTiles(nil), "no map")
+    t:assertNil(QR.TeleportPanel.ZoneBannerTiles(9999), "a map the client has no art for")
+end)
+
+T:run("Card: the banner is the destination's map, not the teleport's icon", function(t)
+    resetState()
+    ensureTeleportPanelFrame()
+    QR.TeleportPanel.cardPool = {}
+    QR.TeleportPanel.iconFrames = {}
+    MockWoW.config.mapArt[627] = gridTiles(4, 3)
+    local group = { name = "Dalaran", mapID = 627, teleports = {
+        { id = 140192, isSpell = false, data = { name = "Dalaran Hearthstone", mapID = 627 },
+          status = { sortOrder = 1, color = "|cFF00FF00", text = "Ready", key = "STATUS_READY" }, cooldownRemaining = 0 },
+    } }
+    local card = QR.TeleportPanel:GetCardFrame()
+    QR.TeleportPanel:ConfigureCard(card, group, 254)
+    t:assertEqual(1006, card.tiles[1]:GetTexture(), "left tile of the map")
+    t:assertEqual(1007, card.tiles[2]:GetTexture(), "right tile of the map")
+    t:assertTrue(card.tiles[1]:IsShown() and card.tiles[2]:IsShown(), "both tiles shown")
+    t:assertFalse(card.banner:IsShown(), "the icon banner is not")
+    local _, _, top, bottom = card.tiles[1]:GetTexCoord()
+    t:assertTrue(top > 0.15 and bottom < 0.85 and top < 0.5, "each tile shows its middle band")
+end)
+
+T:run("Card: without map art the icon banner stays", function(t)
+    resetState()
+    ensureTeleportPanelFrame()
+    QR.TeleportPanel.cardPool = {}
+    QR.TeleportPanel.iconFrames = {}
+    local group = { name = "Random Dungeon", teleports = {
+        { id = 6948, isSpell = false, data = { name = "Hearthstone" },
+          status = { sortOrder = 1, color = "|cFF00FF00", text = "Ready", key = "STATUS_READY" }, cooldownRemaining = 0 },
+    } }
+    local card = QR.TeleportPanel:GetCardFrame()
+    QR.TeleportPanel:ConfigureCard(card, group, 254)
+    t:assertTrue(card.banner:IsShown(), "icon banner shown")
+    t:assertFalse(card.tiles[1]:IsShown() or card.tiles[2]:IsShown(), "no map tiles")
+end)
