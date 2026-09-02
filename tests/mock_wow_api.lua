@@ -38,6 +38,7 @@ MockWoW.config = {
     -- Toys the player owns: { [itemID] = true }
     ownedToys = {},
     addonMetadata = {},
+    mapArt = {},
 
     -- Spells the player knows: { [spellID] = true }
     knownSpells = {},
@@ -327,6 +328,7 @@ function MockWoW:Reset()
     self.config.bagItems = {}
     self.config.ownedToys = {}
     self.config.addonMetadata = {}
+    self.config.mapArt = {}
     _G.SettingsPanel._layouts = {}
     _G.TomTom = nil
     self.config.knownSpells = {}
@@ -1069,6 +1071,16 @@ function MockWoW:Install()
         return nil
     end
 
+    -- Zone map art: cfg.mapArt[mapID] = { cols = 4, rows = 3, tiles = { fileDataIDs... } }
+    _G.C_Map.GetMapArtLayers = function(mapID)
+        local art = cfg.mapArt and cfg.mapArt[mapID]
+        if not art then return {} end
+        return { { layerWidth = art.cols * 256, layerHeight = art.rows * 256, tileWidth = 256, tileHeight = 256 } }
+    end
+    _G.C_Map.GetMapArtLayerTextures = function(mapID, layerIndex)
+        local art = cfg.mapArt and cfg.mapArt[mapID]
+        return art and art.tiles or {}
+    end
     _G.C_Map.GetMapInfo = function(mapID)
         if not mapID then return nil end
         local info = MockWoW.mapDatabase[mapID]
