@@ -822,6 +822,12 @@ function MockWoW:Install()
     end
 
     -- wipe (clears a table in-place)
+    -- A plain global, not a Settings member -- this is the documented helper
+    -- for a section header in a vertical layout.
+    _G.CreateSettingsListSectionHeaderInitializer = function(name)
+        return { _type = "sectionHeader", _name = name }
+    end
+
     _G.wipe = function(t)
         if type(t) == "table" then
             for k in pairs(t) do
@@ -1649,8 +1655,16 @@ function MockWoW:Install()
         RegisterAddOnCategory = function(category) end,
         OpenToCategory = function(id) end,
         -- Native vertical layout API (WoW 11.0+)
+        -- Returns the category AND its layout. The second value is what a
+        -- custom element has to be added to; returning only the first made a
+        -- discarded initializer indistinguishable from a used one.
         RegisterVerticalLayoutCategory = function(name)
-            return { GetID = function() return name end, _name = name }
+            -- The same layout SettingsPanel:GetLayout(category) hands out, as
+            -- in the client; two lookups must not yield two lists.
+            local category = { GetID = function() return name end, _name = name }
+            local layout = _G.SettingsPanel:GetLayout(category)
+            category._layout = layout
+            return category, layout
         end,
         RegisterProxySetting = function(category, variable, varType, name, defaultValue, getValue, setValue)
             return {
@@ -1711,6 +1725,14 @@ function MockWoW:Install()
             return layout
         end,
     }
+
+    -- Templates the addon's XML declares; the settings list asks for their
+    -- extent, and an unknown one is an error there.
+    _G.C_XMLUtil = _G.C_XMLUtil or {}
+    _G.C_XMLUtil.GetTemplateInfo = function(name)
+        if cfg.unknownTemplates and cfg.unknownTemplates[name] then return nil end
+        return { type = "Frame", width = 0, height = 236, keyValues = {} }
+    end
 
     _G.C_AddOns = _G.C_AddOns or {}
     _G.C_AddOns.GetAddOnMetadata = function(name, field)

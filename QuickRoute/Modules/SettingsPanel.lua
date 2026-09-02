@@ -97,21 +97,38 @@ end
 local function RegisterNativeSettings()
     L = QR.L
 
-    local category = Settings.RegisterVerticalLayoutCategory(
+    -- The layout is the second return value, and it is what anything other
+    -- than a checkbox, slider or dropdown has to be added to. Those three take
+    -- the category and register themselves; a section header does not, so it
+    -- needs AddInitializer or it is simply built and dropped -- which is what
+    -- used to happen here, leaving ten translations of SETTINGS_GENERAL with
+    -- nowhere to appear.
+    local category, layout = Settings.RegisterVerticalLayoutCategory(
         L["ADDON_TITLE"] or "QuickRoute"
     )
+    SettingsPanel.layout = layout
 
-    -- The header element ("C2" on the design canvas) comes first; the global
-    -- SettingsPanel is Blizzard's frame, not this module.
-    local layout = _G.SettingsPanel and _G.SettingsPanel.GetLayout
-        and _G.SettingsPanel:GetLayout(category)
-    if layout then
+    -- The header element ("C2" on the design canvas) comes first. Should the
+    -- category not bring its layout along, ask Blizzard's SettingsPanel frame
+    -- (the global, not this module) for it.
+    if not layout and _G.SettingsPanel and _G.SettingsPanel.GetLayout then
+        layout = _G.SettingsPanel:GetLayout(category)
+        SettingsPanel.layout = layout
+    end
+    -- Only when the client knows the template: the settings list asks for
+    -- its extent while laying out, and an unknown template is an error that
+    -- takes the whole page down (seen in game with a TOC that lacked the XML).
+    local headerKnown = C_XMLUtil and C_XMLUtil.GetTemplateInfo
+        and C_XMLUtil.GetTemplateInfo("QuickRouteSettingsHeaderTemplate") ~= nil
+    if layout and headerKnown then
         SettingsPanel.headerInitializer = Settings.CreateElementInitializer("QuickRouteSettingsHeaderTemplate", {})
         layout:AddInitializer(SettingsPanel.headerInitializer)
     end
 
     -- General
-    Settings.CreateElementInitializer("SettingsListSectionHeaderTemplate", { name = L["SETTINGS_GENERAL"] })
+    if layout and CreateSettingsListSectionHeaderInitializer then
+        layout:AddInitializer(CreateSettingsListSectionHeaderInitializer(L["SETTINGS_GENERAL"]))
+    end
 
     RegisterCheckbox(category,
         L["SETTINGS_SHOW_MINIMAP"] or "Show Minimap Button",
