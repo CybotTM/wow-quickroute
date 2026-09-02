@@ -96,6 +96,7 @@ QR.Continents = {
             77,   -- Felwood
             80,   -- Moonglade
             81,   -- Silithus
+            327,  -- Ahn'Qiraj: The Fallen Kingdom (walked from Uldum and into Silithus, survey 2026-09-01)
             83,   -- Winterspring
             106,  -- Bloodmyst Isle
             199,  -- Southern Barrens
@@ -311,6 +312,7 @@ QR.ZoneToContinent[876]  = "KUL_TIRAS"           -- Kul Tiras (continent, mapID 
 QR.ZoneToContinent[1550] = "SHADOWLANDS"       -- Shadowlands (continent)
 QR.ZoneToContinent[1978] = "DRAGON_ISLES"      -- Dragon Isles (continent)
 QR.ZoneToContinent[2274] = "KHAZ_ALGAR"        -- Khaz Algar (continent)
+QR.ZoneToContinent[2537] = "EASTERN_KINGDOMS"  -- Quel'Thalas (Midnight continent map, type 2, parent 13; its zones are listed under Eastern Kingdoms)
 
 -------------------------------------------------------------------------------
 -- Continent Key → Map ID (for C_Map.GetMapInfo localization)
@@ -869,6 +871,7 @@ QR.ZoneAdjacencies = {
     [69] = {  -- Feralas
         {zone = 66, travelTime = 90},    -- Desolace
         {zone = 64, travelTime = 60},    -- Thousand Needles
+        {zone = 81, travelTime = 90},    -- Silithus (crossing walked 2026-09-01, zone survey)
     },
     [64] = {  -- Thousand Needles
         {zone = 199, travelTime = 60},   -- Southern Barrens
@@ -892,6 +895,15 @@ QR.ZoneAdjacencies = {
     },
     [81] = {  -- Silithus
         {zone = 78, travelTime = 60},   -- Un'Goro Crater
+        {zone = 69, travelTime = 90},   -- Feralas (crossing walked 2026-09-01, zone survey)
+        {zone = 327, travelTime = 60},  -- Ahn'Qiraj: The Fallen Kingdom (crossing walked 2026-09-01, zone survey)
+    },
+    [327] = {  -- Ahn'Qiraj: The Fallen Kingdom (uiMapID 327, type 6, parent Kalimdor)
+        -- Both crossings recorded by the zone survey on 2026-09-01: entered
+        -- from Uldum 1527 on foot, left into Silithus 81 on foot. Times are
+        -- the file's usual estimates, not measured.
+        {zone = 81, travelTime = 60},   -- Silithus
+        {zone = 1527, travelTime = 60}, -- Uldum (N'Zoth Assault version)
     },
     [106] = {  -- Bloodmyst Isle (uiMapID 106, NOT Felwood)
         -- Accessed via Exodar/continent routing; no direct zone adjacency needed
@@ -913,6 +925,7 @@ QR.ZoneAdjacencies = {
     [1527] = {  -- Uldum (N'Zoth Assault version, same physical zone)
         {zone = 71, travelTime = 90},    -- Tanaris
         {zone = 249, travelTime = 0.001},-- Uldum (parent zone map)
+        {zone = 327, travelTime = 60},   -- Ahn'Qiraj: The Fallen Kingdom (crossing walked 2026-09-01, zone survey)
     },
     [204] = {  -- Vashj'ir / Abyssal Depths (boat from Stormwind/Orgrimmar)
         -- Accessed via boat from Eastern Kingdoms (see StandalonePortals)

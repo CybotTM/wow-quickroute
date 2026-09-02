@@ -775,3 +775,35 @@ T:run("ZoneAdjacencies: no zone lists a neighbour more than once", function(t)
     t:assertEqual(0, #offenders,
         "no duplicate neighbours (" .. table.concat(offenders, ", ") .. ")")
 end)
+
+-------------------------------------------------------------------------------
+-- Zone survey 2026-09-01: crossings the client recorded on foot
+-------------------------------------------------------------------------------
+
+local function hasNeighbour(t, fromZone, toZone)
+    local adj = QR.ZoneAdjacencies[fromZone]
+    t:assertNotNil(adj, "zone " .. fromZone .. " has an adjacency block")
+    if not adj then return false end
+    for _, entry in ipairs(adj) do
+        if entry.zone == toZone then return true end
+    end
+    return false
+end
+
+T:run("Survey: Ahn'Qiraj: The Fallen Kingdom (327) is a Kalimdor zone with walked crossings", function(t)
+    t:assertEqual(QR.ZoneToContinent[327], "KALIMDOR", "327 belongs to Kalimdor")
+    t:assertTrue(hasNeighbour(t, 327, 81), "327 -> 81 Silithus (walked)")
+    t:assertTrue(hasNeighbour(t, 81, 327), "81 -> 327 back")
+    t:assertTrue(hasNeighbour(t, 327, 1527), "327 -> 1527 Uldum (walked in from there)")
+    t:assertTrue(hasNeighbour(t, 1527, 327), "1527 -> 327 back")
+end)
+
+T:run("Survey: Silithus and Feralas are walkable neighbours", function(t)
+    t:assertTrue(hasNeighbour(t, 81, 69), "81 Silithus -> 69 Feralas (walked)")
+    t:assertTrue(hasNeighbour(t, 69, 81), "69 Feralas -> 81 Silithus back")
+end)
+
+T:run("Survey: the Quel'Thalas continent map resolves to Eastern Kingdoms", function(t)
+    t:assertEqual(QR.ZoneToContinent[2537], "EASTERN_KINGDOMS",
+        "2537 (Quel'Thalas, type 2, parent 13) falls back like the other continent maps")
+end)
