@@ -192,6 +192,13 @@ function QuickRouteSettingsHeaderMixin:OnLoad()
     metaLine:SetPoint("RIGHT", self, "RIGHT", -PAD_X, 0)
     self.MetaLine = metaLine
 
+    -- The site gets its own line: next to version and author it does not fit
+    -- the width the settings list leaves right of the logo.
+    local siteLine = Text(self, "GameFontNormalSmall", 13, CYAN[1], CYAN[2], CYAN[3])
+    siteLine:SetPoint("TOPLEFT", metaLine, "BOTTOMLEFT", 0, -4)
+    siteLine:SetPoint("RIGHT", self, "RIGHT", -PAD_X, 0)
+    self.SiteLine = siteLine
+
     -- Status bar.
     local bar = CreateFrame("Frame", nil, self, "BackdropTemplate")
     bar:SetHeight(STATUS_BAR_HEIGHT)
@@ -253,8 +260,9 @@ end
 function QuickRouteSettingsHeaderMixin:Refresh()
     L = QR.L
     local data = SettingsHeader:GetStatusData()
-    self.MetaLine:SetText(string_format("%s %s  |cFF7D641C·|r  %s  |cFF7D641C·|r  |cFF4FD8EE%s|r",
-        L["SETTINGS_VERSION"] or "Version", data.version, data.author, data.site))
+    self.MetaLine:SetText(string_format("%s %s  |cFF7D641C·|r  %s",
+        L["SETTINGS_VERSION"] or "Version", data.version, data.author))
+    self.SiteLine:SetText(data.site)
     self.TomTomText:SetText(SettingsHeader:FormatTomTom(data))
     if data.tomtomFound then
         self.TomTomDot:SetVertexColor(CYAN[1], CYAN[2], CYAN[3], 1)

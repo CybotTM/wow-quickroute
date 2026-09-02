@@ -76,6 +76,6 @@ T:run("SettingsHeader: Init fills the live values", function(t)
     t:assertEqual("2", header.CountText:GetText())
     t:assertEqual("found", header.TomTomText:GetText())
     t:assertNotNil(header.MetaLine:GetText():find(QR.version, 1, true), "version in the meta line")
-    t:assertNotNil(header.MetaLine:GetText():find("github.com/CybotTM/wow-quickroute", 1, true), "site in the meta line")
+    t:assertNotNil(header.SiteLine:GetText():find("github.com/CybotTM/wow-quickroute", 1, true), "site on its own line")
     _G.TomTom = nil
 end)
