@@ -306,6 +306,14 @@ L["SETTINGS_COMMANDS_HINT"] = "/qr - Route window | /qrteleports - Inventory | /
 -- Icon buttons
 L["SETTINGS_ICON_BUTTONS"] = "Use Icon Buttons"
 L["SETTINGS_ICON_BUTTONS_TT"] = "Replace text labels on buttons with icons for a more compact UI"
+L["SETTINGS_HEADER_SUBTITLE"] = "Shortest way to your destination, via teleports, portals and spells."
+L["SETTINGS_VERSION"] = "Version"
+L["SETTINGS_TOMTOM"] = "TomTom"
+L["SETTINGS_TOMTOM_FOUND"] = "found"
+L["SETTINGS_TOMTOM_FOUND_VERSION"] = "found, v%s"
+L["SETTINGS_TOMTOM_MISSING"] = "not found"
+L["SETTINGS_TELEPORTS_FOUND"] = "Teleports found"
+L["SETTINGS_OPEN_ROUTE"] = "Open route window"
 
 -- Map teleport button
 L["MAP_BTN_LEFT_CLICK"] = "Left-click: Use teleport"
@@ -620,6 +628,14 @@ if GetLocale() == "deDE" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "Symbol-Buttons verwenden"
     L["SETTINGS_ICON_BUTTONS_TT"] = "Textbeschriftungen auf Buttons durch Symbole ersetzen für eine kompaktere Oberfläche"
+    L["SETTINGS_HEADER_SUBTITLE"] = "Kürzester Weg zum Ziel, über Teleports, Portale und Zauber."
+    L["SETTINGS_VERSION"] = "Version"
+    L["SETTINGS_TOMTOM"] = "TomTom"
+    L["SETTINGS_TOMTOM_FOUND"] = "erkannt"
+    L["SETTINGS_TOMTOM_FOUND_VERSION"] = "erkannt, v%s"
+    L["SETTINGS_TOMTOM_MISSING"] = "nicht gefunden"
+    L["SETTINGS_TELEPORTS_FOUND"] = "Teleports erkannt"
+    L["SETTINGS_OPEN_ROUTE"] = "Routenfenster öffnen"
 
     -- Map teleport button
     L["MAP_BTN_LEFT_CLICK"] = "Linksklick: Teleport verwenden"

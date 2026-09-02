@@ -65,6 +65,7 @@ function AddonLoader:Load(MockWoW, options)
         "Modules/DestinationSearch.lua",
         "Modules/ServiceRouter.lua",
         "Modules/EncounterJournalButton.lua",
+        "Modules/SettingsHeader.lua",
         "Modules/SettingsPanel.lua",
         "Modules/ZoneSurvey.lua",
         "Modules/Diagnostics.lua",
