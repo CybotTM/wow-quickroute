@@ -1510,9 +1510,6 @@ end
 -- dot rather than a dot and a word, for the same reason.
 -------------------------------------------------------------------------------
 
---- How many cards fit across the panel.
--- @param panelWidth number The panel's current width
--- @return number At least one
 --- Texture coordinates that make a square icon cover a banner the way the
 -- design specifies ("beschnitten statt gestaucht", xMidYMid slice): the icon
 -- is scaled to the banner's width and the middle band shown, never squashed.
@@ -1534,6 +1531,9 @@ function TeleportPanel.BannerTexCoords(cardWidth, bannerHeight, iconSize)
     return 0, 1, band, 1 - band
 end
 
+--- How many cards fit across the panel.
+-- @param panelWidth number The panel's current width
+-- @return number At least one
 function TeleportPanel:CardsPerRow(panelWidth)
     local avail = (panelWidth or 0) - CARD_PADDING * 2
     local perRow = math_floor((avail + CARD_GAP) / (CARD_MIN_WIDTH + CARD_GAP))
