@@ -2,7 +2,10 @@
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-09-03
+
 ### Added
+- `/qrsurvey` records what the client says about each map you stand on, and `/qrdiag` records Lua errors and teleport-list rebuilds. Both keep their results across sessions, for the questions that can only be answered from a running game.
 - The settings page opens with the header from the design ("C2"): the logo, the addon's name, a subtitle, a line with version and author and the site below it, drawn over a travel network with one route in gold; below it a status bar that says whether TomTom was found (and which version), how many teleports the character has, and a button that opens the route window. The settings themselves are unchanged, and Blizzard's own Defaults button stays where it is.
 
 ### Changed
@@ -10,6 +13,7 @@
 - The teleport cards are the picture cards of the design ("K2"): a 68px banner carrying the group's icon, scaled to the card's width and cut to the banner rather than squashed, with the destination and its continent at the banner's foot; below it the teleport icons and a round status dot. The window opens at the 820px the cards were designed for, three columns of them; at the former 500px they fell into a single column.
 
 ### Fixed
+- Labels that do not fit are shortened rather than cut mid-word. The teleport inventory's filter button carries the chosen filter and the grouping setting together, so "Usable Now, Group by Destination" reached it as "Usable Now, Gr"; it is now as wide as the longest label its menu can produce, in every language. In the quick-teleport list the name and destination columns were a fixed 100px whatever the panel's width, which is narrower than the row they sit in: they follow the row now, the panel is 380px wide, and a name still too long for its column ends in an ellipsis. The full name was always in the row's tooltip.
 - The Kirin Tor Beacon, the Sunreaver Beacon and the Mobile Telemancy Beacon no longer count as ready everywhere. The game accepts the first two only on Isle of Thunder and in the Throne of Thunder, the third only in Suramar; away from there they read NOT HERE in the teleport inventory, the "usable" filter hides them, and the quick-teleport list and the map sidebar leave them out. The data carries the maps as `usableOnMaps`, next to the free-text `restriction` that was already there.
 - The map sidebar's rows show their names and destinations again, and so do the list rows of the teleport inventory. Each text was set and then cleared by a `SetTextToFit()` call without a text, which the client reads as an empty string. The test double had made that call a no-op, which is why no test saw it; it now behaves like the client.
 - "Teleport Home" works. The button cast it through the spellbook, and the housing teleport is granted rather than learned, so clicking it did nothing at all — no cast, no error. Spells you can use without having learned them are now cast by name.
@@ -21,9 +25,6 @@
 - Zen Pilgrimage sends Monks to Kun-Lai Summit, where it actually lands. It pointed at a Karazhan instance floor on another continent, and now carries the landing position rather than the middle of the zone.
 - Dalaran is one place in the route graph again. Three teleports and a mage portal called their destination "Dalaran (Legion)" while the rest of the addon called the same spot "Dalaran (Broken Isles)", so anyone holding a Dalaran teleport got two nodes at identical coordinates with the portals attached to one and the teleport to the other.
 - No more routes to a bank or auction house in Darnassus or Undercity. Both cities were destroyed in Battle for Azeroth, and the maps the client still ships are the pre-destruction versions a character only reaches by asking Zidormi to send them back — so the five services the addon listed there are not standing in the present day. Both cities keep their graph nodes, because standing on those maps is possible and a character who is there needs a way out; no route changes as a result.
-
-### Added
-- `/qrsurvey` records what the client says about each map you stand on, and `/qrdiag` records Lua errors and teleport-list rebuilds. Both keep their results across sessions, for the questions that can only be answered from a running game.
 
 ## [1.15.0] - 2026-08-31
 
