@@ -5,6 +5,7 @@ local ADDON_NAME, QR = ...
 -- Cache frequently-used globals for performance
 local pairs, ipairs, type = pairs, ipairs, type
 local string_format = string.format
+local string_byte, string_sub = string.byte, string.sub
 local table_insert, table_sort = table.insert, table.sort
 local CreateFrame = CreateFrame
 local GetTime = GetTime
@@ -24,12 +25,63 @@ QR.MiniTeleportPanel = {
 local MiniTeleportPanel = QR.MiniTeleportPanel
 
 -- Constants
-local PANEL_WIDTH = 310
+local PANEL_WIDTH = 380
 local ROW_HEIGHT = 24
 local ICON_SIZE = 18
 local PADDING = 6
 local MAX_VISIBLE_ROWS = 12
 local TITLE_HEIGHT = 22
+local ELLIPSIS = "..."
+
+-- Row layout. The name and destination columns were fixed at 100 px each
+-- regardless of the panel, which left them narrower than the space the row
+-- actually has. They are derived from it instead, so widening the panel widens
+-- them. GAPS is the 2 px before the icon, 4 px after it, and 2 px after the
+-- status column.
+local SCROLLBAR_WIDTH = 18
+local STATUS_WIDTH = 52
+local COLUMN_GAP = 4
+local GAPS = 8
+local ROW_WIDTH = PANEL_WIDTH - PADDING * 2 - SCROLLBAR_WIDTH
+local LABEL_AREA = ROW_WIDTH - ICON_SIZE - STATUS_WIDTH - GAPS - COLUMN_GAP
+local NAME_WIDTH = math.floor(LABEL_AREA / 2)
+local DEST_WIDTH = LABEL_AREA - NAME_WIDTH
+
+--- Put text on a fixed-width label, ending it with an ellipsis when it is too
+-- long. The labels have word wrap off, so an over-long name is cut mid-word
+-- with nothing to show that anything was removed. The row's tooltip carries the
+-- full name; the ellipsis is what tells the reader to go and look at it.
+-- @param label FontString sized with SetWidth
+-- @param text string|nil
+function MiniTeleportPanel.SetTextFitted(label, text)
+    text = text or ""
+    label:SetText(text)
+
+    local limit = label:GetWidth() or 0
+    if limit <= 0 or label:GetStringWidth() <= limit then
+        return
+    end
+
+    local bytes = #text
+    while bytes > 0 do
+        bytes = bytes - 1
+        -- Never cut inside a multi-byte character: back off over continuation
+        -- bytes, which are the ones in 0x80..0xBF.
+        while bytes > 0 do
+            local b = string_byte(text, bytes + 1)
+            if not b or b < 0x80 or b >= 0xC0 then
+                break
+            end
+            bytes = bytes - 1
+        end
+        label:SetText(string_sub(text, 1, bytes) .. ELLIPSIS)
+        if label:GetStringWidth() <= limit then
+            return
+        end
+    end
+end
+
+local SetTextFitted = MiniTeleportPanel.SetTextFitted
 
 -- Hidden container for recycled frames (avoids SetParent(nil) taint)
 local recycleContainer = CreateFrame("Frame")
@@ -301,7 +353,7 @@ function MiniTeleportPanel:CreateFrame()
     QR.SkinScrollBar(scrollFrame)
 
     local scrollChild = CreateFrame("Frame", nil, scrollFrame)
-    scrollChild:SetWidth(PANEL_WIDTH - PADDING * 2 - 18)
+    scrollChild:SetWidth(ROW_WIDTH)
     scrollChild:SetHeight(1)
     scrollFrame:SetScrollChild(scrollChild)
     frame.scrollFrame = scrollFrame
@@ -354,7 +406,7 @@ function MiniTeleportPanel:GetRow()
     -- Name label
     local nameLabel = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     nameLabel:SetPoint("LEFT", icon, "RIGHT", 4, 0)
-    nameLabel:SetWidth(100)
+    nameLabel:SetWidth(NAME_WIDTH)
     nameLabel:SetJustifyH("LEFT")
     nameLabel:SetWordWrap(false)
     row.nameLabel = nameLabel
@@ -362,7 +414,7 @@ function MiniTeleportPanel:GetRow()
     -- Destination label
     local destLabel = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
     destLabel:SetPoint("LEFT", nameLabel, "RIGHT", 4, 0)
-    destLabel:SetWidth(100)
+    destLabel:SetWidth(DEST_WIDTH)
     destLabel:SetJustifyH("LEFT")
     destLabel:SetWordWrap(false)
     row.destLabel = destLabel
@@ -371,7 +423,7 @@ function MiniTeleportPanel:GetRow()
     local statusLabel = row:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     statusLabel:SetPoint("RIGHT", row, "RIGHT", -2, 0)
     statusLabel:SetJustifyH("RIGHT")
-    statusLabel:SetWidth(60)
+    statusLabel:SetWidth(STATUS_WIDTH)
     row.statusLabel = statusLabel
 
     -- Highlight on mouse over
@@ -461,7 +513,8 @@ function MiniTeleportPanel:RefreshList()
         row:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 0, 0)
         row:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", 0, 0)
         row.icon:SetTexture(nil)
-        row.nameLabel:SetText(L["MINI_PANEL_NO_TELEPORTS"])
+        row.nameLabel:SetWidth(LABEL_AREA + COLUMN_GAP)
+        SetTextFitted(row.nameLabel, L["MINI_PANEL_NO_TELEPORTS"])
         row.nameLabel:SetTextColor(0.5, 0.5, 0.5)
         row.destLabel:SetText("")
         row.statusLabel:SetText("")
@@ -486,12 +539,13 @@ function MiniTeleportPanel:RefreshList()
 
         -- Name
         local name = GetLocalizedName(entry)
-        row.nameLabel:SetText(name)
+        row.nameLabel:SetWidth(NAME_WIDTH)
+        SetTextFitted(row.nameLabel, name)
         row.nameLabel:SetTextColor(1, 1, 1)
 
         -- Destination
         local dest = GetLocalizedDestination(entry)
-        row.destLabel:SetText(dest)
+        SetTextFitted(row.destLabel, dest)
 
         -- Status / cooldown (READY/OWNED show nothing; ON_CD shows countdown)
         local statusText
@@ -514,7 +568,7 @@ function MiniTeleportPanel:RefreshList()
                 if configured then
                     secBtn:SetFrameStrata("DIALOG")
                     secBtn:SetFrameLevel(100)
-                    secBtn:SetSize(PANEL_WIDTH - PADDING * 2 - 18, ROW_HEIGHT)
+                    secBtn:SetSize(ROW_WIDTH, ROW_HEIGHT)
                     QR.SecureButtons:AttachOverlay(secBtn, row, self.frame.scrollFrame, 0, true)
                     secBtn:SetAlpha(0)  -- Invisible overlay, row provides visuals
 
@@ -566,9 +620,10 @@ function MiniTeleportPanel:RefreshList()
     mountRow:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 0, -yOffset)
     mountRow:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", 0, 0)
     mountRow.icon:SetTexture("Interface\\Icons\\Ability_Mount_RidingHorse")
-    mountRow.nameLabel:SetText(L["MINI_PANEL_SUMMON_MOUNT"])
+    mountRow.nameLabel:SetWidth(NAME_WIDTH)
+    SetTextFitted(mountRow.nameLabel, L["MINI_PANEL_SUMMON_MOUNT"])
     mountRow.nameLabel:SetTextColor(1, 1, 1)
-    mountRow.destLabel:SetText(L["MINI_PANEL_RANDOM_FAVORITE"])
+    SetTextFitted(mountRow.destLabel, L["MINI_PANEL_RANDOM_FAVORITE"])
     mountRow.statusLabel:SetText("")
 
     -- Secure macro button for mount summon
@@ -579,7 +634,7 @@ function MiniTeleportPanel:RefreshList()
             secBtn:SetAttribute("macrotext", "/run C_MountJournal.SummonByID(0)")
             secBtn:SetFrameStrata("DIALOG")
             secBtn:SetFrameLevel(100)
-            secBtn:SetSize(PANEL_WIDTH - PADDING * 2 - 18, ROW_HEIGHT)
+            secBtn:SetSize(ROW_WIDTH, ROW_HEIGHT)
             QR.SecureButtons:AttachOverlay(secBtn, mountRow, self.frame.scrollFrame, 0, true)
             secBtn:SetAlpha(0)
 

@@ -1441,3 +1441,57 @@ T:run("GroupTeleportsByDestination: a group remembers its English destination", 
     })
     t:assertEqual("Garrison", groups[1].destination, "the key PictureMapFor looks up")
 end)
+
+-------------------------------------------------------------------------------
+-- The filter dropdown fits every label its menu can produce
+-------------------------------------------------------------------------------
+
+--- Measures like the mock's FontString does: 7 px per byte.
+local function fakeProbe()
+    local probe = { text = "" }
+    function probe:SetText(value) self.text = value or "" end
+    function probe:GetStringWidth() return #self.text * 7 end
+    return probe
+end
+
+T:run("TeleportPanel: filter labels include each filter combined with grouping", function(t)
+    local candidates = QR.TeleportPanel.FilterLabelCandidates()
+    local seen = {}
+    for _, text in ipairs(candidates) do seen[text] = true end
+
+    t:assertTrue(seen["Usable Now, Group by Destination"], "The combined label the dropdown shows")
+    t:assertTrue(seen["Show All, Group by Destination"], "Show All combined with grouping")
+    t:assertTrue(seen["Obtainable, Group by Destination"], "Obtainable combined with grouping")
+end)
+
+T:run("TeleportPanel: the dropdown is wide enough for its longest label", function(t)
+    local probe = fakeProbe()
+    local candidates = QR.TeleportPanel.FilterLabelCandidates()
+    local width = QR.TeleportPanel.FilterDropdownWidth(probe, candidates)
+
+    local widest = 0
+    for _, text in ipairs(candidates) do
+        if #text * 7 > widest then widest = #text * 7 end
+    end
+
+    -- The button draws a chevron beside the text, so the text width alone is
+    -- not enough; 24 px is the smallest that leaves room for it.
+    t:assertTrue(
+        width >= widest + 24,
+        "Room for the widest label and the chevron: " .. width .. " for " .. widest
+    )
+    t:assertTrue(width <= 320, "Stays inside the panel, got " .. width)
+end)
+
+T:run("TeleportPanel: a short label still gets a usable dropdown width", function(t)
+    local width = QR.TeleportPanel.FilterDropdownWidth(fakeProbe(), { "All" })
+
+    t:assertTrue(width >= 150, "Keeps a minimum width, got " .. width)
+end)
+
+T:run("TeleportPanel: measuring leaves no text behind on the probe", function(t)
+    local probe = fakeProbe()
+    QR.TeleportPanel.FilterDropdownWidth(probe, { "Usable Now, Group by Destination" })
+
+    t:assertEqual(probe.text, "", "Probe cleared after measuring")
+end)
