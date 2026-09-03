@@ -548,3 +548,54 @@ T:run("MiniTP: the same toy is listed on Isle of Thunder", function(t)
     t:assertTrue(listsBeacon(), "Offered on Isle of Thunder")
     MockWoW.config.currentMapID = 84
 end)
+
+-------------------------------------------------------------------------------
+-- Long labels end in an ellipsis instead of being cut mid-word
+-------------------------------------------------------------------------------
+
+--- A label that reports its width the way a FontString does: the mock measures
+-- a string as 7 px per byte, so this mirrors it.
+local function fakeLabel(width)
+    local label = { text = "", width = width }
+    function label:SetText(value) self.text = value or "" end
+    function label:GetText() return self.text end
+    function label:GetWidth() return self.width end
+    function label:GetStringWidth() return #self.text * 7 end
+    return label
+end
+
+T:run("MiniTP: a name too wide for its column ends in an ellipsis", function(t)
+    local label = fakeLabel(100)
+    QR.MiniTeleportPanel.SetTextFitted(label, "Beginner's Guide to Dimensional Rifting")
+
+    t:assertTrue(label:GetText():sub(-3) == "...", "Ends in an ellipsis, got: " .. label:GetText())
+    t:assertTrue(label:GetStringWidth() <= 100, "Fits the column, got " .. label:GetStringWidth())
+    t:assertTrue(
+        label:GetText():sub(1, 10) == "Beginner's",
+        "Keeps the start of the name, got: " .. label:GetText()
+    )
+end)
+
+T:run("MiniTP: a name that fits is left alone", function(t)
+    local label = fakeLabel(100)
+    QR.MiniTeleportPanel.SetTextFitted(label, "Hearthstone")
+
+    t:assertEqual(label:GetText(), "Hearthstone", "Short name untouched")
+end)
+
+T:run("MiniTP: shortening never cuts inside a multi-byte character", function(t)
+    local label = fakeLabel(35)
+    -- Five 3-byte characters: any cut at a byte offset that is not a multiple
+    -- of three would leave an incomplete character behind.
+    QR.MiniTeleportPanel.SetTextFitted(label, "\228\184\128\228\184\128\228\184\128\228\184\128\228\184\128")
+
+    local kept = label:GetText():gsub("%.%.%.$", "")
+    t:assertEqual(#kept % 3, 0, "Cut on a character boundary, kept " .. #kept .. " bytes")
+end)
+
+T:run("MiniTP: an unsized label is left alone", function(t)
+    local label = fakeLabel(0)
+    QR.MiniTeleportPanel.SetTextFitted(label, "Beginner's Guide to Dimensional Rifting")
+
+    t:assertEqual(label:GetText(), "Beginner's Guide to Dimensional Rifting", "No width, no shortening")
+end)

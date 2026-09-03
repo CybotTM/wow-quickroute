@@ -45,7 +45,7 @@ Crop to the panel with the bounds `--dump-tree` reports, rather than by eye:
 |---|---|---|
 | `route-panel.png` | `QuickRouteMainFrame` | 588, 493 → 1971, 1105 |
 | `teleport-panel.png` | `QuickRouteMainFrame` | 588, 335 → 1971, 1263 |
-| `destination-search.png` | `QRMiniTeleportPanel` | 1728, 179 → 2251, 663 |
+| `destination-search.png` | `QRMiniTeleportPanel` | 1610, 179 → 2251, 663 |
 | `quest-teleport.png` | window and quest tracker | 560, 420 → 2560, 1090 |
 | `settings-panel.png` | Blizzard settings panel | 503, 141 → 2055, 1362 |
 

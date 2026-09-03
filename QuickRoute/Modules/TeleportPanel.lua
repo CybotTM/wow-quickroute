@@ -5,6 +5,7 @@ local ADDON_NAME, QR = ...
 -- Cache frequently-used globals for performance
 local pairs, ipairs, type, tostring = pairs, ipairs, type, tostring
 local math_max = math.max
+local math_min = math.min
 local string_format = string.format
 local table_insert, table_sort, table_concat = table.insert, table.sort, table.concat
 local math_floor = math.floor
@@ -48,6 +49,62 @@ local TeleportPanel = QR.TeleportPanel
 
 -- Localization shorthand (accessed after addon loads)
 local L
+
+-- The filter dropdown's label is the selected availability filter plus the
+-- grouping checkbox, so its length follows the localized strings. The
+-- template's own width is fixed, which cut "Usable Now, Group by Destination"
+-- mid-word.
+local DROPDOWN_CHROME = 44
+local DROPDOWN_MIN_WIDTH = 150
+local DROPDOWN_MAX_WIDTH = 320
+
+--- Every label the filter menu can put on the button.
+-- The menu joins the availability filter and the grouping checkbox with a
+-- comma, so the combined forms are the long ones.
+-- @return table array of strings
+function TeleportPanel.FilterLabelCandidates()
+    local group = L and L["GROUP_BY_DEST"] or "Group by Destination"
+    local candidates = { L and L["FILTER_OPTIONS"] or "Filter Options" }
+    local filters = {
+        L and L["AVAIL_ALL"] or "Show All",
+        L and L["AVAIL_USABLE"] or "Usable Now",
+        L and L["AVAIL_OBTAINABLE"] or "Obtainable",
+    }
+    for _, filter in ipairs(filters) do
+        candidates[#candidates + 1] = filter
+        candidates[#candidates + 1] = filter .. ", " .. group
+    end
+    return candidates
+end
+
+--- Width that fits every label in `candidates`, clamped to the panel.
+-- @param probe FontString used only for measuring
+-- @param candidates table array of strings
+-- @return number width in pixels
+function TeleportPanel.FilterDropdownWidth(probe, candidates)
+    local widest = 0
+    for _, text in ipairs(candidates) do
+        probe:SetText(text)
+        widest = math_max(widest, probe:GetStringWidth() or 0)
+    end
+    probe:SetText("")
+    return math_min(math_max(widest + DROPDOWN_CHROME, DROPDOWN_MIN_WIDTH), DROPDOWN_MAX_WIDTH)
+end
+
+--- Size the filter dropdown to the widest label its menu can produce.
+-- @param dropdown Frame the DropdownButton
+local function SizeFilterDropdown(dropdown)
+    local probe = dropdown:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+    if not (probe and probe.GetStringWidth) then
+        return
+    end
+    probe:Hide()
+    local label = dropdown.Text
+    if label and label.GetFontObject and probe.SetFontObject then
+        probe:SetFontObject(label:GetFontObject())
+    end
+    dropdown:SetWidth(TeleportPanel.FilterDropdownWidth(probe, TeleportPanel.FilterLabelCandidates()))
+end
 
 -- Color constants shorthand
 local C = QR.Colors
@@ -731,6 +788,7 @@ function TeleportPanel:CreateContent(parentFrame)
             end
         )
     end)
+    SizeFilterDropdown(filterDropdown)
     frame.filterDropdown = filterDropdown
 
     -- Refresh button (right-anchored on row 1)
