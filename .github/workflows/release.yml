@@ -64,6 +64,11 @@ jobs:
     needs: [tests, luacheck]
     permissions:
       contents: write
+      # Build provenance. The OIDC token is what identifies this workflow, this
+      # repository and this commit to the attestation store; without both of
+      # these the attest step cannot record anything.
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -157,6 +162,17 @@ jobs:
           cd dist
           zip -r "QuickRoute-${VERSION}.zip" QuickRoute/
           echo "Created QuickRoute-${VERSION}.zip ($(du -h "QuickRoute-${VERSION}.zip" | cut -f1))"
+
+      # Before the upload, so the statement exists for the exact bytes that are
+      # published rather than for a rebuild of them. A downloader checks it with
+      #   gh attestation verify QuickRoute-<version>.zip --repo CybotTM/wow-quickroute
+      # which answers whether this workflow, at this commit, produced that file.
+      # CurseForge and Wago carry no attestation of their own, so this covers the
+      # GitHub download only.
+      - name: Attest the build provenance of the package
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/QuickRoute-${{ steps.version.outputs.version }}.zip
 
       - name: Create GitHub release
         env:
