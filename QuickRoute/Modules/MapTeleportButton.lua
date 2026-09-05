@@ -153,6 +153,7 @@ function MapTeleportButton:CreateButton()
     local btn = CreateFrame("Button", "QRMapTeleportButton", UIParent, "SecureActionButtonTemplate")
     btn:SetSize(BUTTON_SIZE, BUTTON_SIZE)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
+    btn:SetAttribute("useOnKeyDown", false)
     btn:SetFrameStrata("HIGH")
     btn:Hide()
 
@@ -356,6 +357,7 @@ local function UpdateButtonPosition(self, elapsed)
     -- Use canvas container for accurate positioning within the map area
     local canvas = WorldMapFrame.ScrollContainer or (WorldMapFrame.GetCanvasContainer and WorldMapFrame:GetCanvasContainer())
     local anchor = canvas or WorldMapFrame
+    btn:SetScale(anchor:GetEffectiveScale() / UIParent:GetEffectiveScale())
     local right = anchor:GetRight()
     local bottom = anchor:GetBottom()
     if right and bottom then

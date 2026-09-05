@@ -7,6 +7,7 @@ local pairs, tostring, type, pcall = pairs, tostring, type, pcall
 local string_format = string.format
 local table_insert = table.insert
 local math_floor = math.floor
+local math_huge = math.huge
 local CreateFrame = CreateFrame
 local InCombatLockdown = InCombatLockdown
 local GetInventoryItemID = GetInventoryItemID
@@ -30,6 +31,7 @@ local SecureButtons = QR.SecureButtons
 
 -- Equipment swap state for equippable teleport items
 local savedEquipment = {}  -- [slotNum] = itemID that was equipped before swap
+local swappedEquipment = {} -- [slotNum] = teleport item we actually equipped
 local pendingRestore = false
 
 -------------------------------------------------------------------------------
@@ -54,6 +56,11 @@ local function UpdateAllOverlays(self, elapsed)
         if not sf or not sf:IsVisible() then
             btn:Hide()
         else
+            local targetScale = sf:GetEffectiveScale()
+            local relativeScale = targetScale / UIParent:GetEffectiveScale()
+            if btn:GetScale() ~= relativeScale then
+                btn:SetScale(relativeScale)
+            end
             local clipped = false
             -- Check if within scroll frame visible area
             local scroll = info.scrollFrame
@@ -63,7 +70,10 @@ local function UpdateAllOverlays(self, elapsed)
                 local rowTop = sf:GetTop()
                 local rowBottom = sf:GetBottom()
                 if scrollTop and scrollBottom and rowTop and rowBottom then
-                    if rowBottom > scrollTop or rowTop < scrollBottom then
+                    local scrollScale = scroll:GetEffectiveScale() / targetScale
+                    scrollTop, scrollBottom = scrollTop * scrollScale, scrollBottom * scrollScale
+                    -- UIParent overlays do not inherit native scroll clipping.
+                    if rowTop > scrollTop or rowBottom < scrollBottom then
                         btn:Hide()
                         clipped = true
                     end
@@ -234,6 +244,7 @@ function SecureButtons:ReleaseButton(btn)
         btn.text:Hide()
     end
     btn:SetAlpha(1.0)
+    btn:SetScale(1)
     btn:SetNormalTexture("")
     btn:SetHighlightTexture("")
     btn:SetPushedTexture("")
@@ -285,7 +296,7 @@ function SecureButtons:ConfigureForItem(btn, itemID)
     end
 
     -- Validate itemID is a positive integer to prevent macro injection
-    if type(itemID) ~= "number" or itemID ~= math_floor(itemID) or itemID <= 0 then
+    if type(itemID) ~= "number" or itemID ~= math_floor(itemID) or itemID <= 0 or itemID >= math_huge then
         return false
     end
 
@@ -310,7 +321,7 @@ function SecureButtons:ConfigureForSpell(btn, spellID)
     end
 
     -- Validate spellID is a positive integer
-    if type(spellID) ~= "number" or spellID ~= math_floor(spellID) or spellID <= 0 then
+    if type(spellID) ~= "number" or spellID ~= math_floor(spellID) or spellID <= 0 or spellID >= math_huge then
         return false
     end
 
@@ -359,7 +370,7 @@ function SecureButtons:ConfigureForToy(btn, toyID)
     end
 
     -- Validate toyID is a positive integer
-    if type(toyID) ~= "number" or toyID ~= math_floor(toyID) or toyID <= 0 then
+    if type(toyID) ~= "number" or toyID ~= math_floor(toyID) or toyID <= 0 or toyID >= math_huge then
         return false
     end
 
@@ -378,15 +389,19 @@ end
 -- @param equipSlot number The inventory slot number (e.g. 15=back, 11=finger1)
 -- @return boolean True if configuration succeeded
 function SecureButtons:ConfigureForEquippable(btn, itemID, equipSlot)
+    if InCombatLockdown() then
+        return false
+    end
+
     if not btn or not itemID or not equipSlot then
         return false
     end
 
-    if type(itemID) ~= "number" or itemID ~= math_floor(itemID) or itemID <= 0 then
+    if type(itemID) ~= "number" or itemID ~= math_floor(itemID) or itemID <= 0 or itemID >= math_huge then
         return false
     end
 
-    if type(equipSlot) ~= "number" or equipSlot < 1 or equipSlot > 19 then
+    if type(equipSlot) ~= "number" or equipSlot ~= math_floor(equipSlot) or equipSlot < 1 or equipSlot > 19 then
         return false
     end
 
@@ -400,17 +415,18 @@ function SecureButtons:ConfigureForEquippable(btn, itemID, equipSlot)
     -- time. Setting an attribute is safe out of combat and the guard above
     -- returns before it in combat.
     btn:SetScript("PreClick", function(self, button, down)
-        if InCombatLockdown() then return end
+        if InCombatLockdown() or button ~= "LeftButton" then return end
         local currentItemID = GetInventoryItemID("player", equipSlot)
         if currentItemID == itemID then
             self:SetAttribute("macrotext", string_format("/use %d", equipSlot))
             return
         end
-        if currentItemID then
+        if currentItemID and not savedEquipment[equipSlot] then
             savedEquipment[equipSlot] = currentItemID
             pendingRestore = true
             QR:Debug(string_format("Saved equipment slot %d: item %d", equipSlot, currentItemID))
         end
+        swappedEquipment[equipSlot] = itemID
         -- Equip only. A macro runs all its lines in one frame, but the item
         -- does not reach the slot until the server answers, so a "/use SLOT"
         -- on the next line acts on whatever was in the slot before -- the old
@@ -442,6 +458,26 @@ end
 -- @param sourceType string "spell", "toy", "item", or "equipped"
 -- @return boolean True if configuration succeeded
 function SecureButtons:ConfigureButton(btn, id, sourceType)
+    if InCombatLockdown() or not btn then return false end
+    if type(id) ~= "number" or id ~= math_floor(id) or id <= 0 or id >= math_huge then
+        return false
+    end
+
+    -- Map/tracker buttons are reused without passing through ReleaseButton.
+    -- A former equipment callback must never run when this is now a spell/toy.
+    btn:SetScript("PreClick", nil)
+    btn:SetScript("PostClick", nil)
+    btn.equipSlot = nil
+    btn:SetAttribute("type", nil)
+    btn:SetAttribute("macrotext", nil)
+    btn:SetAttribute("spell", nil)
+    btn:SetAttribute("toy", nil)
+    btn:SetAttribute("item", nil)
+    -- Right/middle clicks are reserved for navigation/context actions.
+    -- nil would fall back to the unqualified teleport action.
+    btn:SetAttribute("*type2", "")
+    btn:SetAttribute("*type3", "")
+
     local ok
     if sourceType == "spell" then
         ok = self:ConfigureForSpell(btn, id)
@@ -460,6 +496,13 @@ function SecureButtons:ConfigureButton(btn, id, sourceType)
     end
     -- Add PostClick sound + debug logging
     if ok then
+        -- Blizzard's secure visibility driver can hide protected buttons in
+        -- combat. No default "show": released/hidden pool entries must stay
+        -- hidden after combat until their owner positions and shows them.
+        if RegisterStateDriver and not btn._qrCombatVisibility then
+            RegisterStateDriver(btn, "visibility", "[combat] hide")
+            btn._qrCombatVisibility = true
+        end
         btn:SetScript("PostClick", function(self, button, down)
             PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
             QR:Debug(string_format("SecureButton clicked: %s id=%s type=%s btn=%s down=%s",
@@ -530,7 +573,7 @@ end
 -- @param anchorLeft boolean|nil If true, anchor button's LEFT to target's LEFT + xOffset
 -- @param yFromTop number|nil If set, position button center at this offset from target's top edge
 function SecureButtons:AttachOverlay(btn, targetFrame, scrollFrame, xOffset, anchorLeft, yFromTop)
-    if not btn or not targetFrame then
+    if not btn or not targetFrame or InCombatLockdown() then
         return
     end
 
@@ -584,13 +627,16 @@ local function RestoreEquipment()
     local restored = false
     for slotNum, savedItemID in pairs(savedEquipment) do
         local currentItemID = GetInventoryItemID("player", slotNum)
-        if currentItemID and currentItemID ~= savedItemID then
-            -- Teleport item is still equipped, restore the original
-            EquipItemByName(savedItemID)
+        local equip = C_Item and C_Item.EquipItemByName or EquipItemByName
+        if currentItemID == swappedEquipment[slotNum] and equip then
+            -- Respect equipment changes the player made after the teleport.
+            -- Passing the slot also restores a ring to its original finger.
+            equip(savedItemID, slotNum)
             QR:Debug(string_format("Restoring equipment slot %d: item %d", slotNum, savedItemID))
             restored = true
         end
         savedEquipment[slotNum] = nil
+        swappedEquipment[slotNum] = nil
     end
     pendingRestore = false
 

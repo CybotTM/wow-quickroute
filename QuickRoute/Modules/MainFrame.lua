@@ -263,12 +263,8 @@ function MainFrame:Show(tabName)
 end
 
 --- Release the secure buttons held by whichever tab is showing.
--- Outside combat only. The enter-combat auto-hide reaches this too, and there
--- lockdown is already active, so it returns without doing anything: the
--- buttons stay on screen for the fight, which the game leaves no way around --
--- a secure frame cannot be hidden or reparented under lockdown. They are given
--- back on the way out, when the leave-combat callback calls Show() and the
--- rebuild clears them first.
+-- Outside combat only. The secure visibility driver hides the overlay buttons
+-- during combat; their owning tab releases/rebuilds them after lockdown ends.
 function MainFrame:ReleaseTabContent()
     if InCombatLockdown and InCombatLockdown() then
         return

@@ -403,12 +403,48 @@ function UI:CreateContent(parentFrame)
     zoneDebugButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.zoneDebugButton = zoneDebugButton
 
+    -- Keep travel tools discoverable even when the destination search is
+    -- empty. A second row also leaves room for longer localized labels.
+    local multiRouteButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["MULTI_ROUTE"]), BUTTON_HEIGHT)
+    multiRouteButton:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", 0, -8)
+    multiRouteButton:SetText(L["MULTI_ROUTE"])
+    multiRouteButton:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.MultiRoute then QR.MultiRoute:Show() end
+    end)
+    multiRouteButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["TOOLTIP_MULTI_ROUTE"])
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    multiRouteButton:SetScript("OnLeave", GameTooltip_Hide)
+    frame.multiRouteButton = multiRouteButton
+
+    local currencyButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["CURRENCY_VENDORS"]), BUTTON_HEIGHT)
+    currencyButton:SetPoint("LEFT", multiRouteButton, "RIGHT", BUTTON_PADDING, 0)
+    currencyButton:SetText(L["CURRENCY_VENDORS"])
+    currencyButton:SetScript("OnClick", function(self)
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.DestinationSearch and QR.DestinationSearch.ShowCurrencyDropdown then
+            QR.DestinationSearch:ShowCurrencyDropdown(self)
+        end
+    end)
+    currencyButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["TOOLTIP_CURRENCY_VENDORS"])
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    currencyButton:SetScript("OnLeave", GameTooltip_Hide)
+    frame.currencyButton = currencyButton
+
     -- Separator line below toolbar
     local separator = frame:CreateTexture(nil, "ARTWORK")
     separator:SetColorTexture(0.5, 0.5, 0.5, 0.5)
     separator:SetHeight(1)
-    separator:SetPoint("TOPLEFT", PADDING, -30)
-    separator:SetPoint("TOPRIGHT", -PADDING, -30)
+    separator:SetPoint("TOPLEFT", PADDING, -60)
+    separator:SetPoint("TOPRIGHT", -PADDING, -60)
 
     -- Time estimate label below separator
     local timeLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -659,18 +695,19 @@ function UI:GetCurrentStepIndex(steps)
     local currentMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     if not currentMapID then return 1 end
 
-    -- Find the last step whose destMapID matches the player's current map.
-    -- All steps up to and including that one are "completed".
-    for i = #steps, 1, -1 do
-        if steps[i].destMapID == currentMapID then
-            return math_min(i + 1, #steps)
+    -- Being in a zone does not complete walking across it. Prefer its first
+    -- starting step, including the walk to a portal or a same-zone teleport.
+    -- Revisited zones are ambiguous without travel history; keep the earlier
+    -- action rather than incorrectly marking an unperformed step complete.
+    for i = 1, #steps do
+        if steps[i].fromMapID == currentMapID then
+            return i
         end
     end
 
-    -- No destMapID match: find the last step whose fromMapID matches (player is on that step's starting map)
-    for i = #steps, 1, -1 do
-        if steps[i].fromMapID == currentMapID then
-            return i
+    for i = 1, #steps do
+        if steps[i].destMapID == currentMapID and steps[i].fromMapID ~= currentMapID then
+            return math_min(i + 1, #steps)
         end
     end
 
@@ -2174,6 +2211,13 @@ SlashCmdList["QR"] = function(msg)
             QR.MinimapButton:ApplyVisibility()
         end
         QR:Print(QR.db.showMinimap and (L["MINIMAP_SHOWN"] or "Minimap button shown") or (L["MINIMAP_HIDDEN"] or "Minimap button hidden"))
+    elseif cmd == "currency" or cmd:match("^currency%s") then
+        if QR.ServiceRouter and QR.ServiceRouter.RouteToCurrency then
+            local query = (msg or ""):match("^%s*%S+%s*(.-)%s*$") or ""
+            QR.ServiceRouter:RouteToCurrency(query)
+        end
+    elseif cmd == "multi" then
+        if QR.MultiRoute then QR.MultiRoute:Show() end
     elseif cmd == "ah" or cmd == "bank" or cmd == "void" or cmd == "craft" then
         if QR.ServiceRouter then
             local serviceType = QR.ServiceRouter:FindByAlias(cmd)
@@ -2197,6 +2241,8 @@ SlashCmdList["QR"] = function(msg)
         print("  /qr priority mappin|quest|tomtom - Set waypoint source priority")
         print("  /qr autowaypoint - Toggle auto-waypoint for first route step")
         print("  /qr ah|bank|void|craft - Route to nearest service")
+        print("  /qr currency <ID or name> - Route to a currency vendor")
+        print("  /qr multi - Open multi-destination route planner")
         print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
     end
 end
