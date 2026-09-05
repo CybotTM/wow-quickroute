@@ -2425,15 +2425,26 @@ T:run("A settled faction is still cached", function(t)
     QR.PlayerInfo:InvalidateCache()
 end)
 
-T:run("A character of neither faction keeps the whole flight network", function(t)
-    -- UnitFactionGroup returns "Neutral" for a pandaren who has not picked a
-    -- side. The first version of the accessor tested `not faction`, which can
-    -- never be true -- GetFaction falls back to "Alliance" -- so a neutral
-    -- character matched no branch and silently lost 74 of 141 zones and 392 of
-    -- its 479 flight edges against the behaviour before the filter existed.
-    -- (479, not 599: a neutral character never had the faction capitals as
-    -- graph nodes, so fewer zones could carry a flight edge to begin with.)
+T:run("A character of neither faction gets the neutral flight masters, and only those", function(t)
+    -- Two things this pins, and they pull in opposite directions.
+    --
+    -- Not zero: UnitFactionGroup returns "Neutral" for a pandaren who has not
+    -- picked a side, and the first version of the accessor tested `not faction`,
+    -- which can never be true because GetFaction falls back to "Alliance". A
+    -- neutral character matched no branch and silently lost 74 of 141 zones and
+    -- 392 of its 479 flight edges.
+    --
+    -- Not all of them either: the fix for that returned every point unfiltered,
+    -- which contradicted AddZoneNodes, where the same character has never had a
+    -- faction capital as a graph node. In the game a faction flight master is
+    -- hostile to them, so AddZoneNodes is the rule that matches, and both
+    -- accessors read it the same way now.
     resetState()
+    local neutralOnly = 0
+    for _, point in pairs(QR.FlightPoints or {}) do
+        if point.faction == "both" then neutralOnly = neutralOnly + 1 end
+    end
+
     local usable = {}
     for _, faction in ipairs({ "Alliance", "Neutral" }) do
         MockWoW.config.playerFaction = faction
@@ -2447,11 +2458,14 @@ T:run("A character of neither faction keeps the whole flight network", function(
 
     local total = 0
     for _ in pairs(QR.FlightPoints or {}) do total = total + 1 end
-    t:assertEqual(total, usable.Neutral,
-        "a neutral character can use every zone (" .. tostring(usable.Neutral)
+
+    t:assertEqual(neutralOnly, usable.Neutral,
+        "a neutral character sees the neutral masters (" .. tostring(usable.Neutral)
             .. " of " .. total .. ")")
-    t:assertGreaterThan(usable.Neutral, usable.Alliance,
-        "which is strictly more than a faction sees, since nothing is filtered out")
+    t:assertGreaterThan(usable.Neutral, 0,
+        "and not none of them, which is what the `not faction` predicate did")
+    t:assertGreaterThan(total, usable.Neutral,
+        "and not all of them, which is what contradicted AddZoneNodes")
 
     MockWoW.config.playerFaction = "Alliance"
     QR.PlayerInfo:InvalidateCache()
@@ -2819,3 +2833,4 @@ T:run("AddZoneNodes: a neutral city is there for both sides", function(t)
     -- helper leaves the faction on Horde and a graph built for it.
     resetState()
 end)
+
