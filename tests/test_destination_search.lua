@@ -5,6 +5,17 @@
 
 local T, QR, MockWoW = ...
 
+T:run("DestSearch: verified fallback dungeons remain visible without a journal tier", function(t)
+    local original = QR.DungeonData
+    QR.DungeonData = { instances = { [9999] = { name = "Fallback Dungeon", zoneMapID = 84, x = 0.2, y = 0.3 } },
+        numTiers = 0, byTier = {}, scanned = false }
+    local results = QR.DestinationSearch:CollectResults("Fallback Dungeon")
+    QR.DungeonData = original
+    t:assertEqual(1, #results.dungeons, "Fallback group is searchable before Journal loads")
+    t:assertEqual("Fallback Dungeon", results.dungeons[1] and results.dungeons[1].instances[1].name,
+        "Verified fallback entrance is included")
+end)
+
 -------------------------------------------------------------------------------
 -- Helpers
 -------------------------------------------------------------------------------

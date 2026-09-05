@@ -421,6 +421,7 @@ local function CreateMockFontString(parent)
     function fs:SetWordWrap(wrap) self._wordWrap = wrap end
     function fs:GetWordWrap() return self._wordWrap end
     function fs:SetWidth(w) self._size.w = w end
+    function fs:SetSize(w, h) self._size.w, self._size.h = w, h end
     function fs:GetWidth() return self._size.w end
     function fs:SetHeight(h) self._size.h = h end
     function fs:GetHeight() return self._size.h end
@@ -679,6 +680,7 @@ local function CreateMockFrame(frameType, name, parent, template)
 
     -- EditBox methods
     function frame:SetMultiLine() end
+    function frame:SetMaxLetters(value) self._maxLetters = value end
     function frame:SetFontObject() end
     function frame:SetAutoFocus() end
     function frame:SetText(text) self._text = text end

@@ -49,6 +49,7 @@ function DS:CollectResults(query)
         cities = {},
         dungeons = {},
         services = {},
+        currencies = {},
     }
 
     -- 1. Active Waypoints
@@ -160,7 +161,8 @@ function DS:CollectResults(query)
 
     -- 3. Dungeons & Raids (from DungeonData, grouped by tier)
     local DD = QR.DungeonData
-    if DD and DD.scanned then
+    if DD then
+        local listed = {}
         for tier = DD.numTiers, 1, -1 do
             local tierName = DD:GetTierName(tier) or string_format("Tier %d", tier)
             local tierInstances = DD.byTier[tier] or {}
@@ -169,6 +171,7 @@ function DS:CollectResults(query)
             for _, instanceID in ipairs(tierInstances) do
                 local inst = DD.instances[instanceID]
                 if inst and inst.name then
+                    listed[instanceID] = true
                     if not isSearching or string_find(string_lower(inst.name), queryLower, 1, true) then
                         table_insert(matchingInstances, {
                             name = inst.name,
@@ -193,6 +196,20 @@ function DS:CollectResults(query)
                     instances = matchingInstances,
                 })
             end
+        end
+        -- Static/API-only entrances remain searchable even while the Journal
+        -- is unavailable or does not assign that instance to an expansion.
+        local other = {}
+        for instanceID, inst in pairs(DD.instances) do
+            if not listed[instanceID] and inst.name and inst.zoneMapID and inst.x and inst.y
+                and (not isSearching or string_find(string_lower(inst.name), queryLower, 1, true)) then
+                table_insert(other, { name = inst.name, isRaid = inst.isRaid,
+                    zoneMapID = inst.zoneMapID, x = inst.x, y = inst.y })
+            end
+        end
+        if #other > 0 then
+            table_sort(other, function(a, b) return a.name < b.name end)
+            table_insert(results.dungeons, { tierName = L["DUNGEON_OTHER"], tierIndex = 0, instances = other })
         end
     end
 
@@ -234,6 +251,18 @@ function DS:CollectResults(query)
         end
     end
 
+    if SR and SR.GetKnownCurrencies then
+        for _, currency in ipairs(SR:GetKnownCurrencies()) do
+            if not isSearching or string_find(string_lower(currency.name), queryLower, 1, true)
+                or tostring(currency.currencyID) == queryLower then
+                table_insert(results.currencies, {
+                    name = string_format(L["CURRENCY_VENDOR_NEAREST"], currency.name),
+                    currencyID = currency.currencyID,
+                })
+            end
+        end
+    end
+
     return results
 end
 
@@ -256,6 +285,7 @@ function DS:HideDropdown()
     end
     self.isShowing = false
     self._cachedWatchedQuests = nil -- clear stale quest data
+    self._currencyOnly = nil
 end
 
 -------------------------------------------------------------------------------
@@ -329,6 +359,7 @@ function DS:GetRow()
         row:SetHeight(ROW_HEIGHT)
         if row.nameLabel then
             row.nameLabel:SetWidth(220)
+            row.nameLabel:SetWordWrap(false)
         end
         row:Show()
         return row
@@ -478,6 +509,9 @@ function DS:CreateResultRow(entry, yOffset)
         if entry.questID and QR.db and QR.db.debugMode then
             GameTooltip:AddLine(string_format("Quest ID: %d", entry.questID), 0.4, 0.4, 0.4)
         end
+        if entry.currencyID then
+            GameTooltip:AddLine(L["CURRENCY_VENDOR_OBSERVED"], 0.7, 0.7, 0.7, true)
+        end
         GameTooltip:AddLine(L and L["DEST_SEARCH_ROUTE_TO_TT"] or "Click to calculate route", 0.5, 0.5, 0.5, true)
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
@@ -508,6 +542,9 @@ function DS:RefreshDropdown(query)
     self._lastQuery = query
 
     local results = self:CollectResults(query)
+    if self._currencyOnly then
+        results.waypoints, results.quests, results.cities, results.dungeons, results.services = {}, {}, {}, {}, {}
+    end
 
     local yOffset = 0
     local totalRows = 0
@@ -531,7 +568,7 @@ function DS:RefreshDropdown(query)
 
     -- 1.5. Tracked Quests section
     if #results.quests > 0 then
-        local title = L and L["DEST_SEARCH_QUESTS"] or "Tracked Quests"
+        local title = L and L["DEST_SEARCH_ALL_QUESTS"] or "Quests & map objectives"
         local _, newY = self:CreateSectionHeader("quests", title, yOffset)
         yOffset = newY
         totalRows = totalRows + 1
@@ -647,16 +684,35 @@ function DS:RefreshDropdown(query)
         end
     end
 
+    if #results.currencies > 0 then
+        local _, newY = self:CreateSectionHeader("currencies", L["DEST_SEARCH_CURRENCIES"], yOffset)
+        yOffset = newY
+        totalRows = totalRows + 1
+        if not self.collapsedSections.currencies then
+            for _, currency in ipairs(results.currencies) do
+                local _, newY2 = self:CreateResultRow(currency, yOffset)
+                yOffset = newY2
+                totalRows = totalRows + 1
+            end
+        end
+    end
+
     -- "No results" message
     if totalRows == 0 then
         local row = self:GetRow()
         row:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 0, 0)
         row:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", 0, 0)
-        row.nameLabel:SetText(L and L["DEST_SEARCH_NO_RESULTS"] or "No matching destinations")
+        row.nameLabel:SetText(self._currencyOnly and L["CURRENCY_VENDOR_NONE"]
+            or (L and L["DEST_SEARCH_NO_RESULTS"] or "No matching destinations"))
+        if self._currencyOnly then
+            row.nameLabel:SetWordWrap(true)
+            row.nameLabel:SetWidth(DROPDOWN_WIDTH - PADDING * 2 - 18)
+            row:SetHeight(ROW_HEIGHT * 3)
+        end
         row.nameLabel:SetTextColor(0.5, 0.5, 0.5)
         row.tagLabel:SetText("")
         table_insert(self.rows, row)
-        yOffset = ROW_HEIGHT
+        yOffset = self._currencyOnly and ROW_HEIGHT * 3 or ROW_HEIGHT
     end
 
     -- Resize frame based on content
@@ -679,7 +735,7 @@ function DS:ResolveWatchedQuests()
         return
     end
     local ok, quests = pcall(function()
-        return QR.WaypointIntegration:GetWatchedQuestWaypoints()
+        return QR.WaypointIntegration:GetSearchQuestWaypoints()
     end)
     if ok and quests then
         self._cachedWatchedQuests = quests
@@ -693,6 +749,7 @@ end
 -- @param anchorFrame Frame|nil The frame to anchor below
 function DS:ShowDropdown(anchorFrame)
     if InCombatLockdown() then return end
+    self._currencyOnly = nil
 
     if not self.frame then
         self:CreateDropdown()
@@ -714,15 +771,32 @@ function DS:ShowDropdown(anchorFrame)
     self.isShowing = true
 end
 
+function DS:ShowCurrencyDropdown(anchorFrame)
+    self:ShowDropdown(anchorFrame)
+    if not self.isShowing then return end
+    self._currencyOnly = true
+    self.collapsedSections.currencies = false
+    self:RefreshDropdown("")
+end
+
 --- Select a result entry and route to it
 -- @param entry table Entry data with name, mapID, x, y
 function DS:SelectResult(entry)
     if not entry then return end
 
+    if entry.currencyID and QR.ServiceRouter then
+        QR.ServiceRouter:RouteToCurrency(entry.currencyID)
+        self:HideDropdown()
+        return
+    end
+
     -- Note: PlaySound is already called by the row OnClick handler
     local mapID = entry.mapID or entry.zoneMapID
     if mapID and entry.x and entry.y and QR.POIRouting then
         QR.POIRouting:RouteToMapPosition(mapID, entry.x, entry.y)
+    else
+        QR:Print(QR.L["DESTINATION_UNAVAILABLE"])
+        return
     end
 
     -- Update search box text (suppress OnTextChanged to avoid re-entrancy)
