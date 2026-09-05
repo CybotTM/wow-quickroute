@@ -6,19 +6,21 @@
 
 ![WoW 12.1](https://img.shields.io/badge/WoW-12.1%20Retail-148EFF)
 ![Lua](https://img.shields.io/badge/Lua-5.1-2C2D72?logo=lua&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-11626%20assertions-brightgreen)
+![Tests](https://img.shields.io/badge/tests-Lua%205.1%20%2B%20Python-brightgreen)
 [![CI](https://github.com/CybotTM/wow-quickroute/actions/workflows/ci.yml/badge.svg)](https://github.com/CybotTM/wow-quickroute/actions/workflows/ci.yml)
 ![License](https://img.shields.io/github/license/CybotTM/wow-quickroute)
 
-A World of Warcraft addon that calculates and displays the shortest path to any waypoint destination, recommending which teleport items to use or where the nearest portals are.
+A World of Warcraft addon that estimates fast travel routes to map points, quest destinations and dungeon entrances using known teleports, portals and transport connections.
+
+Routes depend on recorded connections, character access and estimated travel times. QuickRoute does not contain a terrain navigation mesh or every NPC and phase/unlock condition. See the [review and coverage report](docs/REVIEW-2026-09-05.md) for verified behavior and remaining gaps.
 
 ## Features
 
-- **Smart Pathfinding:** Uses Dijkstra's algorithm to find the fastest route
+- **Smart Pathfinding:** Uses Dijkstra's algorithm to find the lowest estimated travel time in the known graph
 - **Route Step Collapsing:** Merges consecutive walk/fly steps into readable directions
 - **Teleport Detection:** Scans your inventory, toys, and spells for available teleports
 - **Cooldown Tracking:** Considers teleport cooldowns when calculating routes
-- **Portal Knowledge:** Knows all portal hub locations and connections
+- **Portal Knowledge:** Includes major portal hubs and recorded transport connections
 - **Faction-Aware:** Respects Alliance/Horde restrictions for portals and items
 - **Class-Aware:** Includes class-specific teleports (Mage, Druid, Monk, DK, Shaman, DH)
 - **Dungeon Teleports:** Mythic+ and attunement teleports route to the dungeon entrance
@@ -30,6 +32,10 @@ A World of Warcraft addon that calculates and displays the shortest path to any 
 - **Destination Grouping:** Group teleports by destination in the teleport panel
 - **POI Click Routing:** Ctrl+Right-click on the world map to route to any location
 - **Configurable Settings:** Max cooldown filter, loading screen time, window scale
+- **Multi-Destination Trips:** Paste up to 20 waypoints or import active TomTom points; follow input order or choose the fastest next stop
+- **Currency Vendors:** Learn visited merchants and find the fastest known route for a selected currency, scoped to your character
+- **Quest Discovery:** Search quest-log destinations and current-map quest givers/objectives when the client supplies coordinates
+- **Observed Hearth Binding:** Bind at an inn after installing to include that character's verified hearth destination
 
 ## Screenshots
 
@@ -70,6 +76,9 @@ An addon manager keeps QuickRoute current on its own, which matters here: the ad
 - `/qr priority mappin|quest|tomtom` - Set the waypoint source priority
 - `/qr autowaypoint` - Toggle the automatic waypoint for the first step
 - `/qr ah` / `/qr bank` / `/qr void` / `/qr craft` - Route to the nearest auction house, bank, void storage or crafting table
+- `/qr currency <ID or exact localized name>` - Route to the fastest known vendor accepting that currency
+- `/qr multi` or `/qrmulti` - Open the trip planner; paste `/way #mapID x y` lines with coordinates from 0 to 100
+- `/qrmulti tomtom` / `/qrmulti next` / `/qrmulti clear` - Import active TomTom destinations, mark a stop reached, or clear the trip
 - `/qrhelp` - Show all commands
 - `/qrwp` - Calculate path to current waypoint
 - `/qrverifymap [mapID]` - Report what the client and the addon each say about a map
@@ -89,6 +98,8 @@ Development commands, not part of the supported surface: `/qrscan`, `/qrgraph`,
 1. Set a waypoint on your map (right-click) or use TomTom
 2. Type `/qr` to open the route window
 3. Follow the step-by-step instructions in the route window
+
+The route toolbar also opens **Currency vendors** and **Multi-route**. Vendor locations are learned when you visit them; an empty list means no vendors have been recorded for this character. Trips last for the current session. The fastest-next option recalculates after each stop and is a heuristic, not a guarantee of the shortest total tour. A missing route means the addon lacks a usable recorded connection; it does not prove the destination is inaccessible in the game.
 
 ## Dependencies
 
