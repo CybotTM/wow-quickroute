@@ -60,8 +60,7 @@ function MainFrame:CreateFrame()
 
     -- Restore saved position or use default
     local db = QR.db or {}
-    if type(db.mainFrameX) == "number" and type(db.mainFrameY) == "number"
-        and type(db.mainFramePoint) == "string" and type(db.mainFrameRelPoint) == "string" then
+    if QR.IsValidWindowPosition(db.mainFramePoint, db.mainFrameRelPoint, db.mainFrameX, db.mainFrameY) then
         frame:SetPoint(db.mainFramePoint, UIParent, db.mainFrameRelPoint, db.mainFrameX, db.mainFrameY)
     else
         frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)

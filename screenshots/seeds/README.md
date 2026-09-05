@@ -33,7 +33,7 @@ cat common.lua waypoint.lua graph.lua view-route.lua > /tmp/seed.lua
 WOW_INSTALL_PATH="/path/to/World of Warcraft" \
 WOW_SIM_ADDONS_PATH="/path/to/a/dir/symlinking/QuickRoute" \
 wow-sim --no-saved-vars --exec-lua @/tmp/seed.lua \
-  screenshot --output /tmp/route.png --width 2560 --height 1600 --ui-scale 1.6875
+  screenshot --output /tmp/route.webp --width 2560 --height 1600
 ```
 
 `view-teleports.lua`, `view-quick.lua` and `view-settings.lua` need only
@@ -49,5 +49,28 @@ Crop to the panel with the bounds `--dump-tree` reports, rather than by eye:
 | `quest-teleport.png` | window and quest tracker | 560, 420 → 2560, 1090 |
 | `settings-panel.png` | Blizzard settings panel | 503, 141 → 2055, 1362 |
 
-Those bounds hold for `--width 2560 --height 1600 --ui-scale 1.6875`. Re-read
-them from `--dump-tree` after any change to a panel's size.
+Those historical crops used a simulator build with UI scale 1.6875 at 2560×1600.
+Re-read bounds from `--dump-tree` for the installed simulator and current panel size.
+
+
+## Review windows (2026-09-05)
+
+The installed `wow-ui-sim` release accepts `--filter` and `--dump-tree`; it does not
+accept the historical `--ui-scale` option used for the older gallery images. The new view
+seeds set their own window scale explicitly. For these snapshots:
+
+```bash
+cat common.lua graph.lua view-multi.lua > /tmp/quickroute-multi.lua
+WOW_INSTALL_PATH="/path/to/World of Warcraft" \
+WOW_SIM_ADDONS_PATH="/path/to/addon-symlinks" \
+wow-sim --no-saved-vars --exec-lua @/tmp/quickroute-multi.lua screenshot \
+  --output /tmp/multi-route-review.webp --width 1600 --height 1200 \
+  --filter QuickRouteMultiRouteFrame --dump-tree QuickRouteMultiRouteFrame
+```
+
+Use `view-phases.lua` and `QuickRoutePhaseFrame` for the phase selector.
+The renderer writes WebP even if a different output extension was requested.
+These images inspect actual addon controls; the simulator has baseline Blizzard
+API errors and color/text-rendering differences, so they are not retail visual
+or protected-action certification. The trip example contains pasted inputs and
+has not started a route; its values are not fabricated route results.

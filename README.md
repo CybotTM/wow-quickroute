@@ -12,7 +12,7 @@
 
 A World of Warcraft addon that estimates fast travel routes to map points, quest destinations and dungeon entrances using known teleports, portals and transport connections.
 
-Routes depend on recorded connections, character access and estimated travel times. QuickRoute does not contain a terrain navigation mesh or every NPC and phase/unlock condition. See the [review and coverage report](docs/REVIEW-2026-09-05.md) for verified behavior and remaining gaps.
+Routes depend on recorded connections, character access and estimated travel times. QuickRoute includes an attributed retail destination catalogue and phase/unlock checks. Terrain, dynamic NPCs and unreported game state can still limit a route. See the [review and coverage report](docs/REVIEW-2026-09-05.md) for verified behavior and coverage limits.
 
 ## Features
 
@@ -32,9 +32,12 @@ Routes depend on recorded connections, character access and estimated travel tim
 - **Destination Grouping:** Group teleports by destination in the teleport panel
 - **POI Click Routing:** Ctrl+Right-click on the world map to route to any location
 - **Configurable Settings:** Max cooldown filter, loading screen time, window scale
-- **Multi-Destination Trips:** Paste up to 20 waypoints or import active TomTom points; follow input order or choose the fastest next stop
-- **Currency Vendors:** Learn visited merchants and find the fastest known route for a selected currency, scoped to your character
-- **Quest Discovery:** Search quest-log destinations and current-map quest givers/objectives when the client supplies coordinates
+- **Multi-Destination Trips:** Paste up to 20 waypoints or import active TomTom points; optimize the entire estimated visit order or follow input order; resume saved trips after login
+- **Currency Vendors:** Search the included retail vendor catalogue and your character’s merchant observations for a selected currency
+- **Quest Discovery:** Search thousands of attributed quest-giver and NPC locations; use live client coordinates for objectives and turn-ins
+- **Zone Phases:** Route through seven Zidormi regions with explicit phase changes and visible controls for unknown states
+- **Travel Choices:** Discovered Mole Machine stops, selectable engineering destinations, faction garrisons, and observed camp/house locations
+- **Access Checks:** Known quest, level, class, faction, reputation and other requirements gate sourced travel connections
 - **Observed Hearth Binding:** Bind at an inn after installing to include that character's verified hearth destination
 
 ## Screenshots
@@ -46,6 +49,12 @@ Routes depend on recorded connections, character access and estimated travel tim
 ![Route with Quest Tracker](screenshots/quest-teleport.png)
 
 ![Settings Panel](screenshots/settings-panel.png)
+
+The new trip and phase windows, rendered from addon code in the UI simulator:
+
+| Trip planner | Zone phases |
+|:------------:|:-----------:|
+| ![Trip planner](screenshots/multi-route-review.webp) | ![Zone phases](screenshots/zone-phases-review.webp) |
 
 ## Installation
 
@@ -77,6 +86,8 @@ An addon manager keeps QuickRoute current on its own, which matters here: the ad
 - `/qr autowaypoint` - Toggle the automatic waypoint for the first step
 - `/qr ah` / `/qr bank` / `/qr void` / `/qr craft` - Route to the nearest auction house, bank, void storage or crafting table
 - `/qr currency <ID or exact localized name>` - Route to the fastest known vendor accepting that currency
+- `/qr quest <questID> [target|giver]` - Route to the live quest target/turn-in or a known quest giver
+- `/qr phases` - Inspect detected phases and set session assumptions when the client cannot report a phase
 - `/qr multi` or `/qrmulti` - Open the trip planner; paste `/way #mapID x y` lines with coordinates from 0 to 100
 - `/qrmulti tomtom` / `/qrmulti next` / `/qrmulti clear` - Import active TomTom destinations, mark a stop reached, or clear the trip
 - `/qrhelp` - Show all commands
@@ -99,7 +110,11 @@ Development commands, not part of the supported surface: `/qrscan`, `/qrgraph`,
 2. Type `/qr` to open the route window
 3. Follow the step-by-step instructions in the route window
 
-The route toolbar also opens **Currency vendors** and **Multi-route**. Vendor locations are learned when you visit them; an empty list means no vendors have been recorded for this character. Trips last for the current session. The fastest-next option recalculates after each stop and is a heuristic, not a guarantee of the shortest total tour. A missing route means the addon lacks a usable recorded connection; it does not prove the destination is inaccessible in the game.
+The route toolbar opens **Currency vendors**, **Multi-route** and **Zone phases**. Currency results combine the included catalogue with your observed merchants and filter known access requirements. Search accepts NPC/quest names or IDs. Reference quest coordinates are labeled separately from live quest objectives and turn-ins.
+
+Trips support up to 20 stops and persist per character. Up to ten stops use an exact shortest-order solver for the estimated reusable-route matrix; larger lists use a bounded optimization heuristic. The matrix excludes personal teleports and uses phase/access state available during comparison. Each executable leg is recalculated from your actual position and available teleports. Confirm a reached stop to continue. Random landings are not presented as exact teleport destinations.
+
+A missing route means the addon lacks a usable recorded connection or required state; it does not prove the destination is inaccessible in the game. Bind at an inn after installing to record a hearth landing. Housing destinations require owned-house identity and an observed neighborhood plot position. Phase assumptions never change your character’s actual phase or mark an unperformed Zidormi conversation complete.
 
 ## Dependencies
 
@@ -152,6 +167,8 @@ GitHub Actions automatically runs luacheck and syntax validation on PRs.
 ## License
 
 MIT License - See LICENSE file for details.
+
+Adapted destination and transport data retain their upstream notices: [Mapzeroth](QuickRoute/ThirdParty/Mapzeroth-NOTICE.md) and [AllTheThings](QuickRoute/Licenses/AllTheThings-MIT.txt). The [catalogue source manifest](QuickRoute/Data/DestinationCatalog.sources.txt) pins the input revision and file hashes. Regenerate with `python3 scripts/generate_destination_catalog.py --help`; upstream Lua is parsed as data and never executed.
 
 ## Author
 

@@ -6,6 +6,7 @@ std = "lua51"
 
 -- WoW global variables (read-write)
 globals = {
+    "UnitLevel", "C_Covenants", "C_Reputation", "C_DateAndTime", "C_Calendar",
     "QuickRouteSettingsHeaderMixin",
     -- Addon namespace
     "QR",

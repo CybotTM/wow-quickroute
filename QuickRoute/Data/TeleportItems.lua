@@ -1207,18 +1207,7 @@ QR.RacialTeleportSpells = {
         isDynamic = true,
     },
 
-    -- Nightborne - Teleport to Suramar
-    [255661] = {
-        name = "Cantrips",
-        destination = "Suramar",
-        mapID = 680,  -- Suramar
-        x = 0.4386,
-        y = 0.7350,
-        cooldown = 0,
-        type = QR.TeleportTypes.SPELL,
-        faction = "Horde",
-        race = "Nightborne",
-    },
+    -- Nightborne Cantrips (255661) summons a mailbox; it does not teleport.
 }
 
 -------------------------------------------------------------------------------

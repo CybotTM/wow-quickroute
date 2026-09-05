@@ -873,13 +873,49 @@ end)
 
 -------------------------------------------------------------------------------
 -- Routing Regression: connected dungeons work; missing topology fails honestly.
--- Ashran has no recorded mainland link and these two new zones have no known
--- transport. Never invent an edge merely to make a complete-catalog test pass.
+-- With prerequisite quests/phases and discovered fixed-flight endpoints, the
+-- Timeless Isle campfire supplies a documented path to mainland Draenor. Only
+-- the client-verified Amani'Zar taxi connection supplies entry to Coiled Isle.
 -------------------------------------------------------------------------------
 
 local function routingRegressionForFaction(t, faction, playerMapID)
     local savedFaction = MockWoW.config.playerFaction
     local savedMap = MockWoW.config.currentMapID
+    local savedCompleted = C_QuestLog.IsQuestFlaggedCompleted
+    local savedArt, savedInfo = C_Map.GetMapArtID, C_Map.GetMapInfo
+    local savedWorld, savedMapPos = C_Map.GetWorldPosFromMapPos, C_Map.GetMapPosFromWorldPos
+    local savedVector = CreateVector2D
+    local savedTaxi = C_TaxiMap
+    C_TaxiMap = {}
+    C_TaxiMap.GetTaxiNodesForMap = function(mapID)
+        local nodes = {}
+        for id, point in pairs(QR.TravelTransitions.nodes) do
+            if point.mapID == mapID and id:find("FLIGHT") then
+                nodes[#nodes+1] = {isUndiscovered=false,position={x=point.x,y=point.y},nodeID=point.taxiNodeID,
+                    faction=id=="TUSHUI_LANDING_FLIGHT" and 2 or id=="HUOJIN_LANDING_FLIGHT" and 1 or 0}
+            end
+        end
+        return nodes
+    end
+    C_QuestLog.IsQuestFlaggedCompleted = function() return true end
+    local phases = {[17]=18, [62]=67, [81]=86, [70]=75, [249]=289, [18]=19, [390]=402}
+    C_Map.GetMapArtID = function(mapID) return phases[mapID] end
+    C_Map.GetMapInfo = function(mapID)
+        if mapID == 2576 then return {mapType=5,parentMapID=2413} end
+        if mapID == 2413 then return {mapType=3,name="Harandar"} end
+        return savedInfo(mapID)
+    end
+    -- Simulate the documented client projection API. These synthetic values
+    -- test graph connectivity, not game coordinates, and never ship as data.
+    CreateVector2D = function(x,y) return {x=x,y=y} end
+    C_Map.GetWorldPosFromMapPos = function(mapID,pos)
+        if mapID == 2576 then return 1,{x=pos.x*100,y=pos.y*100} end
+        if savedWorld then return savedWorld(mapID,pos) end
+    end
+    C_Map.GetMapPosFromWorldPos = function(world,pos,mapID)
+        if world==1 and mapID==2413 then return 2413,{GetXY=function() return pos.x/200+0.2,pos.y/200+0.2 end} end
+        if savedMapPos then return savedMapPos(world,pos,mapID) end
+    end
 
     MockWoW.config.playerFaction = faction
     MockWoW.config.currentMapID = playerMapID
@@ -891,8 +927,7 @@ local function routingRegressionForFaction(t, faction, playerMapID)
 
     local total = 0
     local failed = {}
-    local uncoveredMaps = { [525] = true, [543] = true, [542] = true, [550] = true,
-        [539] = true, [535] = true, [534] = true, [2512] = true, [2509] = true }
+    local uncoveredMaps = {}
     local reachable = 0
 
     for instanceID, inst in pairs(QR.DungeonData.instances) do
@@ -910,7 +945,7 @@ local function routingRegressionForFaction(t, faction, playerMapID)
     end
 
     t:assertTrue(total > 100, faction .. " has >100 mapped dungeons (got " .. total .. ")")
-    t:assertTrue(reachable > 180, faction .. " retains routes to the documented network (got " .. reachable .. ")")
+    t:assertEqual(total, reachable, faction .. " reaches every entrance with prerequisite quests, phases and flight points known")
     if #failed > 0 then
         table.sort(failed)
         local msg = faction .. ": " .. #failed .. "/" .. total .. " routes failed:\n  " .. table.concat(failed, "\n  ")
@@ -922,6 +957,11 @@ local function routingRegressionForFaction(t, faction, playerMapID)
     -- Restore
     MockWoW.config.playerFaction = savedFaction
     MockWoW.config.currentMapID = savedMap
+    C_QuestLog.IsQuestFlaggedCompleted = savedCompleted
+    C_Map.GetMapArtID, C_Map.GetMapInfo = savedArt, savedInfo
+    C_Map.GetWorldPosFromMapPos, C_Map.GetMapPosFromWorldPos = savedWorld, savedMapPos
+    CreateVector2D = savedVector
+    C_TaxiMap = savedTaxi
     QR.PlayerInfo:InvalidateCache()
 end
 

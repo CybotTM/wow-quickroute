@@ -9,7 +9,7 @@ local string_lower = string.lower
 local string_match = string.match
 local table_insert, table_sort = table.insert, table.sort
 local math_huge = math.huge
-local math_floor, math_min = math.floor, math.min
+local math_floor, math_min, math_abs = math.floor, math.min, math.abs
 
 QR.ServiceRouter = {}
 
@@ -163,9 +163,14 @@ local function GetCurrencyName(currencyID)
     local api = _G.C_CurrencyInfo
     if api and api.GetCurrencyInfo then
         local ok, info = pcall(api.GetCurrencyInfo, currencyID)
-        if ok and info and type(info.name) == "string" then return info.name end
+        if ok and type(info) == "table" and not (issecretvalue and issecretvalue(info.name))
+            and type(info.name) == "string" then return info.name end
     end
     return tostring(currencyID)
+end
+
+function SR:GetCurrencyName(currencyID)
+    return GetCurrencyName(currencyID)
 end
 
 --- Save a bounded observation for this character. Coordinates are the player's
@@ -191,15 +196,12 @@ function SR:ObserveMerchant()
     if not IsPosition(loc) then return end
     local ok, accepted = pcall(api.GetMerchantCurrencies)
     if not ok or type(accepted) ~= "table" then return end
-    local vendorKey = character .. ":" .. npcID .. ":" .. mapID
     if #accepted == 0 then
-        -- Empty results also occur while merchant data loads. Only remove a
-        -- previous acceptance once a populated inventory confirms this visit.
+        -- Empty results also occur while merchant data loads. Keep a negative
+        -- observation only once a populated inventory confirms this visit, so
+        -- an obsolete reference-catalogue offering cannot reappear on merge.
         local itemCount = _G.GetMerchantNumItems and _G.GetMerchantNumItems()
-        if IsFinite(itemCount) and itemCount > 0 and type(QR.db.currencyVendors) == "table" then
-            QR.db.currencyVendors[vendorKey] = nil
-        end
-        return
+        if not IsFinite(itemCount) or itemCount <= 0 then return end
     end
     if #accepted > MAX_VENDOR_CURRENCIES then
         QR:Debug("Currency vendor observation exceeds currency limit; keeping previous verified data")
@@ -212,7 +214,7 @@ function SR:ObserveMerchant()
             currencies[currencyID] = true
         end
     end
-    if not next(currencies) then return end
+    if #accepted > 0 and not next(currencies) then return end
     local name = UnitName and UnitName("npc")
     if (issecretvalue and issecretvalue(name)) or type(name) ~= "string" then return end
     loc.name = name:sub(1, 128)
@@ -223,7 +225,7 @@ function SR:ObserveMerchant()
     loc.source = "merchant"
     if type(QR.db.currencyVendors) ~= "table" then QR.db.currencyVendors = {} end
     local vendors = QR.db.currencyVendors
-    vendors[vendorKey] = loc
+    vendors[character .. ":" .. npcID .. ":" .. mapID] = loc
 
     local entries = {}
     for key, entry in pairs(vendors) do
@@ -240,16 +242,24 @@ function SR:ObserveMerchant()
 end
 
 function SR:GetCurrencyLocations(currencyID)
-    local results = {}
+    local results, observed = {}, {}
     local vendors = QR.db and QR.db.currencyVendors
     local character = GetCharacter()
-    if not character or type(vendors) ~= "table" then return results end
+    if type(vendors) ~= "table" then vendors = {} end
     local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
     for _, loc in pairs(vendors) do
-        if IsPosition(loc) and loc.source == "merchant" and loc.character == character
-            and loc.faction == faction and type(loc.name) == "string"
-            and type(loc.currencies) == "table" and (not currencyID or loc.currencies[currencyID] == true) then
-            table_insert(results, loc)
+        if character and IsPosition(loc) and loc.source == "merchant" and loc.character == character
+            and loc.faction == faction and type(loc.name) == "string" and IsFinite(loc.npcID) and loc.npcID > 0
+            and type(loc.currencies) == "table" then
+            observed[loc.npcID .. ":" .. loc.mapID] = true
+            if not currencyID or loc.currencies[currencyID] == true then table_insert(results, loc) end
+        end
+    end
+    if currencyID and QR.Catalog then
+        for _, loc in ipairs(QR.Catalog:GetCurrencyLocations(currencyID)) do
+            -- The character's direct observation supersedes a reference point
+            -- for the same vendor on this map (including changed positions).
+            if not observed[loc.npcID .. ":" .. loc.mapID] then table_insert(results, loc) end
         end
     end
     table_sort(results, function(a, b)
@@ -259,13 +269,26 @@ function SR:GetCurrencyLocations(currencyID)
     return results
 end
 
-function SR:GetKnownCurrencies()
+function SR:GetKnownCurrencies(includeAll)
     local currencies, seen = {}, {}
     for _, loc in ipairs(self:GetCurrencyLocations()) do
         for currencyID in pairs(loc.currencies) do
             if IsFinite(currencyID) and currencyID > 0 and not seen[currencyID] then
                 seen[currencyID] = true
                 table_insert(currencies, { currencyID = currencyID, name = GetCurrencyName(currencyID) })
+            end
+        end
+    end
+    if QR.Catalog then
+        local api = _G.C_CurrencyInfo
+        for _, currencyID in ipairs(QR.Catalog:GetCurrencies()) do
+            local ok, info = false, nil
+            if api and api.GetCurrencyInfo then ok, info = pcall(api.GetCurrencyInfo, currencyID) end
+            local quantity = ok and type(info) == "table" and info.quantity
+            if not seen[currencyID] and (includeAll or (IsFinite(quantity) and quantity > 0)) then
+                seen[currencyID] = true
+                table_insert(currencies, { currencyID = currencyID, name = GetCurrencyName(currencyID),
+                    quantity = IsFinite(quantity) and quantity or nil })
             end
         end
     end
@@ -291,8 +314,41 @@ function SR:FindNearestCurrencyVendorAsync(currencyID, callback)
     local generation = self._currencyGeneration
     local locations = self:GetCurrencyLocations(currencyID)
     local index, bestLoc, bestCost, bestResult = 1
+    local function ReadOrigin()
+        if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition) then return nil end
+        local mapID = C_Map.GetBestMapForUnit("player")
+        if not IsFinite(mapID) or mapID <= 0 then return nil end
+        local pos = C_Map.GetPlayerMapPosition(mapID, "player")
+        if not pos then return nil end
+        local point = { mapID = mapID, x = pos.x, y = pos.y }
+        if pos.GetXY then point.x, point.y = pos:GetXY() end
+        if IsPosition(point) then return point end
+    end
+    local function SafeOrigin()
+        local ok, point = pcall(ReadOrigin)
+        return ok and point or nil
+    end
+    local origin, restarts = SafeOrigin(), 0
     local function CalculateOne()
         if generation ~= SR._currencyGeneration then return end
+        local current = SafeOrigin()
+        if not origin or not current then
+            callback(nil, nil, nil, "position_unavailable")
+            return
+        end
+        local moved = origin.mapID ~= current.mapID
+            or math_abs(origin.x - current.x) > 0.001 or math_abs(origin.y - current.y) > 0.001
+        if moved then
+            restarts = restarts + 1
+            if restarts > 2 then
+                callback(nil, nil, nil, "position_changed")
+                return
+            end
+            -- Never compare estimates measured from different origins. Two
+            -- bounded restarts tolerate a short reposition without an endless
+            -- background scan while a player continues traveling.
+            origin, index, bestLoc, bestCost, bestResult = current, 1, nil, nil, nil
+        end
         if index > #locations then
             callback(bestLoc, bestCost, bestResult)
             return
@@ -314,7 +370,7 @@ function SR:RouteToCurrency(query)
     local currencyID = tonumber(query)
     if not currencyID and type(query) == "string" then
         local name = string_lower(query):match("^%s*(.-)%s*$")
-        for _, currency in ipairs(self:GetKnownCurrencies()) do
+        for _, currency in ipairs(self:GetKnownCurrencies(true)) do
             if string_lower(currency.name) == name then currencyID = currency.currencyID; break end
         end
     end
@@ -323,15 +379,19 @@ function SR:RouteToCurrency(query)
         return false
     end
     QR:Print(QR.L["CALCULATING"])
-    self:FindNearestCurrencyVendorAsync(currencyID, function(loc)
-        if not loc then QR:Print(QR.L["NO_PATH_FOUND"]); return end
+    self:FindNearestCurrencyVendorAsync(currencyID, function(loc, _, _, reason)
+        if not loc then
+            QR:Print(QR.L[reason == "position_changed" and "CURRENCY_VENDOR_MOVED"
+                or reason == "position_unavailable" and "DESTINATION_UNAVAILABLE" or "NO_PATH_FOUND"])
+            return
+        end
         if QR.POIRouting then
             -- Recalculate the selected vendor from the player's current state.
             QR.POIRouting:RouteToMapPosition(loc.mapID, loc.x, loc.y)
             if QR.DestinationSearch then
                 QR.DestinationSearch:SetSearchText(loc.name .. " — " .. GetCurrencyName(currencyID))
             end
-            QR:Print(QR.L["CURRENCY_VENDOR_OBSERVED"])
+            QR:Print(QR.L[loc.source == "merchant" and "CURRENCY_VENDOR_OBSERVED" or "CATALOG_LOCATION"])
         end
     end)
     return true

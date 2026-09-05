@@ -24,7 +24,7 @@ local EMPTY_NODE_LIST = {}  -- Shared empty result; never written to
 -- so the subsequent walk to the actual destination is meaningful, not redundant
 local TRANSPORT_TYPES = {
     teleport = true, portal = true, boat = true,
-    zeppelin = true, tram = true,
+    zeppelin = true, tram = true, jump = true,
 }
 
 --- Safe wrapper for TravelTime:EstimateWalkingTime with fallback
@@ -83,13 +83,22 @@ function PathCalculator:ResolveMapPosition(mapID, x, y)
     end
     local ok, childMapID, childX, childY = pcall(function()
         local info = C_Map.GetMapInfo(mapID)
-        if not info or not info.mapType or info.mapType > 2 then return end
-        local child = C_Map.GetMapInfoAtPosition(mapID, x, y)
-        if not child or not IsMapID(child.mapID) or child.mapID == mapID then return end
+        if not info or not info.mapType then return end
+        local targetMapID
+        if info.mapType <= 2 then
+            local child = C_Map.GetMapInfoAtPosition(mapID, x, y)
+            targetMapID = child and child.mapID
+        elseif info.mapType == 5 and IsMapID(info.parentMapID) then
+            -- Outdoor microzones have their own normalized coordinates. Use
+            -- the client transform (e.g. The Den -> Harandar), never relabel.
+            local parent = C_Map.GetMapInfo(info.parentMapID)
+            if parent and parent.mapType == 3 then targetMapID = info.parentMapID end
+        end
+        if not IsMapID(targetMapID) or targetMapID == mapID then return end
         local worldID, worldPos = C_Map.GetWorldPosFromMapPos(mapID, CreateVector2D(x, y))
         if not worldID or not worldPos then return end
-        local resolvedID, pos = C_Map.GetMapPosFromWorldPos(worldID, worldPos, child.mapID)
-        if resolvedID ~= child.mapID or not pos then return end
+        local resolvedID, pos = C_Map.GetMapPosFromWorldPos(worldID, worldPos, targetMapID)
+        if resolvedID ~= targetMapID or not pos then return end
         local px, py = pos:GetXY()
         if IsCoordinate(px) and IsCoordinate(py) then return resolvedID, px, py end
     end)
@@ -97,28 +106,21 @@ function PathCalculator:ResolveMapPosition(mapID, x, y)
     return mapID, x, y
 end
 
--- Cached flyable area result
-local cachedIsFlyable = nil
-local cachedIsFlyableMapID = nil
-
---- Get cached IsFlyableArea result (invalidated on zone change)
+--- Movement capability comes from measured/usable character abilities.
 local function GetCachedIsFlyable()
-    local currentMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
-    if cachedIsFlyableMapID ~= currentMapID then
-        cachedIsFlyable = IsFlyableArea and IsFlyableArea() or false
-        cachedIsFlyableMapID = currentMapID
-    end
-    return cachedIsFlyable
+    local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if QR.TravelTime.CanFly then return QR.TravelTime:CanFly(mapID) end
+    return false
 end
 
--- Register for zone change to invalidate flyable cache
 local flyableCacheFrame = CreateFrame("Frame")
-flyableCacheFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
-flyableCacheFrame:RegisterEvent("TAXI_NODE_STATUS_CHANGED")
-flyableCacheFrame:RegisterEvent("TAXIMAP_OPENED")
-flyableCacheFrame:SetScript("OnEvent", function(_, event)
-    cachedIsFlyableMapID = nil
-    if event ~= "ZONE_CHANGED_NEW_AREA" then PathCalculator.graphDirty = true end
+for _, event in ipairs({ "ZONE_CHANGED_NEW_AREA", "TAXI_NODE_STATUS_CHANGED", "TAXIMAP_OPENED",
+    "PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_CONTROL_GAINED" }) do
+    flyableCacheFrame:RegisterEvent(event)
+end
+flyableCacheFrame:SetScript("OnEvent", function()
+    if QR.TravelTime.ClearMovementCache then QR.TravelTime:ClearMovementCache() end
+    PathCalculator.graphDirty = true
 end)
 
 --- Get a localized display name for a graph node
@@ -227,6 +229,7 @@ function PathCalculator:BuildGraph()
     -- Add portal hub connections
     success, err = pcall(function()
         self:AddPortalConnections()
+        self:AddConditionalConnections()
     end)
     if not success then
         QR:Error("AddPortalConnections failed: " .. tostring(err))
@@ -334,6 +337,51 @@ function PathCalculator:BuildGraph()
     return self.graph
 end
 
+--- Add sourced access-gated portals and explicit NPC phase changes.
+function PathCalculator:AddConditionalConnections()
+    local transitions = QR.TravelTransitions
+    if not transitions then return end
+    for id, data in pairs(transitions.nodes) do
+        local node = {}
+        for key, value in pairs(data) do node[key] = value end
+        local mapID, x, y = self:ResolveMapPosition(node.mapID, node.x, node.y)
+        if mapID then node.mapID, node.x, node.y = mapID, x, y end
+        node.nodeType = "transition"
+        self.graph:AddNode("Travel:" .. id, node)
+    end
+    for _, edge in ipairs(transitions.edges) do
+        local from, to = "Travel:" .. edge.from, "Travel:" .. edge.to
+        local seconds = edge.cost or (edge.method == "phaseswitch" and 10
+            or edge.method == "flight" and 120 or QR.TravelTime:GetPortalTime())
+        if edge.method == "portal" and not edge.noLoadingScreen then seconds = seconds + (QR.db and QR.db.loadingScreenTime or 0) end
+        if edge.method == "flight" and edge.distanceYards then
+            seconds = QR.TravelTime.FLIGHT_OVERHEAD + edge.distanceYards / QR.TravelTime.FLIGHT_SPEED
+        end
+        local function add(source, target)
+            local targetData, sourceData = self.graph.nodes[target], self.graph.nodes[source]
+            local requirements = edge.requirements
+            if edge.method == "flight" then
+                requirements = {}
+                for key, value in pairs(edge.requirements or {}) do requirements[key] = value end
+                requirements.flightDiscovery = { sourceData, targetData }
+            end
+            if edge.method ~= "flight" or (QR.TravelRequirements and QR.TravelRequirements:Check(requirements, nil, true) == true) then
+                self.graph:AddEdgeOption(source, target, seconds, edge.method, {
+                    requirements = requirements,
+                    fromMapID = sourceData.mapID, toMapID = targetData.mapID,
+                    flightPoint = edge.method == "flight" and { mapID=sourceData.mapID, x=sourceData.x, y=sourceData.y } or nil,
+                    estimatedTime = edge.distanceYards ~= nil,
+                    instructionKey = edge.instructionKey,
+                    phaseMapID = edge.method == "phaseswitch" and (targetData.phaseCheckMapID or targetData.mapID) or nil,
+                    phaseArtID = edge.method == "phaseswitch" and targetData.mapArtID or nil,
+                })
+            end
+        end
+        add(from, to)
+        if not edge.oneway then add(to, from) end
+    end
+end
+
 --- Connect all nodes that share the same mapID with walking edges
 -- This is crucial for connecting teleport destinations to nearby portal hubs
 function PathCalculator:ConnectSameMapNodes()
@@ -370,6 +418,8 @@ function PathCalculator:ConnectSameMapNodes()
                     local existingEdge = self.graph:GetEdge(nodeA.name, nodeB.name)
                     local reverseEdge = self.graph:GetEdge(nodeB.name, nodeA.name)
                     if nodeA.name == PLAYER_NODE or nodeB.name == PLAYER_NODE
+                        or (existingEdge and existingEdge.edgeType == "flight" and existingEdge.data and existingEdge.data.requirements)
+                        or (reverseEdge and reverseEdge.edgeType == "flight" and reverseEdge.data and reverseEdge.data.requirements)
                         or ((not existingEdge or existingEdge.edgeType == "travel")
                         and (not reverseEdge or reverseEdge.edgeType == "travel")) then
                         -- Calculate walking time
@@ -454,9 +504,9 @@ function PathCalculator:AddPortalConnections()
             -- Add loading screen time cost
             local loadingTime = QR.db and QR.db.loadingScreenTime or 0
             travelTime = travelTime + loadingTime
-            self.graph:AddEdge(hubName, destName, travelTime, "portal", {
-                portalData = portal,
-            })
+            if not QR.TravelRequirements or not QR.TravelRequirements:HasReplacement(hubData.mapID, portal.mapID, "portal") then
+                self.graph:AddEdge(hubName, destName, travelTime, "portal", { portalData = portal })
+            end
         end
     end
 
@@ -486,15 +536,18 @@ function PathCalculator:AddPortalConnections()
 
         -- Add transport edge
         local travelTime = transport.travelTime or QR.TravelTime:GetTransportTime(transport.type)
-        self.graph:AddEdge(fromName, toName, travelTime, transport.type, {
-            transportData = transport,
-        })
+        local replaced = QR.TravelRequirements and QR.TravelRequirements:HasReplacement(
+            transport.from.mapID, transport.to.mapID, transport.type or "portal")
+        if not replaced then
+            self.graph:AddEdge(fromName, toName, travelTime, transport.type, { transportData = transport })
+        end
 
-        -- Add reverse edge if bidirectional
-        if transport.bidirectional then
-            self.graph:AddEdge(toName, fromName, travelTime, transport.type, {
-                transportData = transport,
-            })
+        -- Preserve each independent direction/method. A ship remains available
+        -- even if a sourced quest-gated portal connects the same pair of maps.
+        local reverseReplaced = QR.TravelRequirements and QR.TravelRequirements:HasReplacement(
+            transport.to.mapID, transport.from.mapID, transport.type or "portal")
+        if transport.bidirectional and not reverseReplaced then
+            self.graph:AddEdge(toName, fromName, travelTime, transport.type, { transportData = transport })
         end
     end
 end
@@ -529,47 +582,60 @@ function PathCalculator:AddPlayerTeleportEdges()
 
     -- Add edges from player location to each teleport destination
     for teleportID, teleport in pairs(teleports) do
-        local data = teleport.data
-        if QR.Hearthstone then data = QR.Hearthstone:ResolveTeleport(data) end
-        if data and data.mapID and not data.isDynamic and not data.isRandom then
-            local destName = data.nodeKey or data.destination or data.name
+        local destinations
+        if QR.TeleportDestinations then
+            destinations = QR.TeleportDestinations:GetDestinations(teleportID, teleport)
+        else
+            local data = teleport.data
+            if QR.Hearthstone then data = QR.Hearthstone:ResolveTeleport(data) end
+            destinations = data and { data } or {}
+        end
+        for _, data in ipairs(destinations) do
+            local usable = not (issecretvalue and issecretvalue(teleport.isUsable)) and teleport.isUsable ~= false
+            local engineering = not data.requiresEngineering or QR.PlayerInfo:HasEngineering()
+            local faction = not data.faction or data.faction == "both" or data.faction == QR.PlayerInfo:GetFaction()
+            local class = not data.class or QR.PlayerInfo:IsClass(data.class)
+            if data and data.mapID and not data.isDynamic and not data.isRandom and usable and engineering and faction and class then
+                local destName = data.nodeKey or data.destination or data.name
 
-            -- Ensure destination node exists
-            if not self.graph.nodes[destName] then
-                self.graph:AddNode(destName, {
-                    mapID = data.mapID,
-                    x = data.x or 0.5,
-                    y = data.y or 0.5,
-                    nodeType = "teleport_dest",
-                })
-            end
+                -- Ensure destination node exists
+                if not self.graph.nodes[destName] then
+                    self.graph:AddNode(destName, {
+                        mapID = data.mapID,
+                        x = data.x or 0.5,
+                        y = data.y or 0.5,
+                        nodeType = "teleport_dest",
+                    })
+                end
 
-            -- Check max cooldown filter — skip teleports that exceed threshold
-            local skipTeleport = false
-            local maxCDHours = QR.db and QR.db.maxCooldownHours
-            if maxCDHours and maxCDHours < 24 then  -- 24 = "no filter"
-                local maxCDSeconds = maxCDHours * 3600
-                if QR.CooldownTracker then
-                    local cdInfo = QR.CooldownTracker:GetCooldown(teleportID, teleport.sourceType)
-                    if cdInfo and cdInfo.duration and cdInfo.duration > maxCDSeconds then
-                        skipTeleport = true
+                -- Check max cooldown filter — skip teleports that exceed threshold
+                local skipTeleport = false
+                local maxCDHours = QR.db and QR.db.maxCooldownHours
+                if maxCDHours and maxCDHours < 24 then  -- 24 = "no filter"
+                    local maxCDSeconds = maxCDHours * 3600
+                    if QR.CooldownTracker then
+                        local cdInfo = QR.CooldownTracker:GetCooldown(teleportID, teleport.sourceType)
+                        if cdInfo and cdInfo.duration and cdInfo.duration > maxCDSeconds then
+                            skipTeleport = true
+                        end
                     end
                 end
-            end
 
-            if not skipTeleport then
-                -- Calculate effective travel time (with optional cooldown wait)
-                local includeCooldown = QR.db and QR.db.considerCooldowns
-                local travelTime = QR.TravelTime:GetEffectiveTime(teleportID, data, includeCooldown, teleport.sourceType)
-                -- Add loading screen time cost for teleports
-                local loadingTime = QR.db and QR.db.loadingScreenTime or 0
-                travelTime = travelTime + loadingTime
+                if not skipTeleport then
+                    -- Calculate effective travel time (with optional cooldown wait)
+                    local includeCooldown = QR.db and QR.db.considerCooldowns
+                    local travelTime = QR.TravelTime:GetEffectiveTime(teleportID, data, includeCooldown, teleport.sourceType)
+                    -- Add loading screen time cost for teleports
+                    local loadingTime = QR.db and QR.db.loadingScreenTime or 0
+                    travelTime = travelTime + loadingTime
 
-                self.graph:AddEdgeOption(PLAYER_NODE, destName, travelTime, "teleport", {
-                    teleportID = teleportID,
-                    teleportData = data,
-                    sourceType = teleport.sourceType,
-                })
+                    self.graph:AddEdgeOption(PLAYER_NODE, destName, travelTime, "teleport", {
+                        teleportID = teleportID,
+                        teleportData = data,
+                        sourceType = teleport.sourceType,
+                        requirements = data.requirements,
+                    })
+                end
             end
         end
     end
@@ -769,7 +835,12 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     end
 
     -- Run Dijkstra's algorithm
-    local path, totalTime, pathEdges = self.graph:FindShortestPath(PLAYER_NODE, destName)
+    local path, totalTime, pathEdges
+    if QR.TravelRequirements then
+        path, totalTime, pathEdges = QR.TravelRequirements:FindPath(self.graph, PLAYER_NODE, destName)
+    else
+        path, totalTime, pathEdges = self.graph:FindShortestPath(PLAYER_NODE, destName)
+    end
 
     if not path then
         -- Clean up destination node on failure
@@ -806,6 +877,125 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         edges = pathEdges,
         steps = steps,
     }
+end
+
+--- Create a reusable calculator with its own graph and position caches.
+-- Transport topology is copied once; current access/phase requirements are
+-- still evaluated on every query. Exclusions are fixed for this context.
+function PathCalculator:CreateRouteContext(options)
+    -- Only methods may fall through. A nil cache/index on the private object
+    -- must never expose mutable state from the live PathCalculator singleton.
+    local calculator = setmetatable({ graphDirty = false }, { __index = function(_, key)
+        local value = PathCalculator[key]
+        if type(value) == "function" then return value end
+    end })
+    local discoveryOverride = self.knownFlightZonesOverride
+    if type(discoveryOverride) == "table" then
+        calculator.knownFlightZonesOverride = {}
+        for mapID, known in pairs(discoveryOverride) do calculator.knownFlightZonesOverride[mapID] = known end
+    elseif type(discoveryOverride) == "boolean" then
+        calculator.knownFlightZonesOverride = discoveryOverride
+    end
+    local excludeCooldowns = options and options.excludeCooldowns == true
+    local baselineNodes = {}
+    local originMapID, originX, originY
+    local function prepare(instance, filterTeleports)
+        local graph = instance.graph
+        if not graph then return end
+        if filterTeleports and excludeCooldowns then
+            for from, outgoing in pairs(graph.edges) do
+                for to, selected in pairs(outgoing) do
+                    local retained = {}
+                    for _, edge in ipairs(selected.alternatives or { selected }) do
+                        if edge.edgeType ~= "teleport" then retained[#retained+1] = edge end
+                    end
+                    graph:SetEdgeOptions(from, to, retained)
+                end
+            end
+        end
+        baselineNodes = {}
+        for name in pairs(graph.nodes) do baselineNodes[name] = true end
+        instance.nodeIndex = nil
+    end
+    local base = self.graph
+    local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    if not base or self.graphDirty or (self.graphFaction and faction and self.graphFaction ~= faction) then
+        local ok = pcall(PathCalculator.BuildGraph, calculator)
+        if not ok or calculator.graphDirty or not calculator.graph then return nil end
+        prepare(calculator, true)
+    else
+        local graph = QR.Graph:New()
+        for name, data in pairs(base.nodes) do
+            local node = {}
+            for key, value in pairs(data) do node[key] = value end
+            graph:AddNode(name, node)
+        end
+        for from, outgoing in pairs(base.edges) do
+            for to, selected in pairs(outgoing) do
+                local alternatives = {}
+                for _, edge in ipairs(selected.alternatives or { selected }) do
+                    if not (excludeCooldowns and edge.edgeType == "teleport") then
+                        alternatives[#alternatives+1] = edge
+                    end
+                end
+                graph:SetEdgeOptions(from, to, alternatives)
+            end
+        end
+        calculator.graph, calculator.graphDirty = graph, false
+        calculator.graphFaction = faction
+        calculator.zoneTravelGraph, calculator.zoneTravelCache = nil, nil
+        prepare(calculator, false)
+    end
+    -- CalculatePath can rebuild after a faction change. Such a rebuild remains
+    -- private and must preserve this context's personal-teleport exclusion.
+    calculator.BuildGraph = function(instance)
+        local graph = PathCalculator.BuildGraph(instance)
+        prepare(instance, true)
+        return graph
+    end
+    calculator.UpdatePlayerLocation = function(instance)
+        if not originMapID then return false end
+        local graph = instance.graph
+        local node = graph.nodes[PLAYER_NODE]
+        if not node then
+            graph:AddNode(PLAYER_NODE, { nodeType = "player" })
+            node = graph.nodes[PLAYER_NODE]
+            baselineNodes[PLAYER_NODE] = true
+        end
+        node.mapID, node.x, node.y = originMapID, originX, originY
+        instance:ReconnectPlayerNode(originMapID, originX, originY)
+        return true
+    end
+    calculator.CalculatePathFrom = function(instance, startMapID, startX, startY, destMapID, destX, destY, queryOptions)
+        local mapID, x, y = instance:ResolveMapPosition(startMapID, startX, startY)
+        if not mapID then return nil end
+        originMapID, originX, originY = mapID, x, y
+        local ok, result = pcall(PathCalculator.CalculatePath, instance,
+            destMapID, destX, destY, queryOptions and queryOptions.title)
+        -- CalculatePath normally removes its destination. Also recover when a
+        -- connection/API/search failure interrupts it after that node is added.
+        if instance.graph then
+            for name in pairs(instance.graph.nodes) do
+                if not baselineNodes[name] then instance.graph:RemoveNode(name) end
+            end
+        end
+        if not ok then
+            instance.nodeIndex = nil
+            QR:Debug("Hypothetical route calculation failed: " .. tostring(result))
+            return nil
+        end
+        return result
+    end
+    return calculator
+end
+
+--- Backward-compatible one-shot query; tours can reuse CreateRouteContext.
+function PathCalculator:CalculatePathFrom(startMapID, startX, startY, destMapID, destX, destY, options)
+    startMapID, startX, startY = self:ResolveMapPosition(startMapID, startX, startY)
+    if not startMapID then return nil end
+    local context = self:CreateRouteContext(options)
+    if not context then return nil end
+    return context:CalculatePathFrom(startMapID, startX, startY, destMapID, destX, destY, options)
 end
 
 --- Update player location node with current position
@@ -1580,6 +1770,8 @@ function PathCalculator:BuildSteps(path, edges)
                 )
                 step.teleportID = edge.data.teleportID
                 step.sourceType = edge.data.sourceType
+                step.teleportData = teleportData
+                step.choiceText = teleportData.choiceText
                 -- Get coordinates from teleport data if available
                 if teleportData.mapID then
                     step.destMapID = teleportData.mapID
@@ -1595,6 +1787,9 @@ function PathCalculator:BuildSteps(path, edges)
             end
         elseif edge.edgeType == "portal" then
             step.action = string_format(L["STEP_TAKE_PORTAL"], localizedToNode)
+        elseif edge.edgeType == "phaseswitch" then
+            step.phaseMapID, step.phaseArtID = edge.data.phaseMapID, edge.data.phaseArtID
+            step.action = string_format(L["STEP_CHANGE_PHASE_TO"], toNodeData and toNodeData.name or localizedToNode)
         elseif edge.edgeType == "walk" or edge.edgeType == "travel" then
             -- Walk/travel step: localized node name already includes disambiguation
             step.action = string_format(L["STEP_GO_TO"], localizedToNode)
@@ -1625,12 +1820,13 @@ function PathCalculator:BuildSteps(path, edges)
         -- at the from node rather than at the destination.
         if edge.edgeType == "portal" or edge.edgeType == "boat"
             or edge.edgeType == "zeppelin" or edge.edgeType == "tram"
-            or edge.edgeType == "flight" then
+            or edge.edgeType == "flight" or edge.edgeType == "phaseswitch" or edge.edgeType == "jump" then
             if fromNodeData then
                 step.navMapID = fromNodeData.mapID
                 step.navX = fromNodeData.x or 0.5
                 step.navY = fromNodeData.y or 0.5
                 step.navTitle = step.action
+                step.navLabel = fromNodeData.name
             end
         end
 
@@ -1642,13 +1838,18 @@ function PathCalculator:BuildSteps(path, edges)
         -- read it until this block, which is why a transposed x/y went
         -- unnoticed for four review rounds.
         if edge.edgeType == "flight" and edge.data and QR.FlightPoints then
-            local master = self:FlightPointFor(edge.data.fromMapID)
+            local master = edge.data.flightPoint or self:FlightPointFor(edge.data.fromMapID)
             if master and master.x and master.y then
                 step.navX = master.x
                 step.navY = master.y
             end
         end
 
+        if edge.data and edge.data.instructionKey then
+            step.instructionKey = edge.data.instructionKey
+            step.action = string_format(L[step.instructionKey], localizedToNode)
+            step.navTitle = step.action
+        end
         table_insert(steps, step)
     end
 

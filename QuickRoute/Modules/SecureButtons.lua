@@ -457,7 +457,7 @@ end
 -- @param id number The item or spell ID
 -- @param sourceType string "spell", "toy", "item", or "equipped"
 -- @return boolean True if configuration succeeded
-function SecureButtons:ConfigureButton(btn, id, sourceType)
+function SecureButtons:ConfigureButton(btn, id, sourceType, teleportData)
     if InCombatLockdown() or not btn then return false end
     if type(id) ~= "number" or id ~= math_floor(id) or id <= 0 or id >= math_huge then
         return false
@@ -473,13 +473,29 @@ function SecureButtons:ConfigureButton(btn, id, sourceType)
     btn:SetAttribute("spell", nil)
     btn:SetAttribute("toy", nil)
     btn:SetAttribute("item", nil)
+    btn:SetAttribute("house-neighborhood-guid", nil)
+    btn:SetAttribute("house-guid", nil)
+    btn:SetAttribute("house-plot-id", nil)
     -- Right/middle clicks are reserved for navigation/context actions.
     -- nil would fall back to the unqualified teleport action.
     btn:SetAttribute("*type2", "")
     btn:SetAttribute("*type3", "")
 
     local ok
-    if sourceType == "spell" then
+    if id == 1233637 and type(teleportData) == "table" and type(teleportData.housing) == "table" then
+        local house = teleportData.housing
+        local neighborhood, guid, plot = house.neighborhoodGUID, house.houseGUID, house.plotID
+        if (issecretvalue and (issecretvalue(neighborhood) or issecretvalue(guid) or issecretvalue(plot)))
+            or type(neighborhood) ~= "string" or neighborhood == ""
+            or type(guid) ~= "string" or guid == "" or type(plot) ~= "number"
+            or plot ~= math_floor(plot) or plot < 0 or plot >= math_huge then return false end
+        btn:SetAttribute("type", "teleporthome")
+        btn:SetAttribute("house-neighborhood-guid", neighborhood)
+        btn:SetAttribute("house-guid", guid)
+        btn:SetAttribute("house-plot-id", plot)
+        btn.teleportID, btn.sourceType = id, "spell"
+        ok = true
+    elseif sourceType == "spell" then
         ok = self:ConfigureForSpell(btn, id)
     elseif sourceType == "toy" then
         ok = self:ConfigureForToy(btn, id)

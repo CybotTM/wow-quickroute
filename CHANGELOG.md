@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+### Added
+- Indexed retail NPC, quest-reference, independently located quest-giver and currency-vendor catalogues with pinned AllTheThings provenance and a non-executing update generator.
+- Currency vendor selection and nearest-time routing, combining access-filtered reference data with per-character merchant observations.
+- Multi-destination trips with TomTom/paste import, whole-order optimization, per-character saved progress, bounded background calculations and live replanning of each leg.
+- Phase-aware routes through seven Zidormi regions, explicit phase-switch instructions and visible controls for unknown phase state.
+- Attributed travel choices, hidden shortcuts, individually unlocked Mole Machine destinations, faction garrisons/shipyards and observed camp/housing destinations.
+
+### Fixed
+- Removed invented travel connections, preserved parallel transport alternatives and final walks, and projected map coordinates instead of changing their map identity alone.
+- Corrected discovered flight-master handling and added sourced flight endpoints omitted by one-master-per-zone selection.
+- Enforced actual ownership, engineering usability, access requirements, riding capability and client-provided movement/cast-time data.
+- Hardened recycled secure buttons, equipment restoration, secondary clicks, combat visibility and malformed saved settings/window positions.
+- Routed quest tracker shortcuts through the calculated first action, with bounded per-frame refreshes and movement-aware caching.
+- Prevented asynchronous vendor/trip results from mixing origins or replacing a newer destination; current merchant observations also override removed catalogue currency offers.
+- Kept generic quest references distinct from objectives and turn-ins; removed unrelated dungeon entrance fallbacks and random teleport midpoint guesses.
+- Packaged the complete addon tree with its source manifests and licenses; missing TOC files or required notices now block creation of a release archive.
+
+### Validation
+- See [review](docs/REVIEW-2026-09-05.md), [catalogue provenance](docs/DESTINATION-DATA.md) and [retail acceptance](docs/RETAIL-ACCEPTANCE.md). In-client acceptance is required before describing the release as fully validated in retail.
+
 ## [1.16.0] - 2026-09-03
 
 ### Added

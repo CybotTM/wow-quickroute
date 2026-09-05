@@ -5,6 +5,23 @@ local ADDON_NAME, QR = ...
 -- Cache frequently-used globals for performance
 local math_sqrt = math.sqrt
 local math_ceil = math.ceil
+local math_max = math.max
+local type, pcall = type, pcall
+
+local function Public(value)
+    return not (issecretvalue and issecretvalue(value))
+end
+
+local function Number(value)
+    return Public(value) and type(value) == "number" and value == value
+        and value >= 0 and value < math.huge
+end
+
+local function BooleanCall(fn, ...)
+    if not fn then return false end
+    local ok, result = pcall(fn, ...)
+    return ok and Public(result) and result == true
+end
 
 -------------------------------------------------------------------------------
 -- TravelTime Module
@@ -33,7 +50,7 @@ TravelTime.LOADING_TIMES = {
 TravelTime.CAST_TIMES = {
     hearthstone = 10,   -- Hearthstone cast time
     portal = 10,        -- Portal cast time (for mage portals)
-    teleport = 0,       -- Instant teleport spells
+    teleport = 10,      -- Mage teleports have a ten-second cast
     item = 0,           -- Most items are instant
     toy = 0,            -- Most toys are instant
 }
@@ -42,10 +59,116 @@ TravelTime.CAST_TIMES = {
 TravelTime.SPEEDS = {
     walking = 7,        -- Base walking speed
     running = 7,        -- Running (same as walking without mount)
+    apprentice_ground = 11.2, -- 60% bonus: base 7 * 1.6
     mounted_ground = 14, -- 100% ground mount
-    mounted_flying = 18, -- 280% flying mount (average)
-    epic_flying = 21,   -- 310% flying mount
+    expert_flying = 17.5, -- 150% bonus: base 7 * 2.5
+    mounted_flying = 26.6, -- 280% bonus: base 7 * 3.8
+    epic_flying = 28.7,  -- 310% bonus: base 7 * 4.1
 }
+
+-- Blizzard's GetUnitSpeed reports current and maximum movement speeds;
+-- C_PlayerInfo.GetGlidingInfo reports actual skyriding forward speed. Never
+-- apply one zone's flight permission to a destination in another zone.
+local mountCache
+local function RidingKnown(id)
+    local spellBook = _G.C_SpellBook
+    return BooleanCall(spellBook and spellBook.IsSpellKnown or IsSpellKnown, id)
+end
+
+local function MountCapabilities()
+    local now = GetTime and GetTime() or 0
+    if not Number(now) then now = 0 end
+    if mountCache and now >= mountCache.time and now - mountCache.time < 1 then
+        return mountCache.usable, mountCache.steady
+    end
+    local usableMount, steadyFlightMount = false, false
+    if C_MountJournal and C_MountJournal.GetMountIDs and C_MountJournal.GetMountInfoByID then
+        local ok, mounts = pcall(C_MountJournal.GetMountIDs)
+        if ok and type(mounts) == "table" then
+            for _, id in ipairs(mounts) do
+                local success, _, _, _, _, usable, _, _, _, _, _, collected, _, steady =
+                    pcall(C_MountJournal.GetMountInfoByID, id)
+                if success and Public(usable) and Public(collected) and usable == true and collected == true then
+                    usableMount = true
+                    if Public(steady) and steady == true then steadyFlightMount = true end
+                end
+            end
+        end
+    end
+    mountCache = { time = now, usable = usableMount, steady = steadyFlightMount }
+    return usableMount, steadyFlightMount
+end
+
+local function ComputeMovementSpeed(self, mapID, mode)
+    local currentMap
+    if C_Map and C_Map.GetBestMapForUnit then
+        local ok, value = pcall(C_Map.GetBestMapForUnit, "player")
+        if ok and Number(value) then currentMap = value end
+    end
+    local here = mapID ~= nil and mapID == currentMap
+    local runSpeed, flightSpeed, measuredSpeed = self.SPEEDS.running, 0, 0
+    if here and _G.GetUnitSpeed then
+        local ok, current, run, flight = pcall(_G.GetUnitSpeed, "player")
+        if ok then
+            if Number(run) and run > 0 then runSpeed = run end
+            if Number(flight) then flightSpeed = flight end
+            if Number(current) then measuredSpeed = current end
+        end
+    end
+    if mode == "walk" or (here and BooleanCall(_G.IsIndoors)) then return self.SPEEDS.running end
+
+    local mounted = here and BooleanCall(_G.IsMounted)
+    local usableMount, steadyFlightMount = MountCapabilities()
+    local ground = runSpeed
+    if mounted or usableMount then
+        local trainedSpeed = RidingKnown(33391) or RidingKnown(34090) or RidingKnown(34091) or RidingKnown(90265)
+        ground = math_max(runSpeed, trainedSpeed and self.SPEEDS.mounted_ground or self.SPEEDS.apprentice_ground)
+    end
+    if not here or mode == false or mode == "ground" then return ground end
+
+    local flightAllowed = BooleanCall(_G.IsFlyableArea)
+    local advancedAllowed = BooleanCall(_G.IsAdvancedFlyableArea)
+    local playerInfo = _G.C_PlayerInfo
+    if advancedAllowed and playerInfo and playerInfo.GetGlidingInfo then
+        local ok, gliding, canGlide, forwardSpeed = pcall(playerInfo.GetGlidingInfo)
+        if ok and Public(gliding) and Public(canGlide) and gliding == true and canGlide == true
+            and Number(forwardSpeed) and forwardSpeed > ground then
+            return forwardSpeed
+        end
+    end
+    if flightAllowed and (steadyFlightMount or BooleanCall(_G.IsFlying)) then
+        if flightSpeed > ground then return math_max(flightSpeed, measuredSpeed) end
+        if steadyFlightMount then
+            -- A usable collected flight mount is capability evidence even while
+            -- unmounted. Only apply faster ranks when the spellbook confirms it.
+            local trainedSpeed = RidingKnown(90265) and self.SPEEDS.epic_flying
+                or (RidingKnown(34091) and self.SPEEDS.mounted_flying or self.SPEEDS.expert_flying)
+            return math_max(ground, trainedSpeed)
+        end
+    end
+    return ground
+end
+
+local movementCache = {}
+function TravelTime:ClearMovementCache()
+    wipe(movementCache)
+    mountCache = nil
+end
+
+function TravelTime:GetMovementSpeed(mapID, mode)
+    local now = GetTime and GetTime() or 0
+    if not Number(now) then now = 0 end
+    local key = tostring(mapID) .. ":" .. tostring(mode)
+    local cached = movementCache[key]
+    if cached and now >= cached.time and now - cached.time < 1 then return cached.speed end
+    local speed = ComputeMovementSpeed(self, mapID, mode)
+    movementCache[key] = { time = now, speed = speed }
+    return speed
+end
+
+function TravelTime:CanFly(mapID)
+    return self:GetMovementSpeed(mapID, true) > self:GetMovementSpeed(mapID, false)
+end
 
 -- Flight master speed, yards per second.
 --
@@ -92,8 +215,8 @@ function TravelTime:GetMapScale(mapID)
         -- axes prices a north-south walk by the map's east-west extent, which
         -- on a map that is not square is wrong by its aspect ratio.
         local ok, width, height = pcall(C_Map.GetMapWorldSize, mapID)
-        if ok and type(width) == "number" and width > 0 then
-            if type(height) ~= "number" or height <= 0 then
+        if ok and Number(width) and width > 0 then
+            if not Number(height) or height <= 0 then
                 height = width
             end
             mapScaleCache[mapID] = { width, height }
@@ -112,8 +235,9 @@ end
 -- @param yards number Distance in yards
 -- @param canFly boolean Whether the player can fly there
 -- @return number Travel time in seconds, rounded up
-function TravelTime:YardsToTime(yards, canFly)
-    local speed = canFly and self.SPEEDS.mounted_flying or self.SPEEDS.mounted_ground
+function TravelTime:YardsToTime(yards, canFly, mapID)
+    local speed = mapID and self:GetMovementSpeed(mapID, canFly)
+        or (canFly and self.SPEEDS.mounted_flying or self.SPEEDS.mounted_ground)
     return math_ceil(yards / speed)
 end
 
@@ -121,7 +245,7 @@ end
 -- Includes cast time + loading time
 -- @param teleportData table Teleport data from TeleportItemsData
 -- @return number Total teleport time in seconds
-function TravelTime:GetTeleportTime(teleportData)
+function TravelTime:GetTeleportTime(teleportData, teleportID, sourceType)
     if not teleportData then
         return 0
     end
@@ -135,7 +259,7 @@ function TravelTime:GetTeleportTime(teleportData)
         castTime = self.CAST_TIMES.hearthstone
         loadTime = self.LOADING_TIMES.hearthstone
     elseif teleportType == QR.TeleportTypes.SPELL then
-        -- Mage teleports are instant, class spells may vary
+        -- Individual spell metadata below overrides this conservative default.
         if teleportData.class == "MAGE" then
             castTime = self.CAST_TIMES.teleport
             loadTime = self.LOADING_TIMES.teleport
@@ -157,6 +281,19 @@ function TravelTime:GetTeleportTime(teleportData)
         loadTime = self.LOADING_TIMES.portal
     end
 
+    if Number(teleportData.castTime) then castTime = teleportData.castTime end
+    local spellID = teleportData.spellID
+    if not spellID and sourceType == "spell" then spellID = teleportID end
+    if not spellID and teleportID and sourceType ~= "spell" and C_Item and C_Item.GetItemSpell then
+        local ok, _, itemSpellID = pcall(C_Item.GetItemSpell, teleportID)
+        if ok and Number(itemSpellID) and itemSpellID > 0 then spellID = itemSpellID end
+    end
+    if spellID and C_Spell and C_Spell.GetSpellInfo then
+        local ok, info = pcall(C_Spell.GetSpellInfo, spellID)
+        if ok and type(info) == "table" and Number(info.castTime) then
+            castTime = info.castTime / 1000
+        end
+    end
     return castTime + loadTime
 end
 
@@ -180,7 +317,8 @@ end
 -- @param includeCooldownWait boolean Whether to add cooldown wait time
 -- @return number Total effective time in seconds
 function TravelTime:GetEffectiveTime(teleportID, teleportData, includeCooldownWait, actualSourceType)
-    local baseTime = self:GetTeleportTime(teleportData)
+    local sourceType = actualSourceType or (teleportData and teleportData.type == QR.TeleportTypes.SPELL and "spell" or "item")
+    local baseTime = self:GetTeleportTime(teleportData, teleportID, sourceType)
 
     if not includeCooldownWait then
         return baseTime
@@ -188,7 +326,7 @@ function TravelTime:GetEffectiveTime(teleportID, teleportData, includeCooldownWa
 
     -- Get cooldown remaining if CooldownTracker is available
     if QR.CooldownTracker then
-        local sourceType = actualSourceType or "item"
+        sourceType = actualSourceType or "item"
         if not actualSourceType and teleportData.type == QR.TeleportTypes.SPELL then
             sourceType = "spell"
         elseif not actualSourceType and teleportData.type == QR.TeleportTypes.TOY then
@@ -233,5 +371,5 @@ function TravelTime:EstimateWalkingTime(x1, y1, x2, y2, canFly, mapID)
     local dy = (y2 - y1) * height
     local yards = math_sqrt(dx * dx + dy * dy)
 
-    return self:YardsToTime(yards, canFly)
+    return self:YardsToTime(yards, canFly, mapID)
 end

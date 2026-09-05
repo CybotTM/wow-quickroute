@@ -117,51 +117,7 @@ jobs:
       - name: Package addon
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -o pipefail
-          mkdir -p dist/QuickRoute
-          # Copy addon files. Tests/ ships because QuickRoute.toc lists
-          # Tests\TestGraph.lua; omitting it left every published build with a
-          # TOC entry pointing at a file that is not in the zip, and the
-          # advertised /qrtest command missing.
-          cp -r QuickRoute/Core QuickRoute/Data QuickRoute/Modules \
-                QuickRoute/Textures QuickRoute/Utils QuickRoute/Tests dist/QuickRoute/
-          cp QuickRoute/QuickRoute.lua QuickRoute/QuickRoute.toc QuickRoute/Localization.lua dist/QuickRoute/
-          # Every file the .toc references has to be in the zip. The copy list
-          # above is maintained by hand and has already shipped a build whose
-          # .toc pointed at a file that was not packaged.
-          #
-          # Covers the .lua entries, which is what the copy list above can get
-          # wrong; the .toc's other directives are not files.
-          #
-          # Assert the entry count first. A grep that matches nothing -- a
-          # renamed .toc, the standard multi-TOC split into
-          # QuickRoute_Mainline.toc -- would otherwise leave missing=0 and let
-          # the check pass without having read a single entry, which is the one
-          # failure mode a guard against silent packaging must not have. A CRLF
-          # .toc is not that case: GNU grep still counts the entries, and each
-          # path then carries a trailing \r and fails the existence check
-          # below, so the step dies loudly rather than silently.
-          entries=$(grep -cE '^[A-Za-z].*\.lua$' QuickRoute/QuickRoute.toc || true)
-          echo "QuickRoute.toc lists ${entries} Lua entries"
-          if [ "${entries:-0}" -lt 20 ]; then
-            echo "::error::Read only ${entries:-0} Lua entries from QuickRoute.toc; the packaging check cannot verify anything"
-            exit 1
-          fi
-          missing=0
-          while read -r entry; do
-            path="dist/QuickRoute/${entry//\\//}"
-            if [ ! -f "$path" ]; then
-              echo "::error::QuickRoute.toc references $entry, which is not in the package"
-              missing=1
-            fi
-          done < <(grep -E '^[A-Za-z].*\.lua$' QuickRoute/QuickRoute.toc)
-          [ "$missing" -eq 0 ]
-
-          # Create zip
-          cd dist
-          zip -r "QuickRoute-${VERSION}.zip" QuickRoute/
-          echo "Created QuickRoute-${VERSION}.zip ($(du -h "QuickRoute-${VERSION}.zip" | cut -f1))"
+        run: bash scripts/package_addon.sh
 
       # Before the upload, so the statement exists for the exact bytes that are
       # published rather than for a rebuild of them. A downloader checks it with

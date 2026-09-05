@@ -1941,3 +1941,21 @@ T:run("A dungeon quest routes to the entrance, not to the transit hub", function
     t:assertTrue(result.mapID ~= 84,
         "and it is not the portal hub the next waypoint pointed at")
 end)
+
+T:run("Inside-dungeon: unrelated instance does not suppress the quest target entrance", function(t)
+    resetState()
+    MockWoW.config.inInstance = true
+    MockWoW.config.currentMapID = 2341 -- The Stonevault
+    MockWoW.config.superTrackedQuestID = 99591
+    MockWoW.config.questTitles[99591] = "Maw of Souls: Another Dungeon"
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99591] = {tagID = Enum.QuestTag.Dungeon}
+    local previous = QR.DungeonData.instances[721]
+    QR.DungeonData.instances[721] = {name = "Maw of Souls", zoneMapID = 634, x = 0.527, y = 0.454}
+    QR.DungeonData.scanned = true
+    local wp = QR.WaypointIntegration:GetQuestWaypoint(99591)
+    QR.DungeonData.instances[721] = previous
+    t:assertNotNil(wp, "A quest for a different dungeon still yields an entrance")
+    t:assertEqual(634, wp and wp.mapID, "Quest routes to Stormheim rather than stopping inside Stonevault")
+    resetState()
+end)

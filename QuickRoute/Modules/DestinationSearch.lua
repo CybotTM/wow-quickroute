@@ -50,6 +50,7 @@ function DS:CollectResults(query)
         dungeons = {},
         services = {},
         currencies = {},
+        catalog = {},
     }
 
     -- 1. Active Waypoints
@@ -252,15 +253,31 @@ function DS:CollectResults(query)
     end
 
     if SR and SR.GetKnownCurrencies then
-        for _, currency in ipairs(SR:GetKnownCurrencies()) do
+        for _, currency in ipairs(SR:GetKnownCurrencies(isSearching or self._currencyOnly)) do
             if not isSearching or string_find(string_lower(currency.name), queryLower, 1, true)
                 or tostring(currency.currencyID) == queryLower then
                 table_insert(results.currencies, {
-                    name = string_format(L["CURRENCY_VENDOR_NEAREST"], currency.name),
+                    name = self._currencyOnly and currency.name or string_format(L["CURRENCY_VENDOR_NEAREST"], currency.name),
                     currencyID = currency.currencyID,
+                    selectCurrency = self._currencyOnly,
+                    tag = currency.quantity and tostring(currency.quantity) or "",
                 })
             end
         end
+    end
+
+    if QR.Catalog and not self._currencyOnly then
+        local mapID = WorldMapFrame and WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
+        if not mapID and C_Map and C_Map.GetBestMapForUnit then mapID = C_Map.GetBestMapForUnit("player") end
+        local entries, more = QR.Catalog:Search(query, mapID, 40)
+        for _, entry in ipairs(entries) do
+            table_insert(results.catalog, {
+                name = QR.Catalog:GetDisplayName(entry), mapID = entry.mapID, x = entry.x, y = entry.y,
+                questID = entry.questID, npcID = entry.npcID, source = "catalogue", reference = entry,
+                tag = L[entry.role == "giver" and "CATALOG_GIVER" or entry.questID and "CATALOG_REFERENCE" or "CATALOG_NPC"],
+            })
+        end
+        results.catalogMore = more
     end
 
     return results
@@ -286,6 +303,7 @@ function DS:HideDropdown()
     self.isShowing = false
     self._cachedWatchedQuests = nil -- clear stale quest data
     self._currencyOnly = nil
+    self._selectedCurrencyID = nil
 end
 
 -------------------------------------------------------------------------------
@@ -509,7 +527,9 @@ function DS:CreateResultRow(entry, yOffset)
         if entry.questID and QR.db and QR.db.debugMode then
             GameTooltip:AddLine(string_format("Quest ID: %d", entry.questID), 0.4, 0.4, 0.4)
         end
-        if entry.currencyID then
+        if entry.source == "catalogue" then
+            GameTooltip:AddLine(L["CATALOG_LOCATION"], 0.7, 0.7, 0.7, true)
+        elseif entry.source == "merchant" then
             GameTooltip:AddLine(L["CURRENCY_VENDOR_OBSERVED"], 0.7, 0.7, 0.7, true)
         end
         GameTooltip:AddLine(L and L["DEST_SEARCH_ROUTE_TO_TT"] or "Click to calculate route", 0.5, 0.5, 0.5, true)
@@ -543,7 +563,27 @@ function DS:RefreshDropdown(query)
 
     local results = self:CollectResults(query)
     if self._currencyOnly then
-        results.waypoints, results.quests, results.cities, results.dungeons, results.services = {}, {}, {}, {}, {}
+        results.waypoints, results.quests, results.cities, results.dungeons, results.services, results.catalog = {}, {}, {}, {}, {}, {}
+        if self._selectedCurrencyID then
+            local currencyID = self._selectedCurrencyID
+            results.currencies = {
+                { name = L["DEST_SEARCH_CURRENCIES"], currencyBack = true },
+                { name = string_format(L["CURRENCY_VENDOR_NEAREST"], QR.ServiceRouter:GetCurrencyName(currencyID)), currencyID = currencyID },
+            }
+            for _, loc in ipairs(QR.ServiceRouter:GetCurrencyLocations(currencyID)) do
+                local map = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(loc.mapID)
+                local zoneName = map and map.name or tostring(loc.mapID)
+                if query == "" or string_find(string_lower(loc.name or ""), string_lower(query), 1, true)
+                    or string_find(string_lower(zoneName), string_lower(query), 1, true) then
+                    if #results.currencies >= 102 then results.catalogMore = true; break end
+                    table_insert(results.currencies, {
+                        name = (loc.name or L["CURRENCY_VENDOR_KNOWN"]) .. " (" .. zoneName .. ")",
+                        mapID = loc.mapID, x = loc.x, y = loc.y, source = loc.source,
+                        reference = loc.reference, tag = loc.source == "merchant" and L["CURRENCY_VENDOR_OBSERVED_SHORT"] or L["CURRENCY_VENDOR_KNOWN"],
+                    })
+                end
+            end
+        end
     end
 
     local yOffset = 0
@@ -684,8 +724,20 @@ function DS:RefreshDropdown(query)
         end
     end
 
+    if #results.catalog > 0 then
+        local _, newY = self:CreateSectionHeader("catalog", L["DEST_SEARCH_CATALOG"], yOffset)
+        yOffset, totalRows = newY, totalRows + 1
+        if not self.collapsedSections.catalog then
+            for _, entry in ipairs(results.catalog) do
+                local _, nextY = self:CreateResultRow(entry, yOffset)
+                yOffset, totalRows = nextY, totalRows + 1
+            end
+        end
+    end
+
     if #results.currencies > 0 then
-        local _, newY = self:CreateSectionHeader("currencies", L["DEST_SEARCH_CURRENCIES"], yOffset)
+        local title = self._selectedCurrencyID and string_format(L["CURRENCY_VENDOR_SELECT"], QR.ServiceRouter:GetCurrencyName(self._selectedCurrencyID)) or L["DEST_SEARCH_CURRENCIES"]
+        local _, newY = self:CreateSectionHeader("currencies", title, yOffset)
         yOffset = newY
         totalRows = totalRows + 1
         if not self.collapsedSections.currencies then
@@ -695,6 +747,12 @@ function DS:RefreshDropdown(query)
                 totalRows = totalRows + 1
             end
         end
+    end
+
+    if results.catalogMore then
+        local row, nextY = self:CreateResultRow({ name = L["CATALOG_MORE"], informational = true }, yOffset)
+        row:SetScript("OnClick", nil)
+        yOffset, totalRows = nextY, totalRows + 1
     end
 
     -- "No results" message
@@ -750,6 +808,7 @@ end
 function DS:ShowDropdown(anchorFrame)
     if InCombatLockdown() then return end
     self._currencyOnly = nil
+    self._selectedCurrencyID = nil
 
     if not self.frame then
         self:CreateDropdown()
@@ -783,6 +842,22 @@ end
 -- @param entry table Entry data with name, mapID, x, y
 function DS:SelectResult(entry)
     if not entry then return end
+    if entry.informational then return end
+    if entry.currencyBack then
+        self._selectedCurrencyID = nil
+        self:RefreshDropdown("")
+        return
+    end
+    if entry.selectCurrency then
+        self._selectedCurrencyID = entry.currencyID
+        self:RefreshDropdown("")
+        return
+    end
+    if entry.reference and QR.Catalog and not QR.Catalog:IsAvailable(entry.reference, true) then
+        QR:Print(QR.L["DESTINATION_UNAVAILABLE"])
+        self:RefreshDropdown(self._lastQuery)
+        return
+    end
 
     if entry.currencyID and QR.ServiceRouter then
         QR.ServiceRouter:RouteToCurrency(entry.currencyID)

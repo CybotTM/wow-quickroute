@@ -970,7 +970,7 @@ function TeleportPanel:ConfigureRowIcon(row, entry)
         local iconBtn = QR.SecureButtons:GetButton()
         if iconBtn then
             local sourceType = entry.isSpell and "spell" or (entry.data.type == QR.TeleportTypes.TOY and "toy" or "item")
-            local configured = QR.SecureButtons:ConfigureButton(iconBtn, entry.id, sourceType)
+            local configured = QR.SecureButtons:ConfigureButton(iconBtn, entry.id, sourceType, entry.data)
             if configured then
                 iconBtn:SetFrameStrata("DIALOG")
                 iconBtn:SetFrameLevel(100)
@@ -1431,7 +1431,7 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
         local iconBtn = QR.SecureButtons:GetButton()
         if iconBtn then
             local sourceType = entry.isSpell and "spell" or (entry.data.type == QR.TeleportTypes.TOY and "toy" or "item")
-            local configured = QR.SecureButtons:ConfigureButton(iconBtn, entry.id, sourceType)
+            local configured = QR.SecureButtons:ConfigureButton(iconBtn, entry.id, sourceType, entry.data)
             if configured then
                 iconBtn:SetFrameStrata("DIALOG")
                 iconBtn:SetFrameLevel(100)

@@ -3,8 +3,9 @@ local T, QR, MockWoW = ...
 local function withMerchant(fn)
     local saved = { db = QR.db, UnitGUID = _G.UnitGUID, UnitName = _G.UnitName,
         merchant = _G.C_MerchantFrame, currency = _G.C_CurrencyInfo, time = _G.time,
-        map = C_Map, pc = QR.PathCalculator, faction = MockWoW.config.playerFaction }
+        map = C_Map, pc = QR.PathCalculator, catalog = QR.Catalog, faction = MockWoW.config.playerFaction }
     QR.db = { currencyVendors = {} }
+    QR.Catalog = nil
     _G.UnitGUID = function(unit)
         return unit == "player" and "Player-1-A" or "Creature-0-1-2-3-12345-0001"
     end
@@ -22,6 +23,7 @@ local function withMerchant(fn)
     QR.db, _G.UnitGUID, _G.UnitName = saved.db, saved.UnitGUID, saved.UnitName
     _G.C_MerchantFrame, _G.C_CurrencyInfo, _G.time = saved.merchant, saved.currency, saved.time
     C_Map, QR.PathCalculator = saved.map, saved.pc
+    QR.Catalog = saved.catalog
     MockWoW.config.playerFaction = saved.faction
     QR.PlayerInfo:InvalidateCache()
     if not ok then error(err) end
@@ -142,5 +144,122 @@ T:run("Currency vendors: a loaded merchant with no currency costs removes stale 
         QR.ServiceRouter:ObserveMerchant()
         _G.GetMerchantNumItems = oldCount
         t:assertEqual(0, #QR.ServiceRouter:GetCurrencyLocations(2003), "Removed currency offering is not recommended again")
+    end)
+end)
+
+T:run("Currency vendors: unvisited catalogue locations merge with observed precedence", function(t)
+    withMerchant(function()
+        QR.Catalog = { GetCurrencyLocations = function()
+            return {
+                {npcID = 12345, name = "Old Position", mapID = 84, x = 0.2, y = 0.2, source = "catalogue"},
+                {npcID = 999, name = "New Seller", mapID = 85, x = 0.4, y = 0.4, source = "catalogue"},
+            }
+        end }
+        t:assertEqual(2, #QR.ServiceRouter:GetCurrencyLocations(2003), "Unvisited source vendors are available before merchant interaction")
+        QR.ServiceRouter:ObserveMerchant()
+        local results = QR.ServiceRouter:GetCurrencyLocations(2003)
+        t:assertEqual(2, #results, "Observed vendor replaces the same NPC's catalogue point")
+        local merchant
+        for _, loc in ipairs(results) do if loc.npcID == 12345 then merchant = loc end end
+        t:assertEqual(0.3, merchant and merchant.x, "Observed interaction position has precedence")
+        QR.db.currencyVendors.corrupt = {character = "Player-1-A", faction = "Alliance", source = "merchant",
+            name = "Broken", mapID = 84, x = 0.4, y = 0.5, currencies = {[2003] = true}}
+        t:assertEqual(2, #QR.ServiceRouter:GetCurrencyLocations(2003), "Corrupted NPC identity is discarded during merge")
+    end)
+end)
+
+T:run("Currency vendors: origin changes restart comparison without mixing travel estimates", function(t)
+    withMerchant(function()
+        QR.ServiceRouter:ObserveMerchant()
+        C_Map.GetBestMapForUnit = function() return 85 end
+        QR.ServiceRouter:ObserveMerchant()
+        local origin, pending, routed, calls = 84, {}, nil, 0
+        C_Map.GetBestMapForUnit = function() return origin end
+        QR.PathCalculator = { CalculatePath = function(_, mapID)
+            calls = calls + 1
+            return {totalTime = origin == mapID and 10 or 90}
+        end }
+        local savedAfter = C_Timer.After
+        C_Timer.After = function(_, callback) pending[#pending + 1] = callback end
+        local ok, err = pcall(function()
+            QR.ServiceRouter:FindNearestCurrencyVendorAsync(2003, function(loc) routed = loc end)
+            pending[1]()
+            origin = 85
+            local index = 2
+            while pending[index] do pending[index](); index = index + 1 end
+            t:assertEqual(85, routed and routed.mapID, "New origin chooses its own nearest vendor")
+            t:assertEqual(3, calls, "Old-origin first comparison is discarded and both candidates are recomputed")
+        end)
+        C_Timer.After = savedAfter
+        if not ok then error(err) end
+    end)
+end)
+
+T:run("Currency vendors: sustained movement aborts after bounded restarts", function(t)
+    withMerchant(function()
+        QR.ServiceRouter:ObserveMerchant()
+        local pending, reason, calls, x = {}, nil, 0, 0.3
+        C_Map.GetPlayerMapPosition = function() return {x = x, y = 0.5} end
+        QR.PathCalculator = {CalculatePath = function() calls = calls + 1; return {totalTime = 10} end}
+        local savedAfter = C_Timer.After
+        C_Timer.After = function(_, callback) pending[#pending + 1] = callback end
+        local ok, err = pcall(function()
+            QR.ServiceRouter:FindNearestCurrencyVendorAsync(2003, function(_, _, _, why) reason = why end)
+            for index = 1, 10 do
+                if not pending[index] then break end
+                x = x + 0.02
+                pending[index]()
+            end
+            t:assertEqual("position_changed", reason, "Ongoing movement reports why comparison stopped")
+            t:assertEqual(2, calls, "Only two restart calculations are allowed")
+        end)
+        C_Timer.After = savedAfter
+        if not ok then error(err) end
+    end)
+end)
+
+T:run("Currency vendors: picker allows explicit vendor selection and return to currencies", function(t)
+    withMerchant(function()
+        QR.ServiceRouter:ObserveMerchant()
+        local ds = QR.DestinationSearch
+        local oldShowing, oldCurrency, oldSelected, oldFrame = ds.isShowing, ds._currencyOnly, ds._selectedCurrencyID, ds.frame
+        ds:ShowCurrencyDropdown()
+        local entry
+        for _, row in ipairs(ds.rows) do if row._entryData and row._entryData.currencyID == 2003 then entry = row._entryData; break end end
+        t:assertTrue(entry and entry.selectCurrency, "Currency picker row opens its vendor choices")
+        ds:SelectResult(entry)
+        t:assertEqual(2003, ds._selectedCurrencyID, "Selected currency is retained while viewing vendors")
+        local direct, fastest, back
+        for _, row in ipairs(ds.rows) do
+            local data = row._entryData
+            if data and data.source == "merchant" then direct = data end
+            if data and data.currencyID == 2003 then fastest = data end
+            if data and data.currencyBack then back = data end
+        end
+        t:assertNotNil(direct, "Individual observed vendor has a direct route row")
+        t:assertNotNil(fastest, "Fastest eligible vendor action remains available")
+        ds:SelectResult(back)
+        t:assertNil(ds._selectedCurrencyID, "Back control returns to currency list")
+        ds:HideDropdown()
+        ds.isShowing, ds._currencyOnly, ds._selectedCurrencyID = oldShowing, oldCurrency, oldSelected
+        if oldFrame and oldShowing then oldFrame:Show() end
+    end)
+end)
+
+T:run("Currency vendors: changed merchant acceptance suppresses obsolete catalogue costs", function(t)
+    withMerchant(function()
+        QR.Catalog = {GetCurrencyLocations = function()
+            return {{npcID=12345,name="Reference Seller",mapID=84,x=0.2,y=0.2,source="catalogue"}}
+        end}
+        _G.C_MerchantFrame.GetMerchantCurrencies = function() return {3008} end
+        QR.ServiceRouter:ObserveMerchant()
+        t:assertEqual(0, #QR.ServiceRouter:GetCurrencyLocations(2003), "Observed absence of a cost suppresses the old catalogue offering")
+        _G.C_MerchantFrame.GetMerchantCurrencies = function() return {} end
+        local count = _G.GetMerchantNumItems
+        _G.GetMerchantNumItems = function() return 5 end
+        QR.ServiceRouter:ObserveMerchant()
+        _G.GetMerchantNumItems = count
+        t:assertEqual(0, #QR.ServiceRouter:GetCurrencyLocations(3008), "Loaded merchant with no currency costs suppresses every old reference cost")
+        t:assertEqual(1, #QR.ServiceRouter:GetCurrencyLocations(), "Bounded negative observation remains for this character")
     end)
 end)

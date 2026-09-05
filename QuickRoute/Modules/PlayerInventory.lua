@@ -11,6 +11,20 @@ local CreateFrame = CreateFrame
 -- Constants
 local DEBOUNCE_DELAY = 0.5
 
+local function TrueFromAPI(fn, ...)
+    if type(fn) ~= "function" then return false end
+    local ok, value = pcall(fn, ...)
+    return ok and not (issecretvalue and issecretvalue(value)) and value == true
+end
+
+local function KnownSpell(spellID)
+    local spellBook = _G.C_SpellBook
+    local probe = spellBook and spellBook.IsSpellKnown or IsSpellKnown
+    if not probe then return false end
+    local ok, known = pcall(probe, spellID)
+    return ok and not (issecretvalue and issecretvalue(known)) and known == true
+end
+
 -------------------------------------------------------------------------------
 -- PlayerInventory Module
 -------------------------------------------------------------------------------
@@ -210,11 +224,11 @@ function PlayerInventory:ScanToys()
     local playerFaction = QR.PlayerInfo:GetFaction()
 
     for itemID, data in pairs(QR.TeleportItemsData) do
-        if data.type == QR.TeleportTypes.TOY then
+        if data.type == QR.TeleportTypes.TOY or data.type == QR.TeleportTypes.ENGINEER then
             -- Check faction restriction
             local factionOK = not data.faction or data.faction == "both" or data.faction == playerFaction
-            if factionOK and PlayerHasToy(itemID) then
-                local isUsable = C_ToyBox.IsToyUsable and C_ToyBox.IsToyUsable(itemID) or false
+            if factionOK and TrueFromAPI(PlayerHasToy, itemID) then
+                local isUsable = TrueFromAPI(C_ToyBox.IsToyUsable, itemID)
                 self.toys[itemID] = {
                     id = itemID,
                     data = data,
@@ -230,7 +244,6 @@ end
 --- Scan known spells for teleport spells
 -- Checks class spells and mage teleports using IsSpellKnown
 function PlayerInventory:ScanSpells()
-    if not IsSpellKnown then return self.spells end
     wipe(self.spells)
 
     -- Get player info for filtering (cached)
@@ -240,7 +253,7 @@ function PlayerInventory:ScanSpells()
     -- Check class-specific teleport spells
     for spellID, data in pairs(QR.ClassTeleportSpells) do
         if data.class == playerClass then
-            if IsSpellKnown(spellID) then
+            if KnownSpell(spellID) then
                 self.spells[spellID] = {
                     id = spellID,
                     data = data,
@@ -256,7 +269,7 @@ function PlayerInventory:ScanSpells()
         local factionTeleports = QR.MageTeleports[playerFaction]
         if factionTeleports then
             for spellID, data in pairs(factionTeleports) do
-                if IsSpellKnown(spellID) then
+                if KnownSpell(spellID) then
                     self.spells[spellID] = {
                         id = spellID,
                         data = data,
@@ -268,7 +281,7 @@ function PlayerInventory:ScanSpells()
 
         -- Check shared/neutral mage teleports
         for spellID, data in pairs(QR.MageTeleports.Shared) do
-            if not self.spells[spellID] and IsSpellKnown(spellID) then
+            if not self.spells[spellID] and KnownSpell(spellID) then
                 self.spells[spellID] = {
                     id = spellID,
                     data = data,
@@ -281,7 +294,7 @@ function PlayerInventory:ScanSpells()
     -- Check racial teleport spells
     if QR.RacialTeleportSpells then
         for spellID, data in pairs(QR.RacialTeleportSpells) do
-            if IsSpellKnown(spellID) then
+            if KnownSpell(spellID) then
                 self.spells[spellID] = {
                     id = spellID,
                     data = data,
@@ -297,9 +310,9 @@ function PlayerInventory:ScanSpells()
             local detected = false
             if data.useSpellUsable and C_Spell and C_Spell.IsSpellUsable then
                 local ok, usable = pcall(C_Spell.IsSpellUsable, spellID)
-                detected = ok and usable
+                detected = ok and not (issecretvalue and issecretvalue(usable)) and usable == true
             else
-                detected = IsSpellKnown(spellID)
+                detected = KnownSpell(spellID)
             end
             if detected then
                 self.spells[spellID] = {
@@ -316,7 +329,7 @@ function PlayerInventory:ScanSpells()
     -- happens to share the name.
     if QR.DungeonTeleportSpells then
         for spellID, data in pairs(QR.DungeonTeleportSpells) do
-            if not self.spells[spellID] and IsSpellKnown(spellID) then
+            if not self.spells[spellID] and KnownSpell(spellID) then
                 -- No marker field: GetAllTeleports would drop it, and the
                 -- graph step keys on data.journalInstanceID, which is what
                 -- actually distinguishes these.
@@ -538,6 +551,7 @@ end
 -------------------------------------------------------------------------------
 
 local eventFrame = CreateFrame("Frame")
+PlayerInventory.eventFrame = eventFrame
 local debounceTimer = nil
 
 -- Events that should trigger a rescan
@@ -545,8 +559,12 @@ eventFrame:RegisterEvent("BAG_UPDATE")
 eventFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
 eventFrame:RegisterEvent("TOYS_UPDATED")
 eventFrame:RegisterEvent("SPELLS_CHANGED")
+eventFrame:RegisterEvent("SKILL_LINES_CHANGED")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
+    if event == "SKILL_LINES_CHANGED" and QR.PlayerInfo then
+        QR.PlayerInfo:InvalidateCache()
+    end
     -- Debounce rapid events with a 0.5 second timer
     if PlayerInventory.pendingScan then
         return

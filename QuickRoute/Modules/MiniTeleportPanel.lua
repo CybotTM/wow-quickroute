@@ -564,7 +564,7 @@ function MiniTeleportPanel:RefreshList()
             local secBtn = QR.SecureButtons:GetButton()
             if secBtn then
                 local sourceType = entry.isSpell and "spell" or (entry.data.type == QR.TeleportTypes.TOY and "toy" or "item")
-                local configured = QR.SecureButtons:ConfigureButton(secBtn, entry.id, sourceType)
+                local configured = QR.SecureButtons:ConfigureButton(secBtn, entry.id, sourceType, entry.data)
                 if configured then
                     secBtn:SetFrameStrata("DIALOG")
                     secBtn:SetFrameLevel(100)

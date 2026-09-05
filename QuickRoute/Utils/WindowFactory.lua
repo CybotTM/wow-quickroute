@@ -109,10 +109,9 @@ function QR.CreateModernCheckbox(parent, size)
     cb:SetBackdropColor(0.08, 0.08, 0.1, 0.9)
     cb:SetBackdropBorderColor(0.35, 0.35, 0.4, 0.8)
 
-    local checkmark = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    checkmark:SetPoint("CENTER", 0, 0)
-    checkmark:SetText("\226\156\147")  -- ✓
-    checkmark:SetTextColor(0.3, 1.0, 0.3)
+    local checkmark = cb:CreateTexture(nil, "OVERLAY")
+    checkmark:SetAllPoints(cb)
+    checkmark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
     checkmark:Hide()
     cb._checkmark = checkmark
 
@@ -184,6 +183,26 @@ function QR.CreateModernIconButton(parent, size, glyph)
     return btn
 end
 
+function QR.FitWindowScale(frame, requested)
+    local width, height = UIParent:GetWidth(), UIParent:GetHeight()
+    local scale = requested or 1
+    if width and width > 40 and height and height > 40 then
+        scale = math.min(scale, (width-24)/frame:GetWidth(), (height-24)/frame:GetHeight())
+    end
+    frame:SetScale(math.max(0.5, scale))
+end
+
+local validAnchors = { TOPLEFT=true, TOP=true, TOPRIGHT=true, LEFT=true, CENTER=true,
+    RIGHT=true, BOTTOMLEFT=true, BOTTOM=true, BOTTOMRIGHT=true }
+
+function QR.IsValidWindowPosition(point, relativePoint, x, y)
+    if issecretvalue and (issecretvalue(point) or issecretvalue(relativePoint) or issecretvalue(x) or issecretvalue(y)) then return false end
+    return type(point) == "string" and validAnchors[point] == true
+        and type(relativePoint) == "string" and validAnchors[relativePoint] == true
+        and type(x) == "number" and x == x and math.abs(x) <= 100000
+        and type(y) == "number" and y == y and math.abs(y) <= 100000
+end
+
 --- Create a standard addon window with backdrop, title bar, close button, and drag support.
 -- Eliminates duplication between UI.lua and TeleportPanel.lua.
 --
@@ -216,8 +235,7 @@ function QR.CreateStandardWindow(options)
     -- Restore saved position or use default
     local db = QR.db or {}
     local posKeys = options.savedPosKeys
-    if posKeys and type(db[posKeys.x]) == "number" and type(db[posKeys.y]) == "number"
-        and type(db[posKeys.point]) == "string" and type(db[posKeys.relPoint]) == "string" then
+    if posKeys and QR.IsValidWindowPosition(db[posKeys.point], db[posKeys.relPoint], db[posKeys.x], db[posKeys.y]) then
         frame:SetPoint(db[posKeys.point], UIParent, db[posKeys.relPoint], db[posKeys.x], db[posKeys.y])
     else
         local defaultPoint = options.defaultPoint or "CENTER"

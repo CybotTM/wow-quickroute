@@ -95,6 +95,8 @@ local STEP_ICON_PATHS = {
     flight = "Interface\\Icons\\Ability_Mount_RocketMount",
     boat = "Interface\\Icons\\INV_Misc_Anchor",
     zeppelin = "Interface\\Icons\\Ability_Mount_RocketMount",
+    jump = "Interface\\Icons\\Ability_Rogue_Sprint",
+    phaseswitch = "Interface\\Icons\\Spell_Holy_BorrowedTime",
     tram = "Interface\\Icons\\Achievement_Character_Gnome_Male",
 }
 local NAV_ICON_PATH = "Interface\\Icons\\INV_Misc_Map_01"
@@ -439,6 +441,15 @@ function UI:CreateContent(parentFrame)
     currencyButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.currencyButton = currencyButton
 
+    local phaseButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["PHASE_TITLE"]), BUTTON_HEIGHT)
+    phaseButton:SetPoint("LEFT", currencyButton, "RIGHT", BUTTON_PADDING, 0)
+    phaseButton:SetText(L["PHASE_TITLE"])
+    phaseButton:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.PhasePanel then QR.PhasePanel:Show() end
+    end)
+    frame.phaseButton = phaseButton
+
     -- Separator line below toolbar
     local separator = frame:CreateTexture(nil, "ARTWORK")
     separator:SetColorTexture(0.5, 0.5, 0.5, 0.5)
@@ -701,7 +712,10 @@ function UI:GetCurrentStepIndex(steps)
     -- action rather than incorrectly marking an unperformed step complete.
     for i = 1, #steps do
         if steps[i].fromMapID == currentMapID then
-            return i
+            local step = steps[i]
+            if step.type ~= "phaseswitch" or not QR.TravelRequirements
+                or not QR.TravelRequirements.GetLiveMapArtID
+                or QR.TravelRequirements:GetLiveMapArtID(step.phaseMapID) ~= step.phaseArtID then return i end
         end
     end
 
@@ -796,7 +810,9 @@ function UI:BuildStepCardTexts(step)
     local dest = step.localizedTo or step.to or L["UNKNOWN"]
 
     -- Line 1: action + destination
-    if step.type == "teleport" and step.teleportID then
+    if step.instructionKey and step.action and step.action ~= "" then
+        actionLine = step.action
+    elseif step.type == "teleport" and step.teleportID then
         local localizedName, link
         if step.sourceType == "spell" then
             localizedName, link = self:GetLocalizedSpellInfo(step.teleportID)
@@ -807,6 +823,10 @@ function UI:BuildStepCardTexts(step)
         actionLine = string_format(L["ACTION_USE_TELEPORT"], itemText, dest)
     elseif step.type == "teleport" then
         actionLine = string_format(L["ACTION_TELEPORT_TO"], dest)
+    elseif step.type == "jump" then
+        actionLine = step.action or string_format(L["STEP_JUMP_TO"], dest)
+    elseif step.type == "phaseswitch" then
+        actionLine = step.action or string_format(L["STEP_CHANGE_PHASE_TO"], dest)
     elseif step.type == "portal" then
         actionLine = string_format(L["ACTION_PORTAL_TO"], dest)
     elseif step.type == "walk" or step.type == "travel" then
@@ -832,9 +852,18 @@ function UI:BuildStepCardTexts(step)
         end
     end
 
+    -- A multi-choice teleport only opens a destination menu. Tell the player
+    -- which option to choose; secure buttons cannot make that choice for them.
+    if type(step.choiceText) == "string" and not (issecretvalue and issecretvalue(step.choiceText)) then
+        actionLine = actionLine .. " — " .. string_format(L["CHOOSE_DESTINATION"], step.choiceText:gsub("|", "||"))
+    end
+
     -- Line 2: location context + coordinates + travel time
     -- Use nav coordinates (where the player physically walks to)
     local parts = {}
+    if type(step.navLabel) == "string" and not (issecretvalue and issecretvalue(step.navLabel)) then
+        table_insert(parts, (step.navLabel:gsub("|", "||")))
+    end
     local navMapID = step.navMapID or step.destMapID
     if navMapID and C_Map and C_Map.GetMapInfo then
         local mapInfo = C_Map.GetMapInfo(navMapID)
@@ -972,7 +1001,7 @@ function UI:ConfigureStepUseButton(stepFrame, step)
     end
 
     -- Configure the secure button based on source type
-    local configured = QR.SecureButtons:ConfigureButton(useButton, step.teleportID, step.sourceType)
+    local configured = QR.SecureButtons:ConfigureButton(useButton, step.teleportID, step.sourceType, step.teleportData)
 
     if not configured then
         -- Configuration failed (likely in combat), release button
@@ -2216,6 +2245,13 @@ SlashCmdList["QR"] = function(msg)
             local query = (msg or ""):match("^%s*%S+%s*(.-)%s*$") or ""
             QR.ServiceRouter:RouteToCurrency(query)
         end
+    elseif cmd == "phases" then
+        if QR.PhasePanel then QR.PhasePanel:Show() end
+    elseif cmd == "quest" or cmd:match("^quest%s") then
+        local questID, role = cmd:match("^quest%s+(%d+)%s*(%a*)$")
+        if questID and (role == "" or role == "target" or role == "giver") and QR.Catalog then
+            QR.Catalog:RouteToQuest(questID, role == "giver" and "giver" or "target")
+        else QR:Print(L["QUEST_ROUTE_USAGE"]) end
     elseif cmd == "multi" then
         if QR.MultiRoute then QR.MultiRoute:Show() end
     elseif cmd == "ah" or cmd == "bank" or cmd == "void" or cmd == "craft" then
@@ -2243,6 +2279,8 @@ SlashCmdList["QR"] = function(msg)
         print("  /qr ah|bank|void|craft - Route to nearest service")
         print("  /qr currency <ID or name> - Route to a currency vendor")
         print("  /qr multi - Open multi-destination route planner")
+        QR:Print(L["QUEST_ROUTE_USAGE"])
+        QR:Print("/qr phases - " .. L["PHASE_TITLE"])
         print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
     end
 end

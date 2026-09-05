@@ -30,6 +30,8 @@ QR.Continents = {
             26,   -- Hinterlands
             27,   -- Dun Morogh
             32,   -- Searing Gorge
+            33,   -- Blackrock Mountain (Path of the Burning Mountain destination)
+            217,  -- Ruins of Gilneas (Tess's Peacebloom destination)
             35,   -- Blackrock Mountain
             36,   -- Burning Steppes
             37,   -- Elwynn Forest
@@ -243,7 +245,8 @@ QR.Continents = {
             1533, -- Bastion
             1536, -- Maldraxxus
             1565, -- Ardenweald
-            1670, -- Oribos
+            1670, -- Oribos, Ring of Fates
+            1671, -- Oribos, Ring of Transference (flight and portal floor)
             1543, -- The Maw
             1961, -- Korthia
             1970, -- Zereth Mortis
@@ -466,14 +469,8 @@ QR.ZoneAdjacencies = {
         {zone = 104, travelTime = 90},  -- Shadowmoon Valley
     },
 
-    -- Shadowlands connections
-    [1670] = {  -- Oribos
-        {zone = 1533, travelTime = 120}, -- Bastion
-        {zone = 1536, travelTime = 120}, -- Maldraxxus
-        {zone = 1565, travelTime = 120}, -- Ardenweald
-        {zone = 1525, travelTime = 120}, -- Revendreth
-        {zone = 1543, travelTime = 120}, -- The Maw
-    },
+    -- Shadowlands realms require actual flights/portals. Oribos has no
+    -- overland bridge to Bastion, Maldraxxus, Ardenweald, Revendreth or the Maw.
 
     -- Dragon Isles connections
     [2112] = {  -- Valdrakken
@@ -1413,7 +1410,9 @@ function QR.BuildZoneTravelGraph()
     end
     for mapID, adjacencies in pairs(QR.ZoneAdjacencies) do
         for _, adj in ipairs(adjacencies) do
-            graph:AddEdge(mapID, adj.zone, adj.travelTime, "walk")
+            if not QR.TravelRequirements or QR.TravelRequirements:CanTraverseZoneMaps(mapID, adj.zone) then
+                graph:AddEdge(mapID, adj.zone, adj.travelTime, "walk")
+            end
         end
     end
     return graph

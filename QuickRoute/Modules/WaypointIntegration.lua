@@ -573,16 +573,12 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             end
         end
 
-        -- Inside-dungeon detection: if player is already inside the target dungeon, skip routing
+        -- Compare the resolved target instance, not merely whether the player
+        -- is inside any dungeon: a quest can require a different instance.
+        local playerInstanceID
         if isDungeonQuest and IsInInstance and IsInInstance() then
             if playerMapID and C_EncounterJournal and C_EncounterJournal.GetInstanceForGameMap then
-                local playerInstanceID = C_EncounterJournal.GetInstanceForGameMap(playerMapID)
-                if playerInstanceID then
-                    QR:Debug(string_format("Quest %d: player is inside instance %d, skipping dungeon entrance routing",
-                        questID, playerInstanceID))
-                    questCoordCache[questID] = { time = now }
-                    return nil
-                end
+                playerInstanceID = C_EncounterJournal.GetInstanceForGameMap(playerMapID)
             end
         end
 
@@ -596,6 +592,10 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     local entrances = C_EncounterJournal.GetDungeonEntrancesForMap(highlightMapID)
                     if entrances and #entrances == 1 then
                         local entrance = entrances[1]
+                        if playerInstanceID and entrance.journalInstanceID == playerInstanceID then
+                            questCoordCache[questID] = { time = now }
+                            return nil
+                        end
                         local ex, ey
                         if entrance.position then
                             if entrance.position.GetXY then
@@ -626,6 +626,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             for instanceID, inst in pairs(QR.DungeonData.instances) do
                 if inst.name and inst.zoneMapID and inst.x and inst.y then
                     if string_lower(inst.name) == string_lower(questHeader) then
+                        if playerInstanceID == instanceID then questCoordCache[questID] = { time = now }; return nil end
                         QR:Debug(string_format("Quest %d: header matches dungeon %q (instance %d) at map %d",
                             questID, inst.name, instanceID, inst.zoneMapID))
                         questCoordCache[questID] = { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now }
@@ -651,6 +652,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 for instanceID, inst in pairs(QR.DungeonData.instances) do
                     if inst.name and inst.zoneMapID and inst.x and inst.y then
                         if string_lower(inst.name) == string_lower(titlePrefix) then
+                            if playerInstanceID == instanceID then questCoordCache[questID] = { time = now }; return nil end
                             QR:Debug(string_format("Quest %d: title prefix matches dungeon %q (instance %d) at map %d",
                                 questID, inst.name, instanceID, inst.zoneMapID))
                             questCoordCache[questID] = { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now }

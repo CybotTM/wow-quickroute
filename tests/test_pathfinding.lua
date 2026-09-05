@@ -77,16 +77,14 @@ T:run("BuildGraph creates portal connections from hubs", function(t)
     for _ in pairs(edges) do edgeCount = edgeCount + 1 end
     t:assertGreaterThan(edgeCount, 0, "SW Portal Room has outgoing edges")
 
-    -- Specifically check a known portal destination
-    -- Stormwind Portal Room has a portal to Dornogal
-    local foundDornogal = false
-    for dest, edge in pairs(edges) do
-        if dest == "Dornogal" then
-            foundDornogal = true
-            t:assertEqual("portal", edge.edgeType, "Edge to Dornogal is portal type")
-        end
+    -- Individual sourced portal entrances carry their actual access gates.
+    local from, to = "Travel:STORMWIND_DORNOGAL_PORTAL", "Travel:DORNOGAL_PORTAL_ROOM"
+    local edge = graph.edges[from] and graph.edges[from][to]
+    t:assertNotNil(edge, "Stormwind's documented portal leads to Dornogal")
+    if edge then
+        t:assertEqual("portal", edge.edgeType, "Dornogal connection is a portal")
+        t:assertEqual(68, edge.data.requirements.minLevel, "Portal retains its documented level requirement")
     end
-    t:assertTrue(foundDornogal, "Portal Room has edge to Dornogal")
 end)
 
 T:run("BuildGraph adds player teleport edges for known spells", function(t)
@@ -338,6 +336,10 @@ end)
 
 T:run("ConnectSameMapNodes: player's current map uses fly speed", function(t)
     resetState()
+    local savedSpeed, savedFlying = _G.GetUnitSpeed, _G.IsFlying
+    _G.GetUnitSpeed = function() return 28.7, 14, 28.7, 4.7 end
+    _G.IsFlying = function() return true end
+    QR.TravelTime:ClearMovementCache()
     -- Player is on mapID 84, flyable
     MockWoW.config.currentMapID = 84
     MockWoW.config.isFlyableArea = true
@@ -368,6 +370,8 @@ T:run("ConnectSameMapNodes: player's current map uses fly speed", function(t)
     -- (both have same coordinate distance of 0.5)
     t:assertGreaterThan(edgeCD.weight, edgeAB.weight,
         "Remote map (ground) is slower than player's map (flying)")
+    _G.GetUnitSpeed, _G.IsFlying = savedSpeed, savedFlying
+    QR.TravelTime:ClearMovementCache()
 end)
 
 T:run("ConnectSameMapNodes: non-flyable area uses ground speed", function(t)
@@ -1886,8 +1890,13 @@ T:run("Flight edges never attach to the player node", function(t)
     -- With the player excluded and nothing else on the map, there is no
     -- anchor at all -- which is the correct answer, and the one that stops a
     -- flight edge being priced from a position the player is about to leave.
+    local originalGraph, originalIndex = QR.PathCalculator.graph, QR.PathCalculator.nodeIndex
+    local playerOnly = QR.Graph:New()
+    playerOnly:AddNode("Player Location", {mapID=37, x=0.5, y=0.5, nodeType="player"})
+    QR.PathCalculator.graph, QR.PathCalculator.nodeIndex = playerOnly, nil
     t:assertEqual(nil, QR.PathCalculator:FlightAnchorForMap(37),
-        "a map whose only node is the player has no anchor")
+        "an isolated graph whose only node is the player has no anchor")
+    QR.PathCalculator.graph, QR.PathCalculator.nodeIndex = originalGraph, originalIndex
     local elsewhere = QR.PathCalculator:FlightAnchorForMap(84)
     t:assertNotNil(elsewhere, "a map with a real node still has one")
     t:assert(elsewhere ~= "Player Location", "and it is never the player node")
@@ -2097,7 +2106,8 @@ T:run("No two nodes describe the same spot under different names", function(t)
     -- so "Hallowfall to Dornogal (End)" coinciding with Dornogal is the model
     -- working, not a duplicate. That is a pre-existing shape this test does
     -- not judge; what it judges is a teleport destination inventing a second
-    -- name for a place the graph already names.
+    -- name for a place the graph already names. Sourced transition nodes may
+    -- share an NPC position across distinct dialogue actions or world phases.
     resetState()
     MockWoW.config.playerClass = "MAGE"
     MockWoW.config.knownSpells = { [3561] = true, [3562] = true, [3565] = true,
@@ -2114,7 +2124,7 @@ T:run("No two nodes describe the same spot under different names", function(t)
         -- the same spot, they are two unknowns.
         local placeholder = math.abs(data.x - 0.5) < 1e-9 and math.abs(data.y - 0.5) < 1e-9
         if data.mapID and data.x and data.y and name ~= "Player Location"
-            and name:sub(1, 9) ~= "Dungeon: " and not placeholder
+            and name:sub(1, 9) ~= "Dungeon: " and data.nodeType ~= "transition" and not placeholder
             and not name:find("%(Start%)$") and not name:find("%(End%)$") then
             local key = string.format("%d:%.4f:%.4f", data.mapID, data.x, data.y)
             if bySpot[key] and bySpot[key] ~= name and not clash then
@@ -2586,12 +2596,21 @@ T:run("A reverse-direction flight step navigates to the right flight master", fu
     -- was sent to Teldrassil to board a flight leaving Mount Hyjal.
     resetState()
     flightGraphSnapshot(allFlightZones(), 198)
-    local route = QR.PathCalculator:CalculatePath(84, 0.55, 0.60, "Stormwind")
-    t:assertNotNil(route, "the Mount Hyjal route exists")
-    if not route then QR.PathCalculator.knownFlightZonesOverride = nil return end
-
+    -- Build a real reverse flight edge explicitly: new portals can beat this
+    -- flight for a Stormwind trip, so the fastest full route need not use it.
+    local graph = QR.PathCalculator.graph
+    local anchor = QR.PathCalculator:FlightAnchorForMap(198)
+    local target, selected
+    for to, edge in pairs(graph.edges[anchor] or {}) do
+        if edge.edgeType == "flight" and edge.data.fromMapID == 198 then
+            target, selected = to, edge
+            break
+        end
+    end
+    t:assertNotNil(selected, "Mount Hyjal has a documented outgoing flight")
+    local steps = selected and QR.PathCalculator:BuildSteps({anchor, target}, {selected}) or {}
     local checked = 0
-    for _, step in ipairs(route.steps or {}) do
+    for _, step in ipairs(steps) do
         if step.type == "flight" then
             checked = checked + 1
             local master = QR.PathCalculator:FlightPointFor(step.fromMapID)

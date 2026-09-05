@@ -153,6 +153,7 @@ function QR:Initialize()
         sidebarCollapsed = false,     -- Map sidebar collapsed state
         activeTab = "route",          -- Last active tab in unified window
         groupByDestination = false,   -- Group teleports by destination
+        multiRouteTrips = {},        -- Pending trips, partitioned by character
         currencyVendors = {},         -- Verified merchant observations, partitioned by character
         hearthstoneBinds = {},        -- Observed inn bindings, partitioned by character
     }
@@ -217,7 +218,9 @@ function QR:OnPlayerLogin()
         end
 
         local steps = {
+            { "TravelRequirements", function() QR.TravelRequirements:Initialize() end },
             { "Hearthstone",        function() QR.Hearthstone:Initialize() end },
+            { "TeleportDestinations", function() QR.TeleportDestinations:Initialize() end },
             { "Graph",              function() QR:InitializeGraph() end },
             { "PlayerTeleports",    function() QR:ScanPlayerTeleports() end },
             { "SecureButtons",      function() QR.SecureButtons:Initialize() end },
@@ -235,6 +238,7 @@ function QR:OnPlayerLogin()
             { "DungeonPicker",      function() QR.DungeonPicker:Initialize() end },
             { "DestinationSearch",  function() QR.DestinationSearch:Initialize() end },
             { "ServiceRouter",      function() QR.ServiceRouter:Initialize() end },
+            { "MultiRoute",         function() QR.MultiRoute:Initialize() end },
             { "SettingsPanel",      function() QR.SettingsPanel:Initialize() end },
             { "ZoneSurvey",         function() QR.ZoneSurvey:Initialize() end },
             { "Diagnostics",        function() QR.Diagnostics:Initialize() end },
@@ -389,6 +393,8 @@ local function PrintHelp()
     QR:Print("  /qr multi - Plan a trip through pasted or TomTom waypoints")
     print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
     print("  /qrextract [zones|quests|portals|continent] - Extract data for development")
+    QR:Print(QR.L["QUEST_ROUTE_USAGE"])
+    QR:Print("/qr phases - " .. QR.L["PHASE_TITLE"])
     print("  Development: /qrscan, /qrgraph, /qrzone, /qrdebugpath, /qrtest graph")
 end
 

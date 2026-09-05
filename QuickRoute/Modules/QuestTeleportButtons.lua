@@ -6,6 +6,7 @@ local ADDON_NAME, QR = ...
 local pairs, ipairs, type, tostring = pairs, ipairs, type, tostring
 local string_format = string.format
 local math_huge = math.huge
+local math_floor = math.floor
 local CreateFrame = CreateFrame
 local InCombatLockdown = InCombatLockdown
 local GetTime = GetTime
@@ -18,6 +19,7 @@ local UPDATE_THROTTLE = 0.2  -- seconds
 local DEBOUNCE_DELAY = 0.3   -- seconds - debounce rapid QUEST_LOG_UPDATE events
 local BUTTON_SIZE = 20
 local BUTTON_OFFSET_X = -4   -- pixels left of quest header
+local MOVEMENT_CHECK_INTERVAL = 1
 
 -------------------------------------------------------------------------------
 -- QuestTeleportButtons Module
@@ -32,6 +34,25 @@ QR.QuestTeleportButtons = {
 }
 
 local QTB = QR.QuestTeleportButtons
+
+-- A small stable bucket avoids sub-pixel movement invalidating all quest
+-- routes, while approaching an objective can replace a teleport with walking.
+local function GetPositionBucket()
+    if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition) then return nil end
+    local ok, bucket = pcall(function()
+        local mapID = C_Map.GetBestMapForUnit("player")
+        if type(mapID) ~= "number" or (issecretvalue and issecretvalue(mapID))
+            or mapID ~= mapID or mapID <= 0 or mapID >= math_huge or mapID % 1 ~= 0 then return end
+        local position = C_Map.GetPlayerMapPosition(mapID, "player")
+        if not position then return end
+        local x, y = position.x, position.y
+        if position.GetXY then x, y = position:GetXY() end
+        if (issecretvalue and (issecretvalue(x) or issecretvalue(y))) or type(x) ~= "number" or type(y) ~= "number"
+            or x ~= x or y ~= y or x < 0 or x > 1 or y < 0 or y > 1 then return end
+        return string_format("%d:%d:%d", mapID, math_floor(x * 1000), math_floor(y * 1000))
+    end)
+    return ok and bucket or nil
+end
 
 -------------------------------------------------------------------------------
 -- Route-based Teleport Selection
@@ -58,7 +79,7 @@ local function FindBestTeleportForQuest(questID)
     if not entry or not entry.data or not cooldown or not cooldown.ready then
         return nil, nil
     end
-    return step.teleportID, entry
+    return step.teleportID, { sourceType = entry.sourceType, data = step.teleportData or entry.data }
 end
 
 -------------------------------------------------------------------------------
@@ -72,8 +93,12 @@ end
 -- @return table|nil data from TeleportItemsData
 local function GetCachedTeleportForQuest(questID)
     local now = GetTime()
+    local position = GetPositionBucket()
+    if not position then QTB.questCache[questID] = nil; return nil, nil, nil end
     local cached = QTB.questCache[questID]
-    if cached and (now - cached.time) < CACHE_TTL then
+    local calculator = QR.PathCalculator
+    if cached and cached.position == position and cached.graph == (calculator and calculator.graph)
+        and not (calculator and calculator.graphDirty) and (now - cached.time) < CACHE_TTL then
         local cooldown = cached.teleportID and QR.CooldownTracker
             and QR.CooldownTracker:GetCooldown(cached.teleportID, cached.sourceType)
         if not cached.teleportID or (cooldown and cooldown.ready) then
@@ -88,17 +113,26 @@ local function GetCachedTeleportForQuest(questID)
             sourceType = entry.sourceType,
             data = entry.data,
             time = now,
+            position = position,
+            graph = QR.PathCalculator and QR.PathCalculator.graph,
         }
         return teleportID, entry.sourceType, entry.data
     end
 
-    QTB.questCache[questID] = { time = now }
+    QTB.questCache[questID] = { time = now, position = position, graph = QR.PathCalculator and QR.PathCalculator.graph }
     return nil, nil, nil
 end
 
 --- Invalidate the cache for all quests
 function QTB:InvalidateCache()
+    self:CancelRefresh()
     wipe(self.questCache)
+end
+
+--- Invalidate queued per-frame work without touching protected buttons.
+function QTB:CancelRefresh()
+    self._refreshGeneration = (self._refreshGeneration or 0) + 1
+    self._refreshRunning = false
 end
 
 -- SPELL_UPDATE_COOLDOWN also fires for unrelated abilities and global
@@ -126,6 +160,7 @@ end
 --- Initialize the module: create button pool and register events
 function QTB:Initialize()
     if self.initialized then return end
+    self:CancelRefresh()
 
     if InCombatLockdown() then
         -- Defer initialization until combat ends
@@ -177,15 +212,23 @@ function QTB:Initialize()
     end)
     self.updateFrame:Hide() -- Only show when buttons are active
 
+    -- Keep lightweight movement detection separate from secure positioning:
+    -- walking may become preferable even when no teleport button is visible.
+    self.movementFrame = CreateFrame("Frame")
+    self.movementFrame:SetScript("OnUpdate", function(_, elapsed) QTB:OnMovementUpdate(elapsed) end)
+    self.movementFrame:Hide()
+
     -- Register events
     self:RegisterEvents()
 
     -- Register combat callbacks to hide/show buttons
     QR:RegisterCombatCallback(
         function() -- entering combat: hide update frame (buttons freeze in place)
+            QTB:CancelRefresh()
             if QTB.updateFrame then
                 QTB.updateFrame:Hide()
             end
+            if QTB.movementFrame then QTB.movementFrame:Hide() end
         end,
         function() -- leaving combat: refresh
             QTB:RefreshButtons()
@@ -234,6 +277,8 @@ end
 
 --- Release all active buttons
 function QTB:ReleaseAllButtons()
+    self:CancelRefresh()
+    if self.movementFrame then self.movementFrame:Hide() end
     if InCombatLockdown() then return end
 
     for questID, btn in pairs(self.activeButtons) do
@@ -256,7 +301,7 @@ local function ConfigureButton(btn, teleportID, sourceType, data)
     if InCombatLockdown() then return false end
     if not btn or not teleportID then return false end
 
-    if not QR.SecureButtons or not QR.SecureButtons:ConfigureButton(btn, teleportID, sourceType) then
+    if not QR.SecureButtons or not QR.SecureButtons:ConfigureButton(btn, teleportID, sourceType, data) then
         return false
     end
 
@@ -309,6 +354,7 @@ end
 --- Refresh all quest teleport buttons
 -- Called on quest list changes, after combat, etc.
 function QTB:RefreshButtons()
+    self:CancelRefresh()
     if not self.initialized then return end
     if InCombatLockdown() then return end
     if not self.enabled then
@@ -322,30 +368,62 @@ function QTB:RefreshButtons()
 
     local trackedQuests = GetTrackedQuestIDs()
     if #trackedQuests == 0 then return end
+    if self.movementFrame then self.movementFrame:Show() end
+    self._lastRefreshPosition = GetPositionBucket()
+    self._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph
 
-    local hasActive = false
-    local activeCount = 0
-    for _, questID in ipairs(trackedQuests) do
-        local teleportID, sourceType, data = GetCachedTeleportForQuest(questID)
+    local generation = self._refreshGeneration
+    local index, activeCount = 1, 0
+    self._refreshRunning = true
+    local function IsCurrent()
+        return generation == QTB._refreshGeneration and QTB.initialized and QTB.enabled and not InCombatLockdown()
+    end
+    local function RefreshOne()
+        if not IsCurrent() then return end
+        local questID = trackedQuests[index]
+        if not questID or activeCount >= POOL_SIZE then return end
+        -- A route calculation can take several milliseconds. Never calculate
+        -- every watched quest in the same quest-log/event frame.
+        local ok, teleportID, sourceType, data = pcall(GetCachedTeleportForQuest, questID)
+        if not IsCurrent() then return end
+        if not ok then
+            QR:Debug("Quest button route unavailable: " .. tostring(teleportID))
+            teleportID = nil
+        end
         if teleportID and sourceType then
             local btn = GetFreeButton()
             if btn then
                 if ConfigureButton(btn, teleportID, sourceType, data) then
                     btn.questID = questID
-                    self.activeButtons[questID] = btn
-                    hasActive = true
+                    QTB.activeButtons[questID] = btn
                     activeCount = activeCount + 1
+                    if QTB.updateFrame then QTB.updateFrame:Show() end
                 else
                     ReleaseButton(btn)
                 end
             end
         end
-        if activeCount >= POOL_SIZE then break end
+        index = index + 1
+        if index <= #trackedQuests and activeCount < POOL_SIZE then
+            C_Timer.After(0, RefreshOne)
+        else
+            QTB._refreshRunning = false
+            QTB._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph
+        end
     end
+    C_Timer.After(0, RefreshOne)
+end
 
-    -- Start/stop the OnUpdate frame based on whether we have active buttons
-    if hasActive and self.updateFrame then
-        self.updateFrame:Show()
+--- Sample movement at most once per second; route work remains in the batch.
+function QTB:OnMovementUpdate(elapsed)
+    self._movementElapsed = (self._movementElapsed or 0) + elapsed
+    if self._movementElapsed < MOVEMENT_CHECK_INTERVAL then return end
+    self._movementElapsed = 0
+    if not self.initialized or not self.enabled or InCombatLockdown() or self._refreshRunning then return end
+    local position = GetPositionBucket()
+    local calculator = QR.PathCalculator
+    if position ~= self._lastRefreshPosition or (calculator and (calculator.graph ~= self._lastRefreshGraph or calculator.graphDirty)) then
+        self:RefreshButtons()
     end
 end
 
@@ -500,9 +578,9 @@ function QTB:RegisterEvents()
     self.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
 
     self.eventFrame:SetScript("OnEvent", function(frame, event, ...)
-        -- Don't refresh in combat
-        if InCombatLockdown() then return end
-        if not QTB.enabled then return end
+        -- Quest targets can change during combat or while this feature is
+        -- disabled. Invalidate Lua state now; defer all button work.
+        if InCombatLockdown() or not QTB.enabled then QTB:InvalidateCache(); return end
         if event == "SPELL_UPDATE_COOLDOWN" and not UpdateCooldownState() then return end
 
         QTB:InvalidateCache()
