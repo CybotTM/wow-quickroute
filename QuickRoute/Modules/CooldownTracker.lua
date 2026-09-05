@@ -23,6 +23,102 @@ QR.CooldownTracker = {}
 local CooldownTracker = QR.CooldownTracker
 
 -------------------------------------------------------------------------------
+-- Visible inventory/map views share one event observer and expiry timer.
+-------------------------------------------------------------------------------
+
+function CooldownTracker:HasActiveListeners()
+    for _, listener in pairs(self.listeners or {}) do
+        if listener.isActive() then return true end
+    end
+    return false
+end
+
+--- Refresh only when a known teleport's cooldown state changes. Frequent global
+-- cooldown events must not rebuild every inventory row and secure overlay.
+function CooldownTracker:RefreshWatchedCooldowns(force)
+    if self.notifying or InCombatLockdown() then return end
+    if not self:HasActiveListeners() then
+        if self.expiryTimer then self.expiryTimer:Cancel() end
+        self.expiryTimer, self.expiryDeadline = nil, nil
+        return
+    end
+
+    local previous, snapshot = self.observedCooldowns, {}
+    local changed, nearest = false, nil
+    local now = GetTime()
+    for id, entry in pairs(QR.PlayerInventory:GetAllTeleports()) do
+        local cooldown = self:GetCooldown(id, entry.sourceType)
+        -- Copy immediately: GetCooldown returns a shared result table.
+        local ready, remaining = cooldown.ready, cooldown.remaining
+        local deadline = not ready and remaining > 0 and (now + remaining) or nil
+        local key = (entry.sourceType or "item") .. ":" .. id
+        -- Rounding avoids refreshes from floating-point noise in remaining time.
+        snapshot[key] = deadline and math_floor(deadline * 10 + 0.5) or false
+        if previous and previous[key] ~= snapshot[key] then changed = true end
+        if deadline and (not nearest or deadline < nearest) then nearest = deadline end
+    end
+    for key in pairs(previous or {}) do
+        if snapshot[key] == nil then changed = true end
+    end
+    self.observedCooldowns = snapshot
+
+    if nearest ~= self.expiryDeadline then
+        if self.expiryTimer then self.expiryTimer:Cancel() end
+        self.expiryTimer, self.expiryDeadline = nil, nearest
+        if nearest then
+            self.expiryTimer = C_Timer.NewTimer(math.max(0.05, nearest - now + 0.05), function()
+                -- Do not announce readiness if a timer is delivered prematurely.
+                if GetTime() < nearest then return end
+                self.expiryTimer, self.expiryDeadline = nil, nil
+                self:RefreshWatchedCooldowns(false)
+            end)
+        end
+    end
+
+    if changed or force then
+        self.notifying = true
+        for _, listener in pairs(self.listeners) do
+            if listener.isActive() then
+                local ok, err = pcall(listener.callback)
+                if not ok then QR:Error("Cooldown view refresh: " .. tostring(err)) end
+            end
+        end
+        self.notifying = false
+    end
+end
+
+--- Called when a view opens or is manually refreshed, to arm the nearest expiry.
+function CooldownTracker:WatchActiveCooldowns()
+    self:RefreshWatchedCooldowns(false)
+end
+
+--- Register one callback per view. No polling and no background inventory scans
+-- while all views are hidden; one deferred query handles a burst of events.
+function CooldownTracker:RegisterListener(owner, callback, isActive)
+    self.listeners = self.listeners or {}
+    self.listeners[owner] = { callback = callback, isActive = isActive }
+    if self.eventFrame then return end
+    local frame = CreateFrame("Frame")
+    for _, event in ipairs({ "SPELL_UPDATE_COOLDOWN", "BAG_UPDATE_COOLDOWN",
+        "SPELL_UPDATE_CHARGES", "PLAYER_REGEN_ENABLED" }) do
+        frame:RegisterEvent(event)
+    end
+    frame:SetScript("OnEvent", function(_, event)
+        if InCombatLockdown() then return end
+        if not self:HasActiveListeners() then return end
+        if self.refreshTimer then self.refreshTimer:Cancel() end
+        self.forceRefresh = self.forceRefresh or event == "PLAYER_REGEN_ENABLED"
+        self.refreshTimer = C_Timer.NewTimer(0.15, function()
+            self.refreshTimer = nil
+            local force = self.forceRefresh
+            self.forceRefresh = nil
+            self:RefreshWatchedCooldowns(force)
+        end)
+    end)
+    self.eventFrame = frame
+end
+
+-------------------------------------------------------------------------------
 -- Cooldown Query Methods
 -------------------------------------------------------------------------------
 

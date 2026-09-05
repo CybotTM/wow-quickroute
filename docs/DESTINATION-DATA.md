@@ -18,6 +18,8 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 
 The generator rejects a different commit and modified or additional input files. `QuickRoute/Data/DestinationCatalog.sources.txt` records SHA-256 hashes of the compiled retail source files, the pinned original-source name tree, and the target interface build. Names come from the original source comments; live localized quest titles and NPC tooltip names take precedence when loaded by the client. Numeric IDs remain searchable regardless of locale.
 
+Global catalogue name search uses the English source names plus translations already resolved while displaying results. It does not fetch every NPC or quest translation before searching. A translated title that the player has not yet displayed can therefore have no catalogue match; non-English search shows an English-name/ID fallback hint. Active-log quests use the localized names provided by the current quest APIs. Newly resolved translations invalidate previous query refinements and apply to every recorded location for that NPC or quest ID.
+
 ## Interpretation and access
 
 Currency vendors are identified within explicit vendor sections. Only currency entries in an item's purchase `cost` establish accepted currency. A vendor selling a currency does not establish that it accepts that currency. Independently observed merchant data uses Blizzard's `GetMerchantCurrencies` API and supersedes reference coordinates for the same NPC on that map, for the observing character and faction.
@@ -35,3 +37,5 @@ The catalogue is indexed once when first used. Empty search reads only the curre
 On the development machine, standalone Lua 5.1 loaded the generated 4.70 MB file in approximately 88 ms (22.5 MiB retained data), built its indexes in 29 ms (8.2 MiB additional), and searched a broad initial `th` query in 8.5 ms. Refining through `the` to `the lost` took 2.8 ms down to 0.013 ms; a current-map query took 0.26 ms. These are development measurements, not in-client frame-time guarantees.
 
 Fastest currency selection calculates one route per frame. A map change or movement exceeding 0.1% of a map axis discards all prior estimates and restarts from the new origin. At most two restarts are allowed; sustained movement produces an explanatory retry message. Cancellation prevents an earlier comparison from publishing over a newer destination selection.
+
+Explicit currency-vendor selections and the final asynchronous winner recheck current offers before starting a route. A new merchant observation that removes the currency invalidates a displayed choice. Live quest selections resolve their current target again; catalogue references preserve their declared role and recheck character access. A currency with no eligible vendor shows an explanation and back control without offering a fastest route.

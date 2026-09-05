@@ -36,7 +36,7 @@ end
 
 function Catalog:Reset()
     self._source, self._searchCache, self._accessCache = nil, nil, nil
-    self._npcNames = nil
+    self._npcNames, self._npcSearchNames, self._questSearchNames = nil, nil, nil
 end
 
 function Catalog:Initialize()
@@ -160,7 +160,10 @@ function Catalog:GetDisplayName(entry)
     if not entry.questID and finite(entry.npcID) then
         self._npcNames = self._npcNames or {}
         local cached = self._npcNames[entry.npcID]
-        if cached then return cached end
+        if cached then
+            entry.localizedSearchName = lower(cached)
+            return cached
+        end
         local api = _G.C_TooltipInfo
         local info = api and safeCall(api.GetHyperlink, format("unit:Creature-0-0-0-0-%d-0000000000", entry.npcID))
         name = type(info) == "table" and info.lines and info.lines[1] and info.lines[1].leftText
@@ -171,7 +174,12 @@ function Catalog:GetDisplayName(entry)
         end
     end
     if type(name) == "string" and name ~= "" then
-        entry.localizedSearchName = lower(name)
+        local localized = lower(name)
+        if entry.localizedSearchName ~= localized then self._searchCache = nil end
+        entry.localizedSearchName = localized
+        local key = entry.questID and "_questSearchNames" or "_npcSearchNames"
+        self[key] = self[key] or {}
+        self[key][entry.questID or entry.npcID] = localized
         return name
     end
     return entry.name
@@ -228,9 +236,12 @@ function Catalog:Search(query, mapID, limit)
     if query ~= "" and #query < 2 then return {}, false end
     local results, more = {}, false
     for _, entry in ipairs(candidates) do
+        local localized = entry.localizedSearchName
+            or (entry.questID and self._questSearchNames and self._questSearchNames[entry.questID])
+            or (not entry.questID and self._npcSearchNames and self._npcSearchNames[entry.npcID])
         if query == "" or (numericID and (entry.questID or entry.npcID) == numericID)
             or find(entry.searchName, query, 1, true)
-            or (entry.localizedSearchName and find(entry.localizedSearchName, query, 1, true)) then
+            or (localized and find(localized, query, 1, true)) then
             insert(matches, entry)
             if self:IsAvailable(entry) then
                 if #results < limit then insert(results, entry) else more = true end

@@ -262,6 +262,7 @@ local STATUS = {
     READY = { key = "STATUS_READY", color = "|cFF00FF00", sortOrder = 1 },     -- Bright green
     ON_CD = { key = "STATUS_ON_CD", color = "|cFFFF6600", sortOrder = 2 },     -- Orange
     OWNED = { key = "STATUS_OWNED", color = "|cFF00CC00", sortOrder = 3 },     -- Green (fallback)
+    UNAVAILABLE = { key = "STATUS_UNAVAILABLE", color = QR.Colors.GRAY, sortOrder = 4 },
     MISSING = { key = "STATUS_MISSING", color = "|cFFFFFF00", sortOrder = 4 }, -- Yellow
     NA = { key = "STATUS_NA", color = "|cFF666666", sortOrder = 5 },
     -- Owned, but the game only accepts it on certain maps and the player is elsewhere
@@ -274,6 +275,7 @@ local function InitializeStatusText()
     STATUS.READY.text = L["STATUS_READY"]
     STATUS.ON_CD.text = L["STATUS_ON_CD"]
     STATUS.OWNED.text = L["STATUS_OWNED"]
+    STATUS.UNAVAILABLE.text = L["STATUS_UNAVAILABLE"]
     STATUS.MISSING.text = L["STATUS_MISSING"]
     STATUS.NA.text = L["STATUS_NA"]
 end
@@ -292,24 +294,8 @@ end
 -- @param isSpell boolean Whether this is a spell (vs item/toy)
 -- @return table Status info with text, color, sortOrder, and cooldownRemaining
 local function GetTeleportStatus(id, data, isSpell)
-    local playerFaction = QR.PlayerInfo:GetFaction()
-    local playerClass = QR.PlayerInfo:GetClass()
-
-    -- Check faction restriction
-    if data.faction and data.faction ~= "both" and data.faction ~= playerFaction then
+    if not QR.PlayerInfo:CanUseTeleport(data) then
         return STATUS.NA, nil
-    end
-
-    -- Check class restriction
-    if data.class and data.class ~= playerClass then
-        return STATUS.NA, nil
-    end
-
-    -- Check profession restriction
-    if data.profession then
-        if data.profession == "Engineering" and not QR.PlayerInfo:HasEngineering() then
-            return STATUS.NA, nil
-        end
     end
 
     -- Check ownership
@@ -317,12 +303,7 @@ local function GetTeleportStatus(id, data, isSpell)
     local sourceType = "item"
 
     if isSpell then
-        if data.useSpellUsable and C_Spell and C_Spell.IsSpellUsable then
-            local ok, usable = pcall(C_Spell.IsSpellUsable, id)
-            owned = ok and usable or false
-        else
-            owned = IsSpellKnown and IsSpellKnown(id) or false
-        end
+        owned = QR.PlayerInventory and QR.PlayerInventory:KnowsTeleportSpell(id, data) or false
         sourceType = "spell"
     elseif data.type == QR.TeleportTypes.TOY then
         owned = PlayerHasToy and PlayerHasToy(id) or false
@@ -346,6 +327,9 @@ local function GetTeleportStatus(id, data, isSpell)
         return STATUS.ZONE, nil
     end
 
+    if sourceType == "toy" and not QR.PlayerInventory:IsToyUsable(id, data) then
+        return STATUS.UNAVAILABLE, nil
+    end
 
     -- Check cooldown
     if QR.CooldownTracker then
@@ -689,6 +673,8 @@ function TeleportPanel:ReleaseIconFrame(icon)
     icon:ClearAllPoints()
     icon:SetScript("OnEnter", nil)
     icon:SetScript("OnLeave", nil)
+    icon:SetScript("OnMouseUp", nil)
+    if icon.helpBadge then icon.helpBadge:Hide() end
 
     -- Reset textures
     if icon.iconTexture then
@@ -917,6 +903,7 @@ function TeleportPanel:ConfigureRowTooltip(row)
                 GameTooltip:AddLine(C.YELLOW .. L["HOW_TO_OBTAIN"] .. C.R, 1, 1, 0)
                 GameTooltip:AddLine(acqInfo, 0.8, 0.8, 0.8, true)
             end
+            GameTooltip:AddLine(L["ACQUISITION_CLICK_HINT"], 1, 1, 1, true)
         end
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
@@ -972,8 +959,6 @@ function TeleportPanel:ConfigureRowIcon(row, entry)
             local sourceType = entry.isSpell and "spell" or (entry.data.type == QR.TeleportTypes.TOY and "toy" or "item")
             local configured = QR.SecureButtons:ConfigureButton(iconBtn, entry.id, sourceType, entry.data)
             if configured then
-                iconBtn:SetFrameStrata("DIALOG")
-                iconBtn:SetFrameLevel(100)
                 iconBtn:SetSize(ICON_SIZE, ICON_SIZE)
                 QR.SecureButtons:AttachOverlay(iconBtn, row, self.frame and self.frame.scrollFrame, 2, true)
 
@@ -1044,7 +1029,7 @@ function TeleportPanel:ConfigureRowIcon(row, entry)
     end
     icon:SetTexture(iconTexture)
     -- Desaturate non-owned items
-    if entry.status == STATUS.MISSING or entry.status == STATUS.NA then
+    if entry.status == STATUS.MISSING or entry.status == STATUS.NA or entry.status == STATUS.UNAVAILABLE then
         icon:SetDesaturated(true)
         icon:SetAlpha(0.5)
     else
@@ -1111,6 +1096,30 @@ function TeleportPanel:ConfigureRowTexts(row, entry)
     end
     statusText:SetText(entry.status.color .. statusStr .. "|r")
     statusText:Show()
+
+    if entry.status == STATUS.MISSING and not row.helpButton then
+        local helpButton = QR.CreateModernButton(row, 104, 24)
+        helpButton:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+        helpButton:SetText(L["ACQUISITION_HELP"])
+        helpButton:SetScript("OnClick", function()
+            PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+            TeleportPanel:ShowAcquisitionHelp(row.entry)
+        end)
+        helpButton:SetScript("OnEnter", function(button)
+            GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
+            GameTooltip:SetText(L["ACQUISITION_HELP"])
+            QR.AddTooltipBranding(GameTooltip)
+            GameTooltip:Show()
+        end)
+        helpButton:SetScript("OnLeave", GameTooltip_Hide)
+        row.helpButton = helpButton
+    end
+    local missing = entry.status == STATUS.MISSING
+    if row.helpButton then row.helpButton:SetShown(missing) end
+    if missing then statusText:Hide() end
+    -- Keep a dedicated action visible without placing it over the item name.
+    nameText:SetPoint("RIGHT", row, "RIGHT", missing and -114 or -70, 0)
+    destText:SetPoint("RIGHT", row, "RIGHT", missing and -114 or -70, 0)
 end
 
 --- Create a row for a single teleport entry
@@ -1138,6 +1147,18 @@ function TeleportPanel:CreateTeleportRow(entry, yOffset)
     self:ConfigureRowTooltip(row)
     self:ConfigureRowIcon(row, entry)
     self:ConfigureRowTexts(row, entry)
+    row:SetScript("OnMouseUp",nil)
+    if entry.status == STATUS.MISSING then
+        row:SetScript("OnMouseUp",function(_,button)
+            if button == "LeftButton" then
+                PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+                TeleportPanel:OpenAcquisitionDetails(row.entry)
+            elseif button == "RightButton" then
+                PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+                TeleportPanel:ShowAcquisitionHelp(row.entry)
+            end
+        end)
+    end
 
     return row
 end
@@ -1283,6 +1304,7 @@ end
 -- @param entry table The teleport entry
 -- @return string|nil Acquisition info or nil
 function TeleportPanel:GetAcquisitionInfo(itemID, entry)
+    L = QR.L
     if not itemID or not entry then return nil end
 
     local data = entry.data
@@ -1296,7 +1318,7 @@ function TeleportPanel:GetAcquisitionInfo(itemID, entry)
         local requiredLevel = data.requiredRep.level or "Friendly"
         local isMet, currentStanding, standingName = CheckReputationRequirement(factionName, requiredLevel)
 
-        local statusIcon = isMet and "|cFF00FF00\226\156\147|r" or "|cFFFF0000\226\156\151|r"
+        local statusIcon = isMet and "|A:common-icon-checkmark:14:14|a" or "|A:common-icon-redx:14:14|a"
         local statusColor = isMet and "|cFF00FF00" or "|cFFFFFF00"
 
         -- Use localized standing name from WoW globals (FACTION_STANDING_LABEL1..8)
@@ -1320,7 +1342,7 @@ function TeleportPanel:GetAcquisitionInfo(itemID, entry)
         local questName = data.requiredQuest.name or string_format(L["QUEST_FALLBACK"], questID)
         local isComplete, isOnLog = CheckQuestRequirement(questID)
 
-        local statusIcon = isComplete and "|cFF00FF00✓|r" or "|cFFFF0000✗|r"
+        local statusIcon = isComplete and "|A:common-icon-checkmark:14:14|a" or "|A:common-icon-redx:14:14|a"
         local questLink = questID and GetQuestLink and GetQuestLink(questID)
         local displayName = questLink or questName
 
@@ -1338,11 +1360,17 @@ function TeleportPanel:GetAcquisitionInfo(itemID, entry)
         local achievementID = data.requiredAchievement.id
         local isComplete, achievementName = CheckAchievementRequirement(achievementID)
 
-        local statusIcon = isComplete and "|cFF00FF00✓|r" or "|cFFFF0000✗|r"
+        local statusIcon = isComplete and "|A:common-icon-checkmark:14:14|a" or "|A:common-icon-redx:14:14|a"
         local achievementLink = achievementID and GetAchievementLink and GetAchievementLink(achievementID)
         local displayName = achievementLink or achievementName
 
         table_insert(lines, string_format("%s %s: %s", statusIcon, L["REQ_ACHIEVEMENT"], displayName))
+    end
+
+    if data.profession == "Engineering" or data.type == QR.TeleportTypes.ENGINEERING then
+        local hasProfession = QR.PlayerInfo and QR.PlayerInfo:HasEngineering()
+        local icon = hasProfession and "|A:common-icon-checkmark:14:14|a" or "|A:common-icon-redx:14:14|a"
+        table_insert(lines, icon .. " " .. L["HINT_REQUIRES_ENGINEERING"])
     end
 
     -- Add vendor/NPC info if available
@@ -1403,11 +1431,325 @@ function TeleportPanel:GetVendorLocation(entry)
     if not entry or not entry.data then return nil end
 
     local data = entry.data
-    if data.vendor and data.vendor.mapID then
-        return data.vendor.mapID, data.vendor.x or 0.5, data.vendor.y or 0.5, data.vendor.name
+    local vendor = data.vendor
+    local function finite(value)
+        return not (issecretvalue and issecretvalue(value)) and type(value) == "number"
+            and value == value and value > -math.huge and value < math.huge
+    end
+    if type(vendor) == "table" and finite(vendor.mapID) and vendor.mapID > 0 and vendor.mapID % 1 == 0
+        and finite(vendor.x) and finite(vendor.y) and vendor.x >= 0 and vendor.x <= 1 and vendor.y >= 0 and vendor.y <= 1 then
+        return vendor.mapID, vendor.x, vendor.y, vendor.name
     end
 
     return nil
+end
+
+local function IsAcquisitionID(id)
+    return not (issecretvalue and issecretvalue(id)) and type(id) == "number"
+        and id > 0 and id < math.huge and id % 1 == 0
+end
+
+--- Return a copyable public reference URL; item names never become URL input.
+function TeleportPanel:GetAcquisitionURL(entry)
+    local id = entry and entry.id
+    if not IsAcquisitionID(id) then return nil end
+    return string_format("https://www.wowhead.com/%s=%d", entry.isSpell and "spell" or "item", id)
+end
+
+-- Verified ATT API: src/base.lua exposes AllTheThings/ATTC;
+-- src/UI/Window Definitions.lua CreatePopoutForSearch accepts itemID:<id>
+-- and spellID:<id>, exactly as its own /att command does. No ATT dependency.
+function TeleportPanel:OpenInATT(entry)
+    if InCombatLockdown() or not self:GetAcquisitionURL(entry) then return false end
+    local att = _G.AllTheThings or _G.ATTC
+    if type(att) ~= "table" or type(att.CreatePopoutForSearch) ~= "function" then return false end
+    local ok, opened = pcall(att.CreatePopoutForSearch,string_format("%s:%d",entry.isSpell and "spellID" or "itemID",entry.id))
+    return ok and opened == true
+end
+
+function TeleportPanel:OpenAcquisitionDetails(entry)
+    if self:OpenInATT(entry) then return true end
+    return self:ShowAcquisitionHelp(entry)
+end
+
+-- ATT's current-character filter ignores account collection display settings.
+-- Validate the whole source ancestry before picking any NPC from it; a gate
+-- above that NPC still applies. Avoid ATT's unbounded recursive convenience API.
+local function GetATTSourcePaths(panel, entry)
+    local att = _G.AllTheThings or _G.ATTC
+    if not panel:GetAcquisitionURL(entry) or type(att) ~= "table"
+        or type(att.SearchForField) ~= "function" or type(att.CurrentCharacterFilters) ~= "function" then return {} end
+    local ok, matches = pcall(att.SearchForField, entry.isSpell and "spellID" or "itemID", entry.id)
+    if not ok or type(matches) ~= "table" then return {} end
+    local paths = {}
+    for index = 1, math_min(#matches, 12) do
+        local node, seen, path = rawget(matches, index), {}, {}
+        for _ = 1, 12 do
+            if type(node) ~= "table" or seen[node] then break end
+            seen[node] = true
+            local filtered, eligible = pcall(att.CurrentCharacterFilters, node)
+            if not filtered or (issecretvalue and issecretvalue(eligible)) or eligible ~= true then break end
+            path[#path + 1] = node
+            node = rawget(node, "sourceParent") or rawget(node, "parent")
+            if node == nil then paths[#paths + 1] = path; break end
+        end
+    end
+    return paths
+end
+
+--- Small, read-only preview from ATT's indexed result. Full variants and
+-- dynamic unlock logic remain in ATT's own popout; do not flatten its tree.
+function TeleportPanel:GetATTAcquisitionInfo(entry, sourcePath)
+    L = QR.L
+    local path = sourcePath or GetATTSourcePaths(self, entry)[1]
+    if not path then return nil end
+    local lines,used = {},{}
+    local function safeString(value)
+        if not (issecretvalue and issecretvalue(value)) and type(value) == "string" and value ~= "" then return value:sub(1,600) end
+    end
+    local function questName(id)
+        if not IsAcquisitionID(id) then return nil end
+        local success,name
+        if C_QuestLog and C_QuestLog.GetTitleForQuestID then success,name=pcall(C_QuestLog.GetTitleForQuestID,id) end
+        return success and safeString(name) or string_format(L["QUEST_FALLBACK"],id)
+    end
+    local function add(text)
+        if text and not used[text] and #lines < 8 then lines[#lines+1]=text;used[text]=true end
+    end
+    for _,node in ipairs(path) do
+        if #lines >= 8 then break end
+        local description=safeString(rawget(node,"description"))
+        if description then add(description) end
+        local quest=questName(rawget(node,"questID"))
+        if quest then add(L["REQ_QUEST"] .. ": " .. quest) end
+        local prerequisites=rawget(node,"sourceQuests")
+        if type(prerequisites) == "table" and #prerequisites > 0 and #prerequisites <= 6 then
+            local names={}
+            for _,id in ipairs(prerequisites) do
+                local name=questName(id)
+                if name then names[#names+1]=name end
+            end
+            local required=rawget(node,"sqreq") or #prerequisites
+            if #names == #prerequisites and type(required) == "number" and required >= 0 and required <= #names and required % 1 == 0 then
+                add(string_format(L["ACQUISITION_QUEST_GROUP"],required,#names,table_concat(names,", ")))
+            end
+        end
+        if rawget(node,"requireSkill") == 202 then add(L["HINT_REQUIRES_ENGINEERING"]) end
+        local costs=rawget(node,"cost")
+        local currencyAPI = _G.C_CurrencyInfo
+        if type(costs) == "table" and currencyAPI and currencyAPI.GetCurrencyInfo then
+            for index=1,math_min(#costs,6) do
+                local cost=rawget(costs,index)
+                if type(cost) == "table" and cost[1] == "c" and type(cost[2]) == "number"
+                    and type(cost[3]) == "number" and cost[3] > 0 and cost[3] < math.huge then
+                    local success,info=pcall(currencyAPI.GetCurrencyInfo,cost[2])
+                    local name=success and type(info) == "table" and safeString(info.name)
+                    if name then add(L["ACQUISITION_COST"] .. ": " .. string_format("%g %s",cost[3],name)) end
+                end
+            end
+        end
+    end
+    if #lines > 0 then return L["ACQUISITION_ATT_SOURCE"] .. ":\n" .. table_concat(lines,"\n") end
+end
+
+-- CurrentCharacterFilters does not evaluate quest completion, level, or timed
+-- availability. Map only the same supported conditions as the catalogue
+-- importer; an uncertain source can still be read/opened in ATT without a route.
+local function IsATTSourceRoutable(catalog, path)
+    local function number(value)
+        return not (issecretvalue and issecretvalue(value)) and type(value) == "number"
+            and value > -math.huge and value < math.huge
+    end
+    for _, node in ipairs(path) do
+        for _, key in ipairs({ "e", "eventID", "u", "unobtainable", "rwp", "pb",
+            "isWorldQuest", "isWeekly", "isDaily", "isMonthly", "OnUpdate", "OnClick", "customCollect" }) do
+            if rawget(node, key) ~= nil then return false end
+        end
+        local added = rawget(node, "awp")
+        if added ~= nil then
+            local ok, _, _, _, interface = pcall(GetBuildInfo)
+            if not ok or not IsAcquisitionID(added) or not IsAcquisitionID(interface)
+                or added > interface then return false end
+        end
+        local req = {}
+        local level = rawget(node, "lvl")
+        if level ~= nil then
+            if type(level) == "table" and not (issecretvalue and issecretvalue(level)) then
+                -- Catalogue requirements support a minimum, not a level range.
+                if rawget(level, 2) ~= nil then return false end
+                level = rawget(level, 1)
+            end
+            if not number(level) or level < 0 or level % 1 ~= 0 then return false end
+            req.lvl = level
+        end
+        for _, key in ipairs({ "minReputation", "maxReputation", "minRenown" }) do
+            local rule = rawget(node, key)
+            if rule ~= nil then
+                if (issecretvalue and issecretvalue(rule)) or type(rule) ~= "table" then return false end
+                local faction, amount = rawget(rule, 1), rawget(rule, 2)
+                if not IsAcquisitionID(faction) or not number(amount) or rawget(rule, 3) ~= nil then return false end
+                req[key] = { faction, amount }
+            end
+        end
+        local covenant = rawget(node, "covenantID")
+        if covenant ~= nil then
+            if not IsAcquisitionID(covenant) then return false end
+            req.covenantID = covenant
+        end
+        local quests, required = rawget(node, "sourceQuests"), rawget(node, "sqreq")
+        if quests ~= nil then
+            if (issecretvalue and issecretvalue(quests)) or type(quests) ~= "table" or #quests > 64 then return false end
+            local ids, seen, count = {}, {}, 0
+            for key in next, quests do
+                count = count + 1
+                if count > 64 or not IsAcquisitionID(key) or key > #quests then return false end
+            end
+            for index = 1, #quests do
+                local id = rawget(quests, index)
+                if not IsAcquisitionID(id) or seen[id] then return false end
+                ids[index], seen[id] = id, true
+            end
+            if required == nil then required = #ids end
+            if not number(required) or required < 0 or required > #ids or required % 1 ~= 0 then return false end
+            req.questGroups = { { ids = ids, required = required } }
+        elseif required ~= nil then
+            return false
+        end
+        if next(req) then
+            if type(catalog.CheckRequirements) ~= "function" then return false end
+            local ok, available = pcall(catalog.CheckRequirements, catalog, req)
+            if not ok or (issecretvalue and issecretvalue(available)) or available ~= true then return false end
+        end
+    end
+    return true
+end
+
+--- Match an indexed ATT source relationship to an independently recorded
+-- NPC/quest-giver coordinate. Never treat item/quest reference coords as a
+-- vendor position, traverse the full ATT database, or mutate ATT's objects.
+function TeleportPanel:GetAcquisitionLocation(entry)
+    local mapID,x,y,name = self:GetVendorLocation(entry)
+    if mapID then return {mapID=mapID,x=x,y=y,name=name,kind="vendor"} end
+    local catalog = QR.Catalog
+    if not catalog then return nil end
+    local quest = entry and entry.data and entry.data.requiredQuest
+    if quest and quest.id then
+        local givers = catalog:GetQuestLocations(quest.id,"giver",true)
+        if givers[1] then return givers[1] end
+    end
+    catalog:Initialize()
+    for _,path in ipairs(GetATTSourcePaths(self, entry)) do
+        if IsATTSourceRoutable(catalog, path) then
+            for _,current in ipairs(path) do
+                local npcID,questID = rawget(current,"npcID"),rawget(current,"questID")
+                if IsAcquisitionID(npcID) then
+                    local points = catalog.byNPC[npcID] or {}
+                    for pointIndex=1,math_min(#points,12) do
+                        local point = points[pointIndex]
+                        if self:GetVendorLocation({data={vendor=point}}) and catalog:IsAvailable(point,true) then return point,path end
+                    end
+                elseif IsAcquisitionID(questID) then
+                    local givers = catalog:GetQuestLocations(questID,"giver",true)
+                    if givers[1] then return givers[1],path end
+                end
+            end
+        end
+    end
+end
+
+--- User-initiated source help is an ordinary window, separate from casting.
+function TeleportPanel:ShowAcquisitionHelp(entry)
+    L = QR.L
+    if not entry or not entry.data then return false end
+    local url = self:GetAcquisitionURL(entry)
+    if not url then return false end
+    if not self.acquisitionFrame then
+        local frame = QR.CreateStandardWindow({name="QuickRouteAcquisitionFrame",title=L["ACQUISITION_HELP"],width=560,height=470})
+        self.acquisitionFrame = frame
+        local name = frame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+        name:SetPoint("TOPLEFT",18,-48)
+        name:SetWidth(524)
+        name:SetJustifyH("LEFT")
+        frame.itemName = name
+        local scroll = CreateFrame("ScrollFrame","QuickRouteAcquisitionScroll",frame,"UIPanelScrollFrameTemplate")
+        scroll:SetPoint("TOPLEFT",18,-86)
+        scroll:SetSize(500,205)
+        QR.SkinScrollBar(scroll)
+        local child = CreateFrame("Frame",nil,scroll)
+        child:SetSize(500,205)
+        scroll:SetScrollChild(child)
+        local details = child:CreateFontString(nil,"OVERLAY","GameFontHighlight")
+        details:SetPoint("TOPLEFT")
+        details:SetWidth(492)
+        details:SetJustifyH("LEFT")
+        details:SetWordWrap(true)
+        frame.details,frame.detailContent,frame.detailScroll = details,child,scroll
+        local hint = frame:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+        hint:SetPoint("TOPLEFT",18,-304)
+        hint:SetSize(524,36)
+        hint:SetJustifyH("LEFT")
+        hint:SetText(L["ACQUISITION_ATT_HINT"])
+        local copyHint = frame:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+        copyHint:SetPoint("TOPLEFT",18,-350)
+        copyHint:SetWidth(524)
+        copyHint:SetJustifyH("LEFT")
+        copyHint:SetText(L["ACQUISITION_COPY_LINK"])
+        local link = CreateFrame("EditBox",nil,frame,"InputBoxTemplate")
+        link:SetPoint("TOPLEFT",24,-376)
+        link:SetSize(512,24)
+        link:SetAutoFocus(false)
+        link:SetScript("OnEditFocusGained",function(box)box:HighlightText()end)
+        link:SetScript("OnEscapePressed",function(box)box:ClearFocus()end)
+        frame.link = link
+        local route = QR.CreateModernButton(frame,180,26)
+        route:SetPoint("BOTTOMLEFT",18,20)
+        route:SetText(L["ACQUISITION_VENDOR_ROUTE"])
+        route:SetScript("OnClick",function()
+            PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+            local location = TeleportPanel:GetAcquisitionLocation(frame.entry)
+            if location and QR.POIRouting then QR.POIRouting:RouteToMapPosition(location.mapID,location.x,location.y) end
+        end)
+        frame.routeButton = route
+        local noVendor = frame:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+        noVendor:SetPoint("BOTTOMLEFT",18,57)
+        noVendor:SetWidth(524)
+        noVendor:SetJustifyH("LEFT")
+        noVendor:SetText(L["ACQUISITION_VENDOR_UNKNOWN"])
+        frame.noVendor = noVendor
+        local attButton = QR.CreateModernButton(frame,180,26)
+        attButton:SetPoint("BOTTOMRIGHT",-18,20)
+        attButton:SetText(L["ACQUISITION_OPEN_ATT"])
+        attButton:SetScript("OnClick",function()
+            PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+            if not TeleportPanel:OpenInATT(frame.entry) then QR:Print(L["ACQUISITION_ATT_UNAVAILABLE"]) end
+        end)
+        frame.attButton = attButton
+    end
+    local frame = self.acquisitionFrame
+    frame.entry = entry
+    frame.itemName:SetText(GetLocalizedTeleportName(entry) or entry.data.name or tostring(entry.id))
+    local location, sourcePath = self:GetAcquisitionLocation(entry)
+    local details = self:GetAcquisitionInfo(entry.id,entry) or L["HINT_CHECK_WOWHEAD"]
+    local attInfo = self:GetATTAcquisitionInfo(entry, sourcePath)
+    if attInfo then details = details .. "\n\n" .. attInfo end
+    if location and location.kind ~= "vendor" then
+        local map = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(location.mapID)
+        details = details .. "\n\n" .. L["ACQUISITION_SOURCE"] .. ": " .. (location.name or L["UNKNOWN"])
+            .. string_format("\n%s (%.1f, %.1f)",map and map.name or tostring(location.mapID),location.x*100,location.y*100)
+    end
+    frame.details:SetText(details)
+    frame.detailContent:SetHeight(math_max(205,frame.details:GetStringHeight() or 205))
+    if frame.detailScroll.SetVerticalScroll then frame.detailScroll:SetVerticalScroll(0) end
+    frame.link:SetText(url)
+    local hasVendor = location ~= nil
+    frame.routeButton:SetShown(hasVendor)
+    frame.routeButton:SetText(L[location and location.kind == "vendor" and "ACQUISITION_VENDOR_ROUTE" or "ACQUISITION_SOURCE_ROUTE"])
+    frame.noVendor:SetShown(not hasVendor)
+    local att = _G.AllTheThings or _G.ATTC
+    frame.attButton:SetShown(type(att) == "table" and type(att.CreatePopoutForSearch) == "function")
+    QR.FitWindowScale(frame,QR.db and QR.db.windowScale or 1)
+    frame:Show()
+    return true
 end
 
 -------------------------------------------------------------------------------
@@ -1426,6 +1768,8 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
     iconFrame.isSpell = entry.isSpell
     iconFrame.data = entry.data
     iconFrame.entry = entry
+    iconFrame:SetScript("OnMouseUp",nil)
+    if iconFrame.helpBadge then iconFrame.helpBadge:Hide() end
 
     if isOwned and QR.SecureButtons and not InCombatLockdown() then
         local iconBtn = QR.SecureButtons:GetButton()
@@ -1433,8 +1777,6 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
             local sourceType = entry.isSpell and "spell" or (entry.data.type == QR.TeleportTypes.TOY and "toy" or "item")
             local configured = QR.SecureButtons:ConfigureButton(iconBtn, entry.id, sourceType, entry.data)
             if configured then
-                iconBtn:SetFrameStrata("DIALOG")
-                iconBtn:SetFrameLevel(100)
                 iconBtn:SetSize(GRID_ICON_SIZE, GRID_ICON_SIZE)
                 QR.SecureButtons:AttachOverlay(iconBtn, iconFrame, self.frame and self.frame.scrollFrame, 0, true)
 
@@ -1498,7 +1840,7 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
     if entry.status == STATUS.MISSING then
         iconFrame.iconTexture:SetDesaturated(true)
         iconFrame.iconTexture:SetAlpha(0.7)
-    elseif entry.status == STATUS.NA then
+    elseif entry.status == STATUS.NA or entry.status == STATUS.UNAVAILABLE then
         iconFrame.iconTexture:SetDesaturated(true)
         iconFrame.iconTexture:SetAlpha(0.5)
     elseif entry.status == STATUS.ON_CD then
@@ -1554,6 +1896,7 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
                 GameTooltip:AddLine(C.YELLOW .. L["HOW_TO_OBTAIN"] .. C.R, 1, 1, 0)
                 GameTooltip:AddLine(acqInfo, 0.8, 0.8, 0.8, true)
             end
+            GameTooltip:AddLine(L["ACQUISITION_CLICK_HINT"],1,1,1,true)
         end
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
@@ -1561,6 +1904,24 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
     iconFrame:SetScript("OnLeave", function()
         GameTooltip_Hide()
     end)
+    if entry.status == STATUS.MISSING then
+        if not iconFrame.helpBadge then
+            local badge = iconFrame:CreateFontString(nil,"OVERLAY","GameFontNormal")
+            badge:SetPoint("BOTTOMRIGHT",-1,1)
+            badge:SetText("?")
+            iconFrame.helpBadge = badge
+        end
+        iconFrame.helpBadge:Show()
+        iconFrame:SetScript("OnMouseUp",function(_,button)
+            if button == "LeftButton" then
+                PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+                TeleportPanel:OpenAcquisitionDetails(iconFrame.entry)
+            elseif button == "RightButton" then
+                PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+                TeleportPanel:ShowAcquisitionHelp(iconFrame.entry)
+            end
+        end)
+    end
 end
 
 -------------------------------------------------------------------------------
@@ -1933,6 +2294,7 @@ function TeleportPanel:ReleaseRowFrame(row)
     row:ClearAllPoints()
     row:SetScript("OnEnter", nil)
     row:SetScript("OnLeave", nil)
+    row:SetScript("OnMouseUp", nil)
 
     -- Hide all child elements to prevent ghost text
     if row.icon then
@@ -1944,6 +2306,7 @@ function TeleportPanel:ReleaseRowFrame(row)
     if row.destText then row.destText:Hide() end
     if row.statusText then row.statusText:Hide() end
     if row.highlight then row.highlight:Hide() end
+    if row.helpButton then row.helpButton:Hide() end
 
     -- Clear stored data
     row.teleportID = nil
@@ -1984,6 +2347,8 @@ function TeleportPanel:RefreshList()
     if not self.frame then
         return
     end
+
+    if QR.CooldownTracker then QR.CooldownTracker:WatchActiveCooldowns() end
 
     -- Invalidate bag scan cache on refresh
     wipe(bagScanCache)
@@ -2120,6 +2485,13 @@ function TeleportPanel:Initialize()
     -- Initialize localized strings
     InitializeStatusText()
     InitializeFilters()
+
+    if QR.CooldownTracker then
+        QR.CooldownTracker:RegisterListener(self, function() self:RefreshList() end, function()
+            return self.frame and QR.MainFrame and QR.MainFrame.isShowing
+                and QR.MainFrame.activeTab == "teleports"
+        end)
+    end
 
     -- Create content inside MainFrame's teleports content area
     if QR.MainFrame then

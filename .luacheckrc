@@ -41,6 +41,7 @@ globals = {
     "C_SuperTrack",
     "C_QuestLog",
     "C_ToyBox",
+    "C_Texture",
     "C_Timer",
     "C_TaxiMap",
     "C_TaskQuest",

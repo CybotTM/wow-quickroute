@@ -58,14 +58,21 @@ end
 --- Get faction-filtered locations for a service type
 -- @param serviceType string e.g. "AUCTION_HOUSE"
 -- @return table Array of location entries
+function SR:IsLocationAvailable(loc)
+    if not IsPosition(loc) then return false end
+    local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    if loc.faction ~= "both" and loc.faction ~= faction then return false end
+    if loc.requiresEngineering and not (QR.PlayerInfo and QR.PlayerInfo:HasEngineering()) then return false end
+    return true
+end
+
 function SR:GetLocations(serviceType)
     local pois = QR.ServicePOIs and QR.ServicePOIs[serviceType]
     if not pois then return {} end
 
-    local playerFaction = QR.PlayerInfo and QR.PlayerInfo:GetFaction() or "Alliance"
     local filtered = {}
     for _, loc in ipairs(pois) do
-        if loc.faction == "both" or loc.faction == playerFaction then
+        if self:IsLocationAvailable(loc) then
             table_insert(filtered, loc)
         end
     end
@@ -269,6 +276,17 @@ function SR:GetCurrencyLocations(currencyID)
     return results
 end
 
+--- Revalidate a displayed or previously ranked point against current offers.
+-- A new observation can replace its position or remove the accepted currency.
+function SR:IsCurrencyLocationAvailable(currencyID, location)
+    if not IsPosition(location) then return false end
+    for _, current in ipairs(self:GetCurrencyLocations(currencyID)) do
+        if current.npcID == location.npcID and current.mapID == location.mapID
+            and current.x == location.x and current.y == location.y then return true end
+    end
+    return false
+end
+
 function SR:GetKnownCurrencies(includeAll)
     local currencies, seen = {}, {}
     for _, loc in ipairs(self:GetCurrencyLocations()) do
@@ -350,7 +368,11 @@ function SR:FindNearestCurrencyVendorAsync(currencyID, callback)
             origin, index, bestLoc, bestCost, bestResult = current, 1, nil, nil, nil
         end
         if index > #locations then
-            callback(bestLoc, bestCost, bestResult)
+            if bestLoc and not SR:IsCurrencyLocationAvailable(currencyID, bestLoc) then
+                callback(nil, nil, nil, "vendor_unavailable")
+            else
+                callback(bestLoc, bestCost, bestResult)
+            end
             return
         end
         local loc, cost, result = SR:FindNearestLocation({ locations[index] })
@@ -382,6 +404,7 @@ function SR:RouteToCurrency(query)
     self:FindNearestCurrencyVendorAsync(currencyID, function(loc, _, _, reason)
         if not loc then
             QR:Print(QR.L[reason == "position_changed" and "CURRENCY_VENDOR_MOVED"
+                or reason == "vendor_unavailable" and "CURRENCY_VENDOR_NONE"
                 or reason == "position_unavailable" and "DESTINATION_UNAVAILABLE" or "NO_PATH_FOUND"])
             return
         end

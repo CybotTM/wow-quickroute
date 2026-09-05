@@ -263,3 +263,68 @@ T:run("Currency vendors: changed merchant acceptance suppresses obsolete catalog
         t:assertEqual(1, #QR.ServiceRouter:GetCurrencyLocations(), "Bounded negative observation remains for this character")
     end)
 end)
+
+T:run("Currency vendors: stale explicit picker selection cannot route after accepted cost disappears", function(t)
+    withMerchant(function()
+        QR.ServiceRouter:ObserveMerchant()
+        local ds, savedPOI = QR.DestinationSearch, QR.POIRouting
+        local savedRefresh = ds.RefreshDropdown
+        local vendor = QR.ServiceRouter:GetCurrencyLocations(2003)[1]
+        local routed, refreshed = 0, 0
+        QR.POIRouting = {RouteToMapPosition=function() routed = routed + 1 end}
+        ds.RefreshDropdown = function() refreshed = refreshed + 1 end
+        _G.C_MerchantFrame.GetMerchantCurrencies = function() return {3008} end
+        QR.ServiceRouter:ObserveMerchant()
+        ds:SelectResult({name=vendor.name,mapID=vendor.mapID,x=vendor.x,y=vendor.y,
+            vendorCurrencyID=2003,vendorLocation=vendor,source="merchant"})
+        t:assertEqual(0, routed, "Displayed seller no longer accepting the currency does not start navigation")
+        t:assertEqual(1, refreshed, "Stale choices refresh to show current availability")
+        ds.RefreshDropdown, QR.POIRouting = savedRefresh, savedPOI
+    end)
+end)
+
+T:run("Currency vendors: asynchronous winner is revalidated before publication", function(t)
+    withMerchant(function()
+        QR.ServiceRouter:ObserveMerchant()
+        local savedAfter = C_Timer.After
+        local pending, selected, reason = {}, nil, nil
+        C_Timer.After = function(_, fn) pending[#pending+1] = fn end
+        QR.PathCalculator = {CalculatePath=function()return {totalTime=5}end}
+        QR.ServiceRouter:FindNearestCurrencyVendorAsync(2003,function(loc,_,_,why) selected,reason=loc,why end)
+        pending[1]()
+        _G.C_MerchantFrame.GetMerchantCurrencies = function() return {3008} end
+        QR.ServiceRouter:ObserveMerchant()
+        pending[2]()
+        t:assertNil(selected, "A winner whose currency offer disappeared cannot be published")
+        t:assertEqual("vendor_unavailable", reason, "Unavailable winner reports changed offer instead of a false fastest result")
+        C_Timer.After = savedAfter
+    end)
+end)
+
+T:run("Currency vendors: unavailable selected currency has explanation and back control without fastest action", function(t)
+    withMerchant(function()
+        local ds = QR.DestinationSearch
+        local savedCurrency, savedSelected, savedShowing = ds._currencyOnly, ds._selectedCurrencyID, ds.isShowing
+        ds:CreateDropdown()
+        ds._currencyOnly, ds._selectedCurrencyID = true, 99999
+        ds:RefreshDropdown("")
+        local back, explanation, fastest = false, false, false
+        for _, row in ipairs(ds.rows) do
+            local entry = row._entryData
+            if entry then
+                if entry.currencyBack then back = true end
+                if entry.currencyID then fastest = true end
+                if entry.informational and entry.name == QR.L["CURRENCY_VENDOR_NONE"] then
+                    explanation = true
+                    t:assertNil(row:GetScript("OnClick"), "Unavailable vendor explanation is not an actionable route")
+                    t:assertNil(row:GetScript("OnEnter"), "Unavailable vendor explanation does not advertise a route tooltip")
+                end
+            end
+        end
+        t:assertTrue(back, "Player can return to currencies when none of the selected vendors is accessible")
+        t:assertTrue(explanation, "Missing eligible vendors are explained in the picker")
+        t:assertFalse(fastest, "No fastest-vendor action is advertised without a candidate")
+        ds:HideDropdown()
+        ds._currencyOnly, ds._selectedCurrencyID, ds.isShowing = savedCurrency, savedSelected, savedShowing
+    end)
+end)

@@ -41,6 +41,14 @@ local activeOverlays = {}   -- { [btn] = { stepFrame, scrollFrame, xOffset, last
 local overlayManagerFrame = nil
 local overlayThrottle = 0
 
+-- UIParent parenting avoids taint, but does not inherit the target's layer.
+-- Keep the activation area just above its target, below covering dialogs.
+local function SyncOverlayLayer(btn, target)
+    local strata, level = target:GetFrameStrata(), target:GetFrameLevel() + 1
+    if btn:GetFrameStrata() ~= strata then btn:SetFrameStrata(strata) end
+    if btn:GetFrameLevel() ~= level then btn:SetFrameLevel(level) end
+end
+
 --- Single OnUpdate handler that iterates all tracked overlays and updates positions.
 -- Replaces per-button OnUpdate scripts with one centralized loop.
 local function UpdateAllOverlays(self, elapsed)
@@ -56,6 +64,7 @@ local function UpdateAllOverlays(self, elapsed)
         if not sf or not sf:IsVisible() then
             btn:Hide()
         else
+            SyncOverlayLayer(btn, sf)
             local targetScale = sf:GetEffectiveScale()
             local relativeScale = targetScale / UIParent:GetEffectiveScale()
             if btn:GetScale() ~= relativeScale then
@@ -594,6 +603,7 @@ function SecureButtons:AttachOverlay(btn, targetFrame, scrollFrame, xOffset, anc
     end
 
     xOffset = xOffset or -5
+    SyncOverlayLayer(btn, targetFrame)
 
     -- Keep per-button properties for backward compatibility
     btn._qrStepFrame = targetFrame

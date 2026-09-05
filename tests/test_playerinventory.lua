@@ -244,6 +244,54 @@ T:run("ScanSpells: mage gets faction-specific teleports", function(t)
     t:assertNotNil(QR.PlayerInventory.spells[allianceSpellID], "Alliance mage teleport found")
 end)
 
+T:run("ScanSpells: learned alternate Shattrath variant becomes a routing option", function(t)
+    resetState()
+    MockWoW.config.playerClass = "MAGE"
+    MockWoW.config.playerFaction = "Horde"
+    QR.PlayerInfo:InvalidateCache()
+
+    QR.PlayerInventory:ScanAll()
+    t:assertNil(QR.PlayerInventory.spells[35715], "Unlearned Shattrath spell 35715 is unavailable")
+
+    MockWoW.config.knownSpells[35715] = true
+    QR.PlayerInventory:ScanAll()
+    local teleport = QR.PlayerInventory:GetAllTeleports()[35715]
+    t:assertNotNil(teleport, "Learned spell 35715 is included in routing inventory")
+    t:assertEqual("spell", teleport and teleport.sourceType, "Shattrath variant is activated as a spell")
+    t:assertNil(QR.PlayerInventory.spells[33690], "Learning 35715 does not claim the other variant is learned")
+
+    local graph = QR.Graph:New()
+    QR.PathCalculator.AddPlayerTeleportEdges({ graph = graph })
+    -- The generated Mapzeroth supplement adds this ID at addon load; checking
+    -- only TeleportItems would miss the spell and its sourced graph node.
+    local edge = graph:GetEdge("Player Location", "Travel:SHATTRATH_OUTLANDS")
+    t:assertEqual(35715, edge and edge.data.teleportID, "Shattrath route uses the learned alternate spell ID")
+    local destination = graph.nodes["Travel:SHATTRATH_OUTLANDS"]
+    t:assertEqual(111, destination and destination.mapID, "Alternate spell routes to sourced Shattrath map 111")
+    t:assertEqual(0.5497, destination and destination.x, "Alternate spell retains sourced Shattrath landing X")
+    t:assertEqual(0.4023, destination and destination.y, "Alternate spell retains sourced Shattrath landing Y")
+    local existing = QR.TeleportDestinations:GetDestinations(33690, QR.MageTeleports.Shared[33690])[1]
+    t:assertEqual(existing and existing.mapID, destination and destination.mapID,
+        "Both spell variants resolve to Shattrath's map")
+
+    MockWoW.config.playerFaction = "Alliance"
+    MockWoW.config.knownSpells[35715] = nil
+    MockWoW.config.knownSpells[33690] = true
+    QR.PlayerInfo:InvalidateCache()
+    QR.PlayerInventory:ScanAll()
+    t:assertNil(QR.PlayerInventory.spells[35715], "Learning only 33690 does not expose spell 35715")
+    t:assertNotNil(QR.PlayerInventory.spells[33690], "The original learned Shattrath spell remains available")
+
+    MockWoW.config.playerFaction = "Horde"
+    MockWoW.config.playerClass = "WARRIOR"
+    MockWoW.config.knownSpells[35715] = true
+    QR.PlayerInfo:InvalidateCache()
+    QR.PlayerInventory:ScanAll()
+    t:assertNil(QR.PlayerInventory.spells[35715], "Shattrath variant is excluded for non-mages")
+    resetState()
+    QR.PlayerInventory:ScanAll()
+end)
+
 -------------------------------------------------------------------------------
 -- 4. HasTeleport
 -------------------------------------------------------------------------------

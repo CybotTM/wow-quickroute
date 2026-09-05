@@ -435,6 +435,8 @@ QR.TeleportDestinationData = {
         },
         ["faction"] = "Alliance",
         ["name"] = "Tess's Peacebloom",
+        -- The live item tooltip restricts use to Worgen; account ownership is shared.
+        ["race"] = "Worgen",
         ["type"] = "toy",
     },
     ["item:243056"] = {

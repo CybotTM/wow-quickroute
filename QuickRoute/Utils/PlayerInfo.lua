@@ -20,6 +20,7 @@ local PlayerInfo = QR.PlayerInfo
 -- Internal cache (module-level locals for speed)
 local cachedFaction = nil
 local cachedClass = nil
+local cachedRace = nil
 local cachedHasEngineering = nil
 
 -- Engineering skill line ID (works for all locales)
@@ -54,6 +55,33 @@ function PlayerInfo:GetClass()
         cachedClass = classToken
     end
     return cachedClass
+end
+
+--- Get the locale-independent race token; unavailable or secret data grants no
+-- racial access. Do not infer race from faction or the character's appearance.
+function PlayerInfo:GetRace()
+    local unitRace = _G.UnitRace
+    if not cachedRace and unitRace then
+        local ok, _, raceToken = pcall(unitRace, "player")
+        if ok and not (issecretvalue and issecretvalue(raceToken))
+            and type(raceToken) == "string" and raceToken ~= "" then
+            cachedRace = raceToken
+        end
+    end
+    return cachedRace
+end
+
+--- Character restrictions shared by inventory presentation and route edges.
+-- Collection ownership, cooldowns, current zone, and per-destination unlocks
+-- remain separate checks so a collected account-wide toy is not called usable
+-- merely because another character can use it.
+function PlayerInfo:CanUseTeleport(data)
+    if type(data) ~= "table" then return false end
+    if data.faction and data.faction ~= "both" and data.faction ~= self:GetFaction() then return false end
+    if data.class and data.class ~= self:GetClass() then return false end
+    if data.race and data.race ~= self:GetRace() then return false end
+    if (data.requiresEngineering or data.profession == "Engineering") and not self:HasEngineering() then return false end
+    return true
 end
 
 --- Check if player class matches the given class name
@@ -122,5 +150,6 @@ end
 function PlayerInfo:InvalidateCache()
     cachedFaction = nil
     cachedClass = nil
+    cachedRace = nil
     cachedHasEngineering = nil
 end

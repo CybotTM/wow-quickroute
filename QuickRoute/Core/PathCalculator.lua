@@ -592,10 +592,8 @@ function PathCalculator:AddPlayerTeleportEdges()
         end
         for _, data in ipairs(destinations) do
             local usable = not (issecretvalue and issecretvalue(teleport.isUsable)) and teleport.isUsable ~= false
-            local engineering = not data.requiresEngineering or QR.PlayerInfo:HasEngineering()
-            local faction = not data.faction or data.faction == "both" or data.faction == QR.PlayerInfo:GetFaction()
-            local class = not data.class or QR.PlayerInfo:IsClass(data.class)
-            if data and data.mapID and not data.isDynamic and not data.isRandom and usable and engineering and faction and class then
+            local eligible = QR.PlayerInfo:CanUseTeleport(data)
+            if data and data.mapID and not data.isDynamic and not data.isRandom and usable and eligible then
                 local destName = data.nodeKey or data.destination or data.name
 
                 -- Ensure destination node exists

@@ -89,8 +89,10 @@ function MapTeleportButton:FindBestTeleportForMap(viewedMapID)
             local allowed = data and (not data.requirements or
                 (QR.TravelRequirements and QR.TravelRequirements:Check(data.requirements) == true))
             if allowed and data.mapID and not data.isDynamic and not data.isRandom
-                and entry.isUsable ~= false
-                and (not data.requiresEngineering or QR.PlayerInfo:HasEngineering()) then
+                and (entry.sourceType == "toy" or entry.isUsable ~= false)
+                and QR.PlayerInfo:CanUseTeleport(data)
+                and (entry.sourceType ~= "toy" or QR.PlayerInventory:IsToyUsable(id, data))
+                and (not data.usableOnMaps or QR.PlayerInfo:IsOnAnyMap(data.usableOnMaps)) then
                 local continent = QR.GetContinentForZone and QR.GetContinentForZone(data.mapID)
                 local rank = data.mapID == viewedMapID and 0
                     or (viewedContinent and continent == viewedContinent and 2 or nil)
@@ -205,6 +207,8 @@ end
 function MapTeleportButton:UpdateForMap(mapID)
     if InCombatLockdown() then return end
     if not self.button then return end
+
+    if QR.CooldownTracker then QR.CooldownTracker:WatchActiveCooldowns() end
 
     local btn = self.button
 
@@ -409,6 +413,15 @@ function MapTeleportButton:Initialize()
     self.initialized = true
 
     L = QR.L
+
+    if QR.CooldownTracker then
+        QR.CooldownTracker:RegisterListener(self, function()
+            self:UpdateForMap(WorldMapFrame:GetMapID())
+        end, function()
+            return WorldMapFrame and WorldMapFrame:IsVisible() and self.button
+                and not (QR.MapSidebar and QR.MapSidebar.frame and QR.MapSidebar.frame:IsVisible())
+        end)
+    end
 
     -- Create button (outside combat)
     if InCombatLockdown() then

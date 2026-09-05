@@ -15,4 +15,12 @@ Run against the exact review ZIP/commit after `/reload`. These checks need a rea
 11. Use a random wormhole from the inventory. Confirm it is not represented by an invented exact landing in a deterministic route. For a selectable Mole Machine/wormhole, verify the named destination is actually unlocked and matches the chosen menu option.
 12. Run `/qrtest graph`; inspect `/qrdiag` after the above actions. Record any errors together with the triggering action and the exact installed commit. Validate frame time during a 20-stop trip and a large vendor comparison on the actual client.
 
+Follow-up cases from live feedback:
+
+13. On a non-Worgen, check an account-owned Tess's Peacebloom. It must not be ready in either teleport view or offered by a map/route button. Compare an eligible Worgen and an unavailable toy API response. Cast a teleport with the inventory open: its availability must update when the cooldown starts and expires.
+14. With and without ATT enabled, left-click and right-click a missing item in both grid and list views. Confirm the correct item opens, the explicit QuickRoute help remains accessible, and only a known source enables source routing. Switch to an owned item in a reused row: acquisition callbacks must not remain attached.
+15. Change Settings categories, enter and clear a search, then close and reopen Settings. Branding must stay above QuickRoute's divider and disappear from other categories. Check Defaults and Route remain separate. At 150% preferred scale on a small screen, the main window's close button and bottom tabs must both remain visible.
+16. Start a route, then remove its target or choose an unreachable target. Old travel buttons and QuickRoute navigation must disappear. Immediately replace the native map pin with your own: clearing the old route must preserve the replacement. Clear a route immediately after calculating it and confirm no delayed callback restores the arrow.
+17. Open quest and currency search results, then change the quest objective or visit a merchant whose currency offer changed before clicking a result. The click must use current target/offer data or report that it is unavailable, rather than routing to the stale result.
+
 Store results with the tested commit. Publishing this checklist is not evidence that the checks were run.

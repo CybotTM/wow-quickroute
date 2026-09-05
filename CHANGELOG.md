@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Missing-item acquisition help: direct ATT popouts, a QuickRoute source window, available requirements and source routing only where a position is recorded.
 - Indexed retail NPC, quest-reference, independently located quest-giver and currency-vendor catalogues with pinned AllTheThings provenance and a non-executing update generator.
 - Currency vendor selection and nearest-time routing, combining access-filtered reference data with per-character merchant observations.
 - Multi-destination trips with TomTom/paste import, whole-order optimization, per-character saved progress, bounded background calculations and live replanning of each leg.
@@ -10,6 +11,16 @@
 - Attributed travel choices, hidden shortcuts, individually unlocked Mole Machine destinations, faction garrisons/shipyards and observed camp/housing destinations.
 
 ### Fixed
+- Replaced unsupported map-header and requirement glyphs with native UI artwork; moved compact settings branding into the native header above its divider.
+- Made currency vendor wording describe shortest estimated travel time and restricted racial toys to eligible characters rather than account-wide ownership.
+- Kept the main window's header and tabs on screen at high preferred scales, including resolution changes.
+- Removed stale route actions and navigation after errors, target changes and cancelled delayed updates; preserved native map pins replaced by the player.
+- Revalidated live quest targets and currency offers when selecting search results; made empty vendor lists and incomplete translated-name coverage explicit.
+- Corrected surveyed Silvermoon services and engineering auctioneer positions/access instead of reusing old city coordinates.
+- Shared current-character spell knowledge across teleport views and refreshed active controls when real cooldown state changes.
+- Preserved resolved map destinations, current-map state and secure actions when reopening or expanding the sidebar.
+- Kept the main window above game controls and secondary windows above its secure teleport buttons, with combat-safe layer updates.
+- Made main and secondary window backgrounds opaque so underlying labels and game controls do not show through their text.
 - Removed invented travel connections, preserved parallel transport alternatives and final walks, and projected map coordinates instead of changing their map identity alone.
 - Corrected discovered flight-master handling and added sourced flight endpoints omitted by one-master-per-zone selection.
 - Enforced actual ownership, engineering usability, access requirements, riding capability and client-provided movement/cast-time data.
@@ -20,6 +31,7 @@
 - Packaged the complete addon tree with its source manifests and licenses; missing TOC files or required notices now block creation of a release archive.
 
 ### Validation
+- The [player workflow follow-up](docs/PLAYER-WORKFLOW-REVIEW-2026-09-05.md) records the five live reports, additional independently reproduced defects and the limits of simulated visual checks.
 - See [review](docs/REVIEW-2026-09-05.md), [catalogue provenance](docs/DESTINATION-DATA.md) and [retail acceptance](docs/RETAIL-ACCEPTANCE.md). In-client acceptance is required before describing the release as fully validated in retail.
 
 ## [1.16.0] - 2026-09-03

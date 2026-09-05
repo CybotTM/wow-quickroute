@@ -100,9 +100,9 @@ local BANNED_TEXTURES = {
         description = "Old gold button highlight — use BackdropTemplate hover",
     },
     {
-        pattern = "UI%-RefreshButton",
-        literal = "UI-RefreshButton",
-        description = "Old refresh icon — use QR.CreateModernIconButton()",
+        pattern = "Interface\\\\Buttons\\\\UI%-RefreshButton",
+        literal = "Interface\\\\Buttons\\\\UI-RefreshButton",
+        description = "Old refresh texture file — use the native UI-RefreshButton atlas",
     },
 }
 
@@ -222,7 +222,7 @@ T:run("UI Helpers: QR.CreateModernIconButton exists and returns frame", function
     local parent = CreateFrame("Frame")
     local btn = QR.CreateModernIconButton(parent, 16, "\226\134\187")
     t:assertNotNil(btn, "CreateModernIconButton returns a frame")
-    t:assertNotNil(btn._icon, "Icon button has _icon FontString")
+    t:assertNotNil(btn._icon, "Icon button has a display region")
 end)
 
 T:run("UI Helpers: QR.CreateStandardWindow exists", function(t)

@@ -228,7 +228,7 @@ function PlayerInventory:ScanToys()
             -- Check faction restriction
             local factionOK = not data.faction or data.faction == "both" or data.faction == playerFaction
             if factionOK and TrueFromAPI(PlayerHasToy, itemID) then
-                local isUsable = TrueFromAPI(C_ToyBox.IsToyUsable, itemID)
+                local isUsable = self:IsToyUsable(itemID, data)
                 self.toys[itemID] = {
                     id = itemID,
                     data = data,
@@ -239,6 +239,22 @@ function PlayerInventory:ScanToys()
     end
 
     return self.toys
+end
+
+--- Account-wide collection does not imply this character can activate a toy.
+-- Unknown client eligibility stays unavailable until the next UI/scan refresh.
+function PlayerInventory:IsToyUsable(itemID, data)
+    return QR.PlayerInfo:CanUseTeleport(data)
+        and TrueFromAPI(C_ToyBox and C_ToyBox.IsToyUsable, itemID)
+end
+
+--- Use the same retail spellbook probe in scans and every inventory view.
+-- Some general actions (housing) are usable without being learned spells.
+function PlayerInventory:KnowsTeleportSpell(spellID, data)
+    if data and data.useSpellUsable and C_Spell and C_Spell.IsSpellUsable then
+        return TrueFromAPI(C_Spell.IsSpellUsable, spellID)
+    end
+    return KnownSpell(spellID)
 end
 
 --- Scan known spells for teleport spells
@@ -307,14 +323,7 @@ function PlayerInventory:ScanSpells()
     -- Check general spells (housing, etc.)
     if QR.GeneralTeleportSpells then
         for spellID, data in pairs(QR.GeneralTeleportSpells) do
-            local detected = false
-            if data.useSpellUsable and C_Spell and C_Spell.IsSpellUsable then
-                local ok, usable = pcall(C_Spell.IsSpellUsable, spellID)
-                detected = ok and not (issecretvalue and issecretvalue(usable)) and usable == true
-            else
-                detected = KnownSpell(spellID)
-            end
-            if detected then
+            if self:KnowsTeleportSpell(spellID, data) then
                 self.spells[spellID] = {
                     id = spellID,
                     data = data,

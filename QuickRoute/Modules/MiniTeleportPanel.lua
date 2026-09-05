@@ -95,6 +95,7 @@ local STATUS = {
     READY = { key = "STATUS_READY", color = "|cFF00FF00", sortOrder = 1 },
     ON_CD = { key = "STATUS_ON_CD", color = "|cFFFF6600", sortOrder = 2 },
     OWNED = { key = "STATUS_OWNED", color = "|cFF00CC00", sortOrder = 3 },
+    UNAVAILABLE = { key = "STATUS_UNAVAILABLE", color = QR.Colors.GRAY, sortOrder = 4 },
     MISSING = { key = "STATUS_MISSING", color = "|cFFFFFF00", sortOrder = 4 },
     NA = { key = "STATUS_NA", color = "|cFF666666", sortOrder = 5 },
     -- Owned, but the game only accepts it on certain maps and the player is elsewhere
@@ -107,24 +108,8 @@ local STATUS = {
 -- @param isSpell boolean Whether this is a spell
 -- @return table status, number|nil cooldownRemaining
 local function GetTeleportStatus(id, data, isSpell)
-    local playerFaction = QR.PlayerInfo:GetFaction()
-    local playerClass = QR.PlayerInfo:GetClass()
-
-    -- Check faction restriction
-    if data.faction and data.faction ~= "both" and data.faction ~= playerFaction then
+    if not QR.PlayerInfo:CanUseTeleport(data) then
         return STATUS.NA, nil
-    end
-
-    -- Check class restriction
-    if data.class and data.class ~= playerClass then
-        return STATUS.NA, nil
-    end
-
-    -- Check profession restriction
-    if data.profession then
-        if data.profession == "Engineering" and not QR.PlayerInfo:HasEngineering() then
-            return STATUS.NA, nil
-        end
     end
 
     -- Check ownership
@@ -132,12 +117,7 @@ local function GetTeleportStatus(id, data, isSpell)
     local sourceType = "item"
 
     if isSpell then
-        if data.useSpellUsable and C_Spell and C_Spell.IsSpellUsable then
-            local ok, usable = pcall(C_Spell.IsSpellUsable, id)
-            owned = ok and usable or false
-        else
-            owned = IsSpellKnown and IsSpellKnown(id) or false
-        end
+        owned = QR.PlayerInventory and QR.PlayerInventory:KnowsTeleportSpell(id, data) or false
         sourceType = "spell"
     elseif data.type == QR.TeleportTypes.TOY then
         owned = PlayerHasToy and PlayerHasToy(id) or false
@@ -160,6 +140,9 @@ local function GetTeleportStatus(id, data, isSpell)
         return STATUS.ZONE, nil
     end
 
+    if sourceType == "toy" and not QR.PlayerInventory:IsToyUsable(id, data) then
+        return STATUS.UNAVAILABLE, nil
+    end
 
     -- Check cooldown
     if QR.CooldownTracker then
@@ -498,6 +481,8 @@ end
 function MiniTeleportPanel:RefreshList()
     if not self.frame then return end
 
+    if QR.CooldownTracker then QR.CooldownTracker:WatchActiveCooldowns() end
+
     L = QR.L
 
     self:ReleaseAllRows()
@@ -566,8 +551,6 @@ function MiniTeleportPanel:RefreshList()
                 local sourceType = entry.isSpell and "spell" or (entry.data.type == QR.TeleportTypes.TOY and "toy" or "item")
                 local configured = QR.SecureButtons:ConfigureButton(secBtn, entry.id, sourceType, entry.data)
                 if configured then
-                    secBtn:SetFrameStrata("DIALOG")
-                    secBtn:SetFrameLevel(100)
                     secBtn:SetSize(ROW_WIDTH, ROW_HEIGHT)
                     QR.SecureButtons:AttachOverlay(secBtn, row, self.frame.scrollFrame, 0, true)
                     secBtn:SetAlpha(0)  -- Invisible overlay, row provides visuals
@@ -632,8 +615,6 @@ function MiniTeleportPanel:RefreshList()
         if secBtn then
             secBtn:SetAttribute("type", "macro")
             secBtn:SetAttribute("macrotext", "/run C_MountJournal.SummonByID(0)")
-            secBtn:SetFrameStrata("DIALOG")
-            secBtn:SetFrameLevel(100)
             secBtn:SetSize(ROW_WIDTH, ROW_HEIGHT)
             QR.SecureButtons:AttachOverlay(secBtn, mountRow, self.frame.scrollFrame, 0, true)
             secBtn:SetAlpha(0)
@@ -697,6 +678,7 @@ function MiniTeleportPanel:Show()
     self:RefreshList()
     self.frame:Show()
     self.isShowing = true
+    if QR.CooldownTracker then QR.CooldownTracker:WatchActiveCooldowns() end
 end
 
 function MiniTeleportPanel:Hide()
@@ -747,5 +729,10 @@ end
 function MiniTeleportPanel:Initialize()
     L = QR.L
     self:RegisterCombat()
+    if QR.CooldownTracker then
+        QR.CooldownTracker:RegisterListener(self, function() self:RefreshList() end, function()
+            return self.isShowing and self.frame and self.frame:IsVisible()
+        end)
+    end
     QR:Debug("MiniTeleportPanel initialized")
 end

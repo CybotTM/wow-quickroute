@@ -148,6 +148,74 @@ T:run("ServiceRouter: GetLocations returns empty for unknown type", function(t)
     t:assertEqual(0, #locs, "Empty for unknown type")
 end)
 
+T:run("ServiceRouter: engineering auctioneers are excluded from search and routing for non-engineers", function(t)
+    local savedEngineering, savedFaction = QR.PlayerInfo.HasEngineering, MockWoW.config.playerFaction
+    local savedCalculator, savedPOI, savedSearch = QR.PathCalculator, QR.POIRouting, QR.DestinationSearch
+    QR.PlayerInfo.HasEngineering = function() return false end
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    local restricted = {[627]=true,[1161]=true,[1165]=true,[1670]=true}
+    local northAvailable = false
+    for _, loc in ipairs(QR.ServiceRouter:GetLocations("AUCTION_HOUSE")) do
+        t:assertFalse(restricted[loc.mapID] == true, "Non-engineer cannot select auctioneer on restricted map " .. loc.mapID)
+        if loc.mapID == 125 then northAvailable = true end
+    end
+    t:assertTrue(northAvailable, "Northrend Dalaran public auctioneer remains accessible")
+    local resultMap
+    QR.PathCalculator = { CalculatePath = function(_, mapID) return {totalTime = restricted[mapID] and 1 or 100} end }
+    QR.POIRouting = { RouteToMapPosition = function(_, mapID) resultMap = mapID end }
+    QR.DestinationSearch = nil
+    QR.ServiceRouter:RouteToNearest("AUCTION_HOUSE")
+    t:assertFalse(restricted[resultMap] == true, "Fastest route never chooses a nearby but unusable engineer auctioneer")
+    QR.PlayerInfo.HasEngineering = function() return true end
+    local boralus
+    for _, loc in ipairs(QR.ServiceRouter:GetLocations("AUCTION_HOUSE")) do
+        if loc.mapID == 1161 then boralus = loc end
+    end
+    t:assertNotNil(boralus, "Engineer can select Boralus auctioneer")
+    t:assertEqual(0.7708, boralus and boralus.x, "Boralus uses player-surveyed engineering shop x")
+    t:assertEqual(0.1407, boralus and boralus.y, "Boralus uses player-surveyed engineering shop y")
+    QR.PlayerInfo.HasEngineering, MockWoW.config.playerFaction = savedEngineering, savedFaction
+    QR.PathCalculator, QR.POIRouting, QR.DestinationSearch = savedCalculator, savedPOI, savedSearch
+    QR.PlayerInfo:InvalidateCache()
+end)
+
+T:run("ServiceRouter: Midnight shared services route Alliance to surveyed new-city locations", function(t)
+    local savedFaction, savedCalculator, savedPOI = MockWoW.config.playerFaction, QR.PathCalculator, QR.POIRouting
+    local savedSearch = QR.DestinationSearch
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    local routed
+    QR.PathCalculator = { CalculatePath = function(_, mapID)
+        return { totalTime = mapID == 2393 and 5 or 500 }
+    end }
+    QR.POIRouting = { RouteToMapPosition = function(_, mapID, x, y) routed = {mapID=mapID,x=x,y=y} end }
+    QR.DestinationSearch = nil
+    QR.ServiceRouter:RouteToNearest("AUCTION_HOUSE")
+    t:assertEqual(2393, routed and routed.mapID, "Alliance can use the nearby shared Silvermoon auction house")
+    t:assertEqual(0.5028, routed and routed.x, "Auction destination uses surveyed new-city x")
+    t:assertEqual(0.7486, routed and routed.y, "Auction destination uses surveyed new-city y")
+    QR.ServiceRouter:RouteToNearest("BANK")
+    t:assertEqual(2393, routed and routed.mapID, "Alliance can use the nearby shared Silvermoon bank")
+    t:assertEqual(0.5064, routed and routed.x, "Bank destination uses surveyed new-city x")
+    t:assertEqual(0.6543, routed and routed.y, "Bank destination uses surveyed new-city y")
+    MockWoW.config.playerFaction = "Horde"
+    QR.PlayerInfo:InvalidateCache()
+    for _, service in ipairs({"AUCTION_HOUSE", "BANK"}) do
+        local newCityCount = 0
+        for _, loc in ipairs(QR.ServiceRouter:GetLocations(service)) do
+            if loc.mapID == 2393 then
+                newCityCount = newCityCount + 1
+                t:assertTrue(loc.y > 0.6, "Horde service coordinates are on the new city layout, not copied from map 110")
+            end
+        end
+        t:assertEqual(2, newCityCount, "Horde can compare the shared and enclave services by travel time")
+    end
+    MockWoW.config.playerFaction = savedFaction
+    QR.PathCalculator, QR.POIRouting, QR.DestinationSearch = savedCalculator, savedPOI, savedSearch
+    QR.PlayerInfo:InvalidateCache()
+end)
+
 T:run("ServiceRouter: GetServiceName returns localized name", function(t)
     resetState()
     t:assertEqual("Auction House", QR.ServiceRouter:GetServiceName("AUCTION_HOUSE"))

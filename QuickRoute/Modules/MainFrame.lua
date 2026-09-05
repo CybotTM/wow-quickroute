@@ -57,6 +57,8 @@ function MainFrame:CreateFrame()
     -- Create the main frame with backdrop
     local frame = CreateFrame("Frame", "QuickRouteMainFrame", UIParent, "BackdropTemplate")
     frame:SetSize(frameWidth, FRAME_HEIGHT)
+    -- Native settings/panels use HIGH; secondary dialogs remain above this.
+    frame:SetFrameStrata("HIGH")
 
     -- Restore saved position or use default
     local db = QR.db or {}
@@ -82,6 +84,11 @@ function MainFrame:CreateFrame()
         end
     end)
     frame:SetClampedToScreen(true)
+    frame:RegisterEvent("UI_SCALE_CHANGED")
+    frame:RegisterEvent("DISPLAY_SIZE_CHANGED")
+    frame:SetScript("OnEvent", function(self)
+        QR.FitWindowScale(self, QR.db and QR.db.windowScale or 1)
+    end)
 
     -- ESC to close
     table_insert(UISpecialFrames, "QuickRouteMainFrame")
@@ -108,16 +115,16 @@ function MainFrame:CreateFrame()
         MainFrame:ReleaseTabContent()
     end)
 
-    -- Backdrop
+    -- Opaque reading surface; the tooltip background texture carries alpha.
     frame:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
         tile = true,
         tileSize = 16,
         edgeSize = 16,
         insets = { left = 4, right = 4, top = 4, bottom = 4 }
     })
-    frame:SetBackdropColor(0.08, 0.08, 0.1, 0.95)
+    frame:SetBackdropColor(0.08, 0.08, 0.1, 1)
 
     -- Portrait header
     self.header = QR.CreatePortraitHeader(frame, {
@@ -256,6 +263,7 @@ function MainFrame:Show(tabName)
 
     local tab = tabName or self.activeTab or "route"
 
+    QR.FitWindowScale(self.frame, QR.db and QR.db.windowScale or 1)
     self.frame:Show()
     self.isShowing = true
     self:SetActiveTab(tab)  -- SetActiveTab handles content refresh + subtitle
@@ -315,10 +323,8 @@ function MainFrame:Initialize()
 
     self:CreateFrame()
 
-    -- Apply saved window scale
-    if QR.db and QR.db.windowScale and QR.db.windowScale ~= 1.0 then
-        self.frame:SetScale(QR.db.windowScale)
-    end
+    -- Keep both the header and bottom tabs reachable at the preferred scale.
+    QR.FitWindowScale(self.frame, QR.db and QR.db.windowScale or 1)
 
     -- Restore last active tab
     if QR.db and QR.db.activeTab then

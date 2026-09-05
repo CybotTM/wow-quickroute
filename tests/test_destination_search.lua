@@ -1016,3 +1016,37 @@ T:run("DestSearch: CollectResults preserves alphabetical quest order", function(
     t:assertEqual("Murloc Trouble", results.quests[2].name, "Second alphabetically")
     t:assertEqual("Zebra Hunt", results.quests[3].name, "Third alphabetically")
 end)
+
+T:run("DestSearch: selecting a live quest resolves its current target again", function(t)
+    local ds, wi = QR.DestinationSearch, QR.WaypointIntegration
+    local savedResolver, savedPOI, savedHide, savedSearch = wi.GetQuestWaypoint, QR.POIRouting, ds.HideDropdown, ds.searchBox
+    local routed, calls = nil, 0
+    wi.GetQuestWaypoint = function() calls = calls + 1; return {mapID=85,x=.9,y=.8} end
+    QR.POIRouting = {RouteToMapPosition=function(_,mapID,x,y) routed={mapID=mapID,x=x,y=y} end}
+    ds.HideDropdown, ds.searchBox = function() end, nil
+    ds:SelectResult({questID=12345,name="Current quest",mapID=84,x=.1,y=.2})
+    t:assertEqual(1, calls, "Live quest is resolved at selection time")
+    t:assertEqual(85, routed and routed.mapID, "Changed quest objective routes to its current map")
+    t:assertEqual(.9, routed and routed.x, "Changed quest objective uses its current coordinate")
+    routed = nil
+    wi.GetQuestWaypoint = function() return nil end
+    ds:SelectResult({questID=12345,name="Disappeared quest",mapID=84,x=.1,y=.2})
+    t:assertNil(routed, "Unavailable live target cannot silently reuse stale dropdown coordinates")
+    ds:SelectResult({questID=12345,name="Known giver reference",source="catalogue",mapID=84,x=.1,y=.2})
+    t:assertEqual(84, routed and routed.mapID, "Explicit catalogue reference keeps its role-specific coordinate")
+    wi.GetQuestWaypoint, QR.POIRouting, ds.HideDropdown, ds.searchBox = savedResolver, savedPOI, savedHide, savedSearch
+end)
+
+T:run("DestSearch: an engineer service row is rechecked if profession access changes", function(t)
+    local ds = QR.DestinationSearch
+    local savedEngineering, savedPOI, savedRefresh = QR.PlayerInfo.HasEngineering, QR.POIRouting, ds.RefreshDropdown
+    local routed, refreshed = 0, 0
+    QR.PlayerInfo.HasEngineering = function() return false end
+    QR.POIRouting = {RouteToMapPosition=function()routed=routed+1 end}
+    ds.RefreshDropdown = function()refreshed=refreshed+1 end
+    ds:SelectResult({name="Oribos Auctioneer",mapID=1670,x=.384,y=.438,
+        serviceReference={mapID=1670,x=.384,y=.438,faction="both",requiresEngineering=true}})
+    t:assertEqual(0,routed,"Stale engineer-only row cannot route after profession is dropped")
+    t:assertEqual(1,refreshed,"Unavailable service refreshes the picker")
+    QR.PlayerInfo.HasEngineering, QR.POIRouting, ds.RefreshDropdown = savedEngineering, savedPOI, savedRefresh
+end)

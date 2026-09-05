@@ -375,6 +375,8 @@ end)
 
 T:run("MapTeleportButton: UpdateForMap sets teleport state when found", function(t)
     reinitialize()
+    local previousToy = MockWoW.config.ownedToys[555]
+    MockWoW.config.ownedToys[555] = true
     QR.MapTeleportButton:CreateButton()
     setupMockTeleports({
         [555] = {
@@ -394,6 +396,7 @@ T:run("MapTeleportButton: UpdateForMap sets teleport state when found", function
     t:assertEqual(555, QR.MapTeleportButton.currentTeleportID)
     t:assertEqual("toy", QR.MapTeleportButton.currentSourceType)
     t:assertEqual(84, QR.MapTeleportButton.currentMapID)
+    MockWoW.config.ownedToys[555] = previousToy
 end)
 
 T:run("MapTeleportButton: UpdateForMap sets tooltip data on button", function(t)

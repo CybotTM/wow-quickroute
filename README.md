@@ -39,8 +39,11 @@ Routes depend on recorded connections, character access and estimated travel tim
 - **Travel Choices:** Discovered Mole Machine stops, selectable engineering destinations, faction garrisons, and observed camp/house locations
 - **Access Checks:** Known quest, level, class, faction, reputation and other requirements gate sourced travel connections
 - **Observed Hearth Binding:** Bind at an inn after installing to include that character's verified hearth destination
+- **Acquisition Help:** Click a missing teleport item for its ATT details, or open QuickRoute's source help with requirements and a route when a source position is known
 
 ## Screenshots
+
+Earlier interface captures (before the player workflow fixes):
 
 | Route Panel | Teleport Panel | Quick Teleports |
 |:-----------:|:--------------:|:---------------:|
@@ -48,7 +51,11 @@ Routes depend on recorded connections, character access and estimated travel tim
 
 ![Route with Quest Tracker](screenshots/quest-teleport.png)
 
-![Settings Panel](screenshots/settings-panel.png)
+Current Settings header, rendered with all four simulator PRs:
+
+![Settings Panel](screenshots/settings-player-review.webp)
+
+The [player workflow review](docs/PLAYER-WORKFLOW-REVIEW-2026-09-05.md) includes the corrected header, acquisition help and unfiltered small-screen views from the simulator with PRs 7–10 combined.
 
 The new trip and phase windows, rendered from addon code in the UI simulator:
 
@@ -112,6 +119,8 @@ Development commands, not part of the supported surface: `/qrscan`, `/qrgraph`,
 
 The route toolbar opens **Currency vendors**, **Multi-route** and **Zone phases**. Currency results combine the included catalogue with your observed merchants and filter known access requirements. Search accepts NPC/quest names or IDs. Reference quest coordinates are labeled separately from live quest objectives and turn-ins.
 
+In the Teleports tab, **left-click a missing item** to open its source details in ALL THE THINGS (ATT). If ATT is unavailable, QuickRoute opens its own help. **Right-click**, or use **How to obtain** in list view, to open QuickRoute's help directly. It combines available requirements with a short ATT source preview, a copyable Wowhead link and a route button for known source positions. Unknown positions remain explicit. Account-wide toy ownership does not make that toy usable by every race, class or profession.
+
 Trips support up to 20 stops and persist per character. Up to ten stops use an exact shortest-order solver for the estimated reusable-route matrix; larger lists use a bounded optimization heuristic. The matrix excludes personal teleports and uses phase/access state available during comparison. Each executable leg is recalculated from your actual position and available teleports. Confirm a reached stop to continue. Random landings are not presented as exact teleport destinations.
 
 A missing route means the addon lacks a usable recorded connection or required state; it does not prove the destination is inaccessible in the game. Bind at an inn after installing to record a hearth landing. Housing destinations require owned-house identity and an observed neighborhood plot position. Phase assumptions never change your character’s actual phase or mark an unperformed Zidormi conversation complete.
@@ -120,6 +129,7 @@ A missing route means the addon lacks a usable recorded connection or required s
 
 **Optional:**
 - [TomTom](https://www.curseforge.com/wow/addons/tomtom) (for waypoint integration)
+- [ALL THE THINGS](https://github.com/ATTWoWAddon/AllTheThings) (for missing-item source details; QuickRoute also works without it)
 
 ## Supported Teleports
 
@@ -131,7 +141,7 @@ A missing route means the addon lacks a usable recorded connection or required s
 - Various toys (Direbrew's Remote, Tome of Town Portal, etc.)
 
 ### Class Spells
-- **Mage:** All teleport spells (Vanilla through The War Within)
+- **Mage:** Recorded city teleports, including Shattrath, Dalaran, Valdrakken and Dornogal
 - **Druid:** Teleport: Moonglade, Dreamwalk
 - **Monk:** Zen Pilgrimage
 - **Death Knight:** Death Gate

@@ -116,6 +116,21 @@ T:run("Destination catalogue: visible names use localized live game data", funct
     end)
 end)
 
+T:run("Destination catalogue: newly resolved translations invalidate earlier empty search refinements", function(t)
+    withCatalog(function(cat)
+        t:assertEqual(0, #cat:Search("helf"), "Unresolved German text initially has no source-language match")
+        C_QuestLog.GetTitleForQuestID = function() return "Eine helfende Hand" end
+        cat:GetDisplayName(cat:GetQuestLocations(100)[1])
+        t:assertEqual(1, #cat:Search("helfende"), "Newly localized title is found when extending a formerly empty query")
+        local first = cat:Search("quartermaster")[1]
+        _G.C_TooltipInfo = {GetHyperlink=function()return {lines={{leftText="Rüstmeister"}}}end}
+        cat:GetDisplayName(first)
+        local duplicate = {npcID=first.npcID,name="Other source name",searchName="other source name",mapID=84,x=.1,y=.2,requirements={}}
+        cat.searchRows[#cat.searchRows+1] = duplicate
+        t:assertEqual(2, #cat:Search("rüstmeister"), "A translated NPC name also finds its independently recorded second location")
+    end)
+end)
+
 T:run("Destination catalogue: live objective routing never substitutes a giver", function(t)
     withCatalog(function(cat)
         local routed

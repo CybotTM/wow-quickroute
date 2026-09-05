@@ -101,6 +101,23 @@ T:run("SettingsPanel: controls have initializer", function(t)
     t:assertEqual("dropdown", dropdown.initializer._type, "Dropdown type correct")
 end)
 
+T:run("SettingsPanel: scale slider preserves access to the whole window", function(t)
+    reinitialize()
+    QR.SettingsPanel:Register()
+    QR.MainFrame:CreateFrame()
+    local frame = QR.MainFrame.frame
+    local oldWidth, oldHeight = UIParent:GetWidth(), UIParent:GetHeight()
+    local oldScale, oldSetting = frame:GetScale(), QR.db.windowScale
+    UIParent:SetSize(1024, 640)
+    QR.SettingsPanel.controls.windowScale.setting._setValue(1.5)
+    t:assertTrue(frame:GetHeight() * frame:GetScale() <= 616.01,
+        "Moving the slider to 150 percent keeps the tabs on screen")
+    t:assertEqual(QR.db.windowScale, 1.5, "The slider retains the preferred value")
+    UIParent:SetSize(oldWidth, oldHeight)
+    frame:SetScale(oldScale or 1)
+    QR.db.windowScale = oldSetting
+end)
+
 T:run("SettingsPanel: Open does not error", function(t)
     reinitialize()
     QR.SettingsPanel:Initialize()

@@ -12,6 +12,7 @@ local CreateFrame = CreateFrame
 local GetTime = GetTime
 local wipe = wipe
 local math_huge = math.huge
+local math_abs = math.abs
 
 local function IsCoordinate(value)
     return not (issecretvalue and issecretvalue(value)) and type(value) == "number"
@@ -21,6 +22,23 @@ end
 local function IsMapID(value)
     return not (issecretvalue and issecretvalue(value)) and type(value) == "number"
         and value > 0 and value < math_huge and value % 1 == 0
+end
+
+-- Only observable matching coordinates identify a native pin as QR's output.
+-- Reuse this rule for cleanup and for excluding that output from route inputs.
+local function IsOwnedNativeWaypoint(owner, point)
+    if not owner._lastWpNative then return false end
+    local ok, owned = pcall(function()
+        if not point or (issecretvalue and issecretvalue(point)) then return false end
+        local mapID, position = point.uiMapID, point.position
+        if not IsMapID(mapID) or not position or (issecretvalue and issecretvalue(position)) then return false end
+        local x, y = position.x, position.y
+        if position.GetXY then x, y = position:GetXY() end
+        return IsCoordinate(x) and IsCoordinate(y) and mapID == owner._lastWpMapID
+            and IsCoordinate(owner._lastWpX) and IsCoordinate(owner._lastWpY)
+            and math_abs(x - owner._lastWpX) < 0.000001 and math_abs(y - owner._lastWpY) < 0.000001
+    end)
+    return ok and owned
 end
 
 -------------------------------------------------------------------------------
@@ -913,7 +931,7 @@ end
 -- @return table|nil {mapID, x, y, title} or nil if no map pin
 function WaypointIntegration:GetMapPing()
     -- Check API availability and if user has set a waypoint on the map
-    if not (C_Map and C_Map.HasUserWaypoint) then
+    if not (C_Map and C_Map.HasUserWaypoint and C_Map.GetUserWaypoint) then
         return nil
     end
     if not C_Map.HasUserWaypoint() then
@@ -921,9 +939,12 @@ function WaypointIntegration:GetMapPing()
     end
 
     local point = C_Map.GetUserWaypoint()
-    if not point then
+    if not point or (issecretvalue and issecretvalue(point)) then
         return nil
     end
+    -- A QR navigation arrow marks an intermediate step, not a new user target.
+    -- Keeping it out of the input list lets a newly tracked quest take effect.
+    if IsOwnedNativeWaypoint(self, point) then return nil end
 
     -- point is a UiMapPoint with mapID and position
     local mapID = point.uiMapID
@@ -1160,6 +1181,9 @@ function WaypointIntegration:RegisterHooks()
                 -- Objective/turn-in coordinates change without changing questID.
                 WaypointIntegration:ClearQuestCoordCache()
             elseif event == "SUPER_TRACKING_CHANGED" then
+                -- Native QR guidance updates super-tracking as well as the map
+                -- pin. Those internal events must not unlock the final target.
+                if WaypointIntegration._settingWaypoint then return end
                 -- Don't wipe questCoordCache here — per-questID entries are already
                 -- keyed correctly and wiping destroys negative-result caching, causing
                 -- expensive repeated zone scans when quests cycle rapidly.
@@ -1211,6 +1235,10 @@ end
 
 --- Remove all TomTom waypoints previously set by QuickRoute
 function WaypointIntegration:ClearTomTomWaypoints()
+    -- Cleanup is an internal update, just like creating a QR waypoint. Its
+    -- removal callbacks must not cancel the route that requested the cleanup.
+    local wasSettingWaypoint = self._settingWaypoint
+    self._settingWaypoint = true
     if TomTom and TomTom.RemoveWaypoint then
         for i = #self._tomtomUIDs, 1, -1 do
             local ok, err = pcall(TomTom.RemoveWaypoint, TomTom, self._tomtomUIDs[i])
@@ -1219,11 +1247,13 @@ function WaypointIntegration:ClearTomTomWaypoints()
             end
         end
     end
-    -- Native waypoints too, not just TomTom's: both were set by us.
-    if self._lastWpNative and C_Map and C_Map.ClearUserWaypoint then
-        local ok, err = pcall(C_Map.ClearUserWaypoint)
-        if not ok then
-            QR:Debug("Failed to clear native waypoint: " .. tostring(err))
+    -- A user or another addon may have replaced our native pin. Only remove
+    -- the same observable coordinates; unknown/secret ownership fails closed.
+    if self._lastWpNative and C_Map and C_Map.GetUserWaypoint and C_Map.ClearUserWaypoint then
+        local ok, point = pcall(C_Map.GetUserWaypoint)
+        if ok and IsOwnedNativeWaypoint(self, point) then
+            local cleared, err = pcall(C_Map.ClearUserWaypoint)
+            if not cleared then QR:Debug("Failed to clear native waypoint: " .. tostring(err)) end
         end
     end
     self._lastWpNative = nil
@@ -1235,6 +1265,7 @@ function WaypointIntegration:ClearTomTomWaypoints()
     self._lastWpY = nil
     self._lastWpTitle = nil
     self._lastWpTime = nil
+    self._settingWaypoint = wasSettingWaypoint
 end
 
 --- Set a TomTom waypoint or native map pin

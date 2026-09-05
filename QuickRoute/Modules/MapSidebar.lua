@@ -38,6 +38,18 @@ local MapSidebar = QR.MapSidebar
 -- Localization (set during init)
 local L
 
+local function SetCollapseTexture(texture, collapsed)
+    local atlas = collapsed and "common-button-list-plus" or "common-button-list-minus"
+    if C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(atlas) then
+        -- The native minus is 13x4; stretching it to a square hides its shape.
+        texture:SetAtlas(atlas, true)
+    else
+        texture:SetSize(14, 14)
+        texture:SetTexture(collapsed and "Interface\\Buttons\\UI-PlusButton-UP"
+            or "Interface\\Buttons\\UI-MinusButton-UP")
+    end
+end
+
 -------------------------------------------------------------------------------
 -- Localized Name Helper (shared with MapTeleportButton)
 -------------------------------------------------------------------------------
@@ -98,28 +110,36 @@ function MapSidebar:FindTeleportsForMap(viewedMapID)
     -- Collect candidates
     local candidates = {}
     for id, entry in pairs(teleports) do
-        if entry.data and entry.data.mapID
-            and not entry.data.isDynamic and not entry.data.isRandom
-            and (not entry.data.usableOnMaps or QR.PlayerInfo:IsOnAnyMap(entry.data.usableOnMaps)) then
-            local isReady = false
-            if QR.CooldownTracker then
-                local cdInfo = QR.CooldownTracker:GetCooldown(id, entry.sourceType)
-                isReady = cdInfo and cdInfo.ready or false
-            end
-            local isDirect = entry.data.mapID == viewedMapID
-            local isSameContinent = false
-            if not isDirect and viewedContinent then
-                local teleContinent = QR.GetContinentForZone(entry.data.mapID)
-                isSameContinent = teleContinent == viewedContinent
-            end
-            if isDirect or isSameContinent then
-                table_insert(candidates, {
-                    id = id,
-                    data = entry.data,
-                    sourceType = entry.sourceType,
-                    isReady = isReady,
-                    isDirect = isDirect,
-                })
+        local destinations = QR.TeleportDestinations
+            and QR.TeleportDestinations:GetDestinations(id, entry) or { entry.data }
+        for _, data in ipairs(destinations) do
+            local allowed = data and (not data.requirements or
+                (QR.TravelRequirements and QR.TravelRequirements:Check(data.requirements) == true))
+            if allowed and data.mapID and not data.isDynamic and not data.isRandom
+                and (entry.sourceType == "toy" or entry.isUsable ~= false)
+                and QR.PlayerInfo:CanUseTeleport(data)
+                and (entry.sourceType ~= "toy" or QR.PlayerInventory:IsToyUsable(id, data))
+                and (not data.usableOnMaps or QR.PlayerInfo:IsOnAnyMap(data.usableOnMaps)) then
+                local isReady = false
+                if QR.CooldownTracker then
+                    local cdInfo = QR.CooldownTracker:GetCooldown(id, entry.sourceType)
+                    isReady = cdInfo and cdInfo.ready or false
+                end
+                local isDirect = data.mapID == viewedMapID
+                local isSameContinent = false
+                if not isDirect and viewedContinent then
+                    local teleContinent = QR.GetContinentForZone(data.mapID)
+                    isSameContinent = teleContinent == viewedContinent
+                end
+                if isDirect or isSameContinent then
+                    table_insert(candidates, {
+                        id = id,
+                        data = data,
+                        sourceType = entry.sourceType,
+                        isReady = isReady,
+                        isDirect = isDirect,
+                    })
+                end
             end
         end
     end
@@ -128,7 +148,8 @@ function MapSidebar:FindTeleportsForMap(viewedMapID)
     table_sort(candidates, function(a, b)
         if a.isDirect ~= b.isDirect then return a.isDirect end
         if a.isReady ~= b.isReady then return a.isReady end
-        return a.id < b.id  -- stable tiebreaker
+        if a.id ~= b.id then return a.id < b.id end
+        return (a.data.nodeKey or a.data.destination or "") < (b.data.nodeKey or b.data.destination or "")
     end)
 
     -- Return up to MAX_ROWS
@@ -175,10 +196,11 @@ function MapSidebar:CreatePanel()
     headerBg:SetAllPoints()
     headerBg:SetColorTexture(0.15, 0.15, 0.2, 0.8)
 
-    -- Collapse arrow
-    local arrow = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    -- Native expand/collapse textures render independently of locale fonts.
+    local arrow = header:CreateTexture(nil, "OVERLAY")
+    arrow:SetSize(14, 14)
     arrow:SetPoint("LEFT", 6, 0)
-    arrow:SetText("\226\150\188")  -- ▼
+    SetCollapseTexture(arrow, self.collapsed)
     header.arrow = arrow
 
     -- Title text
@@ -189,7 +211,7 @@ function MapSidebar:CreatePanel()
     header.title = title
 
     -- Refresh button (small icon in header)
-    local refreshBtn = QR.CreateModernIconButton(header, 16, "\226\134\187")  -- ↻
+    local refreshBtn = QR.CreateModernIconButton(header, 16)
     refreshBtn:SetPoint("RIGHT", -4, 0)
     refreshBtn:SetScript("OnClick", function()
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
@@ -368,10 +390,13 @@ function MapSidebar:UpdateForMap(mapID, force)
     if not mapID then return end
     if not force and mapID == self.currentMapID then return end
     if not self.frame then return end
+    -- Browsing still changes the target while the content is collapsed or
+    -- combat prevents rebuilding its secure overlays.
+    self.currentMapID = mapID
     if self.collapsed then return end
     if InCombatLockdown() then return end
 
-    self.currentMapID = mapID
+    if QR.CooldownTracker then QR.CooldownTracker:WatchActiveCooldowns() end
 
     -- Release old overlays
     self:ReleaseOverlays()
@@ -446,10 +471,8 @@ function MapSidebar:UpdateForMap(mapID, force)
         if QR.SecureButtons and not InCombatLockdown() then
             local iconBtn = QR.SecureButtons:GetButton()
             if iconBtn then
-                local configured = QR.SecureButtons:ConfigureButton(iconBtn, entry.id, entry.sourceType)
+                local configured = QR.SecureButtons:ConfigureButton(iconBtn, entry.id, entry.sourceType, entry.data)
                 if configured then
-                    iconBtn:SetFrameStrata("DIALOG")
-                    iconBtn:SetFrameLevel(100)
                     iconBtn:SetSize(ICON_SIZE, ICON_SIZE)
                     QR.SecureButtons:AttachOverlay(iconBtn, row, nil, 4, true)
 
@@ -483,6 +506,9 @@ function MapSidebar:UpdateForMap(mapID, force)
                         GameTooltip:SetText(localizedName)
                         if destName ~= "" then
                             GameTooltip:AddLine(destName, 0.8, 0.8, 0.8)
+                        end
+                        if entry.data.choiceText then
+                            GameTooltip:AddLine(entry.data.choiceText, 1, 0.82, 0, true)
                         end
                         GameTooltip:AddLine(" ")
                         GameTooltip:AddLine(L["MAP_BTN_LEFT_CLICK"], 0.5, 0.8, 1.0)
@@ -523,13 +549,13 @@ function MapSidebar:Toggle()
     if self.collapsed then
         if self.content then self.content:Hide() end
         if self.header and self.header.arrow then
-            self.header.arrow:SetText("\226\150\182")  -- ▶
+            SetCollapseTexture(self.header.arrow, true)
         end
         self:HideOverlays()
     else
         if self.content then self.content:Show() end
         if self.header and self.header.arrow then
-            self.header.arrow:SetText("\226\150\188")  -- ▼
+            SetCollapseTexture(self.header.arrow, false)
         end
         -- Refresh content
         if self.currentMapID then
@@ -551,6 +577,8 @@ function MapSidebar:Show()
 
     if self.collapsed then
         if self.content then self.content:Hide() end
+    elseif WorldMapFrame and WorldMapFrame:IsVisible() then
+        self:UpdateForMap(WorldMapFrame:GetMapID(), true)
     end
 end
 
@@ -576,6 +604,15 @@ function MapSidebar:Initialize()
 
     L = QR.L
 
+    if QR.CooldownTracker then
+        QR.CooldownTracker:RegisterListener(self, function()
+            self:UpdateForMap(WorldMapFrame:GetMapID(), true)
+        end, function()
+            return WorldMapFrame and WorldMapFrame:IsVisible() and self.frame
+                and self.frame:IsVisible() and not self.collapsed
+        end)
+    end
+
     -- Restore persisted collapse state
     if QR.db and QR.db.sidebarCollapsed then
         self.collapsed = true
@@ -592,7 +629,7 @@ function MapSidebar:Initialize()
                     MapSidebar:Show()
                     local mapID = WorldMapFrame:GetMapID()
                     if mapID then
-                        MapSidebar:UpdateForMap(mapID)
+                        MapSidebar:UpdateForMap(mapID, true)
                     end
                 end
             end)
@@ -633,7 +670,7 @@ function MapSidebar:Initialize()
             if mapID then
                 C_Timer.After(0, function()
                     if WorldMapFrame and WorldMapFrame:IsVisible() then
-                        MapSidebar:UpdateForMap(mapID)
+                        MapSidebar:UpdateForMap(mapID, true)
                     end
                 end)
             end

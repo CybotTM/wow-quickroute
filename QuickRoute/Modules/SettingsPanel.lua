@@ -108,22 +108,13 @@ local function RegisterNativeSettings()
     )
     SettingsPanel.layout = layout
 
-    -- The header element ("C2" on the design canvas) comes first. Should the
-    -- category not bring its layout along, ask Blizzard's SettingsPanel frame
-    -- (the global, not this module) for it.
+    -- Older clients may expose the layout only through the native panel.
     if not layout and _G.SettingsPanel and _G.SettingsPanel.GetLayout then
         layout = _G.SettingsPanel:GetLayout(category)
         SettingsPanel.layout = layout
     end
-    -- Only when the client knows the template: the settings list asks for
-    -- its extent while laying out, and an unknown template is an error that
-    -- takes the whole page down (seen in game with a TOC that lacked the XML).
-    local headerKnown = C_XMLUtil and C_XMLUtil.GetTemplateInfo
-        and C_XMLUtil.GetTemplateInfo("QuickRouteSettingsHeaderTemplate") ~= nil
-    if layout and headerKnown then
-        SettingsPanel.headerInitializer = Settings.CreateElementInitializer("QuickRouteSettingsHeaderTemplate", {})
-        layout:AddInitializer(SettingsPanel.headerInitializer)
-    end
+    -- Branding lives above Blizzard's divider, outside the scrolling list.
+    SettingsPanel.headerInitializer = nil
 
     -- General
     if layout and CreateSettingsListSectionHeaderInitializer then
@@ -186,7 +177,7 @@ local function RegisterNativeSettings()
         L["SETTINGS_WINDOW_SCALE_TT"] or "Scale of the route and teleport windows (75%-150%)",
         "windowScale", 0.75, 1.5, 0.05,
         function(v)
-            if QR.MainFrame and QR.MainFrame.frame then QR.MainFrame.frame:SetScale(v) end
+            if QR.MainFrame and QR.MainFrame.frame then QR.FitWindowScale(QR.MainFrame.frame, v) end
         end)
 
     RegisterCheckbox(category,
@@ -208,6 +199,7 @@ end
 --- Register the panel with Interface Options
 function SettingsPanel:Register()
     self.category = RegisterNativeSettings()
+    if QR.SettingsHeader then QR.SettingsHeader:Install(_G.SettingsPanel, self.category) end
 end
 
 --- Open the settings panel

@@ -554,6 +554,8 @@ function UI:RefreshRoute()
 
         local ok, err = pcall(self.UpdateRoute, self, poiResult)
         if not ok then
+            self:ClearRouteGuidance()
+            self.frame.timeLabel:SetText(C.ERROR_RED .. L["PATH_CALCULATION_ERROR"] .. C.R)
             QR:Error("UpdateRoute error (POI): " .. tostring(err))
         end
         self.isCalculating = false
@@ -562,6 +564,7 @@ function UI:RefreshRoute()
 
     -- Show calculating state
     self.isCalculating = true
+    self.routeGeneration = (self.routeGeneration or 0) + 1
     self.frame.timeLabel:SetText(C.YELLOW .. L["CALCULATING"] .. C.R)
     self.frame.refreshButton:SetText("...")
 
@@ -592,6 +595,7 @@ function UI:RefreshRoute()
         end)
 
         if not wpSuccess then
+            self:ClearRouteGuidance()
             self.frame.timeLabel:SetText(C.ERROR_RED .. L["WAYPOINT_DETECTION_FAILED"] .. C.R)
             if QR.MainFrame and QR.MainFrame.subtitle and QR.MainFrame.activeTab == "route" then
                 QR.MainFrame.subtitle:SetText(L["TAB_ROUTE"] or "Route")
@@ -663,7 +667,7 @@ function UI:RefreshRoute()
     if not success then
         -- Show error in UI
         self.frame.timeLabel:SetText(C.ERROR_RED .. L["PATH_CALCULATION_ERROR"] .. C.R)
-        self:ClearStepLabels()
+        self:ClearRouteGuidance()
         self:ResetCalculatingState()
         QR:Error(tostring(errOrResult))
         return
@@ -675,7 +679,11 @@ function UI:RefreshRoute()
             self:UpdateRoute(result)
         end)
         if not updateOk then
+            self:ClearRouteGuidance()
+            self.frame.timeLabel:SetText(C.ERROR_RED .. L["PATH_CALCULATION_ERROR"] .. C.R)
             QR:Error("UpdateRoute error: " .. tostring(updateErr))
+            self:ResetCalculatingState()
+            return
         end
         self.lastRefreshTime = GetTime()
         QR:Log("INFO", string_format("Route found: %d steps, %ds total",
@@ -683,7 +691,7 @@ function UI:RefreshRoute()
     else
         -- Waypoint exists but no path found - give helpful feedback
         self.frame.timeLabel:SetText(C.WARN_ORANGE .. L["NO_PATH_FOUND"] .. "\n" .. C.GRAY .. L["NO_ROUTE_HINT"] .. C.R)
-        self:ClearStepLabels()
+        self:ClearRouteGuidance()
         QR:Log("WARN", string_format("No route found to map %d", waypoint.mapID or 0))
     end
 
@@ -749,8 +757,8 @@ function UI:UpdateRoute(result)
         self.frame.timeLabel:SetText(C.GRAY .. "--:--" .. C.R)
     end
 
-    -- Clear existing step labels
-    self:ClearStepLabels()
+    -- Replace the whole guidance state, including any arrow for an old target.
+    self:ClearRouteGuidance()
 
     -- Determine current step for progress highlighting
     local currentStepIndex = self:GetCurrentStepIndex(steps)
@@ -781,7 +789,12 @@ function UI:UpdateRoute(result)
         local navY = activeStep.navY or activeStep.destY
         local navTitle = activeStep.navTitle or activeStep.to or "Next step"
         if navMapID and navX and navY then
+            local generation = self.routeGeneration
             C_Timer.After(0, function()
+                -- A newer route, error, cleared view, or closed window takes
+                -- precedence over navigation queued on the previous frame.
+                if self.routeGeneration ~= generation or not (QR.db and QR.db.autoWaypoint)
+                    or not self.frame or not self.frame:IsVisible() then return end
                 local ok, err = pcall(function()
                     QR.WaypointIntegration:SetTomTomWaypoint(navMapID, navX, navY, navTitle)
                 end)
@@ -1011,8 +1024,6 @@ function UI:ConfigureStepUseButton(stepFrame, step)
 
     -- Overlay positioning: keep on UIParent, track stepFrame position
     -- Cannot use SetParent/SetPoint to anchor secure frames to non-secure frames (WoW 11.x restriction)
-    useButton:SetFrameStrata("DIALOG")
-    useButton:SetFrameLevel(100)
     useButton:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
     -- Overlay left of Nav button, vertically aligned with nav button (top -10, half icon = 14)
     local navCenterFromTop = 10 + STEP_ICON_SIZE / 2
@@ -1286,11 +1297,21 @@ end
 
 --- Clear all step labels (releases frames to pool)
 function UI:ClearStepLabels()
+    self.routeGeneration = (self.routeGeneration or 0) + 1
     for _, stepFrame in ipairs(self.stepLabels) do
         self:ReleaseStepLabelFrame(stepFrame)
     end
     wipe(self.stepLabels)
     wipe(self.combatDimmedSteps)
+end
+
+--- Invalidate both the actionable route and navigation owned by QuickRoute.
+-- Keep the caller's error/empty-state text rather than replacing it with hints.
+function UI:ClearRouteGuidance()
+    self:ClearStepLabels()
+    if QR.WaypointIntegration then
+        QR.WaypointIntegration:ClearTomTomWaypoints()
+    end
 end
 
 --- Clear the route display to default empty state
@@ -1311,10 +1332,7 @@ function UI:ClearRoute()
         QR.MainFrame.subtitle:SetText(L["TAB_ROUTE"] or "Route")
     end
 
-    self:ClearStepLabels()
-
-    -- Remove stale TomTom waypoints set by QuickRoute
-    QR.WaypointIntegration:ClearTomTomWaypoints()
+    self:ClearRouteGuidance()
 end
 
 -------------------------------------------------------------------------------

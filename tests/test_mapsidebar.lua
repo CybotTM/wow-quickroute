@@ -28,6 +28,11 @@ end
 local function setupMockTeleports(teleports)
     local result = {}
     for id, entry in pairs(teleports) do
+        -- A map candidate represents a known landing, including coordinates.
+        if entry.data.mapID then
+            entry.data.x = entry.data.x or 0.5
+            entry.data.y = entry.data.y or 0.5
+        end
         result[id] = {
             id = id,
             data = entry.data,
@@ -316,7 +321,7 @@ T:run("MapSidebar: UpdateForMap does not update when collapsed", function(t)
     restoreTeleports()
 end)
 
-T:run("MapSidebar: UpdateForMap does nothing during combat", function(t)
+T:run("MapSidebar: UpdateForMap remembers the target without secure changes during combat", function(t)
     reinitialize()
     QR.MapSidebar:CreatePanel()
     QR.MapSidebar.frame:Show()
@@ -329,7 +334,8 @@ T:run("MapSidebar: UpdateForMap does nothing during combat", function(t)
         },
     })
     QR.MapSidebar:UpdateForMap(84, true)
-    t:assertNil(QR.MapSidebar.currentMapID)  -- Not updated
+    t:assertEqual(84, QR.MapSidebar.currentMapID, "The viewed map is queued for the post-combat refresh")
+    t:assertEqual(0, #QR.MapSidebar.overlayButtons, "Combat does not create activation overlays")
     MockWoW.config.inCombatLockdown = false
     restoreTeleports()
 end)
@@ -484,6 +490,8 @@ end)
 
 T:run("MapSidebar: a teleport the game refuses here is not offered", function(t)
     reinitialize()
+    local previousToy = MockWoW.config.ownedToys[95567]
+    MockWoW.config.ownedToys[95567] = true
     QR.MapSidebar:CreatePanel()
     QR.MapSidebar.frame:Show()
     setupMockTeleports({
@@ -502,6 +510,12 @@ T:run("MapSidebar: a teleport the game refuses here is not offered", function(t)
     MockWoW.config.currentMapID = 504
     QR.MapSidebar:UpdateForMap(504, true)
     t:assertTrue(QR.MapSidebar.rows[1]:IsShown(), "On Isle of Thunder it is")
+    local usable = C_ToyBox.IsToyUsable
+    C_ToyBox.IsToyUsable = function() return false end
+    QR.MapSidebar:UpdateForMap(504, true)
+    t:assertFalse(QR.MapSidebar.rows[1]:IsShown(), "Current toy rejection overrides cached collection ownership")
+    C_ToyBox.IsToyUsable = usable
+    MockWoW.config.ownedToys[95567] = previousToy
     MockWoW.config.currentMapID = 84
     restoreTeleports()
 end)

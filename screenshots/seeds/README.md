@@ -53,9 +53,9 @@ Those historical crops used a simulator build with UI scale 1.6875 at 2560×1600
 Re-read bounds from `--dump-tree` for the installed simulator and current panel size.
 
 
-## Review windows (2026-09-05)
+## Initial review windows (2026-09-05)
 
-The installed `wow-ui-sim` release accepts `--filter` and `--dump-tree`; it does not
+The initial local `wow-ui-sim` build accepted `--filter` and `--dump-tree`; it did not
 accept the historical `--ui-scale` option used for the older gallery images. The new view
 seeds set their own window scale explicitly. For these snapshots:
 
@@ -74,3 +74,30 @@ These images inspect actual addon controls; the simulator has baseline Blizzard
 API errors and color/text-rendering differences, so they are not retail visual
 or protected-action certification. The trip example contains pasted inputs and
 has not started a route; its values are not fabricated route results.
+
+## Follow-up with all four simulator PRs
+
+The player workflow review uses a freshly built integration of PRs 7, 8, 9 and 10.
+Exact source revisions, build features and the binary hash are recorded in the
+[review provenance](../../docs/PLAYER-WORKFLOW-REVIEW-2026-09-05.md#visual-simulator-provenance).
+That build supports native atlas sizes, UTF-8/named colors and `--ui-scale`.
+
+From the addon repository, render the declared review scenes with:
+
+```sh
+python3 scripts/render_player_review.py \
+  --sim-root /path/to/combined-wow-ui-sim \
+  --wow-install '/path/to/World of Warcraft' \
+  --output /tmp/quickroute-player-review
+```
+
+Use `--view settings`, `teleports-small`, `sidebar`, `sidebar-collapsed`, `acquisition-vendor`,
+`acquisition-unknown`, `currency-empty`, `overlap-help`, `overlap-settings` or
+`overlap-menu` to repeat one scene. The script creates
+an addon symlink, Lua input and log beside each image. It injects QuickRoute's
+actual German translations; native Blizzard labels and item names retain the
+simulator locale. The acquisition and empty-vendor fixtures are explicit examples.
+
+Keep the main-window scene unfiltered: secure icons are parented to UIParent,
+and filtering only the main frame removes them. The unfiltered game UI also
+reveals action-bar/window ordering that an isolated component image conceals.

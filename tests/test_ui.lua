@@ -201,6 +201,12 @@ end)
 T:run("Auto-waypoint uses C_Timer.After for deferred execution", function(t)
     resetState()
     ensureUIFrame()
+    -- Auto guidance belongs to a visible route. A closed view cancels queued
+    -- callbacks instead of republishing navigation after the user dismisses it.
+    local mainShown, contentShown = QR.MainFrame.frame:IsShown(), QR.UI.frame:IsShown()
+    local wasShowing = QR.MainFrame.isShowing
+    QR.MainFrame.frame:Show()
+    QR.UI.frame:Show()
 
     -- Enable auto-waypoint setting
     QR.db = QR.db or {}
@@ -268,6 +274,9 @@ T:run("Auto-waypoint uses C_Timer.After for deferred execution", function(t)
     QR.WaypointIntegration.SetTomTomWaypoint = originalSetWaypoint
     QR.UI.CreateStepLabel = originalCreateStepLabel
     QR.db.autoWaypoint = false
+    if not mainShown then QR.MainFrame.frame:Hide() end
+    if not contentShown then QR.UI.frame:Hide() end
+    QR.MainFrame.isShowing = wasShowing
 end)
 
 T:run("Auto-waypoint skipped when first step has no coordinates", function(t)

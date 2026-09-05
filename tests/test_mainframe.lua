@@ -81,6 +81,36 @@ T:run("MainFrame: frame has minimum width", function(t)
         "MainFrame width >= 500")
 end)
 
+T:run("MainFrame: saved large scale keeps header and tabs on a small screen", function(t)
+    resetState()
+    ensureMainFrame()
+    local frame = QR.MainFrame.frame
+    local oldWidth, oldHeight = UIParent:GetWidth(), UIParent:GetHeight()
+    local oldSetting, oldScale = QR.db.windowScale, frame:GetScale()
+    UIParent:SetSize(1024, 640)
+    QR.db.windowScale = 1.5
+    frame:SetScale(1.5)
+    QR.MainFrame:Show("route")
+    t:assertTrue(frame:GetWidth() * frame:GetScale() <= 1000.01,
+        "Main window including close button fits the screen width")
+    t:assertTrue(frame:GetHeight() * frame:GetScale() <= 616.01,
+        "Header and bottom tabs both fit the screen height")
+    t:assertEqual(QR.db.windowScale, 1.5,
+        "Fitting the current screen retains the user's preferred scale")
+    UIParent:SetSize(1920, 1080)
+    QR.MainFrame:Show("route")
+    t:assertEqual(frame:GetScale(), 1.5,
+        "Reopening on a larger screen restores the preferred scale")
+    UIParent:SetSize(1024, 640)
+    frame:GetScript("OnEvent")(frame, "DISPLAY_SIZE_CHANGED")
+    t:assertTrue(frame:GetHeight() * frame:GetScale() <= 616.01,
+        "Changing resolution also fits an already open window")
+    QR.MainFrame:Hide()
+    UIParent:SetSize(oldWidth, oldHeight)
+    QR.db.windowScale = oldSetting
+    frame:SetScale(oldScale or 1)
+end)
+
 -------------------------------------------------------------------------------
 -- 3. Content frames
 -------------------------------------------------------------------------------
