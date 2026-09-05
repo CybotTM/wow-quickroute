@@ -1,15 +1,11 @@
 name: Release
-
 on:
   push:
     tags:
       - 'v*'
-
 jobs:
   # ci.yml triggers only on push and pull_request against main, so nothing it
-  # runs gates a tag. Both of its jobs are repeated here: without the lint one,
-  # a release published having passed the Lua suite and never having been
-  # linted, which is the gate a tag most needs.
+  # runs gates a tag. Repeat its Lua, lint and Python checks before publishing.
   tests:
     # Both file orders. The files share one mock and one addon namespace, so a
     # file that borrows global state and does not put it back only breaks
@@ -25,17 +21,14 @@ jobs:
         order: [discovery, reverse]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Install Lua 5.1
         uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13.0.0
         with:
           luaVersion: "5.1"
-
       - name: Run tests
         env:
           QR_TEST_ORDER: ${{ matrix.order }}
         run: lua tests/run_tests.lua
-
   luacheck:
     name: Luacheck
     runs-on: ubuntu-latest
@@ -43,25 +36,20 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
       - name: Install Lua
         uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13.0.0
         with:
           luaVersion: "5.1"
-
       - name: Install LuaRocks
         uses: leafo/gh-actions-luarocks@35d062def313a7699a0d513e996bcf4352f05389 # v6.1.0
-
       - name: Install luacheck
         run: luarocks install luacheck 1.2.0
-
       - name: Run luacheck
         run: luacheck QuickRoute/ tests/ --config .luacheckrc
-
   release:
     name: Package & Release
     runs-on: ubuntu-latest
-    needs: [tests, luacheck]
+    needs: [tests, luacheck, generator]
     permissions:
       contents: write
       # Build provenance. The OIDC token is what identifies this workflow, this
@@ -73,11 +61,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-
       # Tag and version reach the shell through the environment, never through
       # ${{ }} interpolation into a run: block — this job holds CF_API_KEY and
       # WAGO_API_TOKEN, and a crafted tag name would otherwise execute here.
@@ -85,8 +71,24 @@ jobs:
         id: version
         env:
           REF_NAME: ${{ github.ref_name }}
-        run: echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
 
+          tag = os.environ["REF_NAME"]
+          if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
+              raise SystemExit("Invalid stable release tag")
+          version = tag[1:]
+          versions = [line.split(":", 1)[1].strip()
+                      for line in Path("QuickRoute/QuickRoute.toc").read_text().splitlines()
+                      if line.startswith("## Version:")]
+          if versions != [version]:
+              raise SystemExit("Release tag does not match the TOC version")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write("version=" + version + "\n")
+          PY
       - name: Generate changelog
         id: changelog
         env:
@@ -113,12 +115,10 @@ jobs:
             echo "2. Extract to \`World of Warcraft/_retail_/Interface/AddOns/\`"
             echo "3. Restart WoW or \`/reload\`"
           } > /tmp/release-notes.md
-
       - name: Package addon
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: bash scripts/package_addon.sh
-
       # Before the upload, so the statement exists for the exact bytes that are
       # published rather than for a rebuild of them. A downloader checks it with
       #   gh attestation verify QuickRoute-<version>.zip --repo CybotTM/wow-quickroute
@@ -129,7 +129,6 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/QuickRoute-${{ steps.version.outputs.version }}.zip
-
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -146,17 +145,15 @@ jobs:
               --title "QuickRoute $REF_NAME" \
               --notes-file /tmp/release-notes.md
           fi
-
       - name: Attach screenshots to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           shopt -s nullglob
-          for img in screenshots/*.png screenshots/*.jpg; do
+          for img in screenshots/*.png screenshots/*.jpg screenshots/*.webp; do
             gh release upload "$REF_NAME" "$img" --clobber || true
           done
-
       - name: Derive the retail patch string from the TOC
         id: patch
         run: |
@@ -168,14 +165,12 @@ jobs:
           echo "toc_api=${TOC_API}" >> "$GITHUB_OUTPUT"
           echo "retail_patch=${MAJOR}.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
           echo "TOC Interface ${TOC_API} -> retail patch ${MAJOR}.${MINOR}.${PATCH}"
-
       - name: Upload localization to CurseForge
         id: localization
         continue-on-error: true
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
         run: python3 scripts/export_localization.py --upload
-
       - name: Upload to CurseForge
         id: curseforge
         continue-on-error: true
@@ -222,8 +217,7 @@ jobs:
             -F "file=@dist/QuickRoute-${VERSION}.zip")
           echo "CurseForge response (HTTP ${HTTP_CODE}): $(cat /tmp/cf-response.json)"
           echo "http_code=${HTTP_CODE}" >> "$GITHUB_OUTPUT"
-          [ "$HTTP_CODE" -lt 400 ]
-
+          [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]
       - name: Upload to Wago
         id: wago
         if: always()
@@ -252,8 +246,7 @@ jobs:
             -F "file=@dist/QuickRoute-${VERSION}.zip")
           echo "Wago response (HTTP ${HTTP_CODE}): $(cat /tmp/wago-response.json)"
           echo "http_code=${HTTP_CODE}" >> "$GITHUB_OUTPUT"
-          [ "$HTTP_CODE" -lt 400 ]
-
+          [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]
       # The GitHub release is already published at this point, so the store
       # uploads run to completion and their failures are reported here instead
       # of aborting the job halfway and skipping the remaining store.
@@ -277,3 +270,21 @@ jobs:
             echo "::error::A store or localization upload failed. The GitHub release was published; re-run this job after fixing it."
             exit 1
           fi
+  generator:
+    # The data generator decides which taxi nodes are flight masters, which
+    # zone each belongs to and where in it they sit. None of that is reachable
+    # from the Lua suite, which only checks the shape of the file the generator
+    # already produced -- so a filter could be inverted or the projection
+    # transposed and nothing would fail. That last one actually happened.
+    name: Generator
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Run generator tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
