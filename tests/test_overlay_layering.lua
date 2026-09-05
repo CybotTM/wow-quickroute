@@ -44,6 +44,7 @@ T:run("Overlay layering: main sits above HUD while secondary help covers its cas
         local help = QR.CreateStandardWindow({ name = "QRLayerHelpTest", title = "Help", width = 300, height = 200 })
         t:assertEqual("DIALOG", help:GetFrameStrata(), "Secondary help uses the native dialog layer")
         t:assertEqual("HIGH", button:GetFrameStrata(), "A recycled cast button stays below the help window")
+        t:assertFalse(button:IsUsingParentLevel(), "A UIParent-owned cast button must use its independent drawing level")
         t:assertEqual(13, button:GetFrameLevel(), "The cast button is only one level above its visible target")
         t:assertEqual(UIParent, button:GetParent(), "The protected cast button stays parented to UIParent")
         local override = QR.CreateStandardWindow({ name = "QRLayerOverrideTest", title = "Explicit layer",

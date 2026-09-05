@@ -152,7 +152,9 @@ function SecureButtons:Initialize()
         btn:RegisterForClicks("AnyDown", "AnyUp")
         btn:SetSize(22, 22)
         btn:Hide()
-        if btn.SetUsingParentLevel then btn:SetUsingParentLevel(true) end
+        -- These UIParent children draw above unrelated target frames. Binding
+        -- them to UIParent's level conflicts with AttachOverlay's own level.
+        if btn.SetUsingParentLevel then btn:SetUsingParentLevel(false) end
         btn.inUse = false
         btn.poolIndex = i
         table_insert(self.pool, btn)

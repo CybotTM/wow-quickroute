@@ -551,7 +551,8 @@ local function CreateMockFrame(frameType, name, parent, template)
     function frame:SetBackdropBorderColor(r, g, b, a)
         self._backdropBorderColor = { r, g, b, a }
     end
-    function frame:SetUsingParentLevel() end
+    function frame:SetUsingParentLevel(value) self._usingParentLevel = value end
+    function frame:IsUsingParentLevel() return self._usingParentLevel == true end
     function frame:SetNormalTexture() end
     function frame:SetHighlightTexture() end
     function frame:SetPushedTexture() end

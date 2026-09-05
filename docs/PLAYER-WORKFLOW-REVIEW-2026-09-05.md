@@ -77,9 +77,15 @@ The [render script](../scripts/render_player_review.py) loads the current addon 
 
 The script also opens native Settings from the visible teleport inventory without a subtree filter. Blizzard closes the registered QuickRoute window, and its secure item buttons are released.
 
-Final local verification: **15,481 Lua 5.1 assertions passed in each of discovery and reverse file order**, with zero failures. **47 Python generator/packaging tests passed**. Luacheck 1.2.0 reported **zero warnings and errors across 108 files**; whitespace and documentation link checks passed. All ten declared render scenes completed without execution errors or Lua tracebacks.
+Initial follow-up verification: **15,481 Lua 5.1 assertions passed in each of discovery and reverse file order**, with zero failures. **47 Python generator/packaging tests passed**. Luacheck 1.2.0 reported **zero warnings and errors across 108 files**; whitespace and documentation link checks passed. All ten declared render scenes completed without execution errors or Lua tracebacks.
 
 ## Evidence limits
+
+### Subsequent installed-client icon regression
+
+The installed `865e1083` build displayed gray rectangles for owned teleport icons while missing-item icons remained visible; hovering the gray areas also produced no tooltip. Inspection found that the detached secure buttons still opted into `SetUsingParentLevel(true)` even though their independent level was now synchronized with a target in the same strata. The correction disables that parent-level binding during combat-guarded pool creation; target-relative ordering and UIParent parenting remain intact.
+
+The earlier mock treated the setter as a no-op. The combined simulator allowed a parent-bound button to retain an explicit higher level, so its attractive screenshots did not detect the conflicting state. The mock now records the flag, and the render script rejects any active overlay still bound to its parent's level. Both checks fail on the old implementation. This is a guard against the verified configuration conflict, not a claim that the simulator now models every native rendering rule. The corrected main/help scenes are rerendered with the checks enabled; a client reload recreates the installed button pool. The corrected build passes **15,482 Lua assertions in each file order**, with zero failures, and Luacheck remains clean across 108 files.
 
 The combined simulator resolves the earlier startup errors, but remains a model of the client. These checks do not execute protected travel on a real character or establish pixel-perfect behavior on every configuration. Installation and byte verification are separate from in-game acceptance. The [retail acceptance cases](RETAIL-ACCEPTANCE.md) specify what remains to be exercised in the client; an unchecked case is not reported as passed.
 

@@ -11,6 +11,7 @@
 - Attributed travel choices, hidden shortcuts, individually unlocked Mole Machine destinations, faction garrisons/shipyards and observed camp/housing destinations.
 
 ### Fixed
+- Disabled parent-level binding on detached secure teleport buttons, which conflicted with the window-layer changes and left owned icons/click areas behind the panel in the installed client.
 - Replaced unsupported map-header and requirement glyphs with native UI artwork; moved compact settings branding into the native header above its divider.
 - Made currency vendor wording describe shortest estimated travel time and restricted racial toys to eligible characters rather than account-wide ownership.
 - Kept the main window's header and tabs on screen at high preferred scales, including resolution changes.

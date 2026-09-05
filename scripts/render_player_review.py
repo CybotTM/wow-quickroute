@@ -113,7 +113,17 @@ for k, v in pairs(translated.L) do QR.L[k] = v end
         seed = output / ("qr-combined-" + name + ".lua")
         seed.write_text(common + "\n" + locale + """
 QR_DOC.OpenView(function()
-""" + action + "\nend)\n")
+""" + action + """
+    for _, button in ipairs(QR.SecureButtons.pool) do
+        local target = button._qrStepFrame
+        if button.inUse and target then
+            assert(not button:IsUsingParentLevel(), "Secure overlay still draws at its UIParent level")
+            assert(button:GetFrameStrata() == target:GetFrameStrata(), "Secure overlay strata differs from its target")
+            assert(button:GetFrameLevel() > target:GetFrameLevel(), "Secure overlay is behind its target")
+        end
+    end
+end)
+""")
         image = output / ("qr-combined-" + name + ".webp")
         log_path = output / ("qr-combined-" + name + ".log")
         command = [
