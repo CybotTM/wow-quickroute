@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-09-05
+
 ### Added
 - Missing-item acquisition help: direct ATT popouts, a QuickRoute source window, available requirements and source routing only where a position is recorded.
 - Indexed retail NPC, quest-reference, independently located quest-giver and currency-vendor catalogues with pinned AllTheThings provenance and a non-executing update generator.
@@ -11,6 +13,7 @@
 - Attributed travel choices, hidden shortcuts, individually unlocked Mole Machine destinations, faction garrisons/shipyards and observed camp/housing destinations.
 
 ### Fixed
+- Restricted neutral characters to neutral flight masters, preserving their available flight network without offering hostile faction services.
 - Disabled parent-level binding on detached secure teleport buttons, which conflicted with the window-layer changes and left owned icons/click areas behind the panel in the installed client.
 - Replaced unsupported map-header and requirement glyphs with native UI artwork; moved compact settings branding into the native header above its divider.
 - Made currency vendor wording describe shortest estimated travel time and restricted racial toys to eligible characters rather than account-wide ownership.
@@ -32,6 +35,7 @@
 - Packaged the complete addon tree with its source manifests and licenses; missing TOC files or required notices now block creation of a release archive.
 
 ### Validation
+- Release tags must match the packaged TOC version; the tag pipeline also runs the Python generator/package tests and requires successful HTTP 2xx responses from addon stores.
 - The [player workflow follow-up](docs/PLAYER-WORKFLOW-REVIEW-2026-09-05.md) records the five live reports, additional independently reproduced defects and the limits of simulated visual checks.
 - See [review](docs/REVIEW-2026-09-05.md), [catalogue provenance](docs/DESTINATION-DATA.md) and [retail acceptance](docs/RETAIL-ACCEPTANCE.md). In-client acceptance is required before describing the release as fully validated in retail.
 
@@ -343,3 +347,6 @@
 - Full test suite (7754 assertions, 27 test files)
 - CI pipeline (luacheck + tests)
 - CurseForge + Wago automated publishing
+
+[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.17.0...HEAD
+[1.17.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.16.0...v1.17.0
