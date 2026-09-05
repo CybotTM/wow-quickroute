@@ -11,6 +11,12 @@ local string_lower = string.lower
 local string_find = string.find
 local string_format = string.format
 
+local function HasCoordinates(x, y)
+    if issecretvalue and (issecretvalue(x) or issecretvalue(y)) then return false end
+    return type(x) == "number" and type(y) == "number"
+        and x >= 0 and x <= 1 and y >= 0 and y <= 1
+end
+
 -------------------------------------------------------------------------------
 -- DungeonData Module
 -------------------------------------------------------------------------------
@@ -44,7 +50,9 @@ function DungeonData:ScanInstances()
     end
 
     self.numTiers = numTiers
+    local previousTier = _G.EJ_GetCurrentTier and _G.EJ_GetCurrentTier()
 
+    local scanOK, scanError = pcall(function()
     for tier = 1, numTiers do
         EJ_SelectTier(tier)
 
@@ -55,7 +63,7 @@ function DungeonData:ScanInstances()
         end
         tierName = tierName or string_format("Tier %d", tier)
         self.tierNames[tier] = tierName
-        self.byTier[tier] = self.byTier[tier] or {}
+        self.byTier[tier] = {}
 
         -- Scan dungeons (isRaid = false)
         local index = 1
@@ -108,6 +116,12 @@ function DungeonData:ScanInstances()
             table_insert(self.byTier[tier], instanceID)
             index = index + 1
         end
+    end
+    end)
+    if previousTier then EJ_SelectTier(previousTier) end
+    if not scanOK then
+        QR:Debug("DungeonData: Journal scan incomplete: " .. tostring(scanError))
+        return
     end
 
     -- Filter out continent-level EJ overview entries (not actual instances)
@@ -224,9 +238,9 @@ function DungeonData:ScanEntrances()
                     end
 
                     local inst = self.instances[instanceID]
-                    inst.zoneMapID = zoneMapID
-                    if x then inst.x = x end
-                    if y then inst.y = y end
+                    if HasCoordinates(x, y) then
+                        inst.zoneMapID, inst.x, inst.y = zoneMapID, x, y
+                    end
                     if entrance.atlasName then
                         inst.atlasName = entrance.atlasName
                     end
@@ -235,20 +249,21 @@ function DungeonData:ScanEntrances()
                     end
 
                     -- Populate byZone index
-                    if not self.byZone[zoneMapID] then
-                        self.byZone[zoneMapID] = {}
+                    local resolvedMapID = inst.zoneMapID
+                    if resolvedMapID and not self.byZone[resolvedMapID] then
+                        self.byZone[resolvedMapID] = {}
                     end
 
                     -- Avoid duplicates in byZone
                     local found = false
-                    for _, existingID in ipairs(self.byZone[zoneMapID]) do
+                    for _, existingID in ipairs(self.byZone[resolvedMapID] or {}) do
                         if existingID == instanceID then
                             found = true
                             break
                         end
                     end
-                    if not found then
-                        table_insert(self.byZone[zoneMapID], instanceID)
+                    if not found and resolvedMapID then
+                        table_insert(self.byZone[resolvedMapID], instanceID)
                     end
 
                     entranceCount = entranceCount + 1
@@ -295,15 +310,10 @@ function DungeonData:MergeStaticFallback()
 
                 local inst = self.instances[instanceID]
 
-                -- Fill missing coordinates
-                if not inst.zoneMapID then
-                    inst.zoneMapID = zoneMapID
-                end
-                if not inst.x and x then
-                    inst.x = x
-                end
-                if not inst.y and y then
-                    inst.y = y
+                -- Coordinates always travel with their source map. Mixing a
+                -- runtime mapID with a fallback's x/y routes to the wrong point.
+                if (not inst.zoneMapID or not HasCoordinates(inst.x, inst.y)) and HasCoordinates(x, y) then
+                    inst.zoneMapID, inst.x, inst.y = zoneMapID, x, y
                 end
                 -- Fill missing name
                 if (not inst.name or inst.name == "") and name then
@@ -360,7 +370,7 @@ function DungeonData:GetInstancesForZone(zoneMapID)
     local results = {}
     for _, instanceID in ipairs(instanceIDs) do
         local inst = self.instances[instanceID]
-        if inst then
+        if inst and inst.zoneMapID == zoneMapID then
             local info = {}
             for k, v in pairs(inst) do
                 info[k] = v

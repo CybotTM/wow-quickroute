@@ -28,6 +28,9 @@
 - [x] **Dungeons & Raids** — Route to dungeon/raid entrances from Dungeon Journal or LFG (v1.2.0)
 - [x] **Cities & Towns** — Unified destination search with cities, dungeons, waypoints (v1.3.0)
 - [x] **Service POIs** — Route to nearest AH, Bank, Void Storage, Crafting Table (v1.4.0)
+- [x] **Currency vendors** — Record visited merchants per character and compare estimated routes for accepted currencies
+- [x] **Multi-destination trips** — Up to 20 pasted or active TomTom points, input order or fastest-next heuristic
+- [x] **Observed hearth binding** — Include a character's bound inn after observing a bind event
 - [ ] **NPCs & Vendors** — Route to specific NPCs (repair, transmog, quartermasters, trainers)
 - [ ] **World Events** — Darkmoon Faire, holiday events, world boss locations
 - [ ] **Flight Masters** — Nearest flight master for manual flight path usage
@@ -61,16 +64,16 @@
 
 ## What Makes QuickRoute Unique
 
-QuickRoute is the **only addon** that combines:
-1. **Full Dijkstra pathfinding** — considers all possible routes, not just direct teleports
+QuickRoute combines:
+1. **Dijkstra pathfinding** — compares the modeled travel routes, including chains of transport methods
 2. **Teleport browser** — see and use all available teleports in one panel
 3. **One-click secure button execution** — cast spells and use items directly from the route
-4. **Cooldown awareness** — factors in teleport cooldowns to find the actual fastest route
+4. **Cooldown awareness** — factors supported teleport cooldowns into estimated travel time
 5. **Multi-source destinations** — works with map pins, quests, TomTom, map clicks, and more
 6. **Route step collapsing** — clean, readable directions instead of verbose node-by-node paths
 
 ## Competition
-QuickRoute's angle is that it treats travel as a graph and solves it, rather than
-listing teleports and leaving the routing to the player. The competitive analysis
-this section used to link to was never committed; the link is removed rather than
-left pointing at a file that does not exist.
+Mapzeroth also uses graph routing. The [2026-09-05 review](REVIEW-2026-09-05.md)
+compares the advertised features and records unresolved parity gaps, especially
+phase/unlock state and hidden transport networks. The universal mission above is
+the development target; the report describes the current verified scope.

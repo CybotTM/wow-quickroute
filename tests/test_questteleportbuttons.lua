@@ -13,6 +13,7 @@ local origOwnedToys = {}
 local origBagItems = {}
 local origQuestWatches = {}
 local origInCombat = false
+local origCalculatePath = QR.PathCalculator.CalculatePath
 
 -- Helper: save and restore global state
 local function saveState()
@@ -32,6 +33,7 @@ local function saveState()
 end
 
 local function restoreState()
+    QR.PathCalculator.CalculatePath = origCalculatePath
     MockWoW.config.inCombatLockdown = origInCombat
     MockWoW.config.questWaypoints = origQuestWaypoints
     MockWoW.config.questTitles = origQuestTitles
@@ -67,6 +69,11 @@ local function setupTestTeleports()
     -- Rescan inventory so GetAllTeleports picks it up
     if QR.PlayerInventory and QR.PlayerInventory.ScanAll then
         QR.PlayerInventory:ScanAll()
+    end
+    -- This module consumes the route planner's decision. Keep these UI pool
+    -- tests independent of the production graph and the player's position.
+    QR.PathCalculator.CalculatePath = function()
+        return { steps = { { type = "teleport", teleportID = 3561, sourceType = "spell" } } }
     end
 end
 

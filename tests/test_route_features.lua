@@ -160,7 +160,7 @@ end)
 -- 1b. AbsorbRedundantWalkSteps (walk after transport to same map)
 -------------------------------------------------------------------------------
 
-T:run("AbsorbWalk: teleport + walk to same map absorbed", function(t)
+T:run("AbsorbWalk: teleport retains last-mile walking directions", function(t)
     resetState()
     local steps = {
         { type = "teleport", from = "A", to = "Stormwind", time = 10, destMapID = 84, destX = 0.5, destY = 0.5,
@@ -169,28 +169,25 @@ T:run("AbsorbWalk: teleport + walk to same map absorbed", function(t)
           action = "Go to Stormwind", localizedTo = "SW-Ziel", navTitle = "WalkNav", navX = 0.6, navY = 0.7 },
     }
     local result = QR.PathCalculator:AbsorbRedundantWalkSteps(steps)
-    t:assertEqual(1, #result, "Walk absorbed into teleport")
-    t:assertEqual("teleport", result[1].type, "Type stays teleport")
-    t:assertEqual(30, result[1].time, "Time combined: 10 + 20 = 30")
-    t:assertEqual(0.6, result[1].destX, "destX from walk step")
-    t:assertEqual(0.7, result[1].destY, "destY from walk step")
-    t:assertEqual("SW-dest", result[1].to, "to from walk step")
-    -- Verify localized fields from walk step, nav fields from transport step
-    t:assertEqual("SW-Ziel", result[1].localizedTo, "localizedTo from walk step")
-    t:assertEqual("TeleportNav", result[1].navTitle, "navTitle from transport step (portal entrance)")
-    t:assertEqual(0.5, result[1].navX, "navX from transport step (portal entrance)")
-    t:assertEqual(0.5, result[1].navY, "navY from transport step (portal entrance)")
+    t:assertEqual(2, #result, "Last-mile walk stays separate")
+    t:assertEqual("teleport", result[1].type, "First step stays teleport")
+    t:assertEqual(10, result[1].time, "Teleport time is not charged for walking")
+    t:assertEqual(0.5, result[1].destX, "Teleport landing remains unchanged")
+    t:assertEqual("SW-dest", result[2].to, "Walk reaches requested target")
+    t:assertEqual("SW-Ziel", result[2].localizedTo, "Walk keeps localized destination")
+    t:assertEqual(0.6, result[2].navX, "Final navigation X reaches target")
+    t:assertEqual(0.7, result[2].navY, "Final navigation Y reaches target")
 end)
 
-T:run("AbsorbWalk: portal + walk to same map absorbed", function(t)
+T:run("AbsorbWalk: portal retains last-mile walk", function(t)
     resetState()
     local steps = {
         { type = "portal", from = "SW-portal", to = "Ironforge", time = 5, destMapID = 87, destX = 0.3, destY = 0.4, action = "Portal to Ironforge" },
         { type = "walk", from = "Ironforge", to = "IF-dest", time = 15, destMapID = 87, destX = 0.5, destY = 0.6, action = "Go to Ironforge" },
     }
     local result = QR.PathCalculator:AbsorbRedundantWalkSteps(steps)
-    t:assertEqual(1, #result, "Walk absorbed into portal")
-    t:assertEqual(20, result[1].time, "Time combined: 5 + 15 = 20")
+    t:assertEqual(2, #result, "Walk after portal stays actionable")
+    t:assertEqual(15, result[2].time, "Walking time remains on the walk")
 end)
 
 T:run("AbsorbWalk: transport + walk to DIFFERENT map NOT absorbed", function(t)
@@ -213,7 +210,7 @@ T:run("AbsorbWalk: walk + walk NOT absorbed (only transport + walk)", function(t
     t:assertEqual(2, #result, "Consecutive walks not absorbed by this pass")
 end)
 
-T:run("AbsorbWalk: multi-step chain with two absorptions", function(t)
+T:run("AbsorbWalk: unknown coordinates never imply redundant walks", function(t)
     resetState()
     local steps = {
         { type = "teleport", from = "A", to = "SW", time = 10, destMapID = 84, action = "Teleport to Stormwind" },
@@ -222,11 +219,11 @@ T:run("AbsorbWalk: multi-step chain with two absorptions", function(t)
         { type = "walk", from = "IF", to = "IF-dest", time = 8, destMapID = 87, action = "Go to Ironforge" },
     }
     local result = QR.PathCalculator:AbsorbRedundantWalkSteps(steps)
-    t:assertEqual(2, #result, "Both walks absorbed: 4 steps → 2")
-    t:assertEqual("teleport", result[1].type, "First is teleport")
-    t:assertEqual(15, result[1].time, "Teleport absorbed walk: 10 + 5")
-    t:assertEqual("portal", result[2].type, "Second is portal")
-    t:assertEqual(11, result[2].time, "Portal absorbed walk: 3 + 8")
+    t:assertEqual(4, #result, "All directions remain when landing coordinates are unknown")
+    t:assertEqual("teleport", result[1].type, "First step is teleport")
+    t:assertEqual("walk", result[2].type, "Walk to portal remains")
+    t:assertEqual("portal", result[3].type, "Third step is portal")
+    t:assertEqual("walk", result[4].type, "Walk from portal remains")
 end)
 
 T:run("AbsorbWalk: nil/empty input handled", function(t)

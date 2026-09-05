@@ -121,10 +121,6 @@ QR.PortalHubs = {
             {destination = "Stormwind City", mapID = 84, x = 0.4934, y = 0.8711, faction = "Alliance"},
             {destination = "Orgrimmar", mapID = 85, x = 0.5540, y = 0.3840, faction = "Horde"},
             -- Shadowlands zones
-            {destination = "Bastion", mapID = 1533, x = 0.5290, y = 0.4690},
-            {destination = "Maldraxxus", mapID = 1536, x = 0.5060, y = 0.5370},
-            {destination = "Ardenweald", mapID = 1565, x = 0.4930, y = 0.5200},
-            {destination = "Revendreth", mapID = 1525, x = 0.6140, y = 0.7630},
             {destination = "Korthia", mapID = 1961, x = 0.6080, y = 0.2170},
             {destination = "Zereth Mortis", mapID = 1970, x = 0.3480, y = 0.5550},
         },

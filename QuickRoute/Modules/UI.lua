@@ -95,6 +95,8 @@ local STEP_ICON_PATHS = {
     flight = "Interface\\Icons\\Ability_Mount_RocketMount",
     boat = "Interface\\Icons\\INV_Misc_Anchor",
     zeppelin = "Interface\\Icons\\Ability_Mount_RocketMount",
+    jump = "Interface\\Icons\\Ability_Rogue_Sprint",
+    phaseswitch = "Interface\\Icons\\Spell_Holy_BorrowedTime",
     tram = "Interface\\Icons\\Achievement_Character_Gnome_Male",
 }
 local NAV_ICON_PATH = "Interface\\Icons\\INV_Misc_Map_01"
@@ -403,12 +405,57 @@ function UI:CreateContent(parentFrame)
     zoneDebugButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.zoneDebugButton = zoneDebugButton
 
+    -- Keep travel tools discoverable even when the destination search is
+    -- empty. A second row also leaves room for longer localized labels.
+    local multiRouteButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["MULTI_ROUTE"]), BUTTON_HEIGHT)
+    multiRouteButton:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", 0, -8)
+    multiRouteButton:SetText(L["MULTI_ROUTE"])
+    multiRouteButton:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.MultiRoute then QR.MultiRoute:Show() end
+    end)
+    multiRouteButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["TOOLTIP_MULTI_ROUTE"])
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    multiRouteButton:SetScript("OnLeave", GameTooltip_Hide)
+    frame.multiRouteButton = multiRouteButton
+
+    local currencyButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["CURRENCY_VENDORS"]), BUTTON_HEIGHT)
+    currencyButton:SetPoint("LEFT", multiRouteButton, "RIGHT", BUTTON_PADDING, 0)
+    currencyButton:SetText(L["CURRENCY_VENDORS"])
+    currencyButton:SetScript("OnClick", function(self)
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.DestinationSearch and QR.DestinationSearch.ShowCurrencyDropdown then
+            QR.DestinationSearch:ShowCurrencyDropdown(self)
+        end
+    end)
+    currencyButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["TOOLTIP_CURRENCY_VENDORS"])
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    currencyButton:SetScript("OnLeave", GameTooltip_Hide)
+    frame.currencyButton = currencyButton
+
+    local phaseButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["PHASE_TITLE"]), BUTTON_HEIGHT)
+    phaseButton:SetPoint("LEFT", currencyButton, "RIGHT", BUTTON_PADDING, 0)
+    phaseButton:SetText(L["PHASE_TITLE"])
+    phaseButton:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.PhasePanel then QR.PhasePanel:Show() end
+    end)
+    frame.phaseButton = phaseButton
+
     -- Separator line below toolbar
     local separator = frame:CreateTexture(nil, "ARTWORK")
     separator:SetColorTexture(0.5, 0.5, 0.5, 0.5)
     separator:SetHeight(1)
-    separator:SetPoint("TOPLEFT", PADDING, -30)
-    separator:SetPoint("TOPRIGHT", -PADDING, -30)
+    separator:SetPoint("TOPLEFT", PADDING, -60)
+    separator:SetPoint("TOPRIGHT", -PADDING, -60)
 
     -- Time estimate label below separator
     local timeLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
@@ -507,6 +554,8 @@ function UI:RefreshRoute()
 
         local ok, err = pcall(self.UpdateRoute, self, poiResult)
         if not ok then
+            self:ClearRouteGuidance()
+            self.frame.timeLabel:SetText(C.ERROR_RED .. L["PATH_CALCULATION_ERROR"] .. C.R)
             QR:Error("UpdateRoute error (POI): " .. tostring(err))
         end
         self.isCalculating = false
@@ -515,6 +564,7 @@ function UI:RefreshRoute()
 
     -- Show calculating state
     self.isCalculating = true
+    self.routeGeneration = (self.routeGeneration or 0) + 1
     self.frame.timeLabel:SetText(C.YELLOW .. L["CALCULATING"] .. C.R)
     self.frame.refreshButton:SetText("...")
 
@@ -545,6 +595,7 @@ function UI:RefreshRoute()
         end)
 
         if not wpSuccess then
+            self:ClearRouteGuidance()
             self.frame.timeLabel:SetText(C.ERROR_RED .. L["WAYPOINT_DETECTION_FAILED"] .. C.R)
             if QR.MainFrame and QR.MainFrame.subtitle and QR.MainFrame.activeTab == "route" then
                 QR.MainFrame.subtitle:SetText(L["TAB_ROUTE"] or "Route")
@@ -616,7 +667,7 @@ function UI:RefreshRoute()
     if not success then
         -- Show error in UI
         self.frame.timeLabel:SetText(C.ERROR_RED .. L["PATH_CALCULATION_ERROR"] .. C.R)
-        self:ClearStepLabels()
+        self:ClearRouteGuidance()
         self:ResetCalculatingState()
         QR:Error(tostring(errOrResult))
         return
@@ -628,7 +679,11 @@ function UI:RefreshRoute()
             self:UpdateRoute(result)
         end)
         if not updateOk then
+            self:ClearRouteGuidance()
+            self.frame.timeLabel:SetText(C.ERROR_RED .. L["PATH_CALCULATION_ERROR"] .. C.R)
             QR:Error("UpdateRoute error: " .. tostring(updateErr))
+            self:ResetCalculatingState()
+            return
         end
         self.lastRefreshTime = GetTime()
         QR:Log("INFO", string_format("Route found: %d steps, %ds total",
@@ -636,7 +691,7 @@ function UI:RefreshRoute()
     else
         -- Waypoint exists but no path found - give helpful feedback
         self.frame.timeLabel:SetText(C.WARN_ORANGE .. L["NO_PATH_FOUND"] .. "\n" .. C.GRAY .. L["NO_ROUTE_HINT"] .. C.R)
-        self:ClearStepLabels()
+        self:ClearRouteGuidance()
         QR:Log("WARN", string_format("No route found to map %d", waypoint.mapID or 0))
     end
 
@@ -659,18 +714,22 @@ function UI:GetCurrentStepIndex(steps)
     local currentMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     if not currentMapID then return 1 end
 
-    -- Find the last step whose destMapID matches the player's current map.
-    -- All steps up to and including that one are "completed".
-    for i = #steps, 1, -1 do
-        if steps[i].destMapID == currentMapID then
-            return math_min(i + 1, #steps)
+    -- Being in a zone does not complete walking across it. Prefer its first
+    -- starting step, including the walk to a portal or a same-zone teleport.
+    -- Revisited zones are ambiguous without travel history; keep the earlier
+    -- action rather than incorrectly marking an unperformed step complete.
+    for i = 1, #steps do
+        if steps[i].fromMapID == currentMapID then
+            local step = steps[i]
+            if step.type ~= "phaseswitch" or not QR.TravelRequirements
+                or not QR.TravelRequirements.GetLiveMapArtID
+                or QR.TravelRequirements:GetLiveMapArtID(step.phaseMapID) ~= step.phaseArtID then return i end
         end
     end
 
-    -- No destMapID match: find the last step whose fromMapID matches (player is on that step's starting map)
-    for i = #steps, 1, -1 do
-        if steps[i].fromMapID == currentMapID then
-            return i
+    for i = 1, #steps do
+        if steps[i].destMapID == currentMapID and steps[i].fromMapID ~= currentMapID then
+            return math_min(i + 1, #steps)
         end
     end
 
@@ -698,8 +757,8 @@ function UI:UpdateRoute(result)
         self.frame.timeLabel:SetText(C.GRAY .. "--:--" .. C.R)
     end
 
-    -- Clear existing step labels
-    self:ClearStepLabels()
+    -- Replace the whole guidance state, including any arrow for an old target.
+    self:ClearRouteGuidance()
 
     -- Determine current step for progress highlighting
     local currentStepIndex = self:GetCurrentStepIndex(steps)
@@ -730,7 +789,12 @@ function UI:UpdateRoute(result)
         local navY = activeStep.navY or activeStep.destY
         local navTitle = activeStep.navTitle or activeStep.to or "Next step"
         if navMapID and navX and navY then
+            local generation = self.routeGeneration
             C_Timer.After(0, function()
+                -- A newer route, error, cleared view, or closed window takes
+                -- precedence over navigation queued on the previous frame.
+                if self.routeGeneration ~= generation or not (QR.db and QR.db.autoWaypoint)
+                    or not self.frame or not self.frame:IsVisible() then return end
                 local ok, err = pcall(function()
                     QR.WaypointIntegration:SetTomTomWaypoint(navMapID, navX, navY, navTitle)
                 end)
@@ -759,7 +823,9 @@ function UI:BuildStepCardTexts(step)
     local dest = step.localizedTo or step.to or L["UNKNOWN"]
 
     -- Line 1: action + destination
-    if step.type == "teleport" and step.teleportID then
+    if step.instructionKey and step.action and step.action ~= "" then
+        actionLine = step.action
+    elseif step.type == "teleport" and step.teleportID then
         local localizedName, link
         if step.sourceType == "spell" then
             localizedName, link = self:GetLocalizedSpellInfo(step.teleportID)
@@ -770,6 +836,10 @@ function UI:BuildStepCardTexts(step)
         actionLine = string_format(L["ACTION_USE_TELEPORT"], itemText, dest)
     elseif step.type == "teleport" then
         actionLine = string_format(L["ACTION_TELEPORT_TO"], dest)
+    elseif step.type == "jump" then
+        actionLine = step.action or string_format(L["STEP_JUMP_TO"], dest)
+    elseif step.type == "phaseswitch" then
+        actionLine = step.action or string_format(L["STEP_CHANGE_PHASE_TO"], dest)
     elseif step.type == "portal" then
         actionLine = string_format(L["ACTION_PORTAL_TO"], dest)
     elseif step.type == "walk" or step.type == "travel" then
@@ -795,9 +865,18 @@ function UI:BuildStepCardTexts(step)
         end
     end
 
+    -- A multi-choice teleport only opens a destination menu. Tell the player
+    -- which option to choose; secure buttons cannot make that choice for them.
+    if type(step.choiceText) == "string" and not (issecretvalue and issecretvalue(step.choiceText)) then
+        actionLine = actionLine .. " — " .. string_format(L["CHOOSE_DESTINATION"], step.choiceText:gsub("|", "||"))
+    end
+
     -- Line 2: location context + coordinates + travel time
     -- Use nav coordinates (where the player physically walks to)
     local parts = {}
+    if type(step.navLabel) == "string" and not (issecretvalue and issecretvalue(step.navLabel)) then
+        table_insert(parts, (step.navLabel:gsub("|", "||")))
+    end
     local navMapID = step.navMapID or step.destMapID
     if navMapID and C_Map and C_Map.GetMapInfo then
         local mapInfo = C_Map.GetMapInfo(navMapID)
@@ -935,7 +1014,7 @@ function UI:ConfigureStepUseButton(stepFrame, step)
     end
 
     -- Configure the secure button based on source type
-    local configured = QR.SecureButtons:ConfigureButton(useButton, step.teleportID, step.sourceType)
+    local configured = QR.SecureButtons:ConfigureButton(useButton, step.teleportID, step.sourceType, step.teleportData)
 
     if not configured then
         -- Configuration failed (likely in combat), release button
@@ -945,8 +1024,6 @@ function UI:ConfigureStepUseButton(stepFrame, step)
 
     -- Overlay positioning: keep on UIParent, track stepFrame position
     -- Cannot use SetParent/SetPoint to anchor secure frames to non-secure frames (WoW 11.x restriction)
-    useButton:SetFrameStrata("DIALOG")
-    useButton:SetFrameLevel(100)
     useButton:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
     -- Overlay left of Nav button, vertically aligned with nav button (top -10, half icon = 14)
     local navCenterFromTop = 10 + STEP_ICON_SIZE / 2
@@ -1220,11 +1297,21 @@ end
 
 --- Clear all step labels (releases frames to pool)
 function UI:ClearStepLabels()
+    self.routeGeneration = (self.routeGeneration or 0) + 1
     for _, stepFrame in ipairs(self.stepLabels) do
         self:ReleaseStepLabelFrame(stepFrame)
     end
     wipe(self.stepLabels)
     wipe(self.combatDimmedSteps)
+end
+
+--- Invalidate both the actionable route and navigation owned by QuickRoute.
+-- Keep the caller's error/empty-state text rather than replacing it with hints.
+function UI:ClearRouteGuidance()
+    self:ClearStepLabels()
+    if QR.WaypointIntegration then
+        QR.WaypointIntegration:ClearTomTomWaypoints()
+    end
 end
 
 --- Clear the route display to default empty state
@@ -1245,10 +1332,7 @@ function UI:ClearRoute()
         QR.MainFrame.subtitle:SetText(L["TAB_ROUTE"] or "Route")
     end
 
-    self:ClearStepLabels()
-
-    -- Remove stale TomTom waypoints set by QuickRoute
-    QR.WaypointIntegration:ClearTomTomWaypoints()
+    self:ClearRouteGuidance()
 end
 
 -------------------------------------------------------------------------------
@@ -2174,6 +2258,20 @@ SlashCmdList["QR"] = function(msg)
             QR.MinimapButton:ApplyVisibility()
         end
         QR:Print(QR.db.showMinimap and (L["MINIMAP_SHOWN"] or "Minimap button shown") or (L["MINIMAP_HIDDEN"] or "Minimap button hidden"))
+    elseif cmd == "currency" or cmd:match("^currency%s") then
+        if QR.ServiceRouter and QR.ServiceRouter.RouteToCurrency then
+            local query = (msg or ""):match("^%s*%S+%s*(.-)%s*$") or ""
+            QR.ServiceRouter:RouteToCurrency(query)
+        end
+    elseif cmd == "phases" then
+        if QR.PhasePanel then QR.PhasePanel:Show() end
+    elseif cmd == "quest" or cmd:match("^quest%s") then
+        local questID, role = cmd:match("^quest%s+(%d+)%s*(%a*)$")
+        if questID and (role == "" or role == "target" or role == "giver") and QR.Catalog then
+            QR.Catalog:RouteToQuest(questID, role == "giver" and "giver" or "target")
+        else QR:Print(L["QUEST_ROUTE_USAGE"]) end
+    elseif cmd == "multi" then
+        if QR.MultiRoute then QR.MultiRoute:Show() end
     elseif cmd == "ah" or cmd == "bank" or cmd == "void" or cmd == "craft" then
         if QR.ServiceRouter then
             local serviceType = QR.ServiceRouter:FindByAlias(cmd)
@@ -2197,6 +2295,10 @@ SlashCmdList["QR"] = function(msg)
         print("  /qr priority mappin|quest|tomtom - Set waypoint source priority")
         print("  /qr autowaypoint - Toggle auto-waypoint for first route step")
         print("  /qr ah|bank|void|craft - Route to nearest service")
+        print("  /qr currency <ID or name> - Route to a currency vendor")
+        print("  /qr multi - Open multi-destination route planner")
+        QR:Print(L["QUEST_ROUTE_USAGE"])
+        QR:Print("/qr phases - " .. L["PHASE_TITLE"])
         print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
     end
 end

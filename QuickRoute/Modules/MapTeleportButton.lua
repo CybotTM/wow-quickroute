@@ -80,49 +80,30 @@ function MapTeleportButton:FindBestTeleportForMap(viewedMapID)
     local teleports = QR.PlayerInventory:GetAllTeleports()
     if not teleports then return nil, nil, nil end
 
-    local bestID, bestData, bestSource = nil, nil, nil
-    local bestReady = false
-
-    -- Pass 1: direct map match
-    for id, entry in pairs(teleports) do
-        if entry.data and entry.data.mapID == viewedMapID
-            and not entry.data.isDynamic and not entry.data.isRandom then
-            local isReady = false
-            if QR.CooldownTracker then
-                local cdInfo = QR.CooldownTracker:GetCooldown(id, entry.sourceType)
-                isReady = cdInfo and cdInfo.ready or false
-            end
-            if not bestID or (isReady and not bestReady) then
-                bestID = id
-                bestData = entry.data
-                bestSource = entry.sourceType
-                bestReady = isReady
-            end
-        end
-    end
-
-    if bestID then
-        return bestID, bestData, bestSource
-    end
-
-    -- Pass 2: same continent
+    local bestID, bestData, bestSource, bestRank, bestTime
     local viewedContinent = QR.GetContinentForZone and QR.GetContinentForZone(viewedMapID)
-    if viewedContinent then
-        for id, entry in pairs(teleports) do
-            if entry.data and entry.data.mapID
-                and not entry.data.isDynamic and not entry.data.isRandom then
-                local teleContinent = QR.GetContinentForZone(entry.data.mapID)
-                if teleContinent == viewedContinent then
-                    local isReady = false
-                    if QR.CooldownTracker then
-                        local cdInfo = QR.CooldownTracker:GetCooldown(id, entry.sourceType)
-                        isReady = cdInfo and cdInfo.ready or false
-                    end
-                    if not bestID or (isReady and not bestReady) then
-                        bestID = id
-                        bestData = entry.data
-                        bestSource = entry.sourceType
-                        bestReady = isReady
+    for id, entry in pairs(teleports) do
+        local destinations = QR.TeleportDestinations
+            and QR.TeleportDestinations:GetDestinations(id, entry) or { entry.data }
+        for _, data in ipairs(destinations) do
+            local allowed = data and (not data.requirements or
+                (QR.TravelRequirements and QR.TravelRequirements:Check(data.requirements) == true))
+            if allowed and data.mapID and not data.isDynamic and not data.isRandom
+                and (entry.sourceType == "toy" or entry.isUsable ~= false)
+                and QR.PlayerInfo:CanUseTeleport(data)
+                and (entry.sourceType ~= "toy" or QR.PlayerInventory:IsToyUsable(id, data))
+                and (not data.usableOnMaps or QR.PlayerInfo:IsOnAnyMap(data.usableOnMaps)) then
+                local continent = QR.GetContinentForZone and QR.GetContinentForZone(data.mapID)
+                local rank = data.mapID == viewedMapID and 0
+                    or (viewedContinent and continent == viewedContinent and 2 or nil)
+                if rank then
+                    local cooldown = QR.CooldownTracker and QR.CooldownTracker:GetCooldown(id, entry.sourceType)
+                    if not (cooldown and cooldown.ready) then rank = rank + 1 end
+                    local seconds = QR.TravelTime:GetEffectiveTime(id, data, true, entry.sourceType)
+                    if not bestID or rank < bestRank or (rank == bestRank and
+                        (seconds < bestTime or (seconds == bestTime and id < bestID))) then
+                        bestID, bestData, bestSource = id, data, entry.sourceType
+                        bestRank, bestTime = rank, seconds
                     end
                 end
             end
@@ -153,6 +134,7 @@ function MapTeleportButton:CreateButton()
     local btn = CreateFrame("Button", "QRMapTeleportButton", UIParent, "SecureActionButtonTemplate")
     btn:SetSize(BUTTON_SIZE, BUTTON_SIZE)
     btn:RegisterForClicks("LeftButtonUp", "RightButtonUp", "MiddleButtonUp")
+    btn:SetAttribute("useOnKeyDown", false)
     btn:SetFrameStrata("HIGH")
     btn:Hide()
 
@@ -226,6 +208,8 @@ function MapTeleportButton:UpdateForMap(mapID)
     if InCombatLockdown() then return end
     if not self.button then return end
 
+    if QR.CooldownTracker then QR.CooldownTracker:WatchActiveCooldowns() end
+
     local btn = self.button
 
     local teleportID, data, sourceType = self:FindBestTeleportForMap(mapID)
@@ -246,7 +230,7 @@ function MapTeleportButton:UpdateForMap(mapID)
     -- and now also for a spell the player can cast but has not learned whose
     -- name the client has not cached yet -- the state right after login.
     if QR.SecureButtons then
-        if not QR.SecureButtons:ConfigureButton(btn, teleportID, sourceType) then
+        if not QR.SecureButtons:ConfigureButton(btn, teleportID, sourceType, data) then
             btn:Hide()
             self.currentTeleportID = nil
             self.currentSourceType = nil
@@ -356,6 +340,7 @@ local function UpdateButtonPosition(self, elapsed)
     -- Use canvas container for accurate positioning within the map area
     local canvas = WorldMapFrame.ScrollContainer or (WorldMapFrame.GetCanvasContainer and WorldMapFrame:GetCanvasContainer())
     local anchor = canvas or WorldMapFrame
+    btn:SetScale(anchor:GetEffectiveScale() / UIParent:GetEffectiveScale())
     local right = anchor:GetRight()
     local bottom = anchor:GetBottom()
     if right and bottom then
@@ -428,6 +413,15 @@ function MapTeleportButton:Initialize()
     self.initialized = true
 
     L = QR.L
+
+    if QR.CooldownTracker then
+        QR.CooldownTracker:RegisterListener(self, function()
+            self:UpdateForMap(WorldMapFrame:GetMapID())
+        end, function()
+            return WorldMapFrame and WorldMapFrame:IsVisible() and self.button
+                and not (QR.MapSidebar and QR.MapSidebar.frame and QR.MapSidebar.frame:IsVisible())
+        end)
+    end
 
     -- Create button (outside combat)
     if InCombatLockdown() then

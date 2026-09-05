@@ -201,6 +201,12 @@ end)
 T:run("Auto-waypoint uses C_Timer.After for deferred execution", function(t)
     resetState()
     ensureUIFrame()
+    -- Auto guidance belongs to a visible route. A closed view cancels queued
+    -- callbacks instead of republishing navigation after the user dismisses it.
+    local mainShown, contentShown = QR.MainFrame.frame:IsShown(), QR.UI.frame:IsShown()
+    local wasShowing = QR.MainFrame.isShowing
+    QR.MainFrame.frame:Show()
+    QR.UI.frame:Show()
 
     -- Enable auto-waypoint setting
     QR.db = QR.db or {}
@@ -268,6 +274,9 @@ T:run("Auto-waypoint uses C_Timer.After for deferred execution", function(t)
     QR.WaypointIntegration.SetTomTomWaypoint = originalSetWaypoint
     QR.UI.CreateStepLabel = originalCreateStepLabel
     QR.db.autoWaypoint = false
+    if not mainShown then QR.MainFrame.frame:Hide() end
+    if not contentShown then QR.UI.frame:Hide() end
+    QR.MainFrame.isShowing = wasShowing
 end)
 
 T:run("Auto-waypoint skipped when first step has no coordinates", function(t)
@@ -747,10 +756,7 @@ T:run("GetCurrentStepIndex: player on starting map returns first step", function
         { fromMapID = 2339, destMapID = 2339, action = "Walk to destination" },
     }
     local idx = QR.UI:GetCurrentStepIndex(steps)
-    -- destMapID=84 matches step 1, so current = 2 (step 1 completed).
-    -- But also fromMapID=84 matches step 2 in backward scan.
-    -- The algorithm first checks destMapID: step 1 dest=84 matches -> current = 2
-    t:assertEqual(2, idx, "Current step is 2 when player is on starting map")
+    t:assertEqual(1, idx, "The walk to the portal remains current in the starting zone")
 end)
 
 T:run("GetCurrentStepIndex: player on destination map returns last step", function(t)
@@ -776,9 +782,8 @@ T:run("GetCurrentStepIndex: player on intermediate map", function(t)
         { fromMapID = 2339, destMapID = 2339, action = "Walk to destination" },
     }
     local idx = QR.UI:GetCurrentStepIndex(steps)
-    -- Last destMapID=2112 match is step 3, so current = 4
-    t:assertEqual(4, idx,
-        "Current step is 4 after arriving in intermediate zone")
+    t:assertEqual(3, idx,
+        "Arrival in the intermediate zone still requires walking to its next portal")
 end)
 
 T:run("GetCurrentStepIndex: player off-route defaults to 1", function(t)

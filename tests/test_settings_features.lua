@@ -220,11 +220,17 @@ T:run("SettingsPanel: windowScale onChange applies to MainFrame", function(t)
     QR.SettingsPanel:Register()
 
     if QR.MainFrame and QR.MainFrame.frame then
+        local oldWidth, oldHeight = UIParent:GetWidth(), UIParent:GetHeight()
+        local oldScale, oldSetting = QR.MainFrame.frame:GetScale(), QR.db.windowScale
+        UIParent:SetSize(1920, 1080)
         local ctrl = QR.SettingsPanel.controls.windowScale
         ctrl.setting._setValue(1.25)
 
         t:assertEqual(1.25, QR.db.windowScale, "DB updated to 1.25")
         t:assertEqual(1.25, QR.MainFrame.frame:GetScale(), "MainFrame scale set to 1.25")
+        UIParent:SetSize(oldWidth, oldHeight)
+        QR.MainFrame.frame:SetScale(oldScale or 1)
+        QR.db.windowScale = oldSetting
     else
         t:assertTrue(true, "MainFrame not available in test, skipping")
     end

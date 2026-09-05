@@ -49,6 +49,8 @@ function DS:CollectResults(query)
         cities = {},
         dungeons = {},
         services = {},
+        currencies = {},
+        catalog = {},
     }
 
     -- 1. Active Waypoints
@@ -160,7 +162,8 @@ function DS:CollectResults(query)
 
     -- 3. Dungeons & Raids (from DungeonData, grouped by tier)
     local DD = QR.DungeonData
-    if DD and DD.scanned then
+    if DD then
+        local listed = {}
         for tier = DD.numTiers, 1, -1 do
             local tierName = DD:GetTierName(tier) or string_format("Tier %d", tier)
             local tierInstances = DD.byTier[tier] or {}
@@ -169,6 +172,7 @@ function DS:CollectResults(query)
             for _, instanceID in ipairs(tierInstances) do
                 local inst = DD.instances[instanceID]
                 if inst and inst.name then
+                    listed[instanceID] = true
                     if not isSearching or string_find(string_lower(inst.name), queryLower, 1, true) then
                         table_insert(matchingInstances, {
                             name = inst.name,
@@ -193,6 +197,20 @@ function DS:CollectResults(query)
                     instances = matchingInstances,
                 })
             end
+        end
+        -- Static/API-only entrances remain searchable even while the Journal
+        -- is unavailable or does not assign that instance to an expansion.
+        local other = {}
+        for instanceID, inst in pairs(DD.instances) do
+            if not listed[instanceID] and inst.name and inst.zoneMapID and inst.x and inst.y
+                and (not isSearching or string_find(string_lower(inst.name), queryLower, 1, true)) then
+                table_insert(other, { name = inst.name, isRaid = inst.isRaid,
+                    zoneMapID = inst.zoneMapID, x = inst.x, y = inst.y })
+            end
+        end
+        if #other > 0 then
+            table_sort(other, function(a, b) return a.name < b.name end)
+            table_insert(results.dungeons, { tierName = L["DUNGEON_OTHER"], tierIndex = 0, instances = other })
         end
     end
 
@@ -221,6 +239,7 @@ function DS:CollectResults(query)
                             x = loc.x,
                             y = loc.y,
                             serviceType = serviceType,
+                            serviceReference = loc,
                         })
                     end
                     table_sort(locs, function(a, b) return a.name < b.name end)
@@ -232,6 +251,34 @@ function DS:CollectResults(query)
                 end
             end
         end
+    end
+
+    if SR and SR.GetKnownCurrencies then
+        for _, currency in ipairs(SR:GetKnownCurrencies(isSearching or self._currencyOnly)) do
+            if not isSearching or string_find(string_lower(currency.name), queryLower, 1, true)
+                or tostring(currency.currencyID) == queryLower then
+                table_insert(results.currencies, {
+                    name = self._currencyOnly and currency.name or string_format(L["CURRENCY_VENDOR_NEAREST"], currency.name),
+                    currencyID = currency.currencyID,
+                    selectCurrency = self._currencyOnly,
+                    tag = currency.quantity and tostring(currency.quantity) or "",
+                })
+            end
+        end
+    end
+
+    if QR.Catalog and not self._currencyOnly then
+        local mapID = WorldMapFrame and WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
+        if not mapID and C_Map and C_Map.GetBestMapForUnit then mapID = C_Map.GetBestMapForUnit("player") end
+        local entries, more = QR.Catalog:Search(query, mapID, 40)
+        for _, entry in ipairs(entries) do
+            table_insert(results.catalog, {
+                name = QR.Catalog:GetDisplayName(entry), mapID = entry.mapID, x = entry.x, y = entry.y,
+                questID = entry.questID, npcID = entry.npcID, source = "catalogue", reference = entry,
+                tag = L[entry.role == "giver" and "CATALOG_GIVER" or entry.questID and "CATALOG_REFERENCE" or "CATALOG_NPC"],
+            })
+        end
+        results.catalogMore = more
     end
 
     return results
@@ -256,6 +303,8 @@ function DS:HideDropdown()
     end
     self.isShowing = false
     self._cachedWatchedQuests = nil -- clear stale quest data
+    self._currencyOnly = nil
+    self._selectedCurrencyID = nil
 end
 
 -------------------------------------------------------------------------------
@@ -329,6 +378,7 @@ function DS:GetRow()
         row:SetHeight(ROW_HEIGHT)
         if row.nameLabel then
             row.nameLabel:SetWidth(220)
+            row.nameLabel:SetWordWrap(false)
         end
         row:Show()
         return row
@@ -457,13 +507,13 @@ function DS:CreateResultRow(entry, yOffset)
     row.tagLabel:SetText(tag)
 
     -- Click to select and route
-    row:SetScript("OnClick", function()
+    row:SetScript("OnClick", not entry.informational and function()
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
         DS:SelectResult(entry)
-    end)
+    end or nil)
 
     -- Tooltip
-    row:SetScript("OnEnter", function(btn)
+    row:SetScript("OnEnter", not entry.informational and function(btn)
         GameTooltip:SetOwner(btn, "ANCHOR_RIGHT")
         GameTooltip:AddLine(entry.name or "?", 1, 0.82, 0)
         -- Zone info
@@ -478,17 +528,33 @@ function DS:CreateResultRow(entry, yOffset)
         if entry.questID and QR.db and QR.db.debugMode then
             GameTooltip:AddLine(string_format("Quest ID: %d", entry.questID), 0.4, 0.4, 0.4)
         end
-        GameTooltip:AddLine(L and L["DEST_SEARCH_ROUTE_TO_TT"] or "Click to calculate route", 0.5, 0.5, 0.5, true)
+        if entry.source == "catalogue" then
+            GameTooltip:AddLine(L["CATALOG_LOCATION"], 0.7, 0.7, 0.7, true)
+            GameTooltip:AddLine(L["CATALOG_SEARCH_LANGUAGE"], 0.7, 0.7, 0.7, true)
+        elseif entry.source == "merchant" then
+            GameTooltip:AddLine(L["CURRENCY_VENDOR_OBSERVED"], 0.7, 0.7, 0.7, true)
+        end
+        if entry.currencyID and not entry.selectCurrency then
+            GameTooltip:AddLine(L["CURRENCY_VENDOR_TRAVEL_TIME_TT"], 0.7, 0.7, 0.7, true)
+        end
+        local hintKey = entry.currencyBack and "CURRENCY_VENDOR_BACK_TT"
+            or entry.selectCurrency and "CURRENCY_VENDOR_OPEN_TT" or "DEST_SEARCH_ROUTE_TO_TT"
+        GameTooltip:AddLine(L[hintKey], 0.5, 0.5, 0.5, true)
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
-    end)
+    end or nil)
     row:SetScript("OnLeave", function()
         GameTooltip_Hide()
     end)
 
     row._entryData = entry
     table_insert(self.rows, row)
-    return row, yOffset + ROW_HEIGHT
+    if entry.multiline then
+        row.nameLabel:SetWordWrap(true)
+        row.nameLabel:SetWidth(DROPDOWN_WIDTH - PADDING * 2 - 18)
+        row:SetHeight(ROW_HEIGHT * 3)
+    end
+    return row, yOffset + (entry.multiline and ROW_HEIGHT * 3 or ROW_HEIGHT)
 end
 
 -------------------------------------------------------------------------------
@@ -508,6 +574,35 @@ function DS:RefreshDropdown(query)
     self._lastQuery = query
 
     local results = self:CollectResults(query)
+    if self._currencyOnly then
+        results.waypoints, results.quests, results.cities, results.dungeons, results.services, results.catalog = {}, {}, {}, {}, {}, {}
+        if self._selectedCurrencyID then
+            local currencyID = self._selectedCurrencyID
+            local locations = QR.ServiceRouter:GetCurrencyLocations(currencyID)
+            results.currencies = {
+                { name = L["CURRENCY_VENDOR_BACK"], currencyBack = true },
+            }
+            if #locations > 0 then
+                table_insert(results.currencies, { name = L["CURRENCY_VENDOR_FASTEST"], currencyID = currencyID })
+            else
+                table_insert(results.currencies, { name = L["CURRENCY_VENDOR_NONE"], informational = true, multiline = true })
+            end
+            for _, loc in ipairs(locations) do
+                local map = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(loc.mapID)
+                local zoneName = map and map.name or tostring(loc.mapID)
+                if query == "" or string_find(string_lower(loc.name or ""), string_lower(query), 1, true)
+                    or string_find(string_lower(zoneName), string_lower(query), 1, true) then
+                    if #results.currencies >= 102 then results.catalogMore = true; break end
+                    table_insert(results.currencies, {
+                        name = (loc.name or L["CURRENCY_VENDOR_KNOWN"]) .. " (" .. zoneName .. ")",
+                        mapID = loc.mapID, x = loc.x, y = loc.y, source = loc.source,
+                        reference = loc.reference, tag = loc.source == "merchant" and L["CURRENCY_VENDOR_OBSERVED_SHORT"] or L["CURRENCY_VENDOR_KNOWN"],
+                        vendorCurrencyID = currencyID, vendorLocation = loc,
+                    })
+                end
+            end
+        end
+    end
 
     local yOffset = 0
     local totalRows = 0
@@ -531,7 +626,7 @@ function DS:RefreshDropdown(query)
 
     -- 1.5. Tracked Quests section
     if #results.quests > 0 then
-        local title = L and L["DEST_SEARCH_QUESTS"] or "Tracked Quests"
+        local title = L and L["DEST_SEARCH_ALL_QUESTS"] or "Quests & map objectives"
         local _, newY = self:CreateSectionHeader("quests", title, yOffset)
         yOffset = newY
         totalRows = totalRows + 1
@@ -647,19 +742,61 @@ function DS:RefreshDropdown(query)
         end
     end
 
+    if #results.catalog > 0 then
+        local _, newY = self:CreateSectionHeader("catalog", L["DEST_SEARCH_CATALOG"], yOffset)
+        yOffset, totalRows = newY, totalRows + 1
+        if not self.collapsedSections.catalog then
+            for _, entry in ipairs(results.catalog) do
+                local _, nextY = self:CreateResultRow(entry, yOffset)
+                yOffset, totalRows = nextY, totalRows + 1
+            end
+        end
+    end
+
+    if #results.currencies > 0 then
+        local title = self._selectedCurrencyID and string_format(L["CURRENCY_VENDOR_SELECT"], QR.ServiceRouter:GetCurrencyName(self._selectedCurrencyID)) or L["DEST_SEARCH_CURRENCIES"]
+        local _, newY = self:CreateSectionHeader("currencies", title, yOffset)
+        yOffset = newY
+        totalRows = totalRows + 1
+        if not self.collapsedSections.currencies then
+            for _, currency in ipairs(results.currencies) do
+                local _, newY2 = self:CreateResultRow(currency, yOffset)
+                yOffset = newY2
+                totalRows = totalRows + 1
+            end
+        end
+    end
+
+    if results.catalogMore then
+        local row, nextY = self:CreateResultRow({ name = L["CATALOG_MORE"], informational = true }, yOffset)
+        row:SetScript("OnClick", nil)
+        yOffset, totalRows = nextY, totalRows + 1
+    end
+
     -- "No results" message
     if totalRows == 0 then
         local row = self:GetRow()
         row:SetPoint("TOPLEFT", self.frame.scrollChild, "TOPLEFT", 0, 0)
         row:SetPoint("RIGHT", self.frame.scrollChild, "RIGHT", 0, 0)
-        row.nameLabel:SetText(L and L["DEST_SEARCH_NO_RESULTS"] or "No matching destinations")
+        row.nameLabel:SetText(self._currencyOnly and L["CURRENCY_VENDOR_NONE"]
+            or (L and L["DEST_SEARCH_NO_RESULTS"] or "No matching destinations"))
+        if self._currencyOnly then
+            row.nameLabel:SetWordWrap(true)
+            row.nameLabel:SetWidth(DROPDOWN_WIDTH - PADDING * 2 - 18)
+            row:SetHeight(ROW_HEIGHT * 3)
+        end
         row.nameLabel:SetTextColor(0.5, 0.5, 0.5)
         row.tagLabel:SetText("")
         table_insert(self.rows, row)
-        yOffset = ROW_HEIGHT
+        yOffset = self._currencyOnly and ROW_HEIGHT * 3 or ROW_HEIGHT
     end
 
     -- Resize frame based on content
+    local locale = GetLocale and GetLocale()
+    if not self._currencyOnly and query ~= "" and locale ~= "enUS" and locale ~= "enGB" then
+        local _, nextY = self:CreateResultRow({ name = L["CATALOG_SEARCH_LANGUAGE"], informational = true, multiline = true }, yOffset)
+        yOffset = nextY
+    end
     local maxHeight = MAX_VISIBLE_ROWS * ROW_HEIGHT
     local contentHeight = yOffset
     local visibleHeight = contentHeight < maxHeight and contentHeight or maxHeight
@@ -679,7 +816,7 @@ function DS:ResolveWatchedQuests()
         return
     end
     local ok, quests = pcall(function()
-        return QR.WaypointIntegration:GetWatchedQuestWaypoints()
+        return QR.WaypointIntegration:GetSearchQuestWaypoints()
     end)
     if ok and quests then
         self._cachedWatchedQuests = quests
@@ -693,6 +830,8 @@ end
 -- @param anchorFrame Frame|nil The frame to anchor below
 function DS:ShowDropdown(anchorFrame)
     if InCombatLockdown() then return end
+    self._currencyOnly = nil
+    self._selectedCurrencyID = nil
 
     if not self.frame then
         self:CreateDropdown()
@@ -714,15 +853,70 @@ function DS:ShowDropdown(anchorFrame)
     self.isShowing = true
 end
 
+function DS:ShowCurrencyDropdown(anchorFrame)
+    self:ShowDropdown(anchorFrame)
+    if not self.isShowing then return end
+    self._currencyOnly = true
+    self.collapsedSections.currencies = false
+    self:RefreshDropdown("")
+end
+
 --- Select a result entry and route to it
 -- @param entry table Entry data with name, mapID, x, y
 function DS:SelectResult(entry)
     if not entry then return end
+    if entry.informational then return end
+    if entry.currencyBack then
+        self._selectedCurrencyID = nil
+        self:RefreshDropdown("")
+        return
+    end
+    if entry.selectCurrency then
+        self._selectedCurrencyID = entry.currencyID
+        self:RefreshDropdown("")
+        return
+    end
+    if entry.reference and QR.Catalog and not QR.Catalog:IsAvailable(entry.reference) then
+        QR:Print(QR.L["DESTINATION_INACCESSIBLE"])
+        self:RefreshDropdown(self._lastQuery)
+        return
+    end
+    if entry.serviceReference and QR.ServiceRouter and not QR.ServiceRouter:IsLocationAvailable(entry.serviceReference) then
+        QR:Print(QR.L["DESTINATION_INACCESSIBLE"])
+        self:RefreshDropdown(self._lastQuery)
+        return
+    end
+    if entry.vendorCurrencyID and QR.ServiceRouter
+        and not QR.ServiceRouter:IsCurrencyLocationAvailable(entry.vendorCurrencyID, entry.vendorLocation) then
+        QR:Print(QR.L["CURRENCY_VENDOR_NONE"])
+        self:RefreshDropdown(self._lastQuery)
+        return
+    end
+
+    if entry.currencyID and QR.ServiceRouter then
+        QR.ServiceRouter:RouteToCurrency(entry.currencyID)
+        self:HideDropdown()
+        return
+    end
 
     -- Note: PlaySound is already called by the row OnClick handler
     local mapID = entry.mapID or entry.zoneMapID
-    if mapID and entry.x and entry.y and QR.POIRouting then
-        QR.POIRouting:RouteToMapPosition(mapID, entry.x, entry.y)
+    local x, y = entry.x, entry.y
+    if entry.questID and entry.source ~= "catalogue" then
+        local wi = QR.WaypointIntegration
+        local ok, waypoint = false, nil
+        if wi and wi.GetQuestWaypoint then ok, waypoint = pcall(wi.GetQuestWaypoint, wi, entry.questID, true) end
+        if not ok or not waypoint then
+            QR:Print(QR.L["DESTINATION_UNAVAILABLE"])
+            return
+        end
+        mapID, x, y = waypoint.mapID, waypoint.x, waypoint.y
+    end
+    if mapID and x and y and QR.POIRouting then
+        QR.POIRouting:RouteToMapPosition(mapID, x, y)
+    else
+        QR:Print(QR.L["DESTINATION_UNAVAILABLE"])
+        return
     end
 
     -- Update search box text (suppress OnTextChanged to avoid re-entrancy)

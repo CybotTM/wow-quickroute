@@ -10,7 +10,6 @@ local table_insert, table_sort, table_concat = table.insert, table.sort, table.c
 local pcall = pcall
 
 -- Constants
-local CROSS_CONTINENT_TIME = 300  -- Default 5 minutes for cross-continent travel
 local DEFAULT_COORDINATE = 0.5    -- Default coordinate when position unknown
 local DEFAULT_WALK_SPEED = 7      -- Yards per second (walking speed)
 local DEFAULT_FLY_SPEED = 31      -- Yards per second (310% flying)
@@ -25,7 +24,7 @@ local EMPTY_NODE_LIST = {}  -- Shared empty result; never written to
 -- so the subsequent walk to the actual destination is meaningful, not redundant
 local TRANSPORT_TYPES = {
     teleport = true, portal = true, boat = true,
-    zeppelin = true, tram = true,
+    zeppelin = true, tram = true, jump = true,
 }
 
 --- Safe wrapper for TravelTime:EstimateWalkingTime with fallback
@@ -59,25 +58,69 @@ QR.PathCalculator = {
 
 local PathCalculator = QR.PathCalculator
 
--- Cached flyable area result
-local cachedIsFlyable = nil
-local cachedIsFlyableMapID = nil
-
---- Get cached IsFlyableArea result (invalidated on zone change)
-local function GetCachedIsFlyable()
-    local currentMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
-    if cachedIsFlyableMapID ~= currentMapID then
-        cachedIsFlyable = IsFlyableArea and IsFlyableArea() or false
-        cachedIsFlyableMapID = currentMapID
-    end
-    return cachedIsFlyable
+local function IsFiniteNumber(value)
+    return not (issecretvalue and issecretvalue(value))
+        and type(value) == "number" and value == value
+        and value > -math_huge and value < math_huge
 end
 
--- Register for zone change to invalidate flyable cache
+local function IsCoordinate(value)
+    return IsFiniteNumber(value) and value >= 0 and value <= 1
+end
+
+local function IsMapID(value)
+    return IsFiniteNumber(value) and value > 0 and value == math_floor(value)
+end
+
+--- Resolve a parent-map click without changing the location it represents.
+-- Map IDs and normalized coordinates form one value; never relabel coordinates.
+-- Returns the original point if the client cannot project it, nil for bad input.
+function PathCalculator:ResolveMapPosition(mapID, x, y)
+    if not IsMapID(mapID) or not IsCoordinate(x) or not IsCoordinate(y) then return nil end
+    if not (C_Map and C_Map.GetMapInfo and C_Map.GetMapInfoAtPosition
+        and C_Map.GetWorldPosFromMapPos and C_Map.GetMapPosFromWorldPos and CreateVector2D) then
+        return mapID, x, y
+    end
+    local ok, childMapID, childX, childY = pcall(function()
+        local info = C_Map.GetMapInfo(mapID)
+        if not info or not info.mapType then return end
+        local targetMapID
+        if info.mapType <= 2 then
+            local child = C_Map.GetMapInfoAtPosition(mapID, x, y)
+            targetMapID = child and child.mapID
+        elseif info.mapType == 5 and IsMapID(info.parentMapID) then
+            -- Outdoor microzones have their own normalized coordinates. Use
+            -- the client transform (e.g. The Den -> Harandar), never relabel.
+            local parent = C_Map.GetMapInfo(info.parentMapID)
+            if parent and parent.mapType == 3 then targetMapID = info.parentMapID end
+        end
+        if not IsMapID(targetMapID) or targetMapID == mapID then return end
+        local worldID, worldPos = C_Map.GetWorldPosFromMapPos(mapID, CreateVector2D(x, y))
+        if not worldID or not worldPos then return end
+        local resolvedID, pos = C_Map.GetMapPosFromWorldPos(worldID, worldPos, targetMapID)
+        if resolvedID ~= targetMapID or not pos then return end
+        local px, py = pos:GetXY()
+        if IsCoordinate(px) and IsCoordinate(py) then return resolvedID, px, py end
+    end)
+    if ok and childMapID then return childMapID, childX, childY end
+    return mapID, x, y
+end
+
+--- Movement capability comes from measured/usable character abilities.
+local function GetCachedIsFlyable()
+    local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if QR.TravelTime.CanFly then return QR.TravelTime:CanFly(mapID) end
+    return false
+end
+
 local flyableCacheFrame = CreateFrame("Frame")
-flyableCacheFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
+for _, event in ipairs({ "ZONE_CHANGED_NEW_AREA", "TAXI_NODE_STATUS_CHANGED", "TAXIMAP_OPENED",
+    "PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_CONTROL_GAINED" }) do
+    flyableCacheFrame:RegisterEvent(event)
+end
 flyableCacheFrame:SetScript("OnEvent", function()
-    cachedIsFlyableMapID = nil  -- Invalidate cache
+    if QR.TravelTime.ClearMovementCache then QR.TravelTime:ClearMovementCache() end
+    PathCalculator.graphDirty = true
 end)
 
 --- Get a localized display name for a graph node
@@ -161,6 +204,8 @@ function PathCalculator:BuildGraph()
     -- the old object, AddEdge would refuse them, and the edges would vanish
     -- without an error.
     self.nodeIndex = nil
+    self.zoneTravelGraph = nil
+    self.zoneTravelCache = nil
     if not self.graph then
         QR:Error("Failed to create graph")
         return nil
@@ -184,6 +229,7 @@ function PathCalculator:BuildGraph()
     -- Add portal hub connections
     success, err = pcall(function()
         self:AddPortalConnections()
+        self:AddConditionalConnections()
     end)
     if not success then
         QR:Error("AddPortalConnections failed: " .. tostring(err))
@@ -291,6 +337,51 @@ function PathCalculator:BuildGraph()
     return self.graph
 end
 
+--- Add sourced access-gated portals and explicit NPC phase changes.
+function PathCalculator:AddConditionalConnections()
+    local transitions = QR.TravelTransitions
+    if not transitions then return end
+    for id, data in pairs(transitions.nodes) do
+        local node = {}
+        for key, value in pairs(data) do node[key] = value end
+        local mapID, x, y = self:ResolveMapPosition(node.mapID, node.x, node.y)
+        if mapID then node.mapID, node.x, node.y = mapID, x, y end
+        node.nodeType = "transition"
+        self.graph:AddNode("Travel:" .. id, node)
+    end
+    for _, edge in ipairs(transitions.edges) do
+        local from, to = "Travel:" .. edge.from, "Travel:" .. edge.to
+        local seconds = edge.cost or (edge.method == "phaseswitch" and 10
+            or edge.method == "flight" and 120 or QR.TravelTime:GetPortalTime())
+        if edge.method == "portal" and not edge.noLoadingScreen then seconds = seconds + (QR.db and QR.db.loadingScreenTime or 0) end
+        if edge.method == "flight" and edge.distanceYards then
+            seconds = QR.TravelTime.FLIGHT_OVERHEAD + edge.distanceYards / QR.TravelTime.FLIGHT_SPEED
+        end
+        local function add(source, target)
+            local targetData, sourceData = self.graph.nodes[target], self.graph.nodes[source]
+            local requirements = edge.requirements
+            if edge.method == "flight" then
+                requirements = {}
+                for key, value in pairs(edge.requirements or {}) do requirements[key] = value end
+                requirements.flightDiscovery = { sourceData, targetData }
+            end
+            if edge.method ~= "flight" or (QR.TravelRequirements and QR.TravelRequirements:Check(requirements, nil, true) == true) then
+                self.graph:AddEdgeOption(source, target, seconds, edge.method, {
+                    requirements = requirements,
+                    fromMapID = sourceData.mapID, toMapID = targetData.mapID,
+                    flightPoint = edge.method == "flight" and { mapID=sourceData.mapID, x=sourceData.x, y=sourceData.y } or nil,
+                    estimatedTime = edge.distanceYards ~= nil,
+                    instructionKey = edge.instructionKey,
+                    phaseMapID = edge.method == "phaseswitch" and (targetData.phaseCheckMapID or targetData.mapID) or nil,
+                    phaseArtID = edge.method == "phaseswitch" and targetData.mapArtID or nil,
+                })
+            end
+        end
+        add(from, to)
+        if not edge.oneway then add(to, from) end
+    end
+end
+
 --- Connect all nodes that share the same mapID with walking edges
 -- This is crucial for connecting teleport destinations to nearby portal hubs
 function PathCalculator:ConnectSameMapNodes()
@@ -326,8 +417,11 @@ function PathCalculator:ConnectSameMapNodes()
                     -- Check both directions since AddBidirectionalEdge writes both
                     local existingEdge = self.graph:GetEdge(nodeA.name, nodeB.name)
                     local reverseEdge = self.graph:GetEdge(nodeB.name, nodeA.name)
-                    if (not existingEdge or existingEdge.edgeType == "travel")
-                        and (not reverseEdge or reverseEdge.edgeType == "travel") then
+                    if nodeA.name == PLAYER_NODE or nodeB.name == PLAYER_NODE
+                        or (existingEdge and existingEdge.edgeType == "flight" and existingEdge.data and existingEdge.data.requirements)
+                        or (reverseEdge and reverseEdge.edgeType == "flight" and reverseEdge.data and reverseEdge.data.requirements)
+                        or ((not existingEdge or existingEdge.edgeType == "travel")
+                        and (not reverseEdge or reverseEdge.edgeType == "travel")) then
                         -- Calculate walking time
                         local walkTime = SafeEstimateWalkingTime(
                             nodeA.data.x or 0.5, nodeA.data.y or 0.5,
@@ -336,10 +430,12 @@ function PathCalculator:ConnectSameMapNodes()
                         )
 
                         -- Add bidirectional walking edge
-                        self.graph:AddBidirectionalEdge(nodeA.name, nodeB.name, walkTime, "walk", {
+                        local edgeData = {
                             autoConnected = true,
                             mapID = mapID,
-                        })
+                        }
+                        self.graph:AddEdgeOption(nodeA.name, nodeB.name, walkTime, "walk", edgeData)
+                        self.graph:AddEdgeOption(nodeB.name, nodeA.name, walkTime, "walk", edgeData)
                         connectionsAdded = connectionsAdded + 1
                     end
                 end
@@ -408,9 +504,9 @@ function PathCalculator:AddPortalConnections()
             -- Add loading screen time cost
             local loadingTime = QR.db and QR.db.loadingScreenTime or 0
             travelTime = travelTime + loadingTime
-            self.graph:AddEdge(hubName, destName, travelTime, "portal", {
-                portalData = portal,
-            })
+            if not QR.TravelRequirements or not QR.TravelRequirements:HasReplacement(hubData.mapID, portal.mapID, "portal") then
+                self.graph:AddEdge(hubName, destName, travelTime, "portal", { portalData = portal })
+            end
         end
     end
 
@@ -440,15 +536,18 @@ function PathCalculator:AddPortalConnections()
 
         -- Add transport edge
         local travelTime = transport.travelTime or QR.TravelTime:GetTransportTime(transport.type)
-        self.graph:AddEdge(fromName, toName, travelTime, transport.type, {
-            transportData = transport,
-        })
+        local replaced = QR.TravelRequirements and QR.TravelRequirements:HasReplacement(
+            transport.from.mapID, transport.to.mapID, transport.type or "portal")
+        if not replaced then
+            self.graph:AddEdge(fromName, toName, travelTime, transport.type, { transportData = transport })
+        end
 
-        -- Add reverse edge if bidirectional
-        if transport.bidirectional then
-            self.graph:AddEdge(toName, fromName, travelTime, transport.type, {
-                transportData = transport,
-            })
+        -- Preserve each independent direction/method. A ship remains available
+        -- even if a sourced quest-gated portal connects the same pair of maps.
+        local reverseReplaced = QR.TravelRequirements and QR.TravelRequirements:HasReplacement(
+            transport.to.mapID, transport.from.mapID, transport.type or "portal")
+        if transport.bidirectional and not reverseReplaced then
+            self.graph:AddEdge(toName, fromName, travelTime, transport.type, { transportData = transport })
         end
     end
 end
@@ -483,46 +582,58 @@ function PathCalculator:AddPlayerTeleportEdges()
 
     -- Add edges from player location to each teleport destination
     for teleportID, teleport in pairs(teleports) do
-        local data = teleport.data
-        if data and data.mapID and not data.isDynamic and not data.isRandom then
-            local destName = data.destination or data.name
+        local destinations
+        if QR.TeleportDestinations then
+            destinations = QR.TeleportDestinations:GetDestinations(teleportID, teleport)
+        else
+            local data = teleport.data
+            if QR.Hearthstone then data = QR.Hearthstone:ResolveTeleport(data) end
+            destinations = data and { data } or {}
+        end
+        for _, data in ipairs(destinations) do
+            local usable = not (issecretvalue and issecretvalue(teleport.isUsable)) and teleport.isUsable ~= false
+            local eligible = QR.PlayerInfo:CanUseTeleport(data)
+            if data and data.mapID and not data.isDynamic and not data.isRandom and usable and eligible then
+                local destName = data.nodeKey or data.destination or data.name
 
-            -- Ensure destination node exists
-            if not self.graph.nodes[destName] then
-                self.graph:AddNode(destName, {
-                    mapID = data.mapID,
-                    x = data.x or 0.5,
-                    y = data.y or 0.5,
-                    nodeType = "teleport_dest",
-                })
-            end
+                -- Ensure destination node exists
+                if not self.graph.nodes[destName] then
+                    self.graph:AddNode(destName, {
+                        mapID = data.mapID,
+                        x = data.x or 0.5,
+                        y = data.y or 0.5,
+                        nodeType = "teleport_dest",
+                    })
+                end
 
-            -- Check max cooldown filter — skip teleports that exceed threshold
-            local skipTeleport = false
-            local maxCDHours = QR.db and QR.db.maxCooldownHours
-            if maxCDHours and maxCDHours < 24 then  -- 24 = "no filter"
-                local maxCDSeconds = maxCDHours * 3600
-                if QR.CooldownTracker then
-                    local cdInfo = QR.CooldownTracker:GetCooldown(teleportID, teleport.sourceType)
-                    if cdInfo and cdInfo.duration and cdInfo.duration > maxCDSeconds then
-                        skipTeleport = true
+                -- Check max cooldown filter — skip teleports that exceed threshold
+                local skipTeleport = false
+                local maxCDHours = QR.db and QR.db.maxCooldownHours
+                if maxCDHours and maxCDHours < 24 then  -- 24 = "no filter"
+                    local maxCDSeconds = maxCDHours * 3600
+                    if QR.CooldownTracker then
+                        local cdInfo = QR.CooldownTracker:GetCooldown(teleportID, teleport.sourceType)
+                        if cdInfo and cdInfo.duration and cdInfo.duration > maxCDSeconds then
+                            skipTeleport = true
+                        end
                     end
                 end
-            end
 
-            if not skipTeleport then
-                -- Calculate effective travel time (with optional cooldown wait)
-                local includeCooldown = QR.db and QR.db.considerCooldowns
-                local travelTime = QR.TravelTime:GetEffectiveTime(teleportID, data, includeCooldown)
-                -- Add loading screen time cost for teleports
-                local loadingTime = QR.db and QR.db.loadingScreenTime or 0
-                travelTime = travelTime + loadingTime
+                if not skipTeleport then
+                    -- Calculate effective travel time (with optional cooldown wait)
+                    local includeCooldown = QR.db and QR.db.considerCooldowns
+                    local travelTime = QR.TravelTime:GetEffectiveTime(teleportID, data, includeCooldown, teleport.sourceType)
+                    -- Add loading screen time cost for teleports
+                    local loadingTime = QR.db and QR.db.loadingScreenTime or 0
+                    travelTime = travelTime + loadingTime
 
-                self.graph:AddEdge(PLAYER_NODE, destName, travelTime, "teleport", {
-                    teleportID = teleportID,
-                    teleportData = data,
-                    sourceType = teleport.sourceType,
-                })
+                    self.graph:AddEdgeOption(PLAYER_NODE, destName, travelTime, "teleport", {
+                        teleportID = teleportID,
+                        teleportData = data,
+                        sourceType = teleport.sourceType,
+                        requirements = data.requirements,
+                    })
+                end
             end
         end
     end
@@ -540,24 +651,26 @@ end
 -- that fire constantly; this is O(number of teleports) and needs no rebuild.
 function PathCalculator:RefreshTeleportEdgeWeights()
     local outgoing = self.graph and self.graph.edges[PLAYER_NODE]
-    if not outgoing then
-        return
-    end
-
+    if not outgoing then return end
     local includeCooldown = QR.db and QR.db.considerCooldowns
     local loadingTime = QR.db and QR.db.loadingScreenTime or 0
-
-    for _, edge in pairs(outgoing) do
-        local data = edge.data
-        if edge.edgeType == "teleport" and data and data.teleportID and data.teleportData then
-            local travelTime = QR.TravelTime:GetEffectiveTime(
-                data.teleportID, data.teleportData, includeCooldown)
-            travelTime = travelTime + loadingTime
-            if travelTime <= 0 then
-                travelTime = 0.001  -- match Graph:AddEdge's epsilon
+    for target, edge in pairs(outgoing) do
+        local options = {}
+        for _, option in ipairs(edge.alternatives or { edge }) do
+            local data = option.data
+            if option.edgeType == "teleport" and data and data.teleportID and data.teleportData then
+                local seconds = QR.TravelTime:GetEffectiveTime(
+                    data.teleportID, data.teleportData, includeCooldown, data.sourceType) + loadingTime
+                if IsFiniteNumber(seconds) then
+                    options[#options + 1] = {
+                        weight = math_max(0.001, seconds), edgeType = "teleport", data = data,
+                    }
+                end
+            else
+                options[#options + 1] = option
             end
-            edge.weight = travelTime
         end
+        self.graph:SetEdgeOptions(PLAYER_NODE, target, options)
     end
 end
 
@@ -611,6 +724,9 @@ end
 -- @param destY number The destination Y coordinate (0-1)
 -- @return table|nil {path, totalTime, edges, steps} or nil if no path found
 function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
+    destMapID, destX, destY = self:ResolveMapPosition(destMapID, destX, destY)
+    if not destMapID then return nil end
+    if type(destTitle) ~= "string" then destTitle = nil end
     -- Rebuild graph if needed. Faction is part of "needed": AddZoneNodes and
     -- AddFlightEdges both read it at build time, so a graph built before a
     -- pandaren picked a side describes the wrong character. Nothing else can
@@ -624,27 +740,11 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     end
     if self.graphDirty or not self.graph then
         self:BuildGraph()
-    end
-
-    -- Resolve continent-level mapIDs to specific zones
-    -- (mapType: 0=Cosmic, 1=World, 2=Continent, 3=Zone)
-    if destMapID and C_Map and C_Map.GetMapInfo then
-        local mapInfo = C_Map.GetMapInfo(destMapID)
-        if mapInfo and mapInfo.mapType and mapInfo.mapType <= 2 then
-            -- Try to resolve to a more specific zone using coordinates
-            if C_Map.GetMapInfoAtPosition then
-                local childInfo = C_Map.GetMapInfoAtPosition(destMapID, destX, destY)
-                if childInfo and childInfo.mapID and childInfo.mapID ~= destMapID then
-                    QR:Log("INFO", string_format("Resolved continent %d -> zone %d (%s)",
-                        destMapID, childInfo.mapID, childInfo.name or "?"))
-                    destMapID = childInfo.mapID
-                end
-            end
-        end
+        if self.graphDirty or not self.graph then return nil end
     end
 
     -- Update player location node
-    self:UpdatePlayerLocation()
+    if self:UpdatePlayerLocation() == false then return nil end
 
     -- Cooldowns move without marking the graph dirty, so re-price the player's
     -- teleport edges against live state before searching.
@@ -669,6 +769,11 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     -- Ensure unique node name (title might conflict with existing nodes like city names)
     if self.graph.nodes[destName] then
         destName = destName .. string_format(" (%.0f, %.0f)", destX * 100, destY * 100)
+    end
+    local baseName, suffix = destName, 1
+    while self.graph.nodes[destName] do
+        suffix = suffix + 1
+        destName = baseName .. " #" .. suffix
     end
 
     -- Add destination node
@@ -728,7 +833,12 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     end
 
     -- Run Dijkstra's algorithm
-    local path, totalTime, pathEdges = self.graph:FindShortestPath(PLAYER_NODE, destName)
+    local path, totalTime, pathEdges
+    if QR.TravelRequirements then
+        path, totalTime, pathEdges = QR.TravelRequirements:FindPath(self.graph, PLAYER_NODE, destName)
+    else
+        path, totalTime, pathEdges = self.graph:FindShortestPath(PLAYER_NODE, destName)
+    end
 
     if not path then
         -- Clean up destination node on failure
@@ -767,6 +877,125 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     }
 end
 
+--- Create a reusable calculator with its own graph and position caches.
+-- Transport topology is copied once; current access/phase requirements are
+-- still evaluated on every query. Exclusions are fixed for this context.
+function PathCalculator:CreateRouteContext(options)
+    -- Only methods may fall through. A nil cache/index on the private object
+    -- must never expose mutable state from the live PathCalculator singleton.
+    local calculator = setmetatable({ graphDirty = false }, { __index = function(_, key)
+        local value = PathCalculator[key]
+        if type(value) == "function" then return value end
+    end })
+    local discoveryOverride = self.knownFlightZonesOverride
+    if type(discoveryOverride) == "table" then
+        calculator.knownFlightZonesOverride = {}
+        for mapID, known in pairs(discoveryOverride) do calculator.knownFlightZonesOverride[mapID] = known end
+    elseif type(discoveryOverride) == "boolean" then
+        calculator.knownFlightZonesOverride = discoveryOverride
+    end
+    local excludeCooldowns = options and options.excludeCooldowns == true
+    local baselineNodes = {}
+    local originMapID, originX, originY
+    local function prepare(instance, filterTeleports)
+        local graph = instance.graph
+        if not graph then return end
+        if filterTeleports and excludeCooldowns then
+            for from, outgoing in pairs(graph.edges) do
+                for to, selected in pairs(outgoing) do
+                    local retained = {}
+                    for _, edge in ipairs(selected.alternatives or { selected }) do
+                        if edge.edgeType ~= "teleport" then retained[#retained+1] = edge end
+                    end
+                    graph:SetEdgeOptions(from, to, retained)
+                end
+            end
+        end
+        baselineNodes = {}
+        for name in pairs(graph.nodes) do baselineNodes[name] = true end
+        instance.nodeIndex = nil
+    end
+    local base = self.graph
+    local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    if not base or self.graphDirty or (self.graphFaction and faction and self.graphFaction ~= faction) then
+        local ok = pcall(PathCalculator.BuildGraph, calculator)
+        if not ok or calculator.graphDirty or not calculator.graph then return nil end
+        prepare(calculator, true)
+    else
+        local graph = QR.Graph:New()
+        for name, data in pairs(base.nodes) do
+            local node = {}
+            for key, value in pairs(data) do node[key] = value end
+            graph:AddNode(name, node)
+        end
+        for from, outgoing in pairs(base.edges) do
+            for to, selected in pairs(outgoing) do
+                local alternatives = {}
+                for _, edge in ipairs(selected.alternatives or { selected }) do
+                    if not (excludeCooldowns and edge.edgeType == "teleport") then
+                        alternatives[#alternatives+1] = edge
+                    end
+                end
+                graph:SetEdgeOptions(from, to, alternatives)
+            end
+        end
+        calculator.graph, calculator.graphDirty = graph, false
+        calculator.graphFaction = faction
+        calculator.zoneTravelGraph, calculator.zoneTravelCache = nil, nil
+        prepare(calculator, false)
+    end
+    -- CalculatePath can rebuild after a faction change. Such a rebuild remains
+    -- private and must preserve this context's personal-teleport exclusion.
+    calculator.BuildGraph = function(instance)
+        local graph = PathCalculator.BuildGraph(instance)
+        prepare(instance, true)
+        return graph
+    end
+    calculator.UpdatePlayerLocation = function(instance)
+        if not originMapID then return false end
+        local graph = instance.graph
+        local node = graph.nodes[PLAYER_NODE]
+        if not node then
+            graph:AddNode(PLAYER_NODE, { nodeType = "player" })
+            node = graph.nodes[PLAYER_NODE]
+            baselineNodes[PLAYER_NODE] = true
+        end
+        node.mapID, node.x, node.y = originMapID, originX, originY
+        instance:ReconnectPlayerNode(originMapID, originX, originY)
+        return true
+    end
+    calculator.CalculatePathFrom = function(instance, startMapID, startX, startY, destMapID, destX, destY, queryOptions)
+        local mapID, x, y = instance:ResolveMapPosition(startMapID, startX, startY)
+        if not mapID then return nil end
+        originMapID, originX, originY = mapID, x, y
+        local ok, result = pcall(PathCalculator.CalculatePath, instance,
+            destMapID, destX, destY, queryOptions and queryOptions.title)
+        -- CalculatePath normally removes its destination. Also recover when a
+        -- connection/API/search failure interrupts it after that node is added.
+        if instance.graph then
+            for name in pairs(instance.graph.nodes) do
+                if not baselineNodes[name] then instance.graph:RemoveNode(name) end
+            end
+        end
+        if not ok then
+            instance.nodeIndex = nil
+            QR:Debug("Hypothetical route calculation failed: " .. tostring(result))
+            return nil
+        end
+        return result
+    end
+    return calculator
+end
+
+--- Backward-compatible one-shot query; tours can reuse CreateRouteContext.
+function PathCalculator:CalculatePathFrom(startMapID, startX, startY, destMapID, destX, destY, options)
+    startMapID, startX, startY = self:ResolveMapPosition(startMapID, startX, startY)
+    if not startMapID then return nil end
+    local context = self:CreateRouteContext(options)
+    if not context then return nil end
+    return context:CalculatePathFrom(startMapID, startX, startY, destMapID, destX, destY, options)
+end
+
 --- Update player location node with current position
 function PathCalculator:UpdatePlayerLocation()
     local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
@@ -774,22 +1003,18 @@ function PathCalculator:UpdatePlayerLocation()
     -- Abort if no valid map (e.g., in instance loading, unmapped area)
     if not mapID then
         QR:Debug("Cannot get player map ID (instance/loading?)")
-        return
+        return false
     end
 
     local posOk, pos = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
-    if not posOk then pos = nil end
-    local x, y = DEFAULT_COORDINATE, DEFAULT_COORDINATE
-    if pos then
-        local px, py = pos:GetXY()
-        if px and py and px >= 0 and px <= 1 and py >= 0 and py <= 1 then
-            x, y = px, py
-        end
-    end
+    if not posOk or not pos then return false end
+    local coordOK, x, y = pcall(pos.GetXY, pos)
+    if not coordOK or not IsCoordinate(x) or not IsCoordinate(y) then return false end
 
     local node = self.graph.nodes[PLAYER_NODE]
     if not node then
-        return
+        self.graphDirty = true
+        return false
     end
 
     local moved = (node.mapID ~= mapID) or (node.x ~= x) or (node.y ~= y)
@@ -805,6 +1030,7 @@ function PathCalculator:UpdatePlayerLocation()
     if moved then
         self:ReconnectPlayerNode(mapID, x, y)
     end
+    return true
 end
 
 --- True when either direction between two nodes already holds a teleport edge.
@@ -825,12 +1051,15 @@ end
 -- future writer -- ConnectIslandNodes reaching a teleport destination node
 -- with the player node among its candidates -- does arrive from the other side.
 local function HasTeleportEdge(graph, from, to)
-    local forward = graph:GetEdge(from, to)
-    if forward and forward.edgeType == "teleport" then
-        return true
+    local function containsTeleport(edge)
+        if not edge then return false end
+        if edge.edgeType == "teleport" then return true end
+        for _, option in ipairs(edge.alternatives or {}) do
+            if option.edgeType == "teleport" then return true end
+        end
+        return false
     end
-    local back = graph:GetEdge(to, from)
-    return (back and back.edgeType == "teleport") or false
+    return containsTeleport(graph:GetEdge(from, to)) or containsTeleport(graph:GetEdge(to, from))
 end
 
 --- True when a walking edge may be written between two nodes.
@@ -848,14 +1077,18 @@ function PathCalculator:ReconnectPlayerNode(mapID, x, y)
     local outgoing = self.graph.edges[PLAYER_NODE]
     if outgoing then
         for otherName, edge in pairs(outgoing) do
-            if edge.edgeType == "walk" or edge.edgeType == "travel" then
-                outgoing[otherName] = nil
-
-                local incoming = self.graph.edges[otherName]
-                local back = incoming and incoming[PLAYER_NODE]
-                if back and (back.edgeType == "walk" or back.edgeType == "travel") then
-                    incoming[PLAYER_NODE] = nil
+            local retained = {}
+            for _, option in ipairs(edge.alternatives or { edge }) do
+                if option.edgeType ~= "walk" and option.edgeType ~= "travel" then
+                    retained[#retained + 1] = option
                 end
+            end
+            self.graph:SetEdgeOptions(PLAYER_NODE, otherName, retained)
+        end
+        for _, incoming in pairs(self.graph.edges) do
+            local edge = incoming[PLAYER_NODE]
+            if edge and (edge.edgeType == "walk" or edge.edgeType == "travel") then
+                incoming[PLAYER_NODE] = nil
             end
         end
     end
@@ -881,7 +1114,8 @@ function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
     -- First pass: connect to nodes on the same map
     for otherName, otherData in pairs(self.graph.nodes) do
         if otherName ~= nodeName and otherData.mapID == mapID
-            and CanOverwriteWithWalk(self.graph, nodeName, otherName) then
+            and (nodeName == PLAYER_NODE or otherName == PLAYER_NODE
+                or CanOverwriteWithWalk(self.graph, nodeName, otherName)) then
             -- Calculate walking time between nodes
             local walkTime = SafeEstimateWalkingTime(
                 x, y,
@@ -890,9 +1124,11 @@ function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
             )
 
             -- Add bidirectional walking edge
-            self.graph:AddBidirectionalEdge(nodeName, otherName, walkTime, "walk", {
+            local edgeData = {
                 distance = QR.TravelTime:CalculateDistance(x, y, otherData.x, otherData.y),
-            })
+            }
+            self.graph:AddEdgeOption(nodeName, otherName, walkTime, "walk", edgeData)
+            self.graph:AddEdgeOption(otherName, nodeName, walkTime, "walk", edgeData)
         end
     end
 
@@ -916,7 +1152,7 @@ local function CanOverwriteWithTravel(graph, from, to)
         return false
     end
     local existing = graph:GetEdge(from, to)
-    return not existing or existing.edgeType ~= "walk"
+    return not existing or existing.edgeType == "travel"
 end
 
 --- Index the current nodes by map, by continent, and by hub/city status.
@@ -976,238 +1212,42 @@ function PathCalculator:NodesOnMap(mapID)
     return names
 end
 
+--- Connect only through documented zone links. A shared continent is not
+-- evidence of a transport: disconnected islands must stay disconnected.
+-- Costs are directed and cached per source map for this graph generation.
 function PathCalculator:ConnectViaContinentRouting(nodeName, mapID, x, y)
-    local destContinent = QR.GetContinentForZone and QR.GetContinentForZone(mapID)
-    local connectedSomething = false
-
-    QR:Debug(string_format("Routing for map %d, continent: %s",
-        mapID, tostring(destContinent)))
-
-    -- Strategy 1: Connect to directly adjacent zones
-    local adjacentZones = QR.GetAdjacentZones and QR.GetAdjacentZones(mapID) or {}
-    for _, adj in ipairs(adjacentZones) do
-        -- Find nodes on the adjacent zone
-        for _, otherName in ipairs(self:NodesOnMap(adj.zone)) do
-            if otherName ~= nodeName
-                and CanOverwriteWithWalk(self.graph, nodeName, otherName) then
-                self.graph:AddBidirectionalEdge(nodeName, otherName, adj.travelTime, "walk", {
-                    note = "Adjacent zone travel",
-                    fromMapID = mapID,
-                    toMapID = adj.zone,
+    if not QR.BuildZoneTravelGraph then return end
+    if not self.zoneTravelGraph then
+        self.zoneTravelGraph = QR.BuildZoneTravelGraph()
+        self.zoneTravelCache = {}
+    end
+    local function costsFrom(sourceMapID)
+        local costs = self.zoneTravelCache[sourceMapID]
+        if not costs then
+            costs = self.zoneTravelGraph:FindDistances(sourceMapID)
+            self.zoneTravelCache[sourceMapID] = costs
+        end
+        return costs
+    end
+    local forward = costsFrom(mapID)
+    for otherName, otherData in pairs(self.graph.nodes) do
+        local otherMapID = otherData.mapID
+        if otherName ~= nodeName and otherMapID and otherMapID ~= mapID then
+            local playerPair = nodeName == PLAYER_NODE or otherName == PLAYER_NODE
+            local seconds = forward[otherMapID]
+            if seconds and (playerPair or CanOverwriteWithTravel(self.graph, nodeName, otherName)) then
+                self.graph:AddEdgeOption(nodeName, otherName, seconds, "travel", {
+                    fromMapID = mapID, toMapID = otherMapID,
+                    note = "Documented overland zone connections",
                 })
-                connectedSomething = true
-
-                QR:Debug(string_format("  -> Connected to adjacent zone: %s (map %d) - %ds",
-                    otherName, adj.zone, adj.travelTime))
             end
-        end
-    end
-
-    -- Strategy 2: Connect to continent hub if we know the continent
-    if destContinent and QR.Continents and QR.Continents[destContinent] then
-        local playerFaction = QR.PlayerInfo:GetFaction()
-        local hubMapID = QR.GetContinentHub and QR.GetContinentHub(destContinent, playerFaction)
-
-        -- When the node is already on the hub map, the same-map pass in
-        -- ConnectNearbyNodes has connected it with measured walk edges.
-        -- EstimateSameContinentTravel(hub, hub) is 0, which AddEdge clamps to
-        -- the 0.001 epsilon, so running this strategy here would replace every
-        -- one of those walk edges with a free "travel" edge.
-        --
-        -- No test reddens on removing this check alone: CanOverwriteWithTravel
-        -- below refuses the same writes for the same reason. It is kept because
-        -- it states the condition where it is cheap to read, but do not count
-        -- it as covered.
-        if hubMapID and hubMapID ~= mapID then
-            -- Find the hub node
-            for _, otherName in ipairs(self:NodesOnMap(hubMapID)) do
-                if otherName ~= nodeName
-                    and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
-                    -- Estimate time from hub to destination
-                    local travelTime = QR.EstimateSameContinentTravel and
-                        QR.EstimateSameContinentTravel(hubMapID, mapID) or 180
-
-                    self.graph:AddBidirectionalEdge(nodeName, otherName, travelTime, "travel", {
-                        note = "Same continent via hub",
-                        fromMapID = mapID,
-                        toMapID = hubMapID,
-                        continent = destContinent,
-                    })
-                    connectedSomething = true
-
-                    QR:Debug(string_format("  -> Connected to continent hub: %s (map %d) - %ds",
-                        otherName, hubMapID, travelTime))
-                end
-            end
-        end
-    end
-
-    -- Strategy 3: Connect to nodes on the same continent (fallback)
-    if not connectedSomething and destContinent then
-        local bestNode, bestTime = nil, math_huge
-
-        local sameContinent = self.nodeIndex and self.nodeIndex.byContinent[destContinent]
-        if sameContinent then
-            for _, otherName in ipairs(sameContinent) do
-                local otherData = self.graph.nodes[otherName]
-                if otherName ~= nodeName and otherData and otherData.mapID then
-                    local travelTime = QR.EstimateSameContinentTravel and
-                        QR.EstimateSameContinentTravel(otherData.mapID, mapID) or 180
-
-                    if travelTime < bestTime then
-                        bestTime = travelTime
-                        bestNode = otherName
-                    end
-                end
-            end
-        else
-            for otherName, otherData in pairs(self.graph.nodes) do
-                if otherName ~= nodeName and otherData.mapID then
-                    local otherContinent = QR.GetContinentForZone and QR.GetContinentForZone(otherData.mapID)
-
-                    if otherContinent == destContinent then
-                        local travelTime = QR.EstimateSameContinentTravel and
-                            QR.EstimateSameContinentTravel(otherData.mapID, mapID) or 180
-
-                        if travelTime < bestTime then
-                            bestTime = travelTime
-                            bestNode = otherName
-                        end
-                    end
-                end
-            end
-        end
-
-        -- A refused candidate counts as connected. It was refused because a
-        -- measured walk edge to it already exists, which is strictly better
-        -- than the estimate this strategy wanted to write — but leaving
-        -- connectedSomething false sent the node on to the cross-continent last
-        -- resort, which happily wrote a negative weight that AddEdge clamps to
-        -- the 0.001 epsilon. A destination inside a capital then looked one
-        -- free hop away and the route lost its real legs.
-        if bestNode and not CanOverwriteWithTravel(self.graph, nodeName, bestNode) then
-            connectedSomething = true
-        elseif bestNode then
-            local bestData = self.graph.nodes[bestNode]
-            self.graph:AddBidirectionalEdge(nodeName, bestNode, bestTime, "travel", {
-                note = "Same continent travel",
-                fromMapID = mapID,
-                toMapID = bestData.mapID,
-                continent = destContinent,
-            })
-            connectedSomething = true
-
-            QR:Debug(string_format("  -> Connected to same-continent node: %s (map %d) - %ds",
-                bestNode, bestData.mapID, bestTime))
-        end
-    end
-
-    -- Strategy 4: Cross-continent connections (last resort)
-    -- Connect to ALL hub/city nodes on other continents so Dijkstra can find optimal routes
-    if not connectedSomething then
-        local connectCount = 0
-
-        -- Only hub and city nodes are eligible below, so iterate just those.
-        local candidates = self.nodeIndex and self.nodeIndex.hubsAndCities
-        if not candidates then
-            candidates = {}
-            for otherName in pairs(self.graph.nodes) do
-                candidates[#candidates + 1] = otherName
-            end
-        end
-
-        for _, otherName in ipairs(candidates) do
-            local otherData = self.graph.nodes[otherName]
-            if otherName ~= nodeName and otherData and otherData.mapID then
-                local otherContinent = QR.GetContinentForZone and QR.GetContinentForZone(otherData.mapID)
-
-                -- Calculate cross-continent time
-                local baseTime = CROSS_CONTINENT_TIME
-                if destContinent and otherContinent and QR.GetCrossContinentTravel then
-                    baseTime = QR.GetCrossContinentTravel(otherContinent, destContinent)
-                end
-
-                -- Connect to hub/city nodes on other continents (let Dijkstra optimize)
-                -- Also connect to the single best non-hub as fallback
-                -- Neither the continent check nor the floor below reddens a
-                -- test on its own, and the state they guard cannot be reached
-                -- from a built graph: strategy 4 runs only when nothing else
-                -- connected the node, which with a known destContinent means
-                -- its continent holds no other node -- so no candidate can
-                -- share it, and baseTime stays at CROSS_CONTINENT_TIME. They
-                -- are defence in depth against a data change, not covered code.
-                if (otherData.nodeType == "hub" or otherData.nodeType == "city")
-                    and otherContinent ~= destContinent
-                    and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
-                    -- Floor the hub bonus: GetCrossContinentTravel returns 0 for
-                    -- a continent to itself, and baseTime - 60 then goes
-                    -- negative, which AddEdge clamps to the 0.001 epsilon and
-                    -- Dijkstra reads as free.
-                    local hubTime = baseTime - 60  -- 1 minute bonus for hubs
-                    if hubTime < 1 then hubTime = 1 end
-                    self.graph:AddBidirectionalEdge(nodeName, otherName, hubTime, "travel", {
-                        note = "Cross-continent travel",
-                        fromMapID = mapID,
-                        toMapID = otherData.mapID,
-                        fromContinent = destContinent,
-                        toContinent = otherContinent,
-                    })
-                    connectCount = connectCount + 1
-                end
-            end
-        end
-
-        -- Fallback: no hub or city was connected, so attach the node to one
-        -- other node rather than leaving it isolated.
-        --
-        -- Every candidate costs the same. This branch runs only when the node
-        -- has no continent the hub pass could price against, so there is
-        -- nothing to compare and no cheapest to find -- the previous shape
-        -- looked like a search (bestNode, bestTime, a < comparison) while the
-        -- compared value was the constant CROSS_CONTINENT_TIME, so it always
-        -- took whichever name pairs() happened to yield first. That is Lua hash
-        -- order: not stable between runs, and not reproducible from a bug
-        -- report. Sorting picks the same node every time; it is for
-        -- determinism, not for optimality.
-        --
-        -- Candidates the overwrite rules refuse are skipped rather than
-        -- overwritten: this was the one write in the whole strategy without
-        -- that check, so it replaced measured walk edges and teleport edges
-        -- with a flat estimate. When every candidate is refused there is
-        -- nothing to do -- the node already has real edges to them, which is
-        -- the opposite of isolated.
-        --
-        -- Not reached by any graph the addon builds: instrumented over 612
-        -- builds (every zone in ZoneAdjacencies, both factions, with and
-        -- without class portals) the branch was entered 0 times. It is kept as
-        -- defence in depth against a data change that leaves a node with no
-        -- continent, which is exactly the state it exists for.
-        if connectCount == 0 then
-            local eligible = {}
-            for otherName, otherData in pairs(self.graph.nodes) do
-                if otherName ~= nodeName and otherData.mapID
-                    and CanOverwriteWithTravel(self.graph, nodeName, otherName) then
-                    eligible[#eligible + 1] = otherName
-                end
-            end
-            table_sort(eligible)
-            local bestNode = eligible[1]
-            if bestNode then
-                local bestData = self.graph.nodes[bestNode]
-                local otherContinent = QR.GetContinentForZone and QR.GetContinentForZone(bestData.mapID)
-                self.graph:AddBidirectionalEdge(nodeName, bestNode, CROSS_CONTINENT_TIME, "travel", {
-                    note = "Cross-continent travel (fallback)",
-                    fromMapID = mapID,
-                    toMapID = bestData.mapID,
-                    fromContinent = destContinent,
-                    toContinent = otherContinent,
+            seconds = costsFrom(otherMapID)[mapID]
+            if seconds and (playerPair or CanOverwriteWithTravel(self.graph, otherName, nodeName)) then
+                self.graph:AddEdgeOption(otherName, nodeName, seconds, "travel", {
+                    fromMapID = otherMapID, toMapID = mapID,
+                    note = "Documented overland zone connections",
                 })
-                connectCount = 1
             end
-        end
-
-        if connectCount > 0 then
-            QR:Debug(string_format("  -> Cross-continent: connected to %d hub/city nodes", connectCount))
         end
     end
 end
@@ -1242,10 +1282,10 @@ function PathCalculator:AddDungeonTeleportEdges()
         local destName = instanceID and nodeByInstance[instanceID]
         if destName then
             local includeCooldown = QR.db and QR.db.considerCooldowns
-            local travelTime = QR.TravelTime:GetEffectiveTime(teleportID, data, includeCooldown)
+            local travelTime = QR.TravelTime:GetEffectiveTime(teleportID, data, includeCooldown, teleport.sourceType)
             travelTime = travelTime + (QR.db and QR.db.loadingScreenTime or 0)
 
-            self.graph:AddEdge(PLAYER_NODE, destName, travelTime, "teleport", {
+            self.graph:AddEdgeOption(PLAYER_NODE, destName, travelTime, "teleport", {
                 teleportID = teleportID,
                 teleportData = data,
                 sourceType = teleport.sourceType,
@@ -1327,30 +1367,33 @@ end
 -- hand out routes that cannot be walked.
 -- @return table|nil Set of uiMapIDs, or nil if the client does not say
 function PathCalculator:GetKnownFlightZones()
-    if self.knownFlightZonesOverride ~= nil then
-        return self.knownFlightZonesOverride
-    end
-    if not (C_TaxiMap and C_TaxiMap.GetAllTaxiNodes) then
-        return nil
-    end
-
+    if self.knownFlightZonesOverride ~= nil then return self.knownFlightZonesOverride end
+    if not C_TaxiMap then return nil end
+    -- Unlike GetAllTaxiNodes, this works without an open flight-master session.
+    local discovery = C_TaxiMap.GetTaxiNodesForMap
+    local query = discovery or C_TaxiMap.GetAllTaxiNodes
+    if not query then return nil end
     local known = {}
     for uiMapID in pairs(QR.FlightPoints or {}) do
-        local ok, nodes = pcall(C_TaxiMap.GetAllTaxiNodes, uiMapID)
-        if ok and type(nodes) == "table" then
+        local point = self:FlightPointFor(uiMapID)
+        local ok, nodes = pcall(query, uiMapID)
+        if point and ok and type(nodes) == "table" then
             for _, node in ipairs(nodes) do
-                -- state 0 is a node the player has not discovered; anything
-                -- else is one they can fly from or to.
-                if node.state and node.state ~= 0 then
+                -- FlightPathState: Current=0, Reachable=1, Unreachable=2.
+                local available = discovery and node.isUndiscovered == false
+                    or (not discovery and (node.state == 0 or node.state == 1))
+                local pos = node.position
+                -- Generated data does not yet carry taxi node IDs. Match the
+                -- exact modeled master by normalized position, never just zone.
+                if available and pos and IsCoordinate(pos.x) and IsCoordinate(pos.y)
+                    and math.abs(pos.x - point.x) <= 0.001
+                    and math.abs(pos.y - point.y) <= 0.001 then
                     known[uiMapID] = true
                     break
                 end
             end
         end
     end
-    -- Empty on purpose when the client answered and the player has discovered
-    -- nothing: that is "they have none", which AddFlightEdges handles by
-    -- writing no edges. Only an absent API returns nil above.
     return known
 end
 
@@ -1731,6 +1774,8 @@ function PathCalculator:BuildSteps(path, edges)
                 )
                 step.teleportID = edge.data.teleportID
                 step.sourceType = edge.data.sourceType
+                step.teleportData = teleportData
+                step.choiceText = teleportData.choiceText
                 -- Get coordinates from teleport data if available
                 if teleportData.mapID then
                     step.destMapID = teleportData.mapID
@@ -1746,6 +1791,9 @@ function PathCalculator:BuildSteps(path, edges)
             end
         elseif edge.edgeType == "portal" then
             step.action = string_format(L["STEP_TAKE_PORTAL"], localizedToNode)
+        elseif edge.edgeType == "phaseswitch" then
+            step.phaseMapID, step.phaseArtID = edge.data.phaseMapID, edge.data.phaseArtID
+            step.action = string_format(L["STEP_CHANGE_PHASE_TO"], toNodeData and toNodeData.name or localizedToNode)
         elseif edge.edgeType == "walk" or edge.edgeType == "travel" then
             -- Walk/travel step: localized node name already includes disambiguation
             step.action = string_format(L["STEP_GO_TO"], localizedToNode)
@@ -1776,12 +1824,13 @@ function PathCalculator:BuildSteps(path, edges)
         -- at the from node rather than at the destination.
         if edge.edgeType == "portal" or edge.edgeType == "boat"
             or edge.edgeType == "zeppelin" or edge.edgeType == "tram"
-            or edge.edgeType == "flight" then
+            or edge.edgeType == "flight" or edge.edgeType == "phaseswitch" or edge.edgeType == "jump" then
             if fromNodeData then
                 step.navMapID = fromNodeData.mapID
                 step.navX = fromNodeData.x or 0.5
                 step.navY = fromNodeData.y or 0.5
                 step.navTitle = step.action
+                step.navLabel = fromNodeData.name
             end
         end
 
@@ -1793,13 +1842,18 @@ function PathCalculator:BuildSteps(path, edges)
         -- read it until this block, which is why a transposed x/y went
         -- unnoticed for four review rounds.
         if edge.edgeType == "flight" and edge.data and QR.FlightPoints then
-            local master = self:FlightPointFor(edge.data.fromMapID)
+            local master = edge.data.flightPoint or self:FlightPointFor(edge.data.fromMapID)
             if master and master.x and master.y then
                 step.navX = master.x
                 step.navY = master.y
             end
         end
 
+        if edge.data and edge.data.instructionKey then
+            step.instructionKey = edge.data.instructionKey
+            step.action = string_format(L[step.instructionKey], localizedToNode)
+            step.navTitle = step.action
+        end
         table_insert(steps, step)
     end
 
@@ -1867,7 +1921,9 @@ function PathCalculator:AbsorbRedundantWalkSteps(steps)
         if nextStep and TRANSPORT_TYPES[step.type]
             and (nextStep.type == "walk" or nextStep.type == "travel")
             and step.destMapID and nextStep.destMapID
-            and step.destMapID == nextStep.destMapID then
+            and step.destMapID == nextStep.destMapID
+            and IsCoordinate(step.destX) and IsCoordinate(step.destY)
+            and step.destX == nextStep.destX and step.destY == nextStep.destY then
             -- Absorb the walk into the transport step
             local merged = {}
             for k, v in pairs(step) do merged[k] = v end
@@ -2094,4 +2150,3 @@ SlashCmdList["QRDEBUGPATH"] = function(msg)
         print("|cFFFF0000QuickRoute ERROR:|r " .. tostring(errMsg))
     end
 end
-

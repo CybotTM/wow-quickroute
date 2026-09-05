@@ -6,17 +6,21 @@ std = "lua51"
 
 -- WoW global variables (read-write)
 globals = {
+    "UnitLevel", "C_Covenants", "C_Reputation", "C_DateAndTime", "C_Calendar",
     "QuickRouteSettingsHeaderMixin",
     -- Addon namespace
     "QR",
 
     -- WoW API globals
     "CreateFrame",
+    "CreateVector2D",
+    "RegisterStateDriver",
     "UIParent",
     "GetTime",
     "UnitClass",
     "UnitFactionGroup",
     "UnitName",
+    "UnitGUID",
     "GetProfessions",
     "GetProfessionInfo",
     "SlashCmdList",
@@ -37,6 +41,7 @@ globals = {
     "C_SuperTrack",
     "C_QuestLog",
     "C_ToyBox",
+    "C_Texture",
     "C_Timer",
     "C_TaxiMap",
     "C_TaskQuest",

@@ -11,6 +11,35 @@ local table_insert, table_concat, table_sort = table.insert, table.concat, table
 local CreateFrame = CreateFrame
 local GetTime = GetTime
 local wipe = wipe
+local math_huge = math.huge
+local math_abs = math.abs
+
+local function IsCoordinate(value)
+    return not (issecretvalue and issecretvalue(value)) and type(value) == "number"
+        and value == value and value >= 0 and value <= 1
+end
+
+local function IsMapID(value)
+    return not (issecretvalue and issecretvalue(value)) and type(value) == "number"
+        and value > 0 and value < math_huge and value % 1 == 0
+end
+
+-- Only observable matching coordinates identify a native pin as QR's output.
+-- Reuse this rule for cleanup and for excluding that output from route inputs.
+local function IsOwnedNativeWaypoint(owner, point)
+    if not owner._lastWpNative then return false end
+    local ok, owned = pcall(function()
+        if not point or (issecretvalue and issecretvalue(point)) then return false end
+        local mapID, position = point.uiMapID, point.position
+        if not IsMapID(mapID) or not position or (issecretvalue and issecretvalue(position)) then return false end
+        local x, y = position.x, position.y
+        if position.GetXY then x, y = position:GetXY() end
+        return IsCoordinate(x) and IsCoordinate(y) and mapID == owner._lastWpMapID
+            and IsCoordinate(owner._lastWpX) and IsCoordinate(owner._lastWpY)
+            and math_abs(x - owner._lastWpX) < 0.000001 and math_abs(y - owner._lastWpY) < 0.000001
+    end)
+    return ok and owned
+end
 
 -------------------------------------------------------------------------------
 -- WaypointIntegration Module
@@ -156,10 +185,10 @@ local function CheckPortalThroughZone(questID, resolvedMapID)
             local questsOnDest = C_QuestLog.GetQuestsOnMap(destMapID)
             if questsOnDest then
                 for _, questInfo in ipairs(questsOnDest) do
-                    if questInfo.questID == questID then
+                    if questInfo.questID == questID and IsCoordinate(questInfo.x) and IsCoordinate(questInfo.y)
+                        and (questInfo.x ~= 0 or questInfo.y ~= 0) then
                         -- Quest has objectives beyond the portal — route there instead
-                        local x = (questInfo.x and questInfo.x ~= 0) and questInfo.x or 0.5
-                        local y = (questInfo.y and questInfo.y ~= 0) and questInfo.y or 0.5
+                        local x, y = questInfo.x, questInfo.y
                         QR:Debug(string_format(
                             "Quest %d: portal-through detected! %d -> %d (quest has POI at %.4f, %.4f)",
                             questID, resolvedMapID, destMapID, x, y))
@@ -178,7 +207,7 @@ end
 -- @param ignoreNegativeCache boolean If true, bypass "not found" cache entries (for dropdown queries)
 -- @return table|nil {mapID, x, y, title} or nil if no coordinates found
 function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
-    if not questID or questID == 0 then
+    if not IsMapID(questID) or not C_QuestLog then
         return nil
     end
 
@@ -544,7 +573,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
     -- Method 6: Dungeon/raid quest entrance fallback
     -- When quest coordinate APIs fail, use the quest log header to identify
     -- the dungeon/zone and route to its entrance via DungeonData.
-    -- Strategies: (a) highlights→entrance, (b) header→dungeon, (c) title prefix→dungeon, (d) title prefix→zone
+    -- Strategies: (a) highlights→unique entrance, (b) header→dungeon, (c) title prefix→dungeon
     if QR.DungeonData and QR.DungeonData.scanned then
         -- Check if quest is dungeon/raid type via Enum.QuestTag constants
         local isDungeonQuest = false
@@ -562,16 +591,12 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             end
         end
 
-        -- Inside-dungeon detection: if player is already inside the target dungeon, skip routing
+        -- Compare the resolved target instance, not merely whether the player
+        -- is inside any dungeon: a quest can require a different instance.
+        local playerInstanceID
         if isDungeonQuest and IsInInstance and IsInInstance() then
             if playerMapID and C_EncounterJournal and C_EncounterJournal.GetInstanceForGameMap then
-                local playerInstanceID = C_EncounterJournal.GetInstanceForGameMap(playerMapID)
-                if playerInstanceID then
-                    QR:Debug(string_format("Quest %d: player is inside instance %d, skipping dungeon entrance routing",
-                        questID, playerInstanceID))
-                    questCoordCache[questID] = { time = now }
-                    return nil
-                end
+                playerInstanceID = C_EncounterJournal.GetInstanceForGameMap(playerMapID)
             end
         end
 
@@ -583,8 +608,12 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 QR:Debug(string_format("Quest %d: GetQuestAdditionalHighlights -> map %d (dungeons=true)", questID, highlightMapID))
                 if C_EncounterJournal and C_EncounterJournal.GetDungeonEntrancesForMap then
                     local entrances = C_EncounterJournal.GetDungeonEntrancesForMap(highlightMapID)
-                    if entrances and #entrances > 0 then
+                    if entrances and #entrances == 1 then
                         local entrance = entrances[1]
+                        if playerInstanceID and entrance.journalInstanceID == playerInstanceID then
+                            questCoordCache[questID] = { time = now }
+                            return nil
+                        end
                         local ex, ey
                         if entrance.position then
                             if entrance.position.GetXY then
@@ -615,6 +644,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             for instanceID, inst in pairs(QR.DungeonData.instances) do
                 if inst.name and inst.zoneMapID and inst.x and inst.y then
                     if string_lower(inst.name) == string_lower(questHeader) then
+                        if playerInstanceID == instanceID then questCoordCache[questID] = { time = now }; return nil end
                         QR:Debug(string_format("Quest %d: header matches dungeon %q (instance %d) at map %d",
                             questID, inst.name, instanceID, inst.zoneMapID))
                         questCoordCache[questID] = { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now }
@@ -640,6 +670,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 for instanceID, inst in pairs(QR.DungeonData.instances) do
                     if inst.name and inst.zoneMapID and inst.x and inst.y then
                         if string_lower(inst.name) == string_lower(titlePrefix) then
+                            if playerInstanceID == instanceID then questCoordCache[questID] = { time = now }; return nil end
                             QR:Debug(string_format("Quest %d: title prefix matches dungeon %q (instance %d) at map %d",
                                 questID, inst.name, instanceID, inst.zoneMapID))
                             questCoordCache[questID] = { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now }
@@ -653,27 +684,8 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     end
                 end
 
-                -- Strategy (c): Match the prefix against known zone names
-                if QR.Continents then
-                    for _, continentData in pairs(QR.Continents) do
-                        for _, zoneID in ipairs(continentData.zones) do
-                            if C_Map and C_Map.GetMapInfo then
-                                local mapInfo = C_Map.GetMapInfo(zoneID)
-                                if mapInfo and mapInfo.name and string_lower(mapInfo.name) == string_lower(titlePrefix) then
-                                    QR:Debug(string_format("Quest %d: title prefix matches zone %q (map %d)",
-                                        questID, mapInfo.name, zoneID))
-                                    questCoordCache[questID] = { mapID = zoneID, x = 0.5, y = 0.5, time = now }
-                                    return {
-                                        mapID = zoneID,
-                                        x = 0.5,
-                                        y = 0.5,
-                                        title = questTitle,
-                                    }
-                                end
-                            end
-                        end
-                    end
-                end
+                -- A zone-name match does not locate the objective. Continue to
+                -- real POI lookups rather than manufacturing the zone midpoint.
             end
         end
     end
@@ -851,12 +863,75 @@ function WaypointIntegration:GetWatchedQuestWaypoints()
     return results
 end
 
+--- Include unwatched log quests plus objective and available quest-giver pins
+-- exposed for the viewed/player map. No worldwide quest/NPC catalogue exists in
+-- these APIs; unavailable coordinates are deliberately omitted.
+function WaypointIntegration:GetSearchQuestWaypoints()
+    local results = self:GetWatchedQuestWaypoints()
+    local seen = {}
+    for _, quest in ipairs(results) do seen[quest.questID] = true end
+    local superID = C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID and C_SuperTrack.GetSuperTrackedQuestID()
+    if superID then seen[superID] = true end
+
+    local function Add(questID, waypoint)
+        if not IsMapID(questID) or seen[questID] or type(waypoint) ~= "table"
+            or not IsMapID(waypoint.mapID) or not IsCoordinate(waypoint.x) or not IsCoordinate(waypoint.y) then return end
+        local title = waypoint.title
+        if not title and C_QuestLog and C_QuestLog.GetTitleForQuestID then title = C_QuestLog.GetTitleForQuestID(questID) end
+        if not title and C_TaskQuest and C_TaskQuest.GetQuestInfoByQuestID then title = C_TaskQuest.GetQuestInfoByQuestID(questID) end
+        local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(waypoint.mapID)
+        table_insert(results, { questID = questID, title = title or (QR.L["SOURCE_QUEST"] .. " " .. questID),
+            mapID = waypoint.mapID, x = waypoint.x, y = waypoint.y, zoneName = info and info.name or "" })
+        seen[questID] = true
+    end
+
+    if C_QuestLog and C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetInfo then
+        local count = C_QuestLog.GetNumQuestLogEntries() or 0
+        for index = 1, count do
+            local ok, info = pcall(C_QuestLog.GetInfo, index)
+            if ok and info and not info.isHeader and IsMapID(info.questID) and not seen[info.questID] then
+                local resolved, wp = pcall(self.GetQuestWaypoint, self, info.questID)
+                if resolved then pcall(Add, info.questID, wp) end
+            end
+        end
+    end
+
+    local maps = {}
+    local viewed = WorldMapFrame and WorldMapFrame.GetMapID and WorldMapFrame:GetMapID()
+    local current = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    if IsMapID(viewed) then maps[viewed] = true end
+    if IsMapID(current) then maps[current] = true end
+    for mapID in pairs(maps) do
+        local providers = {
+            C_QuestLog and C_QuestLog.GetQuestsOnMap,
+            C_TaskQuest and C_TaskQuest.GetQuestsOnMap,
+            _G.C_QuestLine and _G.C_QuestLine.GetAvailableQuestLines,
+        }
+        -- Numeric traversal retains later optional providers when earlier ones are nil.
+        for index = 1, 3 do
+            if providers[index] then
+                local ok, entries = pcall(providers[index], mapID)
+                if ok and type(entries) == "table" then
+                    for _, entry in ipairs(entries) do
+                        if not entry.isHidden then
+                            pcall(Add, entry.questID, { mapID = mapID, x = entry.x, y = entry.y,
+                                title = entry.questName or entry.title })
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table_sort(results, function(a, b) return (a.title or "") < (b.title or "") end)
+    return results
+end
+
 --- Get the user's map pin (manual waypoint)
 -- Uses C_Map.HasUserWaypoint and C_Map.GetUserWaypoint
 -- @return table|nil {mapID, x, y, title} or nil if no map pin
 function WaypointIntegration:GetMapPing()
     -- Check API availability and if user has set a waypoint on the map
-    if not (C_Map and C_Map.HasUserWaypoint) then
+    if not (C_Map and C_Map.HasUserWaypoint and C_Map.GetUserWaypoint) then
         return nil
     end
     if not C_Map.HasUserWaypoint() then
@@ -864,9 +939,12 @@ function WaypointIntegration:GetMapPing()
     end
 
     local point = C_Map.GetUserWaypoint()
-    if not point then
+    if not point or (issecretvalue and issecretvalue(point)) then
         return nil
     end
+    -- A QR navigation arrow marks an intermediate step, not a new user target.
+    -- Keeping it out of the input list lets a newly tracked quest take effect.
+    if IsOwnedNativeWaypoint(self, point) then return nil end
 
     -- point is a UiMapPoint with mapID and position
     local mapID = point.uiMapID
@@ -892,24 +970,11 @@ function WaypointIntegration:GetMapPing()
         return nil
     end
 
-    -- Resolve continent-level maps to specific zone
-    -- When a user places a pin on a continent map (e.g. Pandaria = 424),
-    -- the uiMapID is the continent, not the specific zone. Resolve it.
-    if mapID and C_Map and C_Map.GetMapInfo then
-        local mapInfo = C_Map.GetMapInfo(mapID)
-        if mapInfo and mapInfo.mapType and mapInfo.mapType <= 2 then
-            -- mapType 0=Cosmic, 1=World, 2=Continent — try to resolve to zone
-            if C_Map.GetMapInfoAtPosition then
-                local childInfo = C_Map.GetMapInfoAtPosition(mapID, position.x, position.y)
-                if childInfo and childInfo.mapID and childInfo.mapID ~= mapID then
-                    QR:Debug(string_format(
-                        "Resolved continent map %d to zone %d (%s)",
-                        mapID, childInfo.mapID, childInfo.name or "?"))
-                    mapID = childInfo.mapID
-                end
-            end
-        end
+    local x, y = position.x, position.y
+    if QR.PathCalculator and QR.PathCalculator.ResolveMapPosition then
+        mapID, x, y = QR.PathCalculator:ResolveMapPosition(mapID, x, y)
     end
+    if not IsMapID(mapID) or not IsCoordinate(x) or not IsCoordinate(y) then return nil end
 
     -- Use zone name as title (more useful than generic "Map Pin")
     local title = QR.L["SOURCE_MAP_PIN"]
@@ -922,8 +987,8 @@ function WaypointIntegration:GetMapPing()
 
     return {
         mapID = mapID,
-        x = position.x,
-        y = position.y,
+        x = x,
+        y = y,
         title = title,
     }
 end
@@ -1096,6 +1161,8 @@ function WaypointIntegration:RegisterHooks()
     -- Register WoW events
     eventFrame:RegisterEvent("USER_WAYPOINT_UPDATED")
     eventFrame:RegisterEvent("SUPER_TRACKING_CHANGED")
+    eventFrame:RegisterEvent("QUEST_LOG_UPDATE")
+    eventFrame:RegisterEvent("QUEST_POI_UPDATE")
 
     eventFrame:SetScript("OnEvent", function(self, event, ...)
         local ok, err = pcall(function()
@@ -1110,7 +1177,13 @@ function WaypointIntegration:RegisterHooks()
                 else
                     WaypointIntegration:OnWaypointCleared()
                 end
+            elseif event == "QUEST_LOG_UPDATE" or event == "QUEST_POI_UPDATE" then
+                -- Objective/turn-in coordinates change without changing questID.
+                WaypointIntegration:ClearQuestCoordCache()
             elseif event == "SUPER_TRACKING_CHANGED" then
+                -- Native QR guidance updates super-tracking as well as the map
+                -- pin. Those internal events must not unlock the final target.
+                if WaypointIntegration._settingWaypoint then return end
                 -- Don't wipe questCoordCache here — per-questID entries are already
                 -- keyed correctly and wiping destroys negative-result caching, causing
                 -- expensive repeated zone scans when quests cycle rapidly.
@@ -1162,6 +1235,10 @@ end
 
 --- Remove all TomTom waypoints previously set by QuickRoute
 function WaypointIntegration:ClearTomTomWaypoints()
+    -- Cleanup is an internal update, just like creating a QR waypoint. Its
+    -- removal callbacks must not cancel the route that requested the cleanup.
+    local wasSettingWaypoint = self._settingWaypoint
+    self._settingWaypoint = true
     if TomTom and TomTom.RemoveWaypoint then
         for i = #self._tomtomUIDs, 1, -1 do
             local ok, err = pcall(TomTom.RemoveWaypoint, TomTom, self._tomtomUIDs[i])
@@ -1170,11 +1247,13 @@ function WaypointIntegration:ClearTomTomWaypoints()
             end
         end
     end
-    -- Native waypoints too, not just TomTom's: both were set by us.
-    if self._lastWpNative and C_Map and C_Map.ClearUserWaypoint then
-        local ok, err = pcall(C_Map.ClearUserWaypoint)
-        if not ok then
-            QR:Debug("Failed to clear native waypoint: " .. tostring(err))
+    -- A user or another addon may have replaced our native pin. Only remove
+    -- the same observable coordinates; unknown/secret ownership fails closed.
+    if self._lastWpNative and C_Map and C_Map.GetUserWaypoint and C_Map.ClearUserWaypoint then
+        local ok, point = pcall(C_Map.GetUserWaypoint)
+        if ok and IsOwnedNativeWaypoint(self, point) then
+            local cleared, err = pcall(C_Map.ClearUserWaypoint)
+            if not cleared then QR:Debug("Failed to clear native waypoint: " .. tostring(err)) end
         end
     end
     self._lastWpNative = nil
@@ -1186,6 +1265,7 @@ function WaypointIntegration:ClearTomTomWaypoints()
     self._lastWpY = nil
     self._lastWpTitle = nil
     self._lastWpTime = nil
+    self._settingWaypoint = wasSettingWaypoint
 end
 
 --- Set a TomTom waypoint or native map pin

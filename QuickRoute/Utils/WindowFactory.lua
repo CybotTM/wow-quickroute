@@ -92,7 +92,7 @@ function QR.CreateModernButton(parent, width, height)
 end
 
 --- Create a modern flat checkbox (replaces UICheckButtonTemplate).
--- Dark background, thin border, ✓ checkmark text.
+-- Dark background, thin border, native checkmark texture.
 -- Supports :SetChecked(bool) and :GetChecked() for compatibility.
 -- @param parent Frame Parent frame
 -- @param size number Checkbox size (default 20)
@@ -109,10 +109,9 @@ function QR.CreateModernCheckbox(parent, size)
     cb:SetBackdropColor(0.08, 0.08, 0.1, 0.9)
     cb:SetBackdropBorderColor(0.35, 0.35, 0.4, 0.8)
 
-    local checkmark = cb:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    checkmark:SetPoint("CENTER", 0, 0)
-    checkmark:SetText("\226\156\147")  -- ✓
-    checkmark:SetTextColor(0.3, 1.0, 0.3)
+    local checkmark = cb:CreateTexture(nil, "OVERLAY")
+    checkmark:SetAllPoints(cb)
+    checkmark:SetTexture("Interface\\Buttons\\UI-CheckBox-Check")
     checkmark:Hide()
     cb._checkmark = checkmark
 
@@ -149,11 +148,11 @@ function QR.CreateModernCheckbox(parent, size)
     return cb
 end
 
---- Create a modern flat icon button (replaces texture-based icon buttons).
--- Uses a FontString glyph instead of old UI texture files.
+--- Create a modern flat icon button with a native refresh texture by default.
+-- Custom text remains supported; the refresh symbol never depends on font coverage.
 -- @param parent Frame Parent frame
 -- @param size number Button size (default 18)
--- @param glyph string UTF-8 glyph character (default ↻)
+-- @param glyph string Optional custom text (legacy refresh glyph also uses the atlas)
 -- @return Button The created button
 function QR.CreateModernIconButton(parent, size, glyph)
     size = size or 18
@@ -164,24 +163,53 @@ function QR.CreateModernIconButton(parent, size, glyph)
     })
     btn:SetBackdropColor(0, 0, 0, 0)
 
-    local icon = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local nativeRefresh = not glyph or glyph == "\226\134\187"
+    local icon
+    if nativeRefresh then
+        icon = btn:CreateTexture(nil, "OVERLAY")
+        icon:SetSize(size - 2, size - 2)
+        icon:SetAtlas("UI-RefreshButton")
+    else
+        icon = btn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+        icon:SetText(glyph)
+    end
     icon:SetPoint("CENTER", 0, 0)
-    icon:SetText(glyph or "\226\134\187")  -- ↻
-    icon:SetTextColor(0.6, 0.6, 0.65)
+    local setColor = nativeRefresh and icon.SetVertexColor or icon.SetTextColor
+    setColor(icon, 0.6, 0.6, 0.65)
     btn._icon = icon
 
     if btn.HookScript then
         btn:HookScript("OnEnter", function(self)
             self:SetBackdropColor(0.2, 0.2, 0.25, 0.6)
-            icon:SetTextColor(1, 1, 1)
+            setColor(icon, 1, 1, 1)
         end)
         btn:HookScript("OnLeave", function(self)
             self:SetBackdropColor(0, 0, 0, 0)
-            icon:SetTextColor(0.6, 0.6, 0.65)
+            setColor(icon, 0.6, 0.6, 0.65)
         end)
     end
 
     return btn
+end
+
+function QR.FitWindowScale(frame, requested)
+    local width, height = UIParent:GetWidth(), UIParent:GetHeight()
+    local scale = requested or 1
+    if width and width > 40 and height and height > 40 then
+        scale = math.min(scale, (width-24)/frame:GetWidth(), (height-24)/frame:GetHeight())
+    end
+    frame:SetScale(math.max(0.5, scale))
+end
+
+local validAnchors = { TOPLEFT=true, TOP=true, TOPRIGHT=true, LEFT=true, CENTER=true,
+    RIGHT=true, BOTTOMLEFT=true, BOTTOM=true, BOTTOMRIGHT=true }
+
+function QR.IsValidWindowPosition(point, relativePoint, x, y)
+    if issecretvalue and (issecretvalue(point) or issecretvalue(relativePoint) or issecretvalue(x) or issecretvalue(y)) then return false end
+    return type(point) == "string" and validAnchors[point] == true
+        and type(relativePoint) == "string" and validAnchors[relativePoint] == true
+        and type(x) == "number" and x == x and math.abs(x) <= 100000
+        and type(y) == "number" and y == y and math.abs(y) <= 100000
 end
 
 --- Create a standard addon window with backdrop, title bar, close button, and drag support.
@@ -199,7 +227,7 @@ end
 --                            { point, relPoint, x, y }
 --   onClose        function Close button callback
 --   onHide         function OnHide callback (for isShowing sync)
---   frameStrata    string   Optional frame strata override (e.g. "HIGH")
+--   frameStrata    string   Optional frame strata override (default: "DIALOG")
 --   titleBarWidth  number   Optional explicit title bar texture width
 -- @return Frame The created frame
 function QR.CreateStandardWindow(options)
@@ -216,8 +244,7 @@ function QR.CreateStandardWindow(options)
     -- Restore saved position or use default
     local db = QR.db or {}
     local posKeys = options.savedPosKeys
-    if posKeys and type(db[posKeys.x]) == "number" and type(db[posKeys.y]) == "number"
-        and type(db[posKeys.point]) == "string" and type(db[posKeys.relPoint]) == "string" then
+    if posKeys and QR.IsValidWindowPosition(db[posKeys.point], db[posKeys.relPoint], db[posKeys.x], db[posKeys.y]) then
         frame:SetPoint(db[posKeys.point], UIParent, db[posKeys.relPoint], db[posKeys.x], db[posKeys.y])
     else
         local defaultPoint = options.defaultPoint or "CENTER"
@@ -246,10 +273,11 @@ function QR.CreateStandardWindow(options)
     end)
     frame:SetClampedToScreen(true)
 
-    -- Optional frame strata
-    if options.frameStrata then
-        frame:SetFrameStrata(options.frameStrata)
-    end
+    -- Secondary windows cover the main panel and its activation controls.
+    -- Match native dialog layering while retaining explicit caller overrides.
+    frame:SetFrameStrata(options.frameStrata or "DIALOG")
+    frame:SetToplevel(true)
+    frame:HookScript("OnShow", function(self) self:Raise() end)
 
     -- Allow ESC key to close the frame
     table_insert(UISpecialFrames, options.name)
@@ -263,16 +291,16 @@ function QR.CreateStandardWindow(options)
         end)
     end
 
-    -- Set backdrop (flat dark panel, WoW settings style)
+    -- Opaque reading surface; underlying panels must not show through text.
     frame:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
         tile = true,
         tileSize = 16,
         edgeSize = 16,
         insets = { left = 4, right = 4, top = 4, bottom = 4 }
     })
-    frame:SetBackdropColor(0.08, 0.08, 0.1, 0.95)
+    frame:SetBackdropColor(0.08, 0.08, 0.1, 1)
 
     -- Title (simple gold text at top-left, no ornate header texture)
     local titleText = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")

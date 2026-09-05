@@ -25,6 +25,12 @@ local function setupMockTeleports(teleports)
     -- Build the flat table that GetAllTeleports normally returns
     local result = {}
     for id, entry in pairs(teleports) do
+        -- Real catalogued landings carry coordinates. These tests focus on
+        -- readiness and map ranking, rather than missing-coordinate rejection.
+        if entry.data and entry.data.mapID then
+            entry.data.x = entry.data.x or 0.5
+            entry.data.y = entry.data.y or 0.5
+        end
         result[id] = {
             id = id,
             data = entry.data,
@@ -369,6 +375,8 @@ end)
 
 T:run("MapTeleportButton: UpdateForMap sets teleport state when found", function(t)
     reinitialize()
+    local previousToy = MockWoW.config.ownedToys[555]
+    MockWoW.config.ownedToys[555] = true
     QR.MapTeleportButton:CreateButton()
     setupMockTeleports({
         [555] = {
@@ -388,6 +396,7 @@ T:run("MapTeleportButton: UpdateForMap sets teleport state when found", function
     t:assertEqual(555, QR.MapTeleportButton.currentTeleportID)
     t:assertEqual("toy", QR.MapTeleportButton.currentSourceType)
     t:assertEqual(84, QR.MapTeleportButton.currentMapID)
+    MockWoW.config.ownedToys[555] = previousToy
 end)
 
 T:run("MapTeleportButton: UpdateForMap sets tooltip data on button", function(t)

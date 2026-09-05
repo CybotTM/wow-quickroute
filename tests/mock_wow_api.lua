@@ -376,6 +376,8 @@ local function CreateMockTexture(parent)
         _desaturated = false,
     }
     function tex:SetTexture(t) self._texture = t end
+    function tex:SetAtlas(atlas) self._atlas = atlas end
+    function tex:GetAtlas() return self._atlas end
     function tex:AddMaskTexture(mask) self._masks = self._masks or {}; self._masks[#self._masks + 1] = mask end
     function tex:GetTexture() return self._texture end
     function tex:SetColorTexture() end
@@ -383,6 +385,8 @@ local function CreateMockTexture(parent)
     function tex:SetHeight() end
     function tex:SetWidth() end
     function tex:SetPoint(point, ...) self._points[#self._points + 1] = { point, ... } end
+    function tex:GetPoint(index) return unpack(self._points[index or 1] or {}) end
+    function tex:GetNumPoints() return #self._points end
     function tex:ClearAllPoints() self._points = {} end
     function tex:SetAllPoints() end
     function tex:Show() self._shown = true end
@@ -421,6 +425,7 @@ local function CreateMockFontString(parent)
     function fs:SetWordWrap(wrap) self._wordWrap = wrap end
     function fs:GetWordWrap() return self._wordWrap end
     function fs:SetWidth(w) self._size.w = w end
+    function fs:SetSize(w, h) self._size.w, self._size.h = w, h end
     function fs:GetWidth() return self._size.w end
     function fs:SetHeight(h) self._size.h = h end
     function fs:GetHeight() return self._size.h end
@@ -467,7 +472,6 @@ local function CreateMockFrame(frameType, name, parent, template)
         _shown = false,
         _size = { w = 0, h = 0 },
         _attributes = {},
-        _strata = "MEDIUM",
         _level = 1,
         _alpha = 1.0,
         _movable = false,
@@ -526,12 +530,18 @@ local function CreateMockFrame(frameType, name, parent, template)
     function frame:GetCenter() return self._size.w / 2, self._size.h / 2 end
     function frame:GetEffectiveScale() return 1.0 end
     function frame:SetMovable(val) self._movable = val end
+    function frame:SetToplevel(val) self._toplevel = val end
+    function frame:Raise() self._raised = true end
     function frame:SetResizable() end
     function frame:EnableMouse(val) self._mouseEnabled = val end
     function frame:RegisterForDrag() end
     function frame:SetClampedToScreen(val) self._clamped = val end
     function frame:SetFrameStrata(strata) self._strata = strata end
+    function frame:GetFrameStrata()
+        return self._strata or (self._parent and self._parent:GetFrameStrata()) or "MEDIUM"
+    end
     function frame:SetFrameLevel(level) self._level = level end
+    function frame:GetFrameLevel() return self._level or 0 end
     function frame:SetAlpha(alpha) self._alpha = alpha end
     function frame:GetAlpha() return self._alpha end
     function frame:StartMoving() end
@@ -541,7 +551,8 @@ local function CreateMockFrame(frameType, name, parent, template)
     function frame:SetBackdropBorderColor(r, g, b, a)
         self._backdropBorderColor = { r, g, b, a }
     end
-    function frame:SetUsingParentLevel() end
+    function frame:SetUsingParentLevel(value) self._usingParentLevel = value end
+    function frame:IsUsingParentLevel() return self._usingParentLevel == true end
     function frame:SetNormalTexture() end
     function frame:SetHighlightTexture() end
     function frame:SetPushedTexture() end
@@ -656,11 +667,18 @@ local function CreateMockFrame(frameType, name, parent, template)
     end
     function frame:GetTextWidth() return #(self._text or "") * 7 end
     function frame:CreateTexture(name, layer)
-        return CreateMockTexture(self)
+        local texture = CreateMockTexture(self)
+        self._regions = self._regions or {}
+        self._regions[#self._regions + 1] = texture
+        return texture
     end
     function frame:CreateFontString(name, layer, template)
-        return CreateMockFontString(self)
+        local fontString = CreateMockFontString(self)
+        self._regions = self._regions or {}
+        self._regions[#self._regions + 1] = fontString
+        return fontString
     end
+    function frame:GetRegions() return unpack(self._regions or {}) end
     -- Mask textures: the replacement for the removed SetPortraitToTexture.
     -- Modelled so the code path that applies a round portrait mask actually
     -- runs in tests instead of being skipped by a nil check.
@@ -679,6 +697,7 @@ local function CreateMockFrame(frameType, name, parent, template)
 
     -- EditBox methods
     function frame:SetMultiLine() end
+    function frame:SetMaxLetters(value) self._maxLetters = value end
     function frame:SetFontObject() end
     function frame:SetAutoFocus() end
     function frame:SetText(text) self._text = text end

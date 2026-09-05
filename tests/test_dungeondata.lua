@@ -872,13 +872,50 @@ T:run("DungeonData Graph: skips instances without coordinates", function(t)
 end)
 
 -------------------------------------------------------------------------------
--- Routing Regression: every dungeon must be reachable for both factions
--- 0 failures allowed — catches hub isolation, island nodes, missing adjacencies
+-- Routing Regression: connected dungeons work; missing topology fails honestly.
+-- With prerequisite quests/phases and discovered fixed-flight endpoints, the
+-- Timeless Isle campfire supplies a documented path to mainland Draenor. Only
+-- the client-verified Amani'Zar taxi connection supplies entry to Coiled Isle.
 -------------------------------------------------------------------------------
 
 local function routingRegressionForFaction(t, faction, playerMapID)
     local savedFaction = MockWoW.config.playerFaction
     local savedMap = MockWoW.config.currentMapID
+    local savedCompleted = C_QuestLog.IsQuestFlaggedCompleted
+    local savedArt, savedInfo = C_Map.GetMapArtID, C_Map.GetMapInfo
+    local savedWorld, savedMapPos = C_Map.GetWorldPosFromMapPos, C_Map.GetMapPosFromWorldPos
+    local savedVector = CreateVector2D
+    local savedTaxi = C_TaxiMap
+    C_TaxiMap = {}
+    C_TaxiMap.GetTaxiNodesForMap = function(mapID)
+        local nodes = {}
+        for id, point in pairs(QR.TravelTransitions.nodes) do
+            if point.mapID == mapID and id:find("FLIGHT") then
+                nodes[#nodes+1] = {isUndiscovered=false,position={x=point.x,y=point.y},nodeID=point.taxiNodeID,
+                    faction=id=="TUSHUI_LANDING_FLIGHT" and 2 or id=="HUOJIN_LANDING_FLIGHT" and 1 or 0}
+            end
+        end
+        return nodes
+    end
+    C_QuestLog.IsQuestFlaggedCompleted = function() return true end
+    local phases = {[17]=18, [62]=67, [81]=86, [70]=75, [249]=289, [18]=19, [390]=402}
+    C_Map.GetMapArtID = function(mapID) return phases[mapID] end
+    C_Map.GetMapInfo = function(mapID)
+        if mapID == 2576 then return {mapType=5,parentMapID=2413} end
+        if mapID == 2413 then return {mapType=3,name="Harandar"} end
+        return savedInfo(mapID)
+    end
+    -- Simulate the documented client projection API. These synthetic values
+    -- test graph connectivity, not game coordinates, and never ship as data.
+    CreateVector2D = function(x,y) return {x=x,y=y} end
+    C_Map.GetWorldPosFromMapPos = function(mapID,pos)
+        if mapID == 2576 then return 1,{x=pos.x*100,y=pos.y*100} end
+        if savedWorld then return savedWorld(mapID,pos) end
+    end
+    C_Map.GetMapPosFromWorldPos = function(world,pos,mapID)
+        if world==1 and mapID==2413 then return 2413,{GetXY=function() return pos.x/200+0.2,pos.y/200+0.2 end} end
+        if savedMapPos then return savedMapPos(world,pos,mapID) end
+    end
 
     MockWoW.config.playerFaction = faction
     MockWoW.config.currentMapID = playerMapID
@@ -890,18 +927,25 @@ local function routingRegressionForFaction(t, faction, playerMapID)
 
     local total = 0
     local failed = {}
+    local uncoveredMaps = {}
+    local reachable = 0
 
     for instanceID, inst in pairs(QR.DungeonData.instances) do
         if inst.zoneMapID and inst.x and inst.y and inst.name then
             total = total + 1
             local result = QR.PathCalculator:CalculatePath(inst.zoneMapID, inst.x, inst.y, inst.name)
-            if not result or not result.totalTime then
+            if result and result.totalTime then
+                reachable = reachable + 1
+                t:assertTrue(result.totalTime >= 0 and result.totalTime < math.huge,
+                    inst.name .. " has a finite nonnegative route estimate")
+            elseif not uncoveredMaps[inst.zoneMapID] then
                 table.insert(failed, string.format("[%d] %s (map %d)", instanceID, inst.name, inst.zoneMapID))
             end
         end
     end
 
-    t:assertTrue(total > 100, faction .. " has >100 routable dungeons (got " .. total .. ")")
+    t:assertTrue(total > 100, faction .. " has >100 mapped dungeons (got " .. total .. ")")
+    t:assertEqual(total, reachable, faction .. " reaches every entrance with prerequisite quests, phases and flight points known")
     if #failed > 0 then
         table.sort(failed)
         local msg = faction .. ": " .. #failed .. "/" .. total .. " routes failed:\n  " .. table.concat(failed, "\n  ")
@@ -913,13 +957,48 @@ local function routingRegressionForFaction(t, faction, playerMapID)
     -- Restore
     MockWoW.config.playerFaction = savedFaction
     MockWoW.config.currentMapID = savedMap
+    C_QuestLog.IsQuestFlaggedCompleted = savedCompleted
+    C_Map.GetMapArtID, C_Map.GetMapInfo = savedArt, savedInfo
+    C_Map.GetWorldPosFromMapPos, C_Map.GetMapPosFromWorldPos = savedWorld, savedMapPos
+    CreateVector2D = savedVector
+    C_TaxiMap = savedTaxi
     QR.PlayerInfo:InvalidateCache()
 end
 
-T:run("Routing Regression: all dungeons reachable for Alliance", function(t)
+T:run("Routing Regression: documented dungeon network reachable for Alliance", function(t)
     routingRegressionForFaction(t, "Alliance", 84)
 end)
 
-T:run("Routing Regression: all dungeons reachable for Horde", function(t)
+T:run("Routing Regression: documented dungeon network reachable for Horde", function(t)
     routingRegressionForFaction(t, "Horde", 85)
+end)
+
+T:run("DungeonData: rescans are idempotent and preserve the selected journal tier", function(t)
+    resetDungeonData()
+    local original = _G.EJ_GetCurrentTier
+    local selected = 1
+    local oldSelect = EJ_SelectTier
+    _G.EJ_GetCurrentTier = function() return selected end
+    EJ_SelectTier = function(tier) selected = tier; oldSelect(tier) end
+    QR.DungeonData:ScanInstances()
+    local firstCount = #QR.DungeonData.byTier[1]
+    QR.DungeonData:ScanInstances()
+    t:assertEqual(firstCount, #QR.DungeonData.byTier[1], "Repeated scans do not duplicate instances")
+    t:assertEqual(1, selected, "The player's journal tier stays selected")
+    _G.EJ_GetCurrentTier, EJ_SelectTier = original, oldSelect
+end)
+
+T:run("DungeonData: runtime map without a position cannot corrupt existing entrance coordinates", function(t)
+    resetDungeonData()
+    QR.DungeonData.instances[9999] = { name = "Verified entrance", zoneMapID = 84, x = 0.2, y = 0.3 }
+    local original = C_EncounterJournal.GetDungeonEntrancesForMap
+    C_EncounterJournal.GetDungeonEntrancesForMap = function(mapID)
+        return mapID == 85 and { { journalInstanceID = 9999, name = "Unknown entrance" } } or {}
+    end
+    QR.DungeonData:ScanEntrances()
+    C_EncounterJournal.GetDungeonEntrancesForMap = original
+    t:assertEqual(84, QR.DungeonData.instances[9999].zoneMapID, "Map ID remains paired with verified coordinates")
+    t:assertEqual(0.2, QR.DungeonData.instances[9999].x, "Verified x coordinate remains intact")
+    resetDungeonData()
+    QR.DungeonData:Initialize()
 end)
