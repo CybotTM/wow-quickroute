@@ -1336,8 +1336,14 @@ function PathCalculator:FlightPointFor(uiMapID)
     -- dropping it reddens nothing. It is kept because a false faction here
     -- silently filters the whole flight network.
     local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    -- A character who is neither Alliance nor Horde -- a pandaren who has not
+    -- chosen -- can use a neutral flight master and no other: the faction ones
+    -- are hostile to them. AddZoneNodes has always read it that way for zone
+    -- nodes; this returned every point instead, so one character got no
+    -- Stormwind node and every Alliance flight master. One rule now, in both
+    -- places, and it is the one the game plays by.
     if faction ~= "Alliance" and faction ~= "Horde" then
-        return point
+        return point.faction == "both" and point or nil
     end
     if point.faction == "both" or point.faction == faction then
         return point
