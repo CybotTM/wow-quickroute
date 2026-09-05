@@ -1559,69 +1559,25 @@ T:run("A travel estimate never replaces a measured walk edge", function(t)
     t:assertEqual(7, edge.weight, "with its measured weight")
 end)
 
-T:run("Strategy 4 connects an unreachable node without a sub-second edge", function(t)
-    -- The last resort connects to every hub and city at baseTime - 60. This
-    -- pins the reachable property: the node gets edges, and none of them is
-    -- near-free. It does NOT reach the sub-second case -- that needs
-    -- baseTime = 0, which only happens for a continent to itself, and the
-    -- continent check above this write makes that state unreachable from a
-    -- built graph. The floor behind it is documented as uncovered where it
-    -- stands rather than pinned here.
+T:run("Unreachable maps cannot invent a connection to cities", function(t)
     local graph = scratchGraph()
     graph:AddNode("Orphan", { mapID = 99999, x = 0.5, y = 0.5, nodeType = "zone" })
     graph:AddNode("Stormwind City", { mapID = 84, x = 0.4965, y = 0.8725, nodeType = "city" })
     graph:AddNode("Orgrimmar", { mapID = 85, x = 0.469, y = 0.387, nodeType = "city" })
     QR.PathCalculator:BuildNodeIndex()
-
     QR.PathCalculator:ConnectViaContinentRouting("Orphan", 99999, 0.5, 0.5)
-
-    local written, tooCheap = 0, {}
-    for to, edge in pairs(graph.edges["Orphan"] or {}) do
-        written = written + 1
-        if edge.weight < 1 then
-            tooCheap[#tooCheap + 1] = to .. " w=" .. tostring(edge.weight)
-        end
-    end
-    t:assertGreaterThan(written, 0, "the last resort connected the node to something")
-    t:assertEqual(0, #tooCheap,
-        "no edge is under a second (" .. table.concat(tooCheap, ", ") .. ")")
+    t:assertTableCount(graph.edges["Orphan"], 0, "No transport is invented for an unknown map")
 end)
 
--------------------------------------------------------------------------------
--- The last-resort fallback picks the same node every time
--------------------------------------------------------------------------------
-
--- Regression: the fallback read like a search -- bestNode, bestTime, a "<"
--- comparison -- while the value compared was the constant CROSS_CONTINENT_TIME,
--- so the condition was true exactly once and the node taken was whichever name
--- pairs() yielded first. That is Lua hash order: it can differ between runs and
--- between clients, and a bug report naming a route through it is not
--- reproducible. Every candidate really does cost the same here, so the fix is
--- determinism rather than a cheapest-first search.
-T:run("Strategy 4 fallback picks the lexicographically first candidate", function(t)
+T:run("Unreachable maps cannot invent a connection to ordinary zones", function(t)
     local graph = scratchGraph()
-    -- Map 99999 has no continent, so strategies 1-3 cannot connect it. The
-    -- candidates are plain zone nodes, not hubs or cities, so the hub pass
-    -- writes nothing and the fallback is what runs.
     graph:AddNode("Orphan", { mapID = 99999, x = 0.5, y = 0.5, nodeType = "zone" })
-    local names = { "Zeta Outpost", "Alpha Landing", "Mid Station", "Beta Camp" }
-    for i, name in ipairs(names) do
+    for i, name in ipairs({ "Zeta Outpost", "Alpha Landing", "Mid Station", "Beta Camp" }) do
         graph:AddNode(name, { mapID = 84, x = 0.1 * i, y = 0.2, nodeType = "zone" })
     end
     QR.PathCalculator:BuildNodeIndex()
-
     QR.PathCalculator:ConnectViaContinentRouting("Orphan", 99999, 0.5, 0.5)
-
-    local written = {}
-    for to, edge in pairs(graph.edges["Orphan"] or {}) do
-        written[#written + 1] = to
-        t:assertEqual("travel", edge.edgeType, "the fallback writes a travel edge")
-    end
-    t:assertEqual(1, #written,
-        "exactly one node is connected (got: " .. table.concat(written, ", ") .. ")")
-    t:assertEqual("Alpha Landing", written[1],
-        "and it is the lexicographically first candidate, not whichever the "
-            .. "hash order yielded (got: " .. tostring(written[1]) .. ")")
+    t:assertTableCount(graph.edges["Orphan"], 0, "Node ordering cannot create an undocumented shortcut")
 end)
 
 -------------------------------------------------------------------------------
@@ -2097,22 +2053,23 @@ T:run("A flight pair is written in both directions", function(t)
 end)
 
 T:run("Undiscovered flight points do not count as discovered", function(t)
-    -- state 0 is a node the player has not found. This is the one live API
-    -- behaviour that could not be verified offline, and the gate the whole
-    -- feature rests on: treating state 0 as discovered hands out flights from
-    -- flight masters the player has never visited.
+    -- Blizzard FlightPathState: Current=0, Reachable=1, Unreachable=2.
     resetState()
     local saved = _G.C_TaxiMap
     -- Sorted so the two zones under test are the same on every run.
     local zoneIDs = {}
-    for uiMapID in pairs(QR.FlightPoints or {}) do zoneIDs[#zoneIDs + 1] = uiMapID end
+    for uiMapID in pairs(QR.FlightPoints or {}) do
+        if QR.PathCalculator:FlightPointFor(uiMapID) then zoneIDs[#zoneIDs + 1] = uiMapID end
+    end
     table.sort(zoneIDs)
     local firstZone, secondZone = zoneIDs[1], zoneIDs[2]
     t:assertNotNil(secondZone, "the data has at least two flight zones")
     _G.C_TaxiMap = {
         GetAllTaxiNodes = function(uiMapID)
-            if uiMapID == firstZone then return { { state = 1 } } end
-            return { { state = 0 }, { state = 0 } }
+            local point = QR.PathCalculator:FlightPointFor(uiMapID)
+            if not point then return {} end
+            return { { state = uiMapID == firstZone and 1 or 2,
+                position = { x = point.x, y = point.y } } }
         end,
     }
     QR.PathCalculator.knownFlightZonesOverride = nil
@@ -2122,7 +2079,7 @@ T:run("Undiscovered flight points do not count as discovered", function(t)
         t:assertEqual(true, known[firstZone] or false,
             "the zone with a discovered node counts")
         t:assertEqual(nil, known[secondZone],
-            "the zone whose nodes are all state 0 does not")
+            "the zone whose nodes are all state 2 does not")
     end
     _G.C_TaxiMap = saved
 end)
@@ -2286,8 +2243,7 @@ T:run("A step's destination map comes from its node, on every edge that has one"
     for from, tos in pairs(graph.edges or {}) do
         for to, edge in pairs(tos) do
             local toNode = graph.nodes[to]
-            if toNode and edge.data and edge.data.toMapID
-                and toNode.mapID ~= edge.data.toMapID then
+            if toNode and edge.data and edge.data.toMapID then
                 checked = checked + 1
                 local steps = QR.PathCalculator:BuildSteps({ from, to }, { edge })
                 local step = steps and steps[1]
@@ -2302,7 +2258,7 @@ T:run("A step's destination map comes from its node, on every edge that has one"
         end
     end
     t:assertGreaterThan(checked, 100,
-        "enough edges where the two sources disagree (" .. checked .. ")")
+        "destination metadata checked across the graph (" .. checked .. ")")
     t:assertEqual(nil, bad, "and the node wins on every one: " .. tostring(bad))
     QR.PathCalculator.knownFlightZonesOverride = nil
 end)

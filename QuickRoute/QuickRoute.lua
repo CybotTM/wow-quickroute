@@ -127,7 +127,7 @@ end)
 
 function QR:Initialize()
     -- Initialize saved variables
-    QuickRouteDB = QuickRouteDB or {}
+    if type(QuickRouteDB) ~= "table" then QuickRouteDB = {} end
 
     -- Migration logic
     local currentVersion = tonumber(QuickRouteDB.dbVersion) or 0
@@ -153,11 +153,36 @@ function QR:Initialize()
         sidebarCollapsed = false,     -- Map sidebar collapsed state
         activeTab = "route",          -- Last active tab in unified window
         groupByDestination = false,   -- Group teleports by destination
+        currencyVendors = {},         -- Verified merchant observations, partitioned by character
+        hearthstoneBinds = {},        -- Observed inn bindings, partitioned by character
     }
     for k, v in pairs(defaults) do
         if QuickRouteDB[k] == nil or type(QuickRouteDB[k]) ~= type(v) then
             QuickRouteDB[k] = v
         end
+    end
+
+    -- SavedVariables can outlive old settings ranges or be edited externally.
+    -- Reject nonfinite values before passing them to frame APIs or graph costs.
+    local ranges = {
+        windowScale = { 0.75, 1.5 },
+        loadingScreenTime = { 0, 30 },
+        maxCooldownHours = { 1, 24 },
+    }
+    for key, range in pairs(ranges) do
+        local value = QuickRouteDB[key]
+        if value ~= value or value == math.huge or value == -math.huge then
+            value = defaults[key]
+        end
+        QuickRouteDB[key] = math.max(range[1], math.min(range[2], value))
+    end
+    local choices = {
+        activeTab = { route = true, teleports = true },
+        waypointPriority = { mappin = true, quest = true, tomtom = true },
+        availabilityFilter = { all = true, available = true, ready = true },
+    }
+    for key, allowed in pairs(choices) do
+        if not allowed[QuickRouteDB[key]] then QuickRouteDB[key] = defaults[key] end
     end
 
     self.db = QuickRouteDB
@@ -192,6 +217,7 @@ function QR:OnPlayerLogin()
         end
 
         local steps = {
+            { "Hearthstone",        function() QR.Hearthstone:Initialize() end },
             { "Graph",              function() QR:InitializeGraph() end },
             { "PlayerTeleports",    function() QR:ScanPlayerTeleports() end },
             { "SecureButtons",      function() QR.SecureButtons:Initialize() end },
@@ -359,6 +385,8 @@ local function PrintHelp()
     print("  /qr bank - Route to nearest Bank")
     print("  /qr void - Route to nearest Void Storage")
     print("  /qr craft - Route to nearest Crafting Table")
+    QR:Print("  /qr currency <ID or name> - Route to fastest known currency vendor")
+    QR:Print("  /qr multi - Plan a trip through pasted or TomTom waypoints")
     print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
     print("  /qrextract [zones|quests|portals|continent] - Extract data for development")
     print("  Development: /qrscan, /qrgraph, /qrzone, /qrdebugpath, /qrtest graph")

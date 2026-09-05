@@ -131,7 +131,7 @@ function TravelTime:GetTeleportTime(teleportData)
     local loadTime = 0
 
     -- Determine cast time
-    if teleportType == QR.TeleportTypes.HEARTHSTONE then
+    if teleportType == QR.TeleportTypes.HEARTHSTONE or teleportData.isBoundHearth then
         castTime = self.CAST_TIMES.hearthstone
         loadTime = self.LOADING_TIMES.hearthstone
     elseif teleportType == QR.TeleportTypes.SPELL then
@@ -179,7 +179,7 @@ end
 -- @param teleportData table Teleport data from TeleportItemsData
 -- @param includeCooldownWait boolean Whether to add cooldown wait time
 -- @return number Total effective time in seconds
-function TravelTime:GetEffectiveTime(teleportID, teleportData, includeCooldownWait)
+function TravelTime:GetEffectiveTime(teleportID, teleportData, includeCooldownWait, actualSourceType)
     local baseTime = self:GetTeleportTime(teleportData)
 
     if not includeCooldownWait then
@@ -188,10 +188,10 @@ function TravelTime:GetEffectiveTime(teleportID, teleportData, includeCooldownWa
 
     -- Get cooldown remaining if CooldownTracker is available
     if QR.CooldownTracker then
-        local sourceType = "item"
-        if teleportData.type == QR.TeleportTypes.SPELL then
+        local sourceType = actualSourceType or "item"
+        if not actualSourceType and teleportData.type == QR.TeleportTypes.SPELL then
             sourceType = "spell"
-        elseif teleportData.type == QR.TeleportTypes.TOY then
+        elseif not actualSourceType and teleportData.type == QR.TeleportTypes.TOY then
             sourceType = "toy"
         end
 

@@ -100,34 +100,24 @@ T:run("RouteToMapPosition: calculates path for valid zone", function(t)
     t:assertTrue(ok, "RouteToMapPosition does not error: " .. tostring(err))
 end)
 
-T:run("RouteToMapPosition: resolves continent-level map to zone", function(t)
+T:run("RouteToMapPosition: preserves parent coordinates when projection is unavailable", function(t)
     resetState()
-    -- Map 12 is "Eastern Kingdoms" (mapType = 1, continent level)
-    -- Should try to resolve to a zone via GetMapInfoAtPosition
-    local resolvedMapID = nil
-    local origGetMapInfoAtPosition = _G.C_Map.GetMapInfoAtPosition
-
-    _G.C_Map.GetMapInfoAtPosition = function(mapID, x, y)
-        if mapID == 12 then
-            -- Pretend clicking on Stormwind area returns Stormwind
-            resolvedMapID = 84
-            return { mapID = 84, name = "Stormwind City", mapType = 3 }
-        end
-        if origGetMapInfoAtPosition then
-            return origGetMapInfoAtPosition(mapID, x, y)
-        end
-        return nil
+    local originalResolve = QR.PathCalculator.ResolveMapPosition
+    local originalCalculate = QR.PathCalculator.CalculatePath
+    local originalShow = QR.UI.Show
+    local seen
+    QR.PathCalculator.ResolveMapPosition = function(_, mapID, x, y) return mapID, x, y end
+    QR.PathCalculator.CalculatePath = function(_, mapID, x, y)
+        seen = { mapID, x, y }
+        return { steps = {}, totalTime = 1 }
     end
-
-    local ok, err = pcall(function()
-        QR.POIRouting:RouteToMapPosition(12, 0.5, 0.8)
-    end)
-
-    t:assertTrue(ok, "Does not error when resolving continent: " .. tostring(err))
-    t:assertEqual(84, resolvedMapID, "Continent resolved to zone via GetMapInfoAtPosition")
-
-    -- Restore
-    _G.C_Map.GetMapInfoAtPosition = origGetMapInfoAtPosition
+    QR.UI.Show = function() end
+    QR.POIRouting:RouteToMapPosition(12, 0.5, 0.8)
+    t:assertEqual(12, seen[1], "unprojected point retains original parent map")
+    t:assertEqual(0.8, seen[3], "parent coordinate remains on parent map")
+    QR.PathCalculator.ResolveMapPosition = originalResolve
+    QR.PathCalculator.CalculatePath = originalCalculate
+    QR.UI.Show = originalShow
 end)
 
 T:run("RouteToMapPosition: shows UI after routing", function(t)

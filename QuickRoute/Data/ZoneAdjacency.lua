@@ -1403,53 +1403,29 @@ function QR.GetAdjacentZones(mapID)
     return QR.ZoneAdjacencies[mapID] or {}
 end
 
---- Estimate travel time between two zones on the same continent
--- Uses BFS through adjacency graph
--- @param fromMapID number Starting map ID
--- @param toMapID number Destination map ID
--- @return number|nil Travel time in seconds, or nil if no path
-function QR.EstimateSameContinentTravel(fromMapID, toMapID)
-    if fromMapID == toMapID then
-        return 0
+--- Build the directed network of documented overland zone connections.
+-- Created at routing time, after Core/Graph.lua has loaded.
+function QR.BuildZoneTravelGraph()
+    local graph = QR.Graph:New()
+    for mapID, adjacencies in pairs(QR.ZoneAdjacencies) do
+        graph:AddNode(mapID)
+        for _, adj in ipairs(adjacencies) do graph:AddNode(adj.zone) end
     end
-
-    -- Check if same continent
-    if not QR.AreSameContinent(fromMapID, toMapID) then
-        return nil
-    end
-
-    -- BFS to find path through zone adjacencies
-    -- Uses front-pointer instead of table.remove(queue, 1) for O(1) dequeue
-    local visited = {}
-    local queue = {{zone = fromMapID, time = 0}}
-    local front = 1
-    visited[fromMapID] = true
-
-    while front <= #queue do
-        local current = queue[front]
-        front = front + 1
-
-        local adjacencies = QR.ZoneAdjacencies[current.zone]
-        if adjacencies then
-            for _, adj in ipairs(adjacencies) do
-                if adj.zone == toMapID then
-                    return current.time + adj.travelTime
-                end
-
-                if not visited[adj.zone] then
-                    visited[adj.zone] = true
-                    queue[#queue + 1] = {
-                        zone = adj.zone,
-                        time = current.time + adj.travelTime
-                    }
-                end
-            end
+    for mapID, adjacencies in pairs(QR.ZoneAdjacencies) do
+        for _, adj in ipairs(adjacencies) do
+            graph:AddEdge(mapID, adj.zone, adj.travelTime, "walk")
         end
     end
+    return graph
+end
 
-    -- No path found through adjacencies, estimate based on continent
-    -- Assume flying at ~300% speed across zone takes ~120 seconds average
-    return 180
+--- Fastest documented overland time, or nil when no connection is known.
+-- Adjacency times differ, so breadth-first (fewest hops) is not sufficient.
+function QR.EstimateSameContinentTravel(fromMapID, toMapID)
+    if fromMapID == toMapID then return 0 end
+    if not QR.AreSameContinent(fromMapID, toMapID) then return nil end
+    local _, cost = QR.BuildZoneTravelGraph():FindShortestPath(fromMapID, toMapID)
+    return cost
 end
 
 --- Get cross-continent travel estimate

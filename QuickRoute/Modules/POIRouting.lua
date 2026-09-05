@@ -26,10 +26,15 @@ local POIRouting = QR.POIRouting
 -- @param x number X coordinate (0-1)
 -- @param y number Y coordinate (0-1)
 function POIRouting:RouteToMapPosition(mapID, x, y)
-    if not mapID or not x or not y then
+    mapID, x, y = QR.PathCalculator:ResolveMapPosition(mapID, x, y)
+    if not mapID then
         QR:Debug("POIRouting: invalid arguments")
         return
     end
+    if QR.ServiceRouter and QR.ServiceRouter.CancelCurrencyRouting then
+        QR.ServiceRouter:CancelCurrencyRouting()
+    end
+    if QR.MultiRoute then QR.MultiRoute:CancelSelection() end
 
     -- Get zone name for display
     local L = QR.L
@@ -38,25 +43,6 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
         local info = C_Map.GetMapInfo(mapID)
         if info and info.name then
             zoneName = info.name
-        end
-    end
-
-    -- Resolve continent-level maps to specific zone
-    -- mapType: 0=Cosmic, 1=World, 2=Continent, 3=Zone
-    if C_Map and C_Map.GetMapInfo then
-        local info = C_Map.GetMapInfo(mapID)
-        if info and info.mapType and info.mapType <= 2 then
-            if C_Map.GetMapInfoAtPosition then
-                local child = C_Map.GetMapInfoAtPosition(mapID, x, y)
-                if child and child.mapID and child.mapID ~= mapID then
-                    QR:Debug(string_format(
-                        "POIRouting: resolved continent %d -> zone %d (%s)",
-                        mapID, child.mapID, child.name or "?"
-                    ))
-                    mapID = child.mapID
-                    zoneName = child.name or zoneName
-                end
-            end
         end
     end
 
@@ -78,12 +64,14 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
     -- Save destination so it persists across close/reopen
     if QR.db then
         QR.db.lastDestination = { mapID = mapID, x = x, y = y, title = zoneName }
+        QR.db.destinationLocked = true
     end
 
     -- Show route in UI. Pass the pre-calculated result via _pendingPOIRoute so
     -- RefreshRoute (triggered by SetActiveTab during Show) uses it directly
     -- instead of re-calculating from the active waypoint.
     if QR.UI then
+        QR.UI._pendingPOIRoute = nil
         if result then
             result.waypoint = { mapID = mapID, x = x, y = y, title = zoneName }
             result.waypointSource = "map_click"
@@ -91,6 +79,7 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
         end
         QR.UI:Show()
     end
+    return result
 end
 
 -------------------------------------------------------------------------------

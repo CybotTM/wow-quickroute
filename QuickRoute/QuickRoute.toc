@@ -1,6 +1,6 @@
 ## Interface: 120100
 ## Title: QuickRoute
-## Notes: Shows the shortest path to your destination using teleports and portals
+## Notes: Estimates fast routes to destinations using known teleports, portals and transports
 ## Author: Sebastian Mendel
 ## Version: 1.16.0
 ## SavedVariables: QuickRouteDB
@@ -38,6 +38,7 @@ Core\TravelTime.lua
 Core\PathCalculator.lua
 
 # Modules
+Modules\Hearthstone.lua
 Modules\PlayerInventory.lua
 Modules\CooldownTracker.lua
 Modules\WaypointIntegration.lua

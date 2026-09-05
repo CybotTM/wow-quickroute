@@ -47,6 +47,7 @@ function AddonLoader:Load(MockWoW, options)
         "Core/Graph.lua",
         "Core/TravelTime.lua",
         "Core/PathCalculator.lua",
+        "Modules/Hearthstone.lua",
         "Modules/PlayerInventory.lua",
         "Modules/CooldownTracker.lua",
         "Modules/WaypointIntegration.lua",

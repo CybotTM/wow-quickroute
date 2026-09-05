@@ -138,7 +138,11 @@ function QR.Graph:AddEdge(from, to, weight, edgeType, data)
         return false
     end
 
-    weight = weight or 1
+    if weight == nil then weight = 1 end
+    if type(weight) ~= "number" or weight ~= weight
+        or weight == math_huge or weight == -math_huge then
+        return false
+    end
     if weight < 0 then
         if QR.Warn then QR:Warn(string_format("Edge %s->%s had negative weight %s, clamping to 0.001", tostring(from), tostring(to), tostring(weight))) end
         weight = 0.001
@@ -162,6 +166,44 @@ function QR.Graph:AddBidirectionalEdge(nodeA, nodeB, weight, edgeType, data)
     return success1 and success2
 end
 
+--- Select the cheapest alternative without mutating edges returned in old routes.
+function QR.Graph:SetEdgeOptions(from, to, options)
+    local best
+    for _, option in ipairs(options) do
+        if not best or option.weight < best.weight
+            or (option.weight == best.weight
+                and tostring(option.data.teleportID or option.edgeType)
+                    < tostring(best.data.teleportID or best.edgeType)) then
+            best = option
+        end
+    end
+    if not best then
+        self.edges[from][to] = nil
+        return
+    end
+    self.edges[from][to] = {
+        weight = best.weight, edgeType = best.edgeType, data = best.data,
+        alternatives = options,
+    }
+end
+
+--- Keep competing methods for a pair, replacing only the same method/ability.
+function QR.Graph:AddEdgeOption(from, to, weight, edgeType, data)
+    local existing = self:GetEdge(from, to)
+    if not self:AddEdge(from, to, weight, edgeType, data) then return false end
+    local incoming = self:GetEdge(from, to)
+    local options = {}
+    for _, option in ipairs(existing and (existing.alternatives or { existing }) or {}) do
+        if option.edgeType ~= incoming.edgeType
+            or option.data.teleportID ~= incoming.data.teleportID then
+            options[#options + 1] = option
+        end
+    end
+    options[#options + 1] = incoming
+    self:SetEdgeOptions(from, to, options)
+    return true
+end
+
 -- Gets the edge between two nodes
 function QR.Graph:GetEdge(from, to)
     if not self.edges[from] then
@@ -177,11 +219,7 @@ end
 
 -- Dijkstra's algorithm to find the shortest path
 -- Returns: path (array of node names), cost (total weight), pathEdges (array of edges used)
-function QR.Graph:FindShortestPath(start, goal)
-    if not self.nodes[start] or not self.nodes[goal] then
-        return nil, nil, nil
-    end
-
+local function FindDistances(graph, start, goal)
     local dist = {}
     local prev = {}
     local prevEdge = {}
@@ -195,7 +233,7 @@ function QR.Graph:FindShortestPath(start, goal)
     pq:Push(start, 0)
 
     while not pq:IsEmpty() do
-        local current, currentDist = pq:Pop()
+        local current = pq:Pop()
 
         -- Skip if we've already processed this node with a better distance
         if not visited[current] then
@@ -207,7 +245,7 @@ function QR.Graph:FindShortestPath(start, goal)
             end
 
             -- Process neighbors
-            local neighbors = self:GetNeighbors(current)
+            local neighbors = graph:GetNeighbors(current)
             for neighbor, edge in pairs(neighbors) do
                 if not visited[neighbor] then
                     local newDist = dist[current] + edge.weight
@@ -223,6 +261,22 @@ function QR.Graph:FindShortestPath(start, goal)
             end
         end
     end
+
+    return dist, prev, prevEdge
+end
+
+--- All reachable costs in one search; useful when comparing many destinations.
+function QR.Graph:FindDistances(start)
+    if not self.nodes[start] then return {} end
+    local dist = FindDistances(self, start)
+    return dist
+end
+
+function QR.Graph:FindShortestPath(start, goal)
+    if not self.nodes[start] or not self.nodes[goal] then
+        return nil, nil, nil
+    end
+    local dist, prev, prevEdge = FindDistances(self, start, goal)
 
     -- No path found
     if not prev[goal] and start ~= goal then

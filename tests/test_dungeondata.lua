@@ -872,8 +872,9 @@ T:run("DungeonData Graph: skips instances without coordinates", function(t)
 end)
 
 -------------------------------------------------------------------------------
--- Routing Regression: every dungeon must be reachable for both factions
--- 0 failures allowed — catches hub isolation, island nodes, missing adjacencies
+-- Routing Regression: connected dungeons work; missing topology fails honestly.
+-- Ashran has no recorded mainland link and these two new zones have no known
+-- transport. Never invent an edge merely to make a complete-catalog test pass.
 -------------------------------------------------------------------------------
 
 local function routingRegressionForFaction(t, faction, playerMapID)
@@ -890,18 +891,26 @@ local function routingRegressionForFaction(t, faction, playerMapID)
 
     local total = 0
     local failed = {}
+    local uncoveredMaps = { [525] = true, [543] = true, [542] = true, [550] = true,
+        [539] = true, [535] = true, [534] = true, [2512] = true, [2509] = true }
+    local reachable = 0
 
     for instanceID, inst in pairs(QR.DungeonData.instances) do
         if inst.zoneMapID and inst.x and inst.y and inst.name then
             total = total + 1
             local result = QR.PathCalculator:CalculatePath(inst.zoneMapID, inst.x, inst.y, inst.name)
-            if not result or not result.totalTime then
+            if result and result.totalTime then
+                reachable = reachable + 1
+                t:assertTrue(result.totalTime >= 0 and result.totalTime < math.huge,
+                    inst.name .. " has a finite nonnegative route estimate")
+            elseif not uncoveredMaps[inst.zoneMapID] then
                 table.insert(failed, string.format("[%d] %s (map %d)", instanceID, inst.name, inst.zoneMapID))
             end
         end
     end
 
-    t:assertTrue(total > 100, faction .. " has >100 routable dungeons (got " .. total .. ")")
+    t:assertTrue(total > 100, faction .. " has >100 mapped dungeons (got " .. total .. ")")
+    t:assertTrue(reachable > 180, faction .. " retains routes to the documented network (got " .. reachable .. ")")
     if #failed > 0 then
         table.sort(failed)
         local msg = faction .. ": " .. #failed .. "/" .. total .. " routes failed:\n  " .. table.concat(failed, "\n  ")
@@ -916,10 +925,40 @@ local function routingRegressionForFaction(t, faction, playerMapID)
     QR.PlayerInfo:InvalidateCache()
 end
 
-T:run("Routing Regression: all dungeons reachable for Alliance", function(t)
+T:run("Routing Regression: documented dungeon network reachable for Alliance", function(t)
     routingRegressionForFaction(t, "Alliance", 84)
 end)
 
-T:run("Routing Regression: all dungeons reachable for Horde", function(t)
+T:run("Routing Regression: documented dungeon network reachable for Horde", function(t)
     routingRegressionForFaction(t, "Horde", 85)
+end)
+
+T:run("DungeonData: rescans are idempotent and preserve the selected journal tier", function(t)
+    resetDungeonData()
+    local original = _G.EJ_GetCurrentTier
+    local selected = 1
+    local oldSelect = EJ_SelectTier
+    _G.EJ_GetCurrentTier = function() return selected end
+    EJ_SelectTier = function(tier) selected = tier; oldSelect(tier) end
+    QR.DungeonData:ScanInstances()
+    local firstCount = #QR.DungeonData.byTier[1]
+    QR.DungeonData:ScanInstances()
+    t:assertEqual(firstCount, #QR.DungeonData.byTier[1], "Repeated scans do not duplicate instances")
+    t:assertEqual(1, selected, "The player's journal tier stays selected")
+    _G.EJ_GetCurrentTier, EJ_SelectTier = original, oldSelect
+end)
+
+T:run("DungeonData: runtime map without a position cannot corrupt existing entrance coordinates", function(t)
+    resetDungeonData()
+    QR.DungeonData.instances[9999] = { name = "Verified entrance", zoneMapID = 84, x = 0.2, y = 0.3 }
+    local original = C_EncounterJournal.GetDungeonEntrancesForMap
+    C_EncounterJournal.GetDungeonEntrancesForMap = function(mapID)
+        return mapID == 85 and { { journalInstanceID = 9999, name = "Unknown entrance" } } or {}
+    end
+    QR.DungeonData:ScanEntrances()
+    C_EncounterJournal.GetDungeonEntrancesForMap = original
+    t:assertEqual(84, QR.DungeonData.instances[9999].zoneMapID, "Map ID remains paired with verified coordinates")
+    t:assertEqual(0.2, QR.DungeonData.instances[9999].x, "Verified x coordinate remains intact")
+    resetDungeonData()
+    QR.DungeonData:Initialize()
 end)

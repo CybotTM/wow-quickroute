@@ -12,11 +12,14 @@ globals = {
 
     -- WoW API globals
     "CreateFrame",
+    "CreateVector2D",
+    "RegisterStateDriver",
     "UIParent",
     "GetTime",
     "UnitClass",
     "UnitFactionGroup",
     "UnitName",
+    "UnitGUID",
     "GetProfessions",
     "GetProfessionInfo",
     "SlashCmdList",

@@ -31,6 +31,20 @@ local function resetState()
     QR.WaypointIntegration._tomtomUIDs = {}
 end
 
+-- A map highlight can identify an entrance only when it is unambiguous.
+local function resolveWithUniqueEntrance(questID)
+    local original = C_EncounterJournal.GetDungeonEntrancesForMap
+    C_EncounterJournal.GetDungeonEntrancesForMap = function(mapID)
+        local entrances = original(mapID)
+        if mapID == 2248 then return { entrances[1] } end
+        return entrances
+    end
+    local ok, result = pcall(QR.WaypointIntegration.GetQuestWaypoint, QR.WaypointIntegration, questID)
+    C_EncounterJournal.GetDungeonEntrancesForMap = original
+    if not ok then error(result) end
+    return result
+end
+
 local function setMapPinWaypoint(mapID, x, y)
     MockWoW.config.hasUserWaypoint = true
     MockWoW.config.userWaypointMapID = mapID
@@ -749,7 +763,7 @@ T:run("Dungeon quest fallback: matches title prefix to dungeon instance", functi
     t:assertEqual(634, wp.mapID, "Routes to Stormheim (Halls of Valor entrance)")
 end)
 
-T:run("Dungeon quest fallback: title prefix matches zone name", function(t)
+T:run("Dungeon quest fallback: zone title prefix cannot fabricate a target coordinate", function(t)
     resetState()
 
     -- Quest in a zone that has no dungeon match but the title prefix IS a zone name
@@ -782,10 +796,7 @@ T:run("Dungeon quest fallback: title prefix matches zone name", function(t)
 
     _G.C_Map.GetMapInfo = origGetMapInfo
 
-    t:assertNotNil(wp, "Waypoint returned via zone name match")
-    t:assertEqual(118, wp.mapID, "Routes to Icecrown zone")
-    t:assertEqual(0.5, wp.x, "Zone center x coordinate")
-    t:assertEqual(0.5, wp.y, "Zone center y coordinate")
+    t:assertNil(wp, "Zone center is not offered as an exact quest destination")
 end)
 
 T:run("Dungeon quest fallback: non-dungeon quest without coords returns nil", function(t)
@@ -875,7 +886,7 @@ end)
 -- Method 6a: GetQuestAdditionalHighlights → GetDungeonEntrancesForMap
 -------------------------------------------------------------------------------
 
-T:run("Method 6a: highlights→entrance routes to dungeon entrance", function(t)
+T:run("Method 6a: highlights→entrance routes to a unique dungeon entrance", function(t)
     resetState()
 
     -- Quest 99020 is a dungeon quest with no standard coords
@@ -896,7 +907,7 @@ T:run("Method 6a: highlights→entrance routes to dungeon entrance", function(t)
 
     QR.DungeonData.scanned = true
 
-    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+    local wp = resolveWithUniqueEntrance(99020)
 
     t:assertNotNil(wp, "Waypoint returned via highlights→entrance")
     t:assertEqual(2248, wp.mapID, "Routes to Isle of Dorn")
@@ -966,7 +977,7 @@ T:run("Method 6a: highlights result is cached", function(t)
     QR.DungeonData.scanned = true
 
     -- First call populates cache
-    local wp1 = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+    local wp1 = resolveWithUniqueEntrance(99022)
     t:assertNotNil(wp1, "First call returns waypoint")
     t:assertEqual(2248, wp1.mapID, "First call routes to Isle of Dorn")
 
@@ -1920,7 +1931,7 @@ T:run("A dungeon quest routes to the entrance, not to the transit hub", function
     }
     QR.DungeonData.scanned = true
 
-    local result = QR.WaypointIntegration:GetQuestWaypoint(questID)
+    local result = resolveWithUniqueEntrance(questID)
 
     t:assertNotNil(result, "a destination was resolved")
     if not result then return end
