@@ -675,6 +675,7 @@ function TeleportPanel:ReleaseIconFrame(icon)
     icon:SetScript("OnLeave", nil)
     icon:SetScript("OnMouseUp", nil)
     if icon.helpBadge then icon.helpBadge:Hide() end
+    if icon.unavailableBadge then icon.unavailableBadge:Hide() end
 
     -- Reset textures
     if icon.iconTexture then
@@ -1107,7 +1108,9 @@ function TeleportPanel:ConfigureRowTexts(row, entry)
         end)
         helpButton:SetScript("OnEnter", function(button)
             GameTooltip:SetOwner(button, "ANCHOR_RIGHT")
-            GameTooltip:SetText(L["ACQUISITION_HELP"])
+            local unavailable = TeleportPanel:IsAcquisitionUnavailable(row.entry)
+            GameTooltip:SetText(L[unavailable and "ACQUISITION_UNOBTAINABLE" or "ACQUISITION_HELP"])
+            if unavailable then GameTooltip:AddLine(L["ACQUISITION_UNOBTAINABLE_HINT"], 0.8, 0.8, 0.8, true) end
             QR.AddTooltipBranding(GameTooltip)
             GameTooltip:Show()
         end)
@@ -1115,7 +1118,11 @@ function TeleportPanel:ConfigureRowTexts(row, entry)
         row.helpButton = helpButton
     end
     local missing = entry.status == STATUS.MISSING
-    if row.helpButton then row.helpButton:SetShown(missing) end
+    if row.helpButton then
+        row.helpButton:SetShown(missing)
+        row.helpButton:SetText(L[self:IsAcquisitionUnavailable(entry)
+            and "ACQUISITION_UNOBTAINABLE_SHORT" or "ACQUISITION_HELP"])
+    end
     if missing then statusText:Hide() end
     -- Keep a dedicated action visible without placing it over the item name.
     nameText:SetPoint("RIGHT", row, "RIGHT", missing and -114 or -70, 0)
@@ -1310,6 +1317,10 @@ function TeleportPanel:GetAcquisitionInfo(itemID, entry)
     local data = entry.data
     if not data then return nil end
 
+    if self:IsAcquisitionUnavailable(entry) then
+        return C.GRAY .. L["ACQUISITION_UNOBTAINABLE"] .. C.R .. "\n" .. L["ACQUISITION_UNOBTAINABLE_HINT"]
+    end
+
     local lines = {}
 
     -- Check for reputation requirement
@@ -1456,6 +1467,56 @@ function TeleportPanel:GetAcquisitionURL(entry)
     return string_format("https://www.wowhead.com/%s=%d", entry.isSpell and "spell" or "item", id)
 end
 
+--- Only complete, explicit ATT evidence can label a missing acquisition.
+-- The preview's character filter excludes removed sources, so inspect the
+-- raw indexed matches here. Never retain ATT objects or scan its full tree.
+function TeleportPanel:IsAcquisitionUnavailable(entry)
+    if not entry or entry.status ~= STATUS.MISSING or not IsAcquisitionID(entry.id) then return false end
+    local att = _G.AllTheThings or _G.ATTC
+    if type(att) ~= "table" or type(att.SearchForField) ~= "function" then return false end
+    local phases = att.PhaseConstants
+    if type(phases) ~= "table" or not IsAcquisitionID(phases.REMOVED_FROM_GAME)
+        or not IsAcquisitionID(phases.NEVER_IMPLEMENTED) then return false end
+    local field = entry.isSpell and "spellID" or "itemID"
+    local ok, matches = pcall(att.SearchForField, field, entry.id)
+    if not ok or type(matches) ~= "table" then return false end
+    local count = 0
+    for index in pairs(matches) do
+        count = count + 1
+        if count > 32 or not IsAcquisitionID(index) or index > 32 then return false end
+    end
+    if count == 0 then return false end
+    for index = 1, count do
+        local node = rawget(matches, index)
+        if type(node) ~= "table" then return false end
+        local id = rawget(node, field)
+        if not IsAcquisitionID(id) or id ~= entry.id then return false end
+        -- Removed unbound/BoE items can still have tradeable existing copies.
+        if not entry.isSpell then
+            local binding = rawget(node, "b")
+            if (issecretvalue and issecretvalue(binding)) or binding ~= 1 then return false end
+        end
+        local removed, seen = false, {}
+        for _ = 1, 16 do
+            if type(node) ~= "table" or seen[node] then return false end
+            seen[node] = true
+            local phase = rawget(node, "u")
+            if issecretvalue and issecretvalue(phase) then return false end
+            if phase ~= nil then
+                if not IsAcquisitionID(phase) or (phase ~= phases.REMOVED_FROM_GAME
+                    and phase ~= phases.NEVER_IMPLEMENTED) then return false end
+                removed = true
+            end
+            node = rawget(node, "sourceParent") or rawget(node, "parent")
+            if node == nil then break end
+        end
+        -- Truncation and unmarked alternatives remain unknown, even if an
+        -- earlier historical source was explicitly removed.
+        if node ~= nil or not removed then return false end
+    end
+    return true
+end
+
 -- Verified ATT API: src/base.lua exposes AllTheThings/ATTC;
 -- src/UI/Window Definitions.lua CreatePopoutForSearch accepts itemID:<id>
 -- and spellID:<id>, exactly as its own /att command does. No ATT dependency.
@@ -1479,7 +1540,8 @@ local function GetATTSourcePaths(panel, entry)
     local att = _G.AllTheThings or _G.ATTC
     if not panel:GetAcquisitionURL(entry) or type(att) ~= "table"
         or type(att.SearchForField) ~= "function" or type(att.CurrentCharacterFilters) ~= "function" then return {} end
-    local ok, matches = pcall(att.SearchForField, entry.isSpell and "spellID" or "itemID", entry.id)
+    local field = entry.isNPC and "npcID" or (entry.isSpell and "spellID" or "itemID")
+    local ok, matches = pcall(att.SearchForField, field, entry.id)
     if not ok or type(matches) ~= "table" then return {} end
     local paths = {}
     for index = 1, math_min(#matches, 12) do
@@ -1520,6 +1582,22 @@ function TeleportPanel:GetATTAcquisitionInfo(entry, sourcePath)
         if #lines >= 8 then break end
         local description=safeString(rawget(node,"description"))
         if description then add(description) end
+        for key, label in pairs({ minReputation = "ACQUISITION_REPUTATION_MIN",
+            maxReputation = "ACQUISITION_REPUTATION_MAX", minRenown = "ACQUISITION_RENOWN_MIN" }) do
+            local rule = rawget(node, key)
+            if type(rule) == "table" and not (issecretvalue and issecretvalue(rule)) then
+                local faction, amount = rawget(rule, 1), rawget(rule, 2)
+                if IsAcquisitionID(faction) and not (issecretvalue and issecretvalue(amount))
+                    and type(amount) == "number" and amount == amount and amount > -math.huge and amount < math.huge then
+                    local api = _G.C_Reputation
+                    local success, info
+                    if api and api.GetFactionDataByID then success, info = pcall(api.GetFactionDataByID, faction) end
+                    local name = success and type(info) == "table" and safeString(info.name)
+                        or string_format(L["ACQUISITION_FACTION_FALLBACK"], faction)
+                    add(string_format(L[label], name, amount))
+                end
+            end
+        end
         local quest=questName(rawget(node,"questID"))
         if quest then add(L["REQ_QUEST"] .. ": " .. quest) end
         local prerequisites=rawget(node,"sourceQuests")
@@ -1555,7 +1633,30 @@ end
 -- CurrentCharacterFilters does not evaluate quest completion, level, or timed
 -- availability. Map only the same supported conditions as the catalogue
 -- importer; an uncertain source can still be read/opened in ATT without a route.
-local function IsATTSourceRoutable(catalog, path)
+local function IsATTVendor(path, index)
+    local att = _G.AllTheThings or _G.ATTC
+    local constants = type(att) == "table" and rawget(att, "HeaderConstants")
+    local vendors = type(constants) == "table" and rawget(constants, "VENDORS")
+    if (issecretvalue and issecretvalue(vendors)) or type(vendors) ~= "number"
+        or vendors >= 0 or vendors <= -math.huge or vendors % 1 ~= 0 then return false end
+    local parent = path[index + 1]
+    local header = parent and rawget(parent, "headerID")
+    -- Match ATT's NPC vendor classification, not every NPC that drops loot.
+    return not (issecretvalue and issecretvalue(header)) and header == vendors
+end
+
+local function GetATTPurchaseNode(path)
+    if not IsAcquisitionID(rawget(path[1], "itemID")) or rawget(path[1], "npcID") then return nil end
+    for index = 2, #path do
+        if rawget(path[index], "questID") then return nil end
+        if IsAcquisitionID(rawget(path[index], "npcID")) then
+            return IsATTVendor(path, index) and path[1] or nil
+        end
+    end
+end
+
+local function IsATTSourceRoutable(catalog, path, purchaseNode)
+    local purchaseRequirements = {}
     local function number(value)
         return not (issecretvalue and issecretvalue(value)) and type(value) == "number"
             and value > -math.huge and value < math.huge
@@ -1588,7 +1689,10 @@ local function IsATTSourceRoutable(catalog, path)
                 if (issecretvalue and issecretvalue(rule)) or type(rule) ~= "table" then return false end
                 local faction, amount = rawget(rule, 1), rawget(rule, 2)
                 if not IsAcquisitionID(faction) or not number(amount) or rawget(rule, 3) ~= nil then return false end
-                req[key] = { faction, amount }
+                -- An item's reputation price gate does not prevent visiting
+                -- its vendor. NPC/ancestor reputation remains an access gate.
+                local requirements = node == purchaseNode and purchaseRequirements or req
+                requirements[key] = { faction, amount }
             end
         end
         local covenant = rawget(node, "covenantID")
@@ -1621,13 +1725,109 @@ local function IsATTSourceRoutable(catalog, path)
             if not ok or (issecretvalue and issecretvalue(available)) or available ~= true then return false end
         end
     end
-    return true
+    local purchaseAvailable
+    if next(purchaseRequirements) then
+        if type(catalog.CheckRequirements) == "function" then
+            local ok, available = pcall(catalog.CheckRequirements, catalog, purchaseRequirements)
+            if ok and not (issecretvalue and issecretvalue(available)) and type(available) == "boolean" then
+                purchaseAvailable = available
+            end
+        end
+    else
+        purchaseRequirements = nil
+    end
+    return true, purchaseRequirements, purchaseAvailable
+end
+
+-- Only coordinates owned by an identified NPC establish a vendor/giver
+-- position. ATT 5.3 uses map-keyed arrays of percentage coordinate pairs.
+local function GetATTNPCPoint(node, isVendor)
+    local npcID, coords = rawget(node, "npcID"), rawget(node, "coords")
+    if not IsAcquisitionID(npcID) or type(coords) ~= "table"
+        or (issecretvalue and issecretvalue(coords)) then return nil end
+    local maps = {}
+    for mapID in next, coords do
+        if not IsAcquisitionID(mapID) or #maps >= 12 then return nil end
+        maps[#maps + 1] = mapID
+    end
+    table_sort(maps)
+    for _, mapID in ipairs(maps) do
+        local points = rawget(coords, mapID)
+        if type(points) == "table" and not (issecretvalue and issecretvalue(points)) then
+            for index = 1, math_min(#points, 12) do
+                local pair = rawget(points, index)
+                if type(pair) == "table" and not (issecretvalue and issecretvalue(pair)) and rawget(pair, 3) == nil then
+                    local x, y = rawget(pair, 1), rawget(pair, 2)
+                    local secret = issecretvalue and (issecretvalue(x) or issecretvalue(y))
+                    if not secret and type(x) == "number" and type(y) == "number"
+                        and x >= 0 and x <= 100 and y >= 0 and y <= 100 then
+                        local name = rawget(node, "name")
+                        local att = _G.AllTheThings or _G.ATTC
+                        local names = type(att) == "table" and rawget(att, "NPCNameFromID")
+                        if type(name) ~= "string" and type(names) == "table" then name = rawget(names, npcID) end
+                        if (issecretvalue and issecretvalue(name)) or type(name) ~= "string" or name == "" then
+                            name = string_format(QR.L["ACQUISITION_NPC_FALLBACK"], npcID)
+                        end
+                        return { mapID = mapID, x = x / 100, y = y / 100, npcID = npcID, name = name,
+                            kind = isVendor and "vendor" or "npc", source = "ATT",
+                            sourceKind = "npc", sourceID = npcID, attSourceNode = node }
+                    end
+                end
+            end
+        end
+    end
+end
+
+--- Resolve an ATT item/spell source or an explicitly requested NPC. The optional
+-- source identity pins a later click to the original result while rechecking
+-- its current ancestry, access, and coordinates. No ATT object is modified.
+-- purchaseRequirements contains copied reputation/renown pairs from the leaf
+-- item; purchaseAvailable describes those gates only, not a promise of stock.
+function TeleportPanel:GetATTSourceLocation(entry, expectedSourceNode)
+    local catalog = QR.Catalog or {}
+    local field = entry and entry.isNPC and "npcID" or (entry and entry.isSpell and "spellID" or "itemID")
+    local giverPoints, giverLookups = {}, 0
+    for _, path in ipairs(GetATTSourcePaths(self, entry)) do
+        local allowed, purchaseRequirements, purchaseAvailable = IsATTSourceRoutable(catalog, path, GetATTPurchaseNode(path))
+        if rawget(path[1], field) == entry.id and allowed then
+            for pathIndex, node in ipairs(path) do
+                if (not entry.isNPC or rawget(node, "npcID") == entry.id)
+                    and (not expectedSourceNode or node == expectedSourceNode) then
+                    local point = GetATTNPCPoint(node, IsATTVendor(path, pathIndex))
+                    if point then
+                        point.purchaseRequirements, point.purchaseAvailable = purchaseRequirements, purchaseAvailable
+                        return point, path
+                    end
+                end
+                -- Quest coordinates are references, not guaranteed giver
+                -- positions. Follow explicit qgs IDs to independent NPC nodes.
+                local qgs = not entry.isNPC and IsAcquisitionID(rawget(node, "questID")) and rawget(node, "qgs")
+                if type(qgs) == "table" and not (issecretvalue and issecretvalue(qgs)) then
+                    for index = 1, math_min(#qgs, 12) do
+                        local npcID = rawget(qgs, index)
+                        if IsAcquisitionID(npcID) then
+                            if giverPoints[npcID] == nil and giverLookups < 12 then
+                                giverLookups = giverLookups + 1
+                                giverPoints[npcID] = self:GetATTSourceLocation({ id = npcID, isNPC = true }, expectedSourceNode) or false
+                            end
+                            local point = giverPoints[npcID]
+                            if point then
+                                point.kind, point.questID = "quest", rawget(node, "questID")
+                                return point, path
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 --- Match an indexed ATT source relationship to an independently recorded
 -- NPC/quest-giver coordinate. Never treat item/quest reference coords as a
 -- vendor position, traverse the full ATT database, or mutate ATT's objects.
 function TeleportPanel:GetAcquisitionLocation(entry)
+    if self:IsAcquisitionUnavailable(entry) then return nil end
     local mapID,x,y,name = self:GetVendorLocation(entry)
     if mapID then return {mapID=mapID,x=x,y=y,name=name,kind="vendor"} end
     local catalog = QR.Catalog
@@ -1637,16 +1837,27 @@ function TeleportPanel:GetAcquisitionLocation(entry)
         local givers = catalog:GetQuestLocations(quest.id,"giver",true)
         if givers[1] then return givers[1] end
     end
+    local attPoint, attPath = self:GetATTSourceLocation(entry)
+    if attPoint then return attPoint, attPath end
     catalog:Initialize()
     for _,path in ipairs(GetATTSourcePaths(self, entry)) do
-        if IsATTSourceRoutable(catalog, path) then
+        local allowed, purchaseRequirements, purchaseAvailable = IsATTSourceRoutable(catalog, path, GetATTPurchaseNode(path))
+        if allowed then
             for _,current in ipairs(path) do
                 local npcID,questID = rawget(current,"npcID"),rawget(current,"questID")
                 if IsAcquisitionID(npcID) then
                     local points = catalog.byNPC[npcID] or {}
                     for pointIndex=1,math_min(#points,12) do
                         local point = points[pointIndex]
-                        if self:GetVendorLocation({data={vendor=point}}) and catalog:IsAvailable(point,true) then return point,path end
+                        if self:GetVendorLocation({data={vendor=point}}) and catalog:IsAvailable(point,true) then
+                            if purchaseRequirements then
+                                local copy = {}
+                                for key, value in pairs(point) do copy[key] = value end
+                                copy.purchaseRequirements, copy.purchaseAvailable = purchaseRequirements, purchaseAvailable
+                                return copy, path
+                            end
+                            return point,path
+                        end
                     end
                 elseif IsAcquisitionID(questID) then
                     local givers = catalog:GetQuestLocations(questID,"giver",true)
@@ -1727,15 +1938,25 @@ function TeleportPanel:ShowAcquisitionHelp(entry)
     end
     local frame = self.acquisitionFrame
     frame.entry = entry
+    local unavailable = self:IsAcquisitionUnavailable(entry)
+    if frame.titleText then frame.titleText:SetText(L[unavailable and "ACQUISITION_UNOBTAINABLE" or "ACQUISITION_HELP"]) end
     frame.itemName:SetText(GetLocalizedTeleportName(entry) or entry.data.name or tostring(entry.id))
     local location, sourcePath = self:GetAcquisitionLocation(entry)
     local details = self:GetAcquisitionInfo(entry.id,entry) or L["HINT_CHECK_WOWHEAD"]
+    if location and (details == L["HINT_CHECK_TOY_VENDORS"] or details == L["HINT_CHECK_WOWHEAD"]) then details = "" end
+    local function append(text)
+        details = details ~= "" and (details .. "\n\n" .. text) or text
+    end
     local attInfo = self:GetATTAcquisitionInfo(entry, sourcePath)
-    if attInfo then details = details .. "\n\n" .. attInfo end
-    if location and location.kind ~= "vendor" then
+    if attInfo then append(attInfo) end
+    if location and location.purchaseRequirements and next(location.purchaseRequirements)
+        and location.purchaseAvailable ~= true then
+        append(L["ATT_SEARCH_PURCHASE_TT"])
+    end
+    if location and (location.kind ~= "vendor" or location.source == "ATT") then
         local map = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(location.mapID)
-        details = details .. "\n\n" .. L["ACQUISITION_SOURCE"] .. ": " .. (location.name or L["UNKNOWN"])
-            .. string_format("\n%s (%.1f, %.1f)",map and map.name or tostring(location.mapID),location.x*100,location.y*100)
+        append(L["ACQUISITION_SOURCE"] .. ": " .. (location.name or L["UNKNOWN"])
+            .. string_format("\n%s (%.1f, %.1f)",map and map.name or tostring(location.mapID),location.x*100,location.y*100))
     end
     frame.details:SetText(details)
     frame.detailContent:SetHeight(math_max(205,frame.details:GetStringHeight() or 205))
@@ -1744,6 +1965,7 @@ function TeleportPanel:ShowAcquisitionHelp(entry)
     local hasVendor = location ~= nil
     frame.routeButton:SetShown(hasVendor)
     frame.routeButton:SetText(L[location and location.kind == "vendor" and "ACQUISITION_VENDOR_ROUTE" or "ACQUISITION_SOURCE_ROUTE"])
+    frame.noVendor:SetText(L[unavailable and "ACQUISITION_UNOBTAINABLE" or "ACQUISITION_VENDOR_UNKNOWN"])
     frame.noVendor:SetShown(not hasVendor)
     local att = _G.AllTheThings or _G.ATTC
     frame.attButton:SetShown(type(att) == "table" and type(att.CreatePopoutForSearch) == "function")
@@ -1770,6 +1992,7 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
     iconFrame.entry = entry
     iconFrame:SetScript("OnMouseUp",nil)
     if iconFrame.helpBadge then iconFrame.helpBadge:Hide() end
+    if iconFrame.unavailableBadge then iconFrame.unavailableBadge:Hide() end
 
     if isOwned and QR.SecureButtons and not InCombatLockdown() then
         local iconBtn = QR.SecureButtons:GetButton()
@@ -1911,7 +2134,17 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
             badge:SetText("?")
             iconFrame.helpBadge = badge
         end
-        iconFrame.helpBadge:Show()
+        local unavailable = self:IsAcquisitionUnavailable(entry)
+        if unavailable and not iconFrame.unavailableBadge then
+            local badge = iconFrame:CreateTexture(nil, "OVERLAY")
+            badge:SetSize(14, 14)
+            badge:SetPoint("BOTTOMRIGHT", -1, 1)
+            badge:SetAtlas("common-icon-redx")
+            iconFrame.unavailableBadge = badge
+        end
+        if iconFrame.unavailableBadge then iconFrame.unavailableBadge:SetShown(unavailable) end
+        iconFrame.helpBadge:SetText("?")
+        iconFrame.helpBadge:SetShown(not unavailable)
         iconFrame:SetScript("OnMouseUp",function(_,button)
             if button == "LeftButton" then
                 PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
@@ -2372,8 +2605,8 @@ function TeleportPanel:RefreshList()
                     table_insert(availFiltered, entry)
                 end
             elseif availFilter == "obtainable" then
-                -- Owned + obtainable, exclude only faction/class-locked (NA)
-                if entry.status ~= STATUS.NA then
+                -- Keep existing unlocks; omit confirmed unavailable acquisitions.
+                if entry.status ~= STATUS.NA and not self:IsAcquisitionUnavailable(entry) then
                     table_insert(availFiltered, entry)
                 end
             end

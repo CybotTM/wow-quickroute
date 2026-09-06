@@ -10,6 +10,7 @@ local table_insert, table_sort = table.insert, table.sort
 local table_remove = table.remove
 local CreateFrame = CreateFrame
 local InCombatLockdown = InCombatLockdown
+local debugprofilestop = _G.debugprofilestop
 
 QR.DestinationSearch = {
     frame = nil,
@@ -34,6 +35,179 @@ local MAX_VISIBLE_ROWS = 16
 -- Hidden container for recycled frames
 local recycleContainer = CreateFrame("Frame")
 recycleContainer:Hide()
+
+-- ATT exposes existing ID indexes, not a free-text search API. Inspect only
+-- cached names on explicit searches; never build/traverse its database tree or
+-- request uncached item/tooltip data. Work and retained results are bounded.
+local ATT_KEYS_PER_FRAME, ATT_KEYS_PER_QUERY, ATT_RESULTS_LIMIT = 200, 40000, 20
+local ATT_SOURCES_PER_QUERY = 80
+
+local function PublicValue(value, kind)
+    return not (issecretvalue and issecretvalue(value)) and type(value) == kind
+end
+
+local function PublicID(value)
+    return PublicValue(value, "number") and value > 0 and value < 2147483648 and value % 1 == 0
+end
+
+local function DisplayText(value)
+    if not PublicValue(value, "string") then return nil end
+    return (value:sub(1, 180):gsub("|", "||"))
+end
+
+local function ATTProvider()
+    local att = _G.AllTheThings or _G.ATTC
+    if PublicValue(att, "table") and type(rawget(att, "GetRawFieldContainer")) == "function"
+        and QR.TeleportPanel and type(QR.TeleportPanel.GetATTSourceLocation) == "function" then return att end
+end
+
+local function CachedItemName(id)
+    if not (C_Item and C_Item.IsItemDataCachedByID and C_Item.GetItemNameByID) then return nil end
+    local ok, cached = pcall(C_Item.IsItemDataCachedByID, id)
+    if not ok or not PublicValue(cached, "boolean") or not cached then return nil end
+    local success, name = pcall(C_Item.GetItemNameByID, id)
+    if success and PublicValue(name, "string") then return name end
+end
+
+local function ValidATTLocation(point)
+    return PublicValue(point, "table") and PublicID(point.mapID)
+        and PublicValue(point.x, "number") and point.x >= 0 and point.x <= 1
+        and PublicValue(point.y, "number") and point.y >= 0 and point.y <= 1
+        and PublicValue(point.attSourceNode, "table") and PublicID(point.sourceID)
+end
+
+function DS:CancelATTSearch()
+    self._attSearch = nil -- Pending callbacks retain at most one bounded query until their next frame.
+end
+
+--- Start or reuse an explicit query against ATT's already-built flat indexes.
+function DS:StartATTSearch(query, catalogResults)
+    local att = ATTProvider()
+    if self._currencyOnly or not self.isShowing or InCombatLockdown() or not att
+        or not PublicValue(query, "string") or #query < 2 or #query > 200 then
+        self:CancelATTSearch()
+        return
+    end
+    if self._attSearch and self._attSearch.query == query and self._attSearch.provider == att then return end
+    self:CancelATTSearch()
+    local okItems, items = pcall(att.GetRawFieldContainer, "itemID")
+    local okNPCs, npcs = pcall(att.GetRawFieldContainer, "npcID")
+    if not okItems or not PublicValue(items, "table") then items = nil end
+    if not okNPCs or not PublicValue(npcs, "table") then npcs = nil end
+    if not items and not npcs then return end
+    local names = rawget(att, "NPCNameFromID")
+    if not PublicValue(names, "table") then names = nil end
+    local state = { query = query, provider = att, results = {}, seen = {}, searching = true,
+        scanned = 0, sourceChecks = 0, stage = 1, direct = {}, directIndex = 1, nextRefresh = 0 }
+    self._attSearch = state
+    local queryLower = string_lower(query)
+    local function direct(id, isNPC, name)
+        local container
+        if isNPC then container = npcs else container = items end
+        if PublicID(id) and container and PublicValue(rawget(container, id), "table") then
+            state.direct[#state.direct + 1] = {id = id, isNPC = isNPC, name = name}
+        end
+    end
+    local itemID = tonumber(query:match("item:(%d+)"))
+    local numericID = tonumber(query:match("^%s*(%d+)%s*$"))
+    if itemID or numericID then
+        direct(itemID or numericID, false, CachedItemName(itemID or numericID))
+        if numericID then direct(numericID, true, names and rawget(names, numericID)) end
+    elseif C_Item and C_Item.GetItemInfo then
+        -- One exact-name lookup, before unordered indexes: a cached item name
+        -- or pasted link remains usable even when the broad scan is truncated.
+        local success, name, link = pcall(C_Item.GetItemInfo, query)
+        if success and PublicValue(link, "string") and #link <= 2048 then
+            direct(tonumber(link:match("item:(%d+)")), false, name)
+        end
+    end
+    -- Existing catalogue matches are also bounded (40). Resolve their NPC IDs
+    -- directly so an exact vendor name does not depend on ATT index ordering.
+    for index = 1, math.min(type(catalogResults) == "table" and #catalogResults or 0, 40) do
+        local entry = catalogResults[index]
+        direct(entry.npcID, true, entry.name)
+    end
+    local function active()
+        return self._attSearch == state and self.isShowing and not self._currencyOnly
+            and not InCombatLockdown() and ATTProvider() == att
+    end
+    local function add(id, isNPC, name)
+        local key = (isNPC and "npc:" or "item:") .. id
+        if state.seen[key] then return end
+        if state.sourceChecks >= ATT_SOURCES_PER_QUERY then
+            state.limited, state.searching = true, false
+            return
+        end
+        state.sourceChecks = state.sourceChecks + 1
+        state.seen[key] = true
+        local entry = {id = id, isNPC = isNPC == true}
+        local success, point = pcall(QR.TeleportPanel.GetATTSourceLocation, QR.TeleportPanel, entry)
+        if not success or not ValidATTLocation(point) then return end
+        local sourceName = DisplayText(point.name) or tostring(point.sourceID)
+        local title = DisplayText(name) or tostring(id)
+        state.results[#state.results + 1] = {
+            name = isNPC and sourceName or (title .. " - " .. sourceName),
+            mapID = point.mapID, x = point.x, y = point.y, npcID = point.npcID, questID = point.questID,
+            source = "ATT", attQuery = query, attEntry = entry, attProvider = att, attSourceNode = point.attSourceNode,
+            attSourceID = point.sourceID, attSourceKind = point.sourceKind,
+            attPurchaseRequirement = point.purchaseRequirements ~= nil and point.purchaseAvailable ~= true,
+            tag = isNPC and QR.L["ATT_SEARCH_NPC"] or sourceName,
+            attDescription = not isNPC and string_format(QR.L["ATT_SEARCH_ITEM_SOURCE"], title) or nil,
+        }
+    end
+    local function step()
+        if not active() then
+            if self._attSearch == state then self:CancelATTSearch() end
+            return
+        end
+        local before = #state.results
+        local candidate = state.direct[state.directIndex]
+        if candidate then
+            state.directIndex = state.directIndex + 1
+            add(candidate.id, candidate.isNPC, candidate.name)
+        else
+            local started = debugprofilestop and debugprofilestop()
+            for index = 1, ATT_KEYS_PER_FRAME do
+                if state.scanned >= ATT_KEYS_PER_QUERY then state.limited = true; state.searching = false; break end
+                local container
+                if state.stage == 1 then container = names else container = items end
+                if not container then
+                    state.stage, state.cursor = state.stage + 1, nil
+                    if state.stage > 2 then state.searching = false; break end
+                else
+                    -- ATT may update a cache between frames. A removed cursor
+                    -- ends this partial scan safely instead of restarting it.
+                    local success, id, value = pcall(next, container, state.cursor)
+                    if not success then state.limited = true; state.searching = false; break end
+                    if id == nil then
+                        state.stage, state.cursor = state.stage + 1, nil
+                        if state.stage > 2 then state.searching = false; break end
+                    else
+                        state.cursor, state.scanned = id, state.scanned + 1
+                        if PublicID(id) then
+                            local isNPC = state.stage == 1
+                            local name
+                            if isNPC then name = value else name = CachedItemName(id) end
+                            if PublicValue(name, "string") and #name <= 600
+                                and string_find(string_lower(name), queryLower, 1, true) then
+                                add(id, isNPC, name)
+                                break -- At most one source ancestry lookup per frame.
+                            end
+                        end
+                    end
+                end
+                if started and index % 20 == 0 and debugprofilestop() - started >= 1.5 then break end
+            end
+        end
+        if #state.results >= ATT_RESULTS_LIMIT then state.limited = true; state.searching = false end
+        if not state.searching or (#state.results > before and GetTime() >= state.nextRefresh) then
+            state.nextRefresh = GetTime() + 0.15
+            self:RefreshDropdown(query)
+        end
+        if state.searching and active() then C_Timer.After(0, step) end
+    end
+    C_Timer.After(0, step)
+end
 
 --- Collect all destination results, optionally filtered by search query
 -- @param query string Search text (empty = all results)
@@ -298,6 +472,8 @@ function DS:RegisterCombat()
 end
 
 function DS:HideDropdown()
+    self:CancelATTSearch()
+    if self._searchTimer then self._searchTimer:Cancel(); self._searchTimer = nil end
     if self.frame then
         self.frame:Hide()
     end
@@ -321,14 +497,14 @@ function DS:CreateDropdown()
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
 
-    -- Backdrop (tooltip-style, same as DungeonPicker)
+    -- Opaque reading surface keeps the route controls behind the results hidden.
     frame:SetBackdrop({
-        bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+        bgFile = "Interface\\Buttons\\WHITE8x8",
         edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
         tile = true, tileSize = 16, edgeSize = 16,
         insets = { left = 4, right = 4, top = 4, bottom = 4 },
     })
-    frame:SetBackdropColor(0.1, 0.1, 0.1, 0.95)
+    frame:SetBackdropColor(0.1, 0.1, 0.1, 1)
     frame:SetBackdropBorderColor(0.4, 0.4, 0.4, 0.8)
 
     -- Scroll frame for rows
@@ -531,6 +707,10 @@ function DS:CreateResultRow(entry, yOffset)
         if entry.source == "catalogue" then
             GameTooltip:AddLine(L["CATALOG_LOCATION"], 0.7, 0.7, 0.7, true)
             GameTooltip:AddLine(L["CATALOG_SEARCH_LANGUAGE"], 0.7, 0.7, 0.7, true)
+        elseif entry.source == "ATT" then
+            if entry.attDescription then GameTooltip:AddLine(entry.attDescription, 0.7, 0.7, 0.7, true) end
+            GameTooltip:AddLine(L["ATT_SEARCH_SOURCE_TT"], 0.7, 0.7, 0.7, true)
+            if entry.attPurchaseRequirement then GameTooltip:AddLine(L["ATT_SEARCH_PURCHASE_TT"], 1, 0.82, 0, true) end
         elseif entry.source == "merchant" then
             GameTooltip:AddLine(L["CURRENCY_VENDOR_OBSERVED"], 0.7, 0.7, 0.7, true)
         end
@@ -574,6 +754,7 @@ function DS:RefreshDropdown(query)
     self._lastQuery = query
 
     local results = self:CollectResults(query)
+    self:StartATTSearch(query, results.catalog)
     if self._currencyOnly then
         results.waypoints, results.quests, results.cities, results.dungeons, results.services, results.catalog = {}, {}, {}, {}, {}, {}
         if self._selectedCurrencyID then
@@ -753,6 +934,36 @@ function DS:RefreshDropdown(query)
         end
     end
 
+    local attSearch = self._attSearch
+    if attSearch then
+        local _, nextY = self:CreateSectionHeader("att", L["DEST_SEARCH_ATT"], yOffset)
+        yOffset, totalRows = nextY, totalRows + 1
+        if not self.collapsedSections.att then
+            for _, entry in ipairs(attSearch.results) do
+                local duplicate = false
+                if entry.attEntry.isNPC then
+                    for _, known in ipairs(results.catalog) do
+                        if known.npcID == entry.npcID and known.mapID == entry.mapID
+                            and known.x == entry.x and known.y == entry.y then duplicate = true; break end
+                    end
+                end
+                if not duplicate then
+                    local _, rowY = self:CreateResultRow(entry, yOffset)
+                    yOffset, totalRows = rowY, totalRows + 1
+                end
+            end
+            if attSearch.searching or attSearch.limited or #attSearch.results == 0 then
+                local statusKey = attSearch.searching and "ATT_SEARCH_LOADING"
+                    or (attSearch.limited and "ATT_SEARCH_MORE" or "DEST_SEARCH_NO_RESULTS")
+                local _, rowY = self:CreateResultRow({ name = L[statusKey],
+                    informational = true, multiline = true }, yOffset)
+                yOffset, totalRows = rowY, totalRows + 1
+            end
+            local _, rowY = self:CreateResultRow({ name = L["ATT_SEARCH_HINT"], informational = true, multiline = true }, yOffset)
+            yOffset, totalRows = rowY, totalRows + 1
+        end
+    end
+
     if #results.currencies > 0 then
         local title = self._selectedCurrencyID and string_format(L["CURRENCY_VENDOR_SELECT"], QR.ServiceRouter:GetCurrencyName(self._selectedCurrencyID)) or L["DEST_SEARCH_CURRENCIES"]
         local _, newY = self:CreateSectionHeader("currencies", title, yOffset)
@@ -866,6 +1077,8 @@ end
 function DS:SelectResult(entry)
     if not entry then return end
     if entry.informational then return end
+    if entry.source == "ATT" and (InCombatLockdown() or not self._attSearch
+        or self._attSearch.query ~= entry.attQuery) then return end
     if entry.currencyBack then
         self._selectedCurrencyID = nil
         self:RefreshDropdown("")
@@ -902,7 +1115,21 @@ function DS:SelectResult(entry)
     -- Note: PlaySound is already called by the row OnClick handler
     local mapID = entry.mapID or entry.zoneMapID
     local x, y = entry.x, entry.y
-    if entry.questID and entry.source ~= "catalogue" then
+    if entry.source == "ATT" then
+        local point
+        if entry.attProvider == ATTProvider() and type(entry.attEntry) == "table" and entry.attSourceNode then
+            local ok, fresh = pcall(QR.TeleportPanel.GetATTSourceLocation, QR.TeleportPanel, entry.attEntry, entry.attSourceNode)
+            if ok and ValidATTLocation(fresh) and fresh.attSourceNode == entry.attSourceNode
+                and fresh.sourceID == entry.attSourceID and fresh.sourceKind == entry.attSourceKind then point = fresh end
+        end
+        if not point then
+            QR:Print(QR.L["DESTINATION_INACCESSIBLE"])
+            self:CancelATTSearch()
+            self:RefreshDropdown(self._lastQuery)
+            return
+        end
+        mapID, x, y = point.mapID, point.x, point.y
+    elseif entry.questID and entry.source ~= "catalogue" then
         local wi = QR.WaypointIntegration
         local ok, waypoint = false, nil
         if wi and wi.GetQuestWaypoint then ok, waypoint = pcall(wi.GetQuestWaypoint, wi, entry.questID, true) end
@@ -935,6 +1162,8 @@ function DS:OnSearchTextChanged(text)
     if self._suppressTextChanged then return end
     if not self.isShowing then return end
 
+    self:CancelATTSearch()
+
     -- Debounced: every keystroke used to re-collect and re-render the whole
     -- result set, so typing a six-letter zone name rebuilt the list six times.
     -- Same pattern TeleportPanel uses for its own refresh, with a shorter
@@ -944,9 +1173,9 @@ function DS:OnSearchTextChanged(text)
         self._searchTimer = nil
     end
     self._searchTimer = C_Timer.NewTimer(0.15, function()
-        DS._searchTimer = nil
-        if DS.isShowing then
-            DS:RefreshDropdown(text)
+        self._searchTimer = nil
+        if self.isShowing and not InCombatLockdown() then
+            self:RefreshDropdown(text)
         end
     end)
 end
