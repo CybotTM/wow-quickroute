@@ -305,26 +305,31 @@ function TR:FindPath(graph, start, goal)
             end
         end
     end
-    for _, node in pairs(graph.nodes) do
+    local function collectNode(node)
         local implicit = self:GetNodePhase(node.mapID)
         if implicit then phaseMaps[implicit.mapID] = true end
         if node.mapArtID then phaseMaps[node.phaseCheckMapID or node.mapID] = true end
         collect(node.requirements)
     end
-    for _, outgoing in pairs(graph.edges) do
-        for _, selected in pairs(outgoing) do
-            for _, edge in ipairs(selected.alternatives or { selected }) do
-                collect(edge.data and edge.data.requirements)
-                if edge.data and edge.data.phaseMapID then phaseMaps[edge.data.phaseMapID] = true end
+    local function collectEdge(edge)
+        collect(edge.data and edge.data.requirements)
+        if edge.data and edge.data.phaseMapID then phaseMaps[edge.data.phaseMapID] = true end
+    end
+    -- Most queries already have a valid lower-bound route. Inspect only its
+    -- phase dependencies before considering the rest of the transport graph.
+    for _, name in ipairs(optimisticPath) do collectNode(graph.nodes[name]) end
+    for _, edge in ipairs(optimisticEdges) do collectEdge(edge) end
+    local keys, initial = {}, {}
+    local function initializePhases()
+        for mapID in pairs(phaseMaps) do
+            if initial[mapID] == nil then
+                keys[#keys + 1] = mapID
+                initial[mapID] = self:GetMapArtID(mapID) or false
             end
         end
+        table_sort(keys)
     end
-    local keys, initial = {}, {}
-    for mapID in pairs(phaseMaps) do
-        keys[#keys + 1] = mapID
-        initial[mapID] = self:GetMapArtID(mapID) or false
-    end
-    table_sort(keys)
+    initializePhases()
     local policy = { initialState = initial }
     function policy:Signature(state)
         local parts = {}
@@ -373,6 +378,18 @@ function TR:FindPath(graph, start, goal)
         if not optimisticState then break end
     end
     if optimisticState then return optimisticPath, optimisticCost, optimisticEdges end
+
+    -- A rejected lower bound can require a detour through unrelated phase
+    -- controls. Discover all alternatives before the existing stateful search,
+    -- extending the original live state rather than the failed route's state.
+    for _, node in pairs(graph.nodes) do collectNode(node) end
+    for _, outgoing in pairs(graph.edges) do
+        for _, selected in pairs(outgoing) do
+            for _, edge in ipairs(selected.alternatives or { selected }) do collectEdge(edge) end
+        end
+    end
+    initializePhases()
+    checks = {} -- Initial state gained keys; discard checks made against its earlier shape.
     return graph:FindShortestPathWithState(start, goal, policy)
 end
 

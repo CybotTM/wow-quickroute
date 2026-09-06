@@ -37,33 +37,58 @@ end
 function Catalog:Reset()
     self._source, self._searchCache, self._accessCache = nil, nil, nil
     self._npcNames, self._npcSearchNames, self._questSearchNames = nil, nil, nil
+    self.byCurrency, self.byQuest, self.byNPC, self.byMap, self.searchRows = nil, nil, nil, nil, nil
 end
 
-function Catalog:Initialize()
+-- Build only the index needed by a lookup. Explicit Initialize() retains the
+-- full-index contract used by acquisition integrations and existing callers.
+function Catalog:Initialize(kind)
     local source = QR.DestinationCatalog
-    if self._source == source and self.byCurrency then return end
-    self._source = source
-    self.byCurrency, self.byQuest, self.byNPC, self.byMap, self.searchRows = {}, {}, {}, {}, {}
-    self._accessCache, self._searchCache = nil, nil
+    if self._source ~= source then
+        self:Reset()
+        self._source = source
+    end
+    local full = kind == nil
+    local buildCurrency = (full or kind == "currency") and not self.byCurrency
+    local buildQuest = (full or kind == "quest") and not self.byQuest
+    local buildNPC = full and not self.byNPC
+    local buildSearch = (full or kind == "search") and not self.searchRows
+    if not (buildCurrency or buildQuest or buildNPC or buildSearch) then return end
+    if buildCurrency then self.byCurrency = {} end
+    if buildQuest then self.byQuest = {} end
+    if buildNPC then self.byNPC = {} end
+    if buildSearch then self.byMap, self.searchRows = {}, {} end
     if type(source) ~= "table" then return end
-    for _, entry in ipairs(source.vendors or {}) do
-        if validPoint(entry) and finite(entry.currencyID) and entry.currencyID > 0 then
-            self.byCurrency[entry.currencyID] = self.byCurrency[entry.currencyID] or {}
-            insert(self.byCurrency[entry.currencyID], entry)
+    if buildCurrency then
+        for _, entry in ipairs(source.vendors or {}) do
+            if validPoint(entry) and finite(entry.currencyID) and entry.currencyID > 0 then
+                self.byCurrency[entry.currencyID] = self.byCurrency[entry.currencyID] or {}
+                insert(self.byCurrency[entry.currencyID], entry)
+            end
         end
     end
+    if not (buildQuest or buildNPC or buildSearch) then return end
     for _, category in ipairs({ "npcs", "quests" }) do
         for _, entry in ipairs(source[category] or {}) do
             if validPoint(entry) and type(entry.name) == "string" then
-                local index = entry.questID and self.byQuest or self.byNPC
                 local id = entry.questID or entry.npcID
                 if finite(id) and id > 0 then
-                    index[id] = index[id] or {}
-                    insert(index[id], entry)
-                    entry.searchName = lower(entry.name)
-                    insert(self.searchRows, entry)
-                    self.byMap[entry.mapID] = self.byMap[entry.mapID] or {}
-                    insert(self.byMap[entry.mapID], entry)
+                    local index
+                    if entry.questID then
+                        if buildQuest then index = self.byQuest end
+                    elseif buildNPC then
+                        index = self.byNPC
+                    end
+                    if index then
+                        index[id] = index[id] or {}
+                        insert(index[id], entry)
+                    end
+                    if buildSearch then
+                        entry.searchName = lower(entry.name)
+                        insert(self.searchRows, entry)
+                        self.byMap[entry.mapID] = self.byMap[entry.mapID] or {}
+                        insert(self.byMap[entry.mapID], entry)
+                    end
                 end
             end
         end
@@ -186,7 +211,7 @@ function Catalog:GetDisplayName(entry)
 end
 
 function Catalog:GetCurrencyLocations(currencyID)
-    self:Initialize()
+    self:Initialize("currency")
     local locations, found = {}, {}
     for _, entry in ipairs(self.byCurrency[currencyID] or {}) do
         if self:IsAvailable(entry, true) then
@@ -203,7 +228,7 @@ function Catalog:GetCurrencyLocations(currencyID)
 end
 
 function Catalog:GetCurrencies()
-    self:Initialize()
+    self:Initialize("currency")
     local ids = {}
     for id in pairs(self.byCurrency) do insert(ids, id) end
     sort(ids)
@@ -211,7 +236,7 @@ function Catalog:GetCurrencies()
 end
 
 function Catalog:GetQuestLocations(questID, role, includeCompleted)
-    self:Initialize()
+    self:Initialize("quest")
     local results = {}
     for _, entry in ipairs(self.byQuest[questID] or {}) do
         if (not role or entry.role == role) and self:IsAvailable(entry, includeCompleted) then insert(results, entry) end
@@ -222,7 +247,7 @@ end
 --- Incremental substring filtering: extending a query searches previous matches,
 -- not the full catalogue again. Empty queries use the current-map index only.
 function Catalog:Search(query, mapID, limit)
-    self:Initialize()
+    self:Initialize("search")
     query = lower(type(query) == "string" and query or "")
     local numericID = tonumber(query)
     limit = limit or 40

@@ -135,6 +135,20 @@ function QTB:CancelRefresh()
     self._refreshRunning = false
 end
 
+-- TTL must release entries, not just stop reusing them. Lower-priority quests
+-- may never be queried again after the eight-button pool fills, and each entry
+-- can otherwise retain an entire obsolete travel graph.
+local function PruneQuestCache(watched)
+    local now = GetTime()
+    local graph = QR.PathCalculator and QR.PathCalculator.graph
+    for questID, cached in pairs(QTB.questCache) do
+        if (watched and not watched[questID]) or type(cached.time) ~= "number"
+            or now - cached.time >= CACHE_TTL or cached.graph ~= graph then
+            QTB.questCache[questID] = nil
+        end
+    end
+end
+
 -- SPELL_UPDATE_COOLDOWN also fires for unrelated abilities and global
 -- cooldown updates. Replan quests only when a teleport's readiness changes.
 local function UpdateCooldownState()
@@ -278,6 +292,8 @@ end
 --- Release all active buttons
 function QTB:ReleaseAllButtons()
     self:CancelRefresh()
+    wipe(self.questCache)
+    self._lastRefreshGraph, self._lastRefreshPosition = nil, nil
     if self.movementFrame then self.movementFrame:Hide() end
     if InCombatLockdown() then return end
 
@@ -315,9 +331,9 @@ local function ConfigureButton(btn, teleportID, sourceType, data)
             iconID = C_Item and C_Item.GetItemIconByID and C_Item.GetItemIconByID(teleportID)
                 or GetItemIcon and GetItemIcon(teleportID)
         end
-        if iconID then
-            btn.icon:SetTexture(iconID)
-        end
+        -- A retained quest button may now cast a different teleport whose
+        -- texture is not cached yet. Never leave the previous action's icon.
+        btn.icon:SetTexture(iconID or 134400)
     end
 
     -- Set tooltip
@@ -362,18 +378,27 @@ function QTB:RefreshButtons()
         return
     end
 
-    -- Release all current buttons
-    self:ReleaseAllButtons()
     UpdateCooldownState()
 
     local trackedQuests = GetTrackedQuestIDs()
-    if #trackedQuests == 0 then return end
+    local watched = {}
+    for _, questID in ipairs(trackedQuests) do watched[questID] = true end
+    -- Keep surviving buttons in place while the asynchronous route batch runs.
+    -- Releasing the entire pool here made every movement refresh visibly blink.
+    for questID, btn in pairs(self.activeButtons) do
+        if not watched[questID] then
+            ReleaseButton(btn)
+            self.activeButtons[questID] = nil
+        end
+    end
+    PruneQuestCache(watched)
+    if #trackedQuests == 0 then self:ReleaseAllButtons(); return end
     if self.movementFrame then self.movementFrame:Show() end
     self._lastRefreshPosition = GetPositionBucket()
     self._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph
 
     local generation = self._refreshGeneration
-    local index, activeCount = 1, 0
+    local index, activeCount, retained = 1, 0, {}
     self._refreshRunning = true
     local function IsCurrent()
         return generation == QTB._refreshGeneration and QTB.initialized and QTB.enabled and not InCombatLockdown()
@@ -391,22 +416,49 @@ function QTB:RefreshButtons()
             teleportID = nil
         end
         if teleportID and sourceType then
-            local btn = GetFreeButton()
+            local btn = QTB.activeButtons[questID] or GetFreeButton()
+            if not btn then
+                -- A new higher-priority quest may replace a full pool's last
+                -- unprocessed entry. Already-confirmed quests keep their slot.
+                for candidate = #trackedQuests, index + 1, -1 do
+                    local oldID = trackedQuests[candidate]
+                    local old = QTB.activeButtons[oldID]
+                    if old and not retained[oldID] then
+                        ReleaseButton(old)
+                        QTB.activeButtons[oldID] = nil
+                        btn = GetFreeButton()
+                        break
+                    end
+                end
+            end
             if btn then
                 if ConfigureButton(btn, teleportID, sourceType, data) then
                     btn.questID = questID
                     QTB.activeButtons[questID] = btn
+                    retained[questID] = true
                     activeCount = activeCount + 1
                     if QTB.updateFrame then QTB.updateFrame:Show() end
                 else
                     ReleaseButton(btn)
+                    QTB.activeButtons[questID] = nil
                 end
             end
+        elseif QTB.activeButtons[questID] then
+            ReleaseButton(QTB.activeButtons[questID])
+            QTB.activeButtons[questID] = nil
         end
         index = index + 1
         if index <= #trackedQuests and activeCount < POOL_SIZE then
             C_Timer.After(0, RefreshOne)
         else
+            PruneQuestCache(watched) -- A route in this batch may have rebuilt the graph.
+            for oldID, btn in pairs(QTB.activeButtons) do
+                if not retained[oldID] then
+                    ReleaseButton(btn)
+                    QTB.activeButtons[oldID] = nil
+                end
+            end
+            if not next(QTB.activeButtons) and QTB.updateFrame then QTB.updateFrame:Hide() end
             QTB._refreshRunning = false
             QTB._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph
         end
@@ -420,6 +472,7 @@ function QTB:OnMovementUpdate(elapsed)
     if self._movementElapsed < MOVEMENT_CHECK_INTERVAL then return end
     self._movementElapsed = 0
     if not self.initialized or not self.enabled or InCombatLockdown() or self._refreshRunning then return end
+    PruneQuestCache()
     local position = GetPositionBucket()
     local calculator = QR.PathCalculator
     if position ~= self._lastRefreshPosition or (calculator and (calculator.graph ~= self._lastRefreshGraph or calculator.graphDirty)) then

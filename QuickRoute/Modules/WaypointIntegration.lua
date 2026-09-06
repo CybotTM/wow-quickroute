@@ -60,7 +60,24 @@ local eventFrame = nil
 
 -- Quest coordinate cache to avoid repeated expensive zone scans
 local questCoordCache = {} -- { [questID] = { mapID, x, y, time } or { time = t } for "not found" }
+local questCoordCacheOrder = {}
+local questCoordCacheNext = 1
+local QUEST_COORD_CACHE_LIMIT = 256
 local QUEST_COORD_CACHE_TTL = 30 -- seconds
+
+-- TTL controls freshness; this FIFO ring also bounds retention during long
+-- sessions. Refreshing an existing quest does not consume another slot.
+local function CacheQuestCoordinates(questID, entry)
+    if not questCoordCache[questID] then
+        local oldestQuestID = questCoordCacheOrder[questCoordCacheNext]
+        if oldestQuestID then
+            questCoordCache[oldestQuestID] = nil
+        end
+        questCoordCacheOrder[questCoordCacheNext] = questID
+        questCoordCacheNext = questCoordCacheNext % QUEST_COORD_CACHE_LIMIT + 1
+    end
+    questCoordCache[questID] = entry
+end
 
 -- Debounce timer for OnWaypointChanged to prevent rapid-fire recalculations
 -- when quests cycle via SUPER_TRACKING_CHANGED
@@ -292,7 +309,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                         -- Check portal-through before returning
                                         local throughMapID, throughX, throughY = CheckPortalThroughZone(questID, childInfo.mapID)
                                         if throughMapID then
-                                            questCoordCache[questID] = { mapID = throughMapID, x = throughX, y = throughY, time = now }
+                                            CacheQuestCoordinates(questID, { mapID = throughMapID, x = throughX, y = throughY, time = now })
                                             return {
                                                 mapID = throughMapID,
                                                 x = throughX,
@@ -300,7 +317,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                                 title = questTitle,
                                             }
                                         end
-                                        questCoordCache[questID] = { mapID = childInfo.mapID, x = zoneX, y = zoneY, time = now }
+                                        CacheQuestCoordinates(questID, { mapID = childInfo.mapID, x = zoneX, y = zoneY, time = now })
                                         return {
                                             mapID = childInfo.mapID,
                                             x = zoneX,
@@ -329,7 +346,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     -- Check if quest has objectives beyond a portal from this zone
                     local throughMapID, throughX, throughY = CheckPortalThroughZone(questID, wpMapID)
                     if throughMapID then
-                        questCoordCache[questID] = { mapID = throughMapID, x = throughX, y = throughY, time = now }
+                        CacheQuestCoordinates(questID, { mapID = throughMapID, x = throughX, y = throughY, time = now })
                         return {
                             mapID = throughMapID,
                             x = throughX,
@@ -337,7 +354,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                             title = questTitle,
                         }
                     end
-                    questCoordCache[questID] = { mapID = wpMapID, x = wpX, y = wpY, time = now }
+                    CacheQuestCoordinates(questID, { mapID = wpMapID, x = wpX, y = wpY, time = now })
                     return {
                         mapID = wpMapID,
                         x = wpX,
@@ -361,7 +378,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             -- Check if quest has objectives beyond a portal from this zone
             local throughMapID, throughX, throughY = CheckPortalThroughZone(questID, playerMapID)
             if throughMapID then
-                questCoordCache[questID] = { mapID = throughMapID, x = throughX, y = throughY, time = now }
+                CacheQuestCoordinates(questID, { mapID = throughMapID, x = throughX, y = throughY, time = now })
                 return {
                     mapID = throughMapID,
                     x = throughX,
@@ -369,7 +386,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     title = questTitle,
                 }
             end
-            questCoordCache[questID] = { mapID = playerMapID, x = wpX, y = wpY, time = now }
+            CacheQuestCoordinates(questID, { mapID = playerMapID, x = wpX, y = wpY, time = now })
             return {
                 mapID = playerMapID,
                 x = wpX,
@@ -379,16 +396,28 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         end
     end
 
+    -- Later fallback passes may revisit the same zones. Keep both empty and
+    -- populated API results for this resolution only, so the header lookup can
+    -- reuse them without broad scans fetching every zone a second time.
+    local scannedMaps, questMapResults = {}, {}
+    local function GetQuestsOnMapOnce(mapID)
+        if not scannedMaps[mapID] then
+            scannedMaps[mapID] = true
+            questMapResults[mapID] = C_QuestLog.GetQuestsOnMap(mapID)
+        end
+        return questMapResults[mapID]
+    end
+
     -- Method 3: GetQuestsOnMap returns all quests with POIs on a specific map
     if playerMapID and C_QuestLog.GetQuestsOnMap then
-        local questsOnMap = C_QuestLog.GetQuestsOnMap(playerMapID)
+        local questsOnMap = GetQuestsOnMapOnce(playerMapID)
         if questsOnMap then
             for _, questInfo in ipairs(questsOnMap) do
                 if questInfo.questID == questID then
                     local qx, qy = questInfo.x, questInfo.y
                     if qx and qy and (qx ~= 0 or qy ~= 0) and not (transitFallback and transitHubMapIDs[playerMapID]) then
                         QR:Debug(string_format("Quest %d: GetQuestsOnMap -> (%.4f, %.4f)", questID, qx, qy))
-                        questCoordCache[questID] = { mapID = playerMapID, x = qx, y = qy, time = now }
+                        CacheQuestCoordinates(questID, { mapID = playerMapID, x = qx, y = qy, time = now })
                         return {
                             mapID = playerMapID,
                             x = qx,
@@ -407,23 +436,19 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
     -- Only runs when intermediate waypoint is detected and Method 3 didn't find the objective on player's map.
     if isIntermediateWaypoint and C_QuestLog.GetQuestsOnMap then
         QR:Debug(string_format("Quest %d: Broad GetQuestsOnMap scan for actual objective", questID))
-        local scannedMaps = {}
-        if playerMapID then scannedMaps[playerMapID] = true end
-
         -- Phase 1: Scan all known zones from QR.Continents
         if QR.Continents then
             for _, continentData in pairs(QR.Continents) do
                 for _, zoneID in ipairs(continentData.zones) do
                     if not scannedMaps[zoneID] then
-                        scannedMaps[zoneID] = true
-                        local questsOnMap = C_QuestLog.GetQuestsOnMap(zoneID)
+                        local questsOnMap = GetQuestsOnMapOnce(zoneID)
                         if questsOnMap then
                             for _, questInfo in ipairs(questsOnMap) do
                                 if questInfo.questID == questID then
                                     local qx, qy = questInfo.x, questInfo.y
                                     if qx and qy and (qx ~= 0 or qy ~= 0) then
                                         QR:Debug(string_format("Quest %d: Broad GetQuestsOnMap found objective on map %d (%.4f, %.4f)", questID, zoneID, qx, qy))
-                                        questCoordCache[questID] = { mapID = zoneID, x = qx, y = qy, time = now }
+                                        CacheQuestCoordinates(questID, { mapID = zoneID, x = qx, y = qy, time = now })
                                         return {
                                             mapID = zoneID,
                                             x = qx,
@@ -450,8 +475,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 for _, childInfo in ipairs(childMaps) do
                     local childMapID = childInfo.mapID
                     if childMapID and not scannedMaps[childMapID] then
-                        scannedMaps[childMapID] = true
-                        local questsOnMap = C_QuestLog.GetQuestsOnMap(childMapID)
+                        local questsOnMap = GetQuestsOnMapOnce(childMapID)
                         if questsOnMap then
                             for _, questInfo in ipairs(questsOnMap) do
                                 if questInfo.questID == questID then
@@ -462,7 +486,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                         if continent then
                                             QR:Debug(string_format("Quest %d: Dynamic scan found routable objective on map %d (%s) (%.4f, %.4f)",
                                                 questID, childMapID, childInfo.name or "?", qx, qy))
-                                            questCoordCache[questID] = { mapID = childMapID, x = qx, y = qy, time = now }
+                                            CacheQuestCoordinates(questID, { mapID = childMapID, x = qx, y = qy, time = now })
                                             return {
                                                 mapID = childMapID,
                                                 x = qx,
@@ -488,7 +512,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         local tqX, tqY = C_TaskQuest.GetQuestLocation(questID, playerMapID)
         if tqX and tqY and (tqX ~= 0 or tqY ~= 0) and not (transitFallback and transitHubMapIDs[playerMapID]) then
             QR:Debug(string_format("Quest %d: TaskQuest.GetQuestLocation -> (%.4f, %.4f)", questID, tqX, tqY))
-            questCoordCache[questID] = { mapID = playerMapID, x = tqX, y = tqY, time = now }
+            CacheQuestCoordinates(questID, { mapID = playerMapID, x = tqX, y = tqY, time = now })
             return {
                 mapID = playerMapID,
                 x = tqX,
@@ -509,7 +533,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     local wpX, wpY = C_QuestLog.GetNextWaypointForMap(questID, zoneID)
                     if wpX and wpY and not transitHubMapIDs[zoneID] then
                         QR:Debug(string_format("Quest %d: Broad scan found on map %d (%.4f, %.4f)", questID, zoneID, wpX, wpY))
-                        questCoordCache[questID] = { mapID = zoneID, x = wpX, y = wpY, time = now }
+                        CacheQuestCoordinates(questID, { mapID = zoneID, x = wpX, y = wpY, time = now })
                         return {
                             mapID = zoneID,
                             x = wpX,
@@ -545,7 +569,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 if C_Map and C_Map.GetMapInfo then
                     local mapInfo = C_Map.GetMapInfo(zoneID)
                     if mapInfo and mapInfo.name and string_lower(mapInfo.name) == headerLower then
-                        local questsOnMap = C_QuestLog.GetQuestsOnMap(zoneID)
+                        local questsOnMap = GetQuestsOnMapOnce(zoneID)
                         if questsOnMap then
                             for _, questInfo in ipairs(questsOnMap) do
                                 if questInfo.questID == questID then
@@ -553,7 +577,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                     if qx and qy and (qx ~= 0 or qy ~= 0) then
                                         QR:Debug(string_format("Quest %d: header %q -> zone %d, GetQuestsOnMap (%.4f, %.4f)",
                                             questID, questHeader, zoneID, qx, qy))
-                                        questCoordCache[questID] = { mapID = zoneID, x = qx, y = qy, time = now }
+                                        CacheQuestCoordinates(questID, { mapID = zoneID, x = qx, y = qy, time = now })
                                         return {
                                             mapID = zoneID,
                                             x = qx,
@@ -611,7 +635,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     if entrances and #entrances == 1 then
                         local entrance = entrances[1]
                         if playerInstanceID and entrance.journalInstanceID == playerInstanceID then
-                            questCoordCache[questID] = { time = now }
+                            CacheQuestCoordinates(questID, { time = now })
                             return nil
                         end
                         local ex, ey
@@ -626,7 +650,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                         if ex and ey then
                             QR:Debug(string_format("Quest %d: Entrance %q at map %d (%.4f, %.4f)",
                                 questID, entrance.name or "?", highlightMapID, ex, ey))
-                            questCoordCache[questID] = { mapID = highlightMapID, x = ex, y = ey, time = now }
+                            CacheQuestCoordinates(questID, { mapID = highlightMapID, x = ex, y = ey, time = now })
                             return {
                                 mapID = highlightMapID,
                                 x = ex,
@@ -644,10 +668,10 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             for instanceID, inst in pairs(QR.DungeonData.instances) do
                 if inst.name and inst.zoneMapID and inst.x and inst.y then
                     if string_lower(inst.name) == string_lower(questHeader) then
-                        if playerInstanceID == instanceID then questCoordCache[questID] = { time = now }; return nil end
+                        if playerInstanceID == instanceID then CacheQuestCoordinates(questID, { time = now }); return nil end
                         QR:Debug(string_format("Quest %d: header matches dungeon %q (instance %d) at map %d",
                             questID, inst.name, instanceID, inst.zoneMapID))
-                        questCoordCache[questID] = { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now }
+                        CacheQuestCoordinates(questID, { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now })
                         return {
                             mapID = inst.zoneMapID,
                             x = inst.x,
@@ -670,10 +694,10 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 for instanceID, inst in pairs(QR.DungeonData.instances) do
                     if inst.name and inst.zoneMapID and inst.x and inst.y then
                         if string_lower(inst.name) == string_lower(titlePrefix) then
-                            if playerInstanceID == instanceID then questCoordCache[questID] = { time = now }; return nil end
+                            if playerInstanceID == instanceID then CacheQuestCoordinates(questID, { time = now }); return nil end
                             QR:Debug(string_format("Quest %d: title prefix matches dungeon %q (instance %d) at map %d",
                                 questID, inst.name, instanceID, inst.zoneMapID))
-                            questCoordCache[questID] = { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now }
+                            CacheQuestCoordinates(questID, { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now })
                             return {
                                 mapID = inst.zoneMapID,
                                 x = inst.x,
@@ -695,14 +719,10 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
     -- Only reaches here when all faster methods failed.
     if C_QuestLog.GetQuestsOnMap and QR.Continents then
         QR:Debug(string_format("Quest %d: final fallback — broad GetQuestsOnMap scan", questID))
-        local scannedMaps = {}
-        if playerMapID then scannedMaps[playerMapID] = true end -- already checked in Method 3
-
         for _, continentData in pairs(QR.Continents) do
             for _, zoneID in ipairs(continentData.zones) do
                 if not scannedMaps[zoneID] then
-                    scannedMaps[zoneID] = true
-                    local questsOnMap = C_QuestLog.GetQuestsOnMap(zoneID)
+                    local questsOnMap = GetQuestsOnMapOnce(zoneID)
                     if questsOnMap then
                         for _, questInfo in ipairs(questsOnMap) do
                             if questInfo.questID == questID then
@@ -710,7 +730,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                 if qx and qy and (qx ~= 0 or qy ~= 0) then
                                     QR:Debug(string_format("Quest %d: broad GetQuestsOnMap found on map %d (%.4f, %.4f)",
                                         questID, zoneID, qx, qy))
-                                    questCoordCache[questID] = { mapID = zoneID, x = qx, y = qy, time = now }
+                                    CacheQuestCoordinates(questID, { mapID = zoneID, x = qx, y = qy, time = now })
                                     return {
                                         mapID = zoneID,
                                         x = qx,
@@ -732,8 +752,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 for _, childInfo in ipairs(childMaps) do
                     local childMapID = childInfo.mapID
                     if childMapID and not scannedMaps[childMapID] then
-                        scannedMaps[childMapID] = true
-                        local questsOnMap = C_QuestLog.GetQuestsOnMap(childMapID)
+                        local questsOnMap = GetQuestsOnMapOnce(childMapID)
                         if questsOnMap then
                             for _, questInfo in ipairs(questsOnMap) do
                                 if questInfo.questID == questID then
@@ -743,7 +762,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                         if continent then
                                             QR:Debug(string_format("Quest %d: dynamic scan found on routable map %d (%s) (%.4f, %.4f)",
                                                 questID, childMapID, childInfo.name or "?", qx, qy))
-                                            questCoordCache[questID] = { mapID = childMapID, x = qx, y = qy, time = now }
+                                            CacheQuestCoordinates(questID, { mapID = childMapID, x = qx, y = qy, time = now })
                                             return {
                                                 mapID = childMapID,
                                                 x = qx,
@@ -768,19 +787,21 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
     -- transit hub.
     if transitFallback then
         QR:Debug(string_format("Quest %d: no better destination found, using transit hub fallback map %d", questID, transitFallback.mapID))
-        questCoordCache[questID] = { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, time = now }
+        CacheQuestCoordinates(questID, { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, time = now })
         return { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, title = questTitle }
     end
 
     -- No coordinates found from any API - cache negative result to avoid repeated scans
     QR:Debug(string_format("Quest %d (%s): no coordinates found from any API", questID, questTitle))
-    questCoordCache[questID] = { time = now }
+    CacheQuestCoordinates(questID, { time = now })
     return nil
 end
 
 --- Clear the quest coordinate cache (used by tests and when quest state changes significantly)
 function WaypointIntegration:ClearQuestCoordCache()
     wipe(questCoordCache)
+    wipe(questCoordCacheOrder)
+    questCoordCacheNext = 1
 end
 
 --- Get waypoint from super-tracked quest

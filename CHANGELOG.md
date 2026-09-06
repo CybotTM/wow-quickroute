@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+- Reduced background quest-route CPU work during movement by validating the chosen route's phase requirements before scanning unrelated graph connections.
+- Kept unchanged quest-tracker teleport buttons visible and attached during asynchronous refreshes; retired obsolete choices individually and corrected icons when a reused button changes action.
+- Reused quest-map scan results within each target lookup, avoiding repeated native API calls for unresolved intermediate objectives.
+- Built currency, quest and search indexes only when needed, and bounded the quest-coordinate cache to 256 entries while retaining its freshness and retry rules.
+- Released obsolete travel graphs held by expired or lower-priority quest-button cache entries, including when disabling the feature.
+
+### Validation
+- Added reproducible Lua movement/heap benchmarks and regressions for phase detours, button continuity, pooled replacements, independent catalogue indexes and cache eviction. See the [performance investigation](docs/PERFORMANCE-REVIEW-2026-09-06.md) for measurements and limits.
+
 ## [1.17.0] - 2026-09-05
 
 ### Added
