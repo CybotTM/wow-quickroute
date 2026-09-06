@@ -53,7 +53,9 @@ function CooldownTracker:RefreshWatchedCooldowns(force)
         local deadline = not ready and remaining > 0 and (now + remaining) or nil
         local key = (entry.sourceType or "item") .. ":" .. id
         -- Rounding avoids refreshes from floating-point noise in remaining time.
-        snapshot[key] = deadline and math_floor(deadline * 10 + 0.5) or false
+        -- Unknown active timing still differs from a confirmed ready spell;
+        -- it must refresh the view without scheduling a guessed expiry.
+        snapshot[key] = deadline and math_floor(deadline * 10 + 0.5) or (not ready)
         if previous and previous[key] ~= snapshot[key] then changed = true end
         if deadline and (not nearest or deadline < nearest) then nearest = deadline end
     end
@@ -160,72 +162,80 @@ end
 local function IsUsableNumber(value)
     if type(value) ~= "number" then return false end
     if issecretvalue and issecretvalue(value) then return false end
-    return true
+    return value == value and value > -math.huge and value < math.huge
 end
 
---- Get cooldown info for a spell
--- Uses C_Spell.GetSpellCooldown (11.0+) or GetSpellCooldown (legacy) to
--- retrieve cooldown state.
--- @param spellID number The spell ID to check
--- @return table {ready=bool, remaining=seconds, start=number, duration=number}
-function CooldownTracker:GetSpellCooldown(spellID)
-    local start = 0
-    local duration = 0
-    local remaining = 0
-    local ready = true
-
-    -- 12.0+ C_Spell.GetSpellCooldownDuration returns a DurationObject, not a
-    -- number, and its accessors are not publicly documented — no numeric
-    -- remaining time can be read off it. Only take this path when the client
-    -- hands back a plain number; otherwise fall through to the table API below
-    -- instead of reporting every spell ready.
-    if C_Spell and C_Spell.GetSpellCooldownDuration then
-        local durationObj = C_Spell.GetSpellCooldownDuration(spellID)
-        if IsUsableNumber(durationObj) and durationObj > 0 then
-            spellCooldownResult.ready = false
-            spellCooldownResult.remaining = durationObj
-            spellCooldownResult.start = 0
-            spellCooldownResult.duration = 0
-            return spellCooldownResult
-        end
-    end
-
-    -- 11.0+ C_Spell.GetSpellCooldown
-    if C_Spell and C_Spell.GetSpellCooldown then
-        local cooldownInfo = C_Spell.GetSpellCooldown(spellID)
-        if cooldownInfo then
-            start = cooldownInfo.startTime or 0
-            duration = cooldownInfo.duration or 0
-
-            -- C_Spell.GetSpellCooldown is SecretWhenCooldownsRestricted: under
-            -- combat or encounter restrictions these come back as secret values,
-            -- which raise an immediate error on comparison.
-            if not IsUsableNumber(start) then start = 0 end
-            if not IsUsableNumber(duration) then duration = 0 end
-
-            if start > 0 and duration > 0 then
-                remaining = (start + duration) - GetTime()
-                if remaining < 0 then remaining = 0 end
-                ready = remaining <= 0
-            end
-        end
-    elseif GetSpellCooldown then
-        -- Legacy fallback (pre-11.0)
-        local s, d, e = GetSpellCooldown(spellID)
-        if s and s > 0 and d and d > 0 then
-            start = s
-            duration = d
-            remaining = (s + d) - GetTime()
-            if remaining < 0 then remaining = 0 end
-            ready = remaining <= 0
-        end
-    end
-
+local function SpellCooldownResult(ready, remaining, start, duration)
     spellCooldownResult.ready = ready
     spellCooldownResult.remaining = remaining
     spellCooldownResult.start = start
     spellCooldownResult.duration = duration
     return spellCooldownResult
+end
+
+local function CallDurationMethod(object, name)
+    local method = object[name]
+    if type(method) == "function" then return method(object) end
+end
+
+local function ReadDurationNumber(object, name)
+    local ok, value = pcall(CallDurationMethod, object, name)
+    if ok and IsUsableNumber(value) then return value end
+end
+
+local function NumericSpellCooldown(start, duration)
+    if not IsUsableNumber(start) or not IsUsableNumber(duration) then return nil end
+    local remaining = 0
+    if start > 0 and duration > 0 then remaining = math.max(0, start + duration - GetTime()) end
+    return SpellCooldownResult(remaining == 0, remaining, start, duration)
+end
+
+--- Get cooldown info for a spell
+-- Retail duration objects exclude the GCD without guessing from short times.
+-- Public numeric metadata remains a fallback on older/restricted clients.
+-- @param spellID number The spell ID to check
+-- @return table {ready=bool, remaining=seconds, start=number, duration=number}
+function CooldownTracker:GetSpellCooldown(spellID)
+    -- GetRemainingDuration/GetStartTime/GetTotalDuration are documented native
+    -- LuaDurationObject methods. Their results can be secret, and method calls
+    -- can be restricted: inspect neither without the appropriate public guard.
+    if C_Spell and C_Spell.GetSpellCooldownDuration then
+        local ok, object = pcall(C_Spell.GetSpellCooldownDuration, spellID, true)
+        if ok and not (issecretvalue and issecretvalue(object)) then
+            -- A successful query with no active personal duration is ready,
+            -- even if the general cooldown table currently describes the GCD.
+            if object == nil then return SpellCooldownResult(true, 0, 0, 0) end
+            if IsUsableNumber(object) then
+                local remaining = math.max(0, object)
+                return SpellCooldownResult(remaining == 0, remaining, 0, 0)
+            end
+            local remaining = ReadDurationNumber(object, "GetRemainingDuration")
+            if remaining then
+                local start = ReadDurationNumber(object, "GetStartTime") or 0
+                local duration = ReadDurationNumber(object, "GetTotalDuration") or 0
+                remaining = math.max(0, remaining)
+                return SpellCooldownResult(remaining == 0, remaining, start, duration)
+            end
+        end
+    end
+
+    -- Do not infer GCD from duration <= 1.5s or read isOnGCD outside the
+    -- documented SPELL_UPDATE_COOLDOWN event context. Short real cooldowns
+    -- remain real cooldowns when the GCD-free duration API is unavailable.
+    if C_Spell and C_Spell.GetSpellCooldown then
+        local ok, info = pcall(C_Spell.GetSpellCooldown, spellID)
+        if ok and type(info) == "table" then
+            local result = NumericSpellCooldown(info.startTime, info.duration)
+            if result then return result end
+        end
+    end
+    if GetSpellCooldown then
+        local ok, start, duration = pcall(GetSpellCooldown, spellID)
+        local result = ok and NumericSpellCooldown(start, duration)
+        if result then return result end
+    end
+    -- Unreadable timing is not evidence that a teleport can be used.
+    return SpellCooldownResult(false, 0, 0, 0)
 end
 
 --- Get cooldown info for a toy

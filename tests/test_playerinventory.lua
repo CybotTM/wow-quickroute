@@ -261,7 +261,11 @@ T:run("ScanSpells: learned alternate Shattrath variant becomes a routing option"
     t:assertNil(QR.PlayerInventory.spells[33690], "Learning 35715 does not claim the other variant is learned")
 
     local graph = QR.Graph:New()
-    QR.PathCalculator.AddPlayerTeleportEdges({ graph = graph })
+    local calculator = setmetatable({ graph = graph }, { __index = function(_, key)
+        local value = QR.PathCalculator[key]
+        if type(value) == "function" then return value end
+    end })
+    calculator:AddPlayerTeleportEdges()
     -- The generated Mapzeroth supplement adds this ID at addon load; checking
     -- only TeleportItems would miss the spell and its sourced graph node.
     local edge = graph:GetEdge("Player Location", "Travel:SHATTRATH_OUTLANDS")

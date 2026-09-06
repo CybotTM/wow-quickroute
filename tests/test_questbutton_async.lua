@@ -7,6 +7,8 @@ local function withRefresh(fn)
         generation=qtb._refreshGeneration, cooldownState=qtb.cooldownState,
         movement=qtb.movementFrame, elapsed=qtb._movementElapsed, running=qtb._refreshRunning,
         lastPosition=qtb._lastRefreshPosition, lastGraph=qtb._lastRefreshGraph,
+        pendingRefresh=qtb._pendingRefreshAt,
+        flightChoices=qtb.flightChoices, flying=_G.IsFlying,
         inCombat=MockWoW.config.inCombatLockdown, baseTime=MockWoW.config.baseTime,
         map=C_Map.GetBestMapForUnit, position=C_Map.GetPlayerMapPosition,
         inventory=QR.PlayerInventory, cooldown=QR.CooldownTracker, pc=QR.PathCalculator,
@@ -26,6 +28,9 @@ local function withRefresh(fn)
     qtb.movementFrame=CreateFrame("Frame")
     qtb.movementFrame:Hide()
     qtb._movementElapsed=0
+    qtb._pendingRefreshAt=nil
+    qtb.flightChoices={}
+    _G.IsFlying=function()return false end
     for index=1,qtb:GetPoolSize() do
         local btn = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
         local setAttribute = btn.SetAttribute
@@ -61,6 +66,8 @@ local function withRefresh(fn)
     qtb._refreshGeneration,qtb.cooldownState = saved.generation,saved.cooldownState
     qtb.movementFrame,qtb._movementElapsed,qtb._refreshRunning=saved.movement,saved.elapsed,saved.running
     qtb._lastRefreshPosition,qtb._lastRefreshGraph=saved.lastPosition,saved.lastGraph
+    qtb._pendingRefreshAt=saved.pendingRefresh
+    qtb.flightChoices,_G.IsFlying=saved.flightChoices,saved.flying
     MockWoW.config.inCombatLockdown=saved.inCombat
     MockWoW.config.baseTime=saved.baseTime
     C_Map.GetBestMapForUnit,C_Map.GetPlayerMapPosition=saved.map,saved.position
@@ -71,6 +78,198 @@ local function withRefresh(fn)
     C_QuestLog.GetNumQuestWatches,C_QuestLog.GetQuestIDForQuestWatchIndex = saved.watches,saved.watchID
     if not ok then error(err) end
 end
+
+local function refreshOne(qtb, state)
+    qtb:RefreshButtons()
+    local callback = table.remove(state.pending, 1)
+    if callback then callback() end
+end
+
+T:run("Quest button recovery: a brief missing player position keeps the icon but clears its action", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        refreshOne(qtb, state)
+        local btn = qtb.activeButtons[10001]
+        btn.icon = btn:CreateTexture(nil, "ARTWORK")
+        btn.icon:SetTexture(123)
+        btn:Show()
+        local hide, hides = btn.Hide, 0
+        btn.Hide = function(self) hides = hides + 1; return hide(self) end
+        btn:SetAttribute("house-guid", "old-house")
+        btn:SetScript("PreClick", function() end)
+        local position = C_Map.GetPlayerMapPosition
+        C_Map.GetPlayerMapPosition = function() return nil end
+        refreshOne(qtb, state)
+        t:assertEqual(btn, qtb.activeButtons[10001], "Transient position failure retains the existing quest slot")
+        t:assertTrue(btn:IsShown(), "Pending route keeps its icon visible")
+        t:assertNil(btn:GetAttribute("type"), "Pending route cannot activate the old teleport")
+        t:assertNil(btn:GetAttribute("house-guid"), "Pending route clears old housing attributes")
+        t:assertNil(btn:GetScript("PreClick"), "Pending route cannot run old equipment callbacks")
+        t:assertEqual(QR.L["CALCULATING"], btn.tooltipText, "Pending route explains that it is being recalculated")
+        C_Map.GetPlayerMapPosition = position
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 1
+        qtb:OnMovementUpdate(1)
+        local callback = table.remove(state.pending, 1)
+        if callback then callback() end
+        t:assertEqual(btn, qtb.activeButtons[10001], "Recovered route reuses the same button")
+        t:assertEqual("spell", btn:GetAttribute("type"), "Recovered route restores its confirmed action")
+        t:assertEqual(0, hides, "A brief position gap causes no hide/show flicker")
+    end)
+end)
+
+T:run("Quest button recovery: a stationary retry bypasses only the pending target's negative cache", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        refreshOne(qtb, state)
+        local btn = qtb.activeButtons[10001]
+        local ready, retries = false, 0
+        QR.WaypointIntegration.GetQuestWaypoint = function(_, _, retry)
+            if retry then retries = retries + 1 end
+            if ready and retry then return {mapID=84, x=.5, y=.5} end
+        end
+        qtb:InvalidateCache()
+        refreshOne(qtb, state)
+        ready = true
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 1
+        qtb:OnMovementUpdate(1)
+        local callback = table.remove(state.pending, 1)
+        if callback then callback() end
+        t:assertEqual(1, retries, "Only recovery explicitly retries the pending quest's unavailable coordinates")
+        t:assertEqual(btn, qtb.activeButtons[10001], "Stationary target recovery keeps the original button")
+        t:assertEqual("spell", btn:GetAttribute("type"), "Recovered target restores the current teleport")
+    end)
+end)
+
+T:run("Quest button recovery: repeated missing routes expire without extending the grace period", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        refreshOne(qtb, state)
+        local btn = qtb.activeButtons[10001]
+        btn:Show()
+        QR.PathCalculator.CalculatePath = function() state.calls=state.calls+1; return nil end
+        qtb:InvalidateCache()
+        refreshOne(qtb, state)
+        t:assertEqual(btn, qtb.activeButtons[10001], "First unavailable result enters the grace period")
+        for index = 1, 2 do
+            MockWoW.config.baseTime = MockWoW.config.baseTime + 1
+            qtb:OnMovementUpdate(1)
+            local callback = table.remove(state.pending, 1)
+            if callback then callback() end
+            if index == 1 then
+                t:assertEqual(btn, qtb.activeButtons[10001], "A second failure does not prematurely hide the pending slot")
+            end
+        end
+        t:assertNil(qtb.activeButtons[10001], "A route unavailable for two seconds releases its slot")
+        t:assertFalse(btn:IsShown(), "Expired pending route is no longer displayed")
+        t:assertNil(qtb._pendingRefreshAt, "Expired pending route schedules no endless retries")
+    end)
+end)
+
+T:run("Quest button recovery: a confirmed walking route removes a pending teleport immediately", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        refreshOne(qtb, state)
+        QR.PathCalculator.CalculatePath = function() return nil end
+        qtb:InvalidateCache()
+        refreshOne(qtb, state)
+        QR.PathCalculator.CalculatePath = function() return {steps={{type="walk"}}} end
+        refreshOne(qtb, state)
+        t:assertNil(qtb.activeButtons[10001], "A known better direct route does not retain a pending teleport")
+        t:assertNil(qtb._pendingRefreshAt, "A confirmed result clears the recovery retry")
+    end)
+end)
+
+T:run("Quest button flight: a near-tied teleport must remain best before reappearing", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        _G.IsFlying = function() return true end
+        local direct = false
+        QR.PathCalculator.CalculatePath = function()
+            state.calls = state.calls + 1
+            return {steps={{type=direct and "walk" or "teleport", teleportID=3561, sourceType="spell"}}}
+        end
+        refreshOne(qtb, state)
+        t:assertNotNil(qtb.activeButtons[10001], "The first confirmed teleport is shown immediately")
+        direct = true; qtb:InvalidateCache(); refreshOne(qtb, state)
+        t:assertNil(qtb.activeButtons[10001], "A faster direct flight removes the teleport immediately")
+        direct = false; state.x=state.x+.01; refreshOne(qtb, state)
+        t:assertNil(qtb.activeButtons[10001], "One returning teleport sample does not flash the button")
+        direct = true; state.x=state.x+.01; refreshOne(qtb, state)
+        direct = false; state.x=state.x+.01; refreshOne(qtb, state)
+        t:assertNil(qtb.activeButtons[10001], "Alternating flight speed restarts confirmation without flashing")
+        local before = state.calls
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 1
+        qtb:OnMovementUpdate(1)
+        local callback = table.remove(state.pending, 1)
+        if callback then callback() end
+        t:assertEqual(before+1, state.calls, "Confirmation computes a fresh route even without further movement")
+        t:assertNotNil(qtb.activeButtons[10001], "Two stable recommendations restore the teleport button")
+        t:assertEqual("spell", qtb.activeButtons[10001] and qtb.activeButtons[10001]:GetAttribute("type"), "Confirmed recommendation restores a valid action")
+    end)
+end)
+
+T:run("Quest button flight: ending flight or untracking clears delayed recommendations", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        local flying, direct = true, false
+        _G.IsFlying = function() return flying end
+        QR.PathCalculator.CalculatePath = function()
+            return {steps={{type=direct and "walk" or "teleport", teleportID=3561, sourceType="spell"}}}
+        end
+        refreshOne(qtb, state)
+        direct=true; qtb:InvalidateCache(); refreshOne(qtb, state)
+        direct=false; state.x=state.x+.01; refreshOne(qtb, state)
+        flying=false; refreshOne(qtb, state)
+        t:assertNotNil(qtb.activeButtons[10001], "Ground recommendations do not inherit flight confirmation delays")
+        t:assertTableCount(qtb.flightChoices, 0, "Ending flight clears temporary choice history")
+        flying=true; direct=true; qtb:InvalidateCache(); refreshOne(qtb, state)
+        direct=false; state.x=state.x+.01; refreshOne(qtb, state)
+        state.watched={}; qtb:RefreshButtons()
+        t:assertTableCount(qtb.flightChoices, 0, "Untracking clears delayed flight recommendations")
+        t:assertNil(qtb._pendingRefreshAt, "Untracked candidates do not keep scheduling retries")
+    end)
+end)
+
+T:run("Quest button recovery: a missing position cannot preserve a known unusable action's icon", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        refreshOne(qtb, state)
+        C_Map.GetPlayerMapPosition=function()return nil end
+        QR.CooldownTracker.GetCooldown=function()return {ready=false}end
+        refreshOne(qtb, state)
+        t:assertNil(qtb.activeButtons[10001], "A known cooldown retires the icon despite a simultaneous position gap")
+    end)
+end)
+
+T:run("Quest button flight: a cancelled calculation cannot supply the confirming recommendation", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        _G.IsFlying = function() return true end
+        refreshOne(qtb, state)
+        QR.PathCalculator.CalculatePath = function()return {steps={{type="walk"}}}end
+        qtb:InvalidateCache(); refreshOne(qtb, state)
+        QR.PathCalculator.CalculatePath = function()
+            return {steps={{type="teleport",teleportID=3561,sourceType="spell"}}}
+        end
+        state.x=state.x+.01; refreshOne(qtb, state)
+        MockWoW.config.baseTime=MockWoW.config.baseTime+.5
+        QR.PathCalculator.CalculatePath = function()
+            qtb:InvalidateCache()
+            return {steps={{type="teleport",teleportID=3561,sourceType="spell"}}}
+        end
+        state.x=state.x+.01; refreshOne(qtb, state)
+        t:assertNil(qtb.questCache[10001], "Cancelled work cannot refill the invalidated quest cache")
+        local calls=0
+        QR.PathCalculator.CalculatePath = function()
+            calls=calls+1
+            return {steps={{type="walk"}}}
+        end
+        MockWoW.config.baseTime=MockWoW.config.baseTime+.5
+        refreshOne(qtb, state)
+        t:assertEqual(1, calls, "A fresh query decides the current recommendation after cancellation")
+        t:assertNil(qtb.activeButtons[10001], "A cancelled teleport cannot reappear when direct flight now wins")
+    end)
+end)
 
 T:run("Quest button batching: one route per frame preserves the secure pool bound", function(t)
     withRefresh(function(qtb,state)

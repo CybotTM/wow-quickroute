@@ -20,6 +20,7 @@ local DEBOUNCE_DELAY = 0.3   -- seconds - debounce rapid QUEST_LOG_UPDATE events
 local BUTTON_SIZE = 20
 local BUTTON_OFFSET_X = -4   -- pixels left of quest header
 local MOVEMENT_CHECK_INTERVAL = 1
+local PENDING_GRACE = 2     -- retain an inactive icon across a brief data gap
 
 -------------------------------------------------------------------------------
 -- QuestTeleportButtons Module
@@ -63,15 +64,18 @@ end
 -- and a teleport later in the route must not skip its preceding travel.
 local function FindBestTeleportForQuest(questID)
     if not (QR.WaypointIntegration and QR.PathCalculator and QR.PlayerInventory) then
-        return nil, nil
+        return nil, nil, true
     end
-    local waypoint = QR.WaypointIntegration:GetQuestWaypoint(questID)
-    if not waypoint then return nil, nil end
+    local button = QTB.activeButtons[questID]
+    local retry = button and button._pendingSince ~= nil
+    local waypoint = QR.WaypointIntegration:GetQuestWaypoint(questID, retry)
+    if not waypoint then return nil, nil, true end
 
     local route = QR.PathCalculator:CalculatePath(waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
+    if not route then return nil, nil, true end
     local step = route and route.steps and route.steps[1]
     if not step or step.type ~= "teleport" or not step.teleportID then
-        return nil, nil
+        return nil, nil, nil, true
     end
     local teleports = QR.PlayerInventory:GetAllTeleports()
     local entry = teleports and teleports[step.teleportID]
@@ -94,19 +98,30 @@ end
 local function GetCachedTeleportForQuest(questID)
     local now = GetTime()
     local position = GetPositionBucket()
-    if not position then QTB.questCache[questID] = nil; return nil, nil, nil end
+    if not position then QTB.questCache[questID] = nil; return nil, nil, nil, true end
     local cached = QTB.questCache[questID]
     local calculator = QR.PathCalculator
-    if cached and cached.position == position and cached.graph == (calculator and calculator.graph)
+    if cached and not (QTB.flightChoices and QTB.flightChoices[questID])
+        and cached.position == position and cached.graph == (calculator and calculator.graph)
         and not (calculator and calculator.graphDirty) and (now - cached.time) < CACHE_TTL then
         local cooldown = cached.teleportID and QR.CooldownTracker
             and QR.CooldownTracker:GetCooldown(cached.teleportID, cached.sourceType)
         if not cached.teleportID or (cooldown and cooldown.ready) then
-            return cached.teleportID, cached.sourceType, cached.data
+            return cached.teleportID, cached.sourceType, cached.data, nil, cached.direct
         end
     end
 
-    local teleportID, entry = FindBestTeleportForQuest(questID)
+    local generation = QTB._refreshGeneration
+    local teleportID, entry, incomplete, direct = FindBestTeleportForQuest(questID)
+    -- Reentrant invalidation cancels this result as well as its UI callback.
+    -- Never refill the cache with a route from the cancelled calculation.
+    if generation ~= QTB._refreshGeneration then return nil, nil, nil, true end
+    if incomplete then
+        -- An API/route gap is not a confirmed walking result. In particular,
+        -- do not suppress a pending button's short retry with a 30s negative.
+        QTB.questCache[questID] = nil
+        return nil, nil, nil, true
+    end
     if teleportID and entry then
         QTB.questCache[questID] = {
             teleportID = teleportID,
@@ -119,8 +134,8 @@ local function GetCachedTeleportForQuest(questID)
         return teleportID, entry.sourceType, entry.data
     end
 
-    QTB.questCache[questID] = { time = now, position = position, graph = QR.PathCalculator and QR.PathCalculator.graph }
-    return nil, nil, nil
+    QTB.questCache[questID] = { time = now, position = position, graph = QR.PathCalculator and QR.PathCalculator.graph, direct = direct }
+    return nil, nil, nil, nil, direct
 end
 
 --- Invalidate the cache for all quests
@@ -265,6 +280,22 @@ local function GetFreeButton()
     return nil
 end
 
+-- Clear the action without changing the icon or its position. A pending
+-- recommendation must never leave the previous teleport/equipment clickable.
+local function ClearButtonAction(btn)
+    btn:SetAttribute("type", nil)
+    btn:SetAttribute("macrotext", nil)
+    btn:SetAttribute("spell", nil)
+    btn:SetAttribute("toy", nil)
+    btn:SetAttribute("item", nil)
+    btn:SetAttribute("house-neighborhood-guid", nil)
+    btn:SetAttribute("house-guid", nil)
+    btn:SetAttribute("house-plot-id", nil)
+    btn:SetScript("PreClick", nil)
+    btn:SetScript("PostClick", nil)
+    btn.teleportID, btn.sourceType, btn.equipSlot = nil, nil, nil
+end
+
 --- Release a button back to the pool
 -- @param btn Button
 local function ReleaseButton(btn)
@@ -273,13 +304,9 @@ local function ReleaseButton(btn)
 
     btn:Hide()
     btn:ClearAllPoints()
-    btn:SetAttribute("type", nil)
-    btn:SetAttribute("macrotext", nil)
-    btn:SetAttribute("spell", nil)
-    btn:SetAttribute("toy", nil)
-    btn:SetAttribute("item", nil)
-    btn:SetScript("PreClick", nil)
-    btn:SetScript("PostClick", nil)
+    ClearButtonAction(btn)
+    btn._pendingSince = nil
+    btn._pendingTeleportID, btn._pendingSourceType = nil, nil
     btn.inUse = false
     btn.questID = nil
     btn.tooltipText = nil
@@ -289,11 +316,37 @@ local function ReleaseButton(btn)
     end
 end
 
+local function KeepPendingButton(btn)
+    local id, source = btn._pendingTeleportID or btn.teleportID, btn._pendingSourceType or btn.sourceType
+    local inventory = QR.PlayerInventory and QR.PlayerInventory:GetAllTeleports()
+    local entry = inventory and inventory[id]
+    local cooldown = id and QR.CooldownTracker and QR.CooldownTracker:GetCooldown(id, source)
+    if not entry or not entry.data or entry.sourceType ~= source
+        or (issecretvalue and issecretvalue(entry.isUsable)) or entry.isUsable == false
+        or not cooldown or not cooldown.ready then return false end
+    local now = GetTime()
+    if not btn._pendingSince then
+        btn._pendingSince = now
+        btn._pendingTeleportID, btn._pendingSourceType = id, source
+        ClearButtonAction(btn)
+        btn.tooltipText = QR.L["CALCULATING"]
+        btn.tooltipSubtext = nil
+    end
+    if now - btn._pendingSince >= PENDING_GRACE then return false end
+    -- The deadline belongs to the first failed sample and is never extended.
+    -- The lightweight movement probe retries even if the player stops moving.
+    local retryAt = now + MOVEMENT_CHECK_INTERVAL
+    if not QTB._pendingRefreshAt or retryAt < QTB._pendingRefreshAt then QTB._pendingRefreshAt = retryAt end
+    return true
+end
+
 --- Release all active buttons
 function QTB:ReleaseAllButtons()
     self:CancelRefresh()
     wipe(self.questCache)
     self._lastRefreshGraph, self._lastRefreshPosition = nil, nil
+    self._pendingRefreshAt = nil
+    if self.flightChoices then wipe(self.flightChoices) end
     if self.movementFrame then self.movementFrame:Hide() end
     if InCombatLockdown() then return end
 
@@ -341,6 +394,9 @@ local function ConfigureButton(btn, teleportID, sourceType, data)
     local dest = data and data.destination or ""
     btn.tooltipText = name
     btn.tooltipSubtext = dest ~= "" and dest or nil
+    btn.teleportID, btn.sourceType = teleportID, sourceType
+    btn._pendingSince = nil
+    btn._pendingTeleportID, btn._pendingSourceType = nil, nil
 
     return true
 end
@@ -383,6 +439,15 @@ function QTB:RefreshButtons()
     local trackedQuests = GetTrackedQuestIDs()
     local watched = {}
     for _, questID in ipairs(trackedQuests) do watched[questID] = true end
+    local flying = false
+    if _G.IsFlying then
+        local ok, value = pcall(_G.IsFlying)
+        flying = ok and not (issecretvalue and issecretvalue(value)) and value == true
+    end
+    self.flightChoices = self.flightChoices or {}
+    for questID in pairs(self.flightChoices) do
+        if not flying or not watched[questID] then self.flightChoices[questID] = nil end
+    end
     -- Keep surviving buttons in place while the asynchronous route batch runs.
     -- Releasing the entire pool here made every movement refresh visibly blink.
     for questID, btn in pairs(self.activeButtons) do
@@ -399,6 +464,7 @@ function QTB:RefreshButtons()
 
     local generation = self._refreshGeneration
     local index, activeCount, retained = 1, 0, {}
+    self._pendingRefreshAt = nil
     self._refreshRunning = true
     local function IsCurrent()
         return generation == QTB._refreshGeneration and QTB.initialized and QTB.enabled and not InCombatLockdown()
@@ -409,11 +475,36 @@ function QTB:RefreshButtons()
         if not questID or activeCount >= POOL_SIZE then return end
         -- A route calculation can take several milliseconds. Never calculate
         -- every watched quest in the same quest-log/event frame.
-        local ok, teleportID, sourceType, data = pcall(GetCachedTeleportForQuest, questID)
+        local ok, teleportID, sourceType, data, incomplete, direct = pcall(GetCachedTeleportForQuest, questID)
         if not IsCurrent() then return end
         if not ok then
             QR:Debug("Quest button route unavailable: " .. tostring(teleportID))
             teleportID = nil
+            incomplete = true
+        end
+        local previous = QTB.flightChoices[questID]
+        if flying and direct and (previous or QTB.activeButtons[questID]) then
+            -- Instantaneous flight speed can cross the direct/teleport tie on
+            -- adjacent samples. Retire a slower teleport immediately, but ask
+            -- for a fresh confirmation before showing it again.
+            QTB.flightChoices[questID] = {}
+        elseif flying and teleportID and sourceType and previous then
+            local now = GetTime()
+            if previous.id ~= teleportID or previous.source ~= sourceType then
+                previous.id, previous.source, previous.since = teleportID, sourceType, now
+            end
+            if now - previous.since < MOVEMENT_CHECK_INTERVAL then
+                QTB.questCache[questID] = nil -- confirmation must calculate a fresh route
+                local retryAt = previous.since + MOVEMENT_CHECK_INTERVAL
+                if not QTB._pendingRefreshAt or retryAt < QTB._pendingRefreshAt then QTB._pendingRefreshAt = retryAt end
+                teleportID = nil
+            else
+                QTB.flightChoices[questID] = nil
+            end
+        elseif incomplete and previous then
+            QTB.flightChoices[questID] = {}
+        elseif not incomplete then
+            QTB.flightChoices[questID] = nil
         end
         if teleportID and sourceType then
             local btn = QTB.activeButtons[questID] or GetFreeButton()
@@ -443,6 +534,9 @@ function QTB:RefreshButtons()
                     QTB.activeButtons[questID] = nil
                 end
             end
+        elseif incomplete and QTB.activeButtons[questID] and KeepPendingButton(QTB.activeButtons[questID]) then
+            retained[questID] = true
+            activeCount = activeCount + 1
         elseif QTB.activeButtons[questID] then
             ReleaseButton(QTB.activeButtons[questID])
             QTB.activeButtons[questID] = nil
@@ -475,7 +569,8 @@ function QTB:OnMovementUpdate(elapsed)
     PruneQuestCache()
     local position = GetPositionBucket()
     local calculator = QR.PathCalculator
-    if position ~= self._lastRefreshPosition or (calculator and (calculator.graph ~= self._lastRefreshGraph or calculator.graphDirty)) then
+    if (self._pendingRefreshAt and GetTime() >= self._pendingRefreshAt)
+        or position ~= self._lastRefreshPosition or (calculator and (calculator.graph ~= self._lastRefreshGraph or calculator.graphDirty)) then
         self:RefreshButtons()
     end
 end
@@ -502,12 +597,16 @@ end
 --   its blocks are missing from an otherwise plausible-looking result.
 function QTB:CollectQuestBlocks()
     local blocks = {}
+    local questTagged = {}
     local recognised = false
     local failed = false
 
-    local function record(id, block)
-        if type(id) == "number" and type(block) == "table" and block.HeaderText then
+    local function record(id, block, isQuestModule)
+        if type(id) == "number" and not (issecretvalue and issecretvalue(id))
+            and type(block) == "table" and block.HeaderText
+            and (isQuestModule or not questTagged[id]) then
             blocks[id] = block
+            questTagged[id] = isQuestModule
         end
     end
 
@@ -519,47 +618,61 @@ function QTB:CollectQuestBlocks()
 
     for _, module in pairs(modules) do
         if type(module) == "table" then
-            local hasEnumerator = type(module.EnumerateActiveBlocks) == "function"
-            local hasUsedBlocks = type(module.usedBlocks) == "table"
-            local handled = false
-
-            if hasEnumerator then
-                -- Only a call that returned counts as read. An enumerator that
-                -- errors tells us nothing about how many blocks there are, and
-                -- reporting "read it, none there" would hide every button --
-                -- exactly what the caller's guard exists to prevent.
-                handled = pcall(module.EnumerateActiveBlocks, module, function(block)
-                    if type(block) == "table" then
-                        record(block.id, block)
-                    end
-                end)
+            local tagOK, tag = true, module.tag
+            if type(module.GetTag) == "function" then
+                tagOK, tag = pcall(module.GetTag, module)
             end
+            if not tagOK or (issecretvalue and issecretvalue(tag)) then
+                -- An unreadable identity cannot prove that a quest disappeared.
+                failed = true
+            elseif tag == nil or tag == "" or tag == "quest" then
+                -- Native ordinary/campaign quests share this tag. Achievement and
+                -- recipe modules use independent numeric IDs, so their untagged
+                -- blocks must never replace a tagged quest with the same ID.
+                -- Keep untagged providers for older and custom tracker layouts.
+                local isQuestModule = tag == "quest"
+                local hasEnumerator = type(module.EnumerateActiveBlocks) == "function"
+                local hasUsedBlocks = type(module.usedBlocks) == "table"
+                local handled = false
 
-            -- Fall through to the older shape when the enumerator is absent OR
-            -- raised. This was an elseif, so a module carrying both fields got
-            -- no fallback at all.
-            if not handled and hasUsedBlocks then
-                for key, value in pairs(module.usedBlocks) do
-                    if type(value) == "table" and value.HeaderText then
-                        -- Flat: usedBlocks[questID] = block
-                        record(key, value)
-                    elseif type(value) == "table" then
-                        -- Nested: usedBlocks[template][id] = block
-                        for id, block in pairs(value) do
-                            record(id, block)
+                if hasEnumerator then
+                    -- Only a call that returned counts as read. An enumerator that
+                    -- errors tells us nothing about how many blocks there are, and
+                    -- reporting "read it, none there" would hide every button --
+                    -- exactly what the caller's guard exists to prevent.
+                    handled = pcall(module.EnumerateActiveBlocks, module, function(block)
+                        if type(block) == "table" then
+                            record(block.id, block, isQuestModule)
+                        end
+                    end)
+                end
+
+                -- Fall through to the older shape when the enumerator is absent OR
+                -- raised. This was an elseif, so a module carrying both fields got
+                -- no fallback at all.
+                if not handled and hasUsedBlocks then
+                    for key, value in pairs(module.usedBlocks) do
+                        if type(value) == "table" and value.HeaderText then
+                            -- Flat: usedBlocks[questID] = block
+                            record(key, value, isQuestModule)
+                        elseif type(value) == "table" then
+                            -- Nested: usedBlocks[template][id] = block
+                            for id, block in pairs(value) do
+                                record(id, block, isQuestModule)
+                            end
                         end
                     end
+                    handled = true
                 end
-                handled = true
-            end
 
-            if handled then
-                recognised = true
-            elseif hasEnumerator or hasUsedBlocks then
-                -- A block provider we could not read. A module carrying
-                -- neither field is simply not one -- the tracker has many
-                -- module types -- and must not count as a failure.
-                failed = true
+                if handled then
+                    recognised = true
+                elseif hasEnumerator or hasUsedBlocks then
+                    -- A block provider we could not read. A module carrying
+                    -- neither field is simply not one -- the tracker has many
+                    -- module types -- and must not count as a failure.
+                    failed = true
+                end
             end
         end
     end

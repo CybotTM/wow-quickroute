@@ -106,9 +106,27 @@ function PathCalculator:ResolveMapPosition(mapID, x, y)
     return mapID, x, y
 end
 
+--- Read and project the actual player origin as one map/coordinate value.
+-- Missing positions remain unavailable; never invent a midpoint while loading.
+function PathCalculator:GetPlayerPosition(mapID)
+    if not (C_Map and C_Map.GetPlayerMapPosition) then return nil end
+    if mapID == nil then
+        if not C_Map.GetBestMapForUnit then return nil end
+        local ok, currentMap = pcall(C_Map.GetBestMapForUnit, "player")
+        if not ok then return nil end
+        mapID = currentMap
+    end
+    if not IsMapID(mapID) then return nil end
+    local ok, position = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
+    if not ok or not position then return nil end
+    local coordinatesOK, x, y = pcall(function() return position:GetXY() end)
+    if not coordinatesOK or not IsCoordinate(x) or not IsCoordinate(y) then return nil end
+    return self:ResolveMapPosition(mapID, x, y)
+end
+
 --- Movement capability comes from measured/usable character abilities.
-local function GetCachedIsFlyable()
-    local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+local function GetCachedIsFlyable(mapID)
+    mapID = mapID or QR.TravelTime:GetCurrentMapID()
     if QR.TravelTime.CanFly then return QR.TravelTime:CanFly(mapID) end
     return false
 end
@@ -386,8 +404,8 @@ end
 -- This is crucial for connecting teleport destinations to nearby portal hubs
 function PathCalculator:ConnectSameMapNodes()
     -- Only assume flying for the player's CURRENT map; remote maps use ground speed
-    local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
-    local playerCanFly = GetCachedIsFlyable()
+    local playerMapID = QR.TravelTime:GetCurrentMapID()
+    local playerCanFly = GetCachedIsFlyable(playerMapID)
 
     -- Group nodes by mapID
     local nodesByMap = {}
@@ -559,17 +577,8 @@ function PathCalculator:AddPlayerTeleportEdges()
 
     -- Add "Player Location" as a special node
     if not self.graph.nodes[PLAYER_NODE] then
-        local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+        local mapID, x, y = self:GetPlayerPosition()
         if not mapID then return end  -- In loading screen or unmapped area
-        local posOk, pos = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
-        if not posOk then pos = nil end
-        local x, y = DEFAULT_COORDINATE, DEFAULT_COORDINATE
-        if pos then
-            local px, py = pos:GetXY()
-            if px and py and px >= 0 and px <= 1 and py >= 0 and py <= 1 then
-                x, y = px, py
-            end
-        end
 
         self.graph:AddNode(PLAYER_NODE, {
             mapID = mapID,
@@ -998,18 +1007,13 @@ end
 
 --- Update player location node with current position
 function PathCalculator:UpdatePlayerLocation()
-    local mapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    local mapID, x, y = self:GetPlayerPosition()
 
     -- Abort if no valid map (e.g., in instance loading, unmapped area)
     if not mapID then
         QR:Debug("Cannot get player map ID (instance/loading?)")
         return false
     end
-
-    local posOk, pos = pcall(C_Map.GetPlayerMapPosition, mapID, "player")
-    if not posOk or not pos then return false end
-    local coordOK, x, y = pcall(pos.GetXY, pos)
-    if not coordOK or not IsCoordinate(x) or not IsCoordinate(y) then return false end
 
     local node = self.graph.nodes[PLAYER_NODE]
     if not node then
@@ -1104,8 +1108,8 @@ end
 -- @param y number The Y coordinate (0-1)
 function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
     -- Only assume flying for the player's current map; remote maps use ground speed
-    local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
-    local canFly = (mapID == playerMapID) and GetCachedIsFlyable() or false
+    local playerMapID = QR.TravelTime:GetCurrentMapID()
+    local canFly = (mapID == playerMapID) and GetCachedIsFlyable(playerMapID) or false
 
     -- First pass: connect to nodes on the same map
     for otherName, otherData in pairs(self.graph.nodes) do

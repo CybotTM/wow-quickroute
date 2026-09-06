@@ -99,12 +99,26 @@ local function MountCapabilities()
     return usableMount, steadyFlightMount
 end
 
-local function ComputeMovementSpeed(self, mapID, mode)
+--- Keep current-map flight permissions in the same coordinate space as routes.
+-- Ordinary zones need no position lookup. Parent/micro maps are resolved only
+-- when the client can provide an actual position and verified transform.
+function TravelTime:GetCurrentMapID()
     local currentMap
     if C_Map and C_Map.GetBestMapForUnit then
         local ok, value = pcall(C_Map.GetBestMapForUnit, "player")
         if ok and Number(value) then currentMap = value end
     end
+    if currentMap and C_Map.GetMapInfo and QR.PathCalculator and QR.PathCalculator.GetPlayerPosition then
+        local ok, info = pcall(C_Map.GetMapInfo, currentMap)
+        if ok and type(info) == "table" and Number(info.mapType) and (info.mapType <= 2 or info.mapType == 5) then
+            currentMap = QR.PathCalculator:GetPlayerPosition(currentMap) or currentMap
+        end
+    end
+    return currentMap
+end
+
+local function ComputeMovementSpeed(self, mapID, mode)
+    local currentMap = self:GetCurrentMapID()
     local here = mapID ~= nil and mapID == currentMap
     local runSpeed, flightSpeed, measuredSpeed = self.SPEEDS.running, 0, 0
     if here and _G.GetUnitSpeed then
