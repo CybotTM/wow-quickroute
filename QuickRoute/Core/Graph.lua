@@ -181,6 +181,12 @@ function QR.Graph:SetEdgeOptions(from, to, options)
         self.edges[from][to] = nil
         return
     end
+    -- Most pairs have just one method. Keep that immutable edge directly,
+    -- without a second summary table and retained singleton alternatives.
+    if #options == 1 and not best.alternatives then
+        self.edges[from][to] = best
+        return
+    end
     self.edges[from][to] = {
         weight = best.weight, edgeType = best.edgeType, data = best.data,
         alternatives = options,
@@ -192,8 +198,17 @@ function QR.Graph:AddEdgeOption(from, to, weight, edgeType, data)
     local existing = self:GetEdge(from, to)
     if not self:AddEdge(from, to, weight, edgeType, data) then return false end
     local incoming = self:GetEdge(from, to)
+    if not existing or (not existing.alternatives
+        and existing.edgeType == incoming.edgeType
+        and existing.data.teleportID == incoming.data.teleportID) then
+        return true
+    end
     local options = {}
-    for _, option in ipairs(existing and (existing.alternatives or { existing }) or {}) do
+    local alternatives = existing.alternatives
+    for index = 1, alternatives and #alternatives or 1 do
+        local option = existing
+        if alternatives then option = alternatives[index] end
+        if not option then break end
         if option.edgeType ~= incoming.edgeType
             or option.data.teleportID ~= incoming.data.teleportID then
             options[#options + 1] = option
@@ -250,7 +265,11 @@ local function FindDistances(graph, start, goal, filter)
                 local edge = selected
                 if filter then
                     edge = nil
-                    for _, option in ipairs(selected.alternatives or { selected }) do
+                    local alternatives = selected.alternatives
+                    for index = 1, alternatives and #alternatives or 1 do
+                        local option = selected
+                        if alternatives then option = alternatives[index] end
+                        if not option then break end
                         if filter(current, neighbor, option) and (not edge or option.weight < edge.weight) then edge = option end
                     end
                 end
@@ -337,7 +356,11 @@ function QR.Graph:FindShortestPathWithState(start, goal, policy)
             local current = states[currentKey]
             if current.node == goal then finalKey = currentKey; break end
             for neighbor, selected in pairs(self:GetNeighbors(current.node)) do
-                for _, edge in ipairs(selected.alternatives or { selected }) do
+                local alternatives = selected.alternatives
+                for index = 1, alternatives and #alternatives or 1 do
+                    local edge = selected
+                    if alternatives then edge = alternatives[index] end
+                    if not edge then break end
                     local nextState = policy:Advance(current.node, neighbor, edge, current.state)
                     if nextState then
                         local nextKey = key(neighbor, nextState)

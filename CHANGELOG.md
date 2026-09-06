@@ -8,6 +8,8 @@
 - Reused quest-map scan results within each target lookup, avoiding repeated native API calls for unresolved intermediate objectives.
 - Built currency, quest and search indexes only when needed, and bounded the quest-coordinate cache to 256 entries while retaining its freshness and retry rules.
 - Released obsolete travel graphs held by expired or lower-priority quest-button cache entries, including when disabling the feature.
+- Reduced temporary route allocations and graph memory by storing single travel methods without redundant option containers and removing unused index rebuilds.
+- Avoided full travel-graph rebuilds for ordinary bag updates when teleport options are unchanged; capability, equipment and real inventory changes still invalidate routes.
 
 ### Validation
 - Added reproducible Lua movement/heap benchmarks and regressions for phase detours, button continuity, pooled replacements, independent catalogue indexes and cache eviction. See the [performance investigation](docs/PERFORMANCE-REVIEW-2026-09-06.md) for measurements and limits.

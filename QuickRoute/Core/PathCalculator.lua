@@ -1103,10 +1103,6 @@ end
 -- @param x number The X coordinate (0-1)
 -- @param y number The Y coordinate (0-1)
 function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
-    -- Called after the caller has added its node, so the index is refreshed
-    -- here rather than reused from BuildGraph.
-    self:BuildNodeIndex()
-
     -- Only assume flying for the player's current map; remote maps use ground speed
     local playerMapID = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
     local canFly = (mapID == playerMapID) and GetCachedIsFlyable() or false

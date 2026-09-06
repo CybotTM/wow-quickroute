@@ -6,7 +6,7 @@ The user supplied [r0s0j's CurseForge report](https://www.curseforge.com/wow/add
 
 `scripts/benchmark_movement.lua` loads actual addon data and routing code with the existing WoW API mock. It tracks 25 quests, keeps the QuickRoute window closed and advances a 60-frame-per-second fixture. Its timer queue schedules callbacks on later simulated frames. Both versions use the same mock, positions and quest events.
 
-| Ten-second workload | v1.17.0 CPU | Corrected CPU | Route calculations |
+| Ten-second workload | v1.17.0 CPU | Initial fix `a49f277` CPU | Route calculations |
 | --- | ---: | ---: | ---: |
 | Moving, QR closed | 1,692 ms | 371 ms | 226 in both |
 | Stationary, one quest-log event/second | 1,718 ms | 276 ms | 249 in both |
@@ -41,7 +41,26 @@ The coordinate cache previously retained every distinct requested quest ID until
 
 An additional reproduction found obsolete graphs retained by quest-button cache entries below the eight-button cutoff: those quests were still watched, but their expired entries were never queried again. The correction prunes expired and obsolete-graph entries during refresh and the lightweight idle probe, and clears graph references when disabling the feature. Weak-reference regression tests verify that replaced graphs can be collected without calculating more routes.
 
-The reference catalogue itself still accounts for about 22.5 MiB, and the current travel graph/index about 11.75 MiB in this fixture. Repeated route batches with a stable graph stabilized after collection; the separate graph-retention issue above required replacing the graph and changing which quests filled the button pool. The phase optimization mainly reduces CPU time, with only about 4.8 KiB fewer temporary allocations per route. These Lua heap figures are not the WoW process's total RAM usage.
+The reference catalogue itself still accounts for about 22.5 MiB. Before the follow-up below, the travel graph/index accounted for about 11.75 MiB in this fixture. Repeated route batches with a stable graph stabilized after collection; the separate graph-retention issue above required replacing the graph and changing which quests filled the button pool. The phase optimization mainly reduces CPU time, with only about 4.8 KiB fewer temporary allocations per route. These Lua heap figures are not the WoW process's total RAM usage.
+
+## Follow-up to the 168 MB client screenshot
+
+The player reported 168 MB and 2% average CPU in the native addon tooltip after reloading the initial fix `a49f277`. A subsequent in-client measurement, confirmed by a screenshot and explicitly updating addon memory counters before and after one manual collection, returned **150.05 MiB before and 51.10 MiB after**. Approximately 99 MiB was therefore collectable in that sample. This supports transient allocation as the main contributor to the high reading; it does not prove that every live workflow is free of retention issues.
+
+An independent rich-character fixture with 227 scanned teleports, expanded flight knowledge, UI refreshes and repeated graph rebuilds did not reproduce another retained-graph leak. A 20-stop tour reached approximately 176 MiB before collection and 76.5 MiB afterward; canceling returned it to approximately 70 MiB. This is additional synthetic evidence of temporary churn, not a measurement of the player's tour. No automatic garbage collection is added to the addon.
+
+Allocation profiling identified redundant containers around single graph edges and full index rebuilds that connection code no longer reads. Single methods now use the existing direct-edge representation; parallel alternatives, tie rules, stateful filtering and previously returned route snapshots retain their behavior. Connections read current graph nodes without rebuilding the unused index.
+
+| Standalone heap measurement | Initial fix `a49f277` | Follow-up |
+| --- | ---: | ---: |
+| Temporary allocation per stationary route | 267.7 KiB | 140.0 KiB |
+| Temporary allocation per moving route | 491.3 KiB | 254.3 KiB |
+| Temporary allocation per hypothetical-origin route | 6,928 KiB | 4,585 KiB |
+| Retained graph/index in the fixture | 12,028 KiB | 7,489 KiB |
+
+Ordinary `BAG_UPDATE` events also rebuilt the entire graph even when the rescan found identical teleport options. Comparing the scan snapshots now skips that invalidation for unchanged bag-only batches. Acquiring/removing a teleport, changes in source/usability and coalesced skill, spell, toy or equipment events still invalidate routes, with the existing combat deferral.
+
+The real-code loot fixture performs ten inventory scans and ten routes. Graph rebuilds fell from ten to zero; temporary allocations fell from 176,523 KiB to 1,413 KiB. This sample pauses GC to count allocations and does not predict a native tooltip value. A separate structural-sharing experiment saved only about 758 KiB in catalogue requirements, so no generated data or generator changes were included.
 
 ## Repeating the measurements
 
@@ -52,8 +71,9 @@ lua5.1 scripts/benchmark_movement.lua
 lua5.1 scripts/benchmark_memory.lua QuickRoute/ currency
 lua5.1 scripts/benchmark_memory.lua QuickRoute/ quest
 lua5.1 scripts/benchmark_memory.lua QuickRoute/ search
+lua5.1 scripts/benchmark_loot.lua
 ```
 
 To compare a previous version, extract its `QuickRoute/` directory into an isolated temporary directory and pass that directory, including its trailing slash, as the first argument. The memory script pauses GC during allocation samples and resumes it after collection. Neither benchmark reads the player's SavedVariables or runs inside the game.
 
-The final suite passed all 15,658 assertions in both Lua test orders, lint reported zero warnings/errors in 112 files, and all 47 Python tests passed. In-client confirmation remains necessary for the reported FPS/camera symptom and the appearance of the quest tracker during actual play.
+The final suite passed all 15,702 assertions in both Lua test orders, lint reported zero warnings/errors in 114 files, and all 47 Python tests passed before these Lua-only follow-up changes. In-client confirmation remains necessary for the reported FPS/camera symptom, the appearance of the quest tracker during actual play, and the follow-up's reduction in allocation churn.
