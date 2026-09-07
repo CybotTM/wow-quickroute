@@ -119,15 +119,10 @@ local PADDING = 10
 -- Grid icon constants (grouped mode)
 -- Cards, for the grouped view.
 --
--- The column count follows the window rather than being fixed, using the same
--- arithmetic the icon grid already used for iconsPerRow. With a 254 minimum --
--- below that an icon, a name and a status stop fitting side by side -- the
--- thresholds fall out as: one column up to 537, two to 803, three above. The
--- design asked for "about 540" and "about 760"; the second is 804 rather than
--- 760 because three 254-wide cards plus their gaps and padding need it, and a
--- threshold that follows from the card is worth more than one that matches a
--- round number.
-local CARD_MIN_WIDTH = 254
+-- Count columns inside the scroll viewport. A 244px minimum keeps three cards
+-- in the default window after its scrollbar gutters are removed; five 36px
+-- icons plus their gaps, padding and status dot require 236px.
+local CARD_MIN_WIDTH = 244
 local CARD_GAP = 12
 local CARD_PADDING = 10
 -- K2 from the design canvas: a 68px picture banner carrying the name and the
@@ -2484,7 +2479,14 @@ end
 -- @return number The offset below the last row of cards
 function TeleportPanel:CreateGroupCards(groups, yOffset)
     local scrollChild = self.frame.scrollChild
-    local cardWidth, perRow = self:CardWidth(self.frame:GetWidth())
+    local viewport = self.frame.scrollFrame
+    local availableWidth = viewport and viewport:GetWidth() or 0
+    if availableWidth <= 0 then
+        -- Before native anchor layout has resolved, reserve the same gutters
+        -- as CreateContent's ScrollFrame instead of using the full panel.
+        availableWidth = self.frame:GetWidth() - PADDING * 2 - 12
+    end
+    local cardWidth, perRow = self:CardWidth(availableWidth)
 
     for i, group in ipairs(groups) do
         local col = (i - 1) % perRow

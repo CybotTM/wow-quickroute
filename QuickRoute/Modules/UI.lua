@@ -516,6 +516,15 @@ end
 -- Route Display
 -------------------------------------------------------------------------------
 
+local function DestinationSubtitle(waypoint)
+    local name = waypoint.title or L["UNKNOWN"]
+    local mapInfo = waypoint.mapID and C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(waypoint.mapID)
+    if mapInfo and mapInfo.name and mapInfo.name ~= name then
+        return name .. " (" .. mapInfo.name .. ")"
+    end
+    return name
+end
+
 --- Refresh the route display by calculating path to current waypoint
 function UI:RefreshRoute()
     if not self.frame then
@@ -543,13 +552,7 @@ function UI:RefreshRoute()
         -- Update subtitle with destination info
         if poiResult.waypoint and QR.MainFrame and QR.MainFrame.subtitle
             and QR.MainFrame.activeTab == "route" then
-            local destName = poiResult.waypoint.title or L["UNKNOWN"]
-            local destZone = ""
-            if poiResult.waypoint.mapID and C_Map and C_Map.GetMapInfo then
-                local mapInfo = C_Map.GetMapInfo(poiResult.waypoint.mapID)
-                if mapInfo then destZone = " (" .. mapInfo.name .. ")" end
-            end
-            QR.MainFrame.subtitle:SetText(destName .. destZone)
+            QR.MainFrame.subtitle:SetText(DestinationSubtitle(poiResult.waypoint))
         end
 
         local ok, err = pcall(self.UpdateRoute, self, poiResult)
@@ -633,19 +636,9 @@ function UI:RefreshRoute()
         end
     end
 
-    -- We have a waypoint - show destination in subtitle
-    local destName = waypoint.title or L["UNKNOWN"]
-    local destZone = ""
-    if waypoint.mapID then
-        local mapInfo = C_Map.GetMapInfo(waypoint.mapID)
-        if mapInfo then
-            destZone = " (" .. mapInfo.name .. ")"
-        end
-    end
-
     -- Update MainFrame subtitle with destination
     if QR.MainFrame and QR.MainFrame.subtitle and QR.MainFrame.activeTab == "route" then
-        QR.MainFrame.subtitle:SetText(destName .. destZone)
+        QR.MainFrame.subtitle:SetText(DestinationSubtitle(waypoint))
     end
 
     -- Now try to calculate path

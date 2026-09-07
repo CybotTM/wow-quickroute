@@ -1,0 +1,2 @@
+# Unified diff context lines use one literal space for empty source lines.
+docs/rendering/*.patch whitespace=-blank-at-eol

@@ -1,103 +1,35 @@
-# Regenerating the screenshots
+# Reproducing the screenshots
 
-The images in this directory are rendered by [wow-ui-sim](https://github.com/Osso/wow-ui-sim), which runs the real
-Blizzard interface and this addon against the client's own item, spell and map
-tables. Every name, icon, zone image and travel time in them is computed by the
-addon; nothing is drawn by hand.
+The gallery is rendered from QuickRoute controls by [wow-ui-sim](https://github.com/Osso/wow-ui-sim), using Blizzard interface source and local WoW assets. It is a simulated character and UI environment, not a native-game capture. Character inventory/position and optional ATT records are explicit fixtures; computed route steps, ordering and travel estimates are not replaced.
 
-## What each file is for
+Use the corrected combined simulator described in the [screenshot fidelity review](../../docs/SCREENSHOT-REVIEW-2026-09-07.md). The original combined build repeated scaled backdrop corners and used an opaque substitute for the native Settings background. The documented patch corrects both; the original worktree remains intact.
 
-`common.lua` gives the character a plausible collection — nine destinations,
-which fills the card grid without a half-row — and holds two helpers: one drives
-the addon's throttled `OnUpdate` handlers, which the three ticks of a screenshot
-run never reach, and one hides the Blizzard frames that would otherwise read
-through the semi-transparent panels.
-
-`waypoint.lua` backs `C_Map.SetUserWaypoint` and its two readers with an
-in-memory pin. The simulator has no user-waypoint store; this is the same
-contract the client offers, and the route is still calculated entirely by the
-addon.
-
-`graph.lua` rescans the collection and rebuilds the travel graph. The graph is
-built once at load, before the collection is visible here, so without this the
-router has no player teleport edges and answers with portals only.
-
-The `view-*.lua` files open one panel each.
-
-## Rendering
-
-Each render concatenates the shared parts with one view, in this order:
-
-```bash
-cat common.lua waypoint.lua graph.lua view-route.lua > /tmp/seed.lua
-WOW_INSTALL_PATH="/path/to/World of Warcraft" \
-WOW_SIM_ADDONS_PATH="/path/to/a/dir/symlinking/QuickRoute" \
-wow-sim --no-saved-vars --exec-lua @/tmp/seed.lua \
-  screenshot --output /tmp/route.webp --width 2560 --height 1600
-```
-
-`view-teleports.lua`, `view-quick.lua` and `view-settings.lua` need only
-`common.lua` before them.
-
-Crop to the panel with the bounds `--dump-tree` reports, rather than by eye:
-
-| Image | Frame | Crop |
-|---|---|---|
-| `route-panel.png` | `QuickRouteMainFrame` | 588, 493 → 1971, 1105 |
-| `teleport-panel.png` | `QuickRouteMainFrame` | 588, 335 → 1971, 1263 |
-| `destination-search.png` | `QRMiniTeleportPanel` | 1610, 179 → 2251, 663 |
-| `quest-teleport.png` | window and quest tracker | 560, 420 → 2560, 1090 |
-| `settings-panel.png` | Blizzard settings panel | 503, 141 → 2055, 1362 |
-
-Those historical crops used a simulator build with UI scale 1.6875 at 2560×1600.
-Re-read bounds from `--dump-tree` for the installed simulator and current panel size.
-
-
-## Initial review windows (2026-09-05)
-
-The initial local `wow-ui-sim` build accepted `--filter` and `--dump-tree`; it did not
-accept the historical `--ui-scale` option used for the older gallery images. The new view
-seeds set their own window scale explicitly. For these snapshots:
-
-```bash
-cat common.lua graph.lua view-multi.lua > /tmp/quickroute-multi.lua
-WOW_INSTALL_PATH="/path/to/World of Warcraft" \
-WOW_SIM_ADDONS_PATH="/path/to/addon-symlinks" \
-wow-sim --no-saved-vars --exec-lua @/tmp/quickroute-multi.lua screenshot \
-  --output /tmp/multi-route-review.webp --width 1600 --height 1200 \
-  --filter QuickRouteMultiRouteFrame --dump-tree QuickRouteMultiRouteFrame
-```
-
-Use `view-phases.lua` and `QuickRoutePhaseFrame` for the phase selector.
-The renderer writes WebP even if a different output extension was requested.
-These images inspect actual addon controls; the simulator has baseline Blizzard
-API errors and color/text-rendering differences, so they are not retail visual
-or protected-action certification. The trip example contains pasted inputs and
-has not started a route; its values are not fabricated route results.
-
-## Follow-up with all four simulator PRs
-
-The player workflow review uses a freshly built integration of PRs 7, 8, 9 and 10.
-Exact source revisions, build features and the binary hash are recorded in the
-[review provenance](../../docs/PLAYER-WORKFLOW-REVIEW-2026-09-05.md#visual-simulator-provenance).
-That build supports native atlas sizes, UTF-8/named colors and `--ui-scale`.
-
-From the addon repository, render the declared review scenes with:
+From the addon repository:
 
 ```sh
-python3 scripts/render_player_review.py \
-  --sim-root /path/to/combined-wow-ui-sim \
-  --wow-install '/path/to/World of Warcraft' \
-  --output /tmp/quickroute-player-review
+python3 scripts/render_player_review.py --sim-root <simulator> --wow-install <WoW> --output <output>/player
+python3 scripts/render_att_review.py --sim-root <simulator> --wow-install <WoW> --output <output>/att
+python3 scripts/render_feature_review.py --sim-root <simulator> --wow-install <WoW> --output <output>/features
+python3 scripts/render_gallery_review.py --sim-root <simulator> --wow-install <WoW> --output <output>/gallery
 ```
 
-Use `--view settings`, `teleports-small`, `sidebar`, `sidebar-collapsed`, `acquisition-vendor`,
-`acquisition-unknown`, `currency-empty`, `overlap-help`, `overlap-settings` or
-`overlap-menu` to repeat one scene. The script creates
-an addon symlink, Lua input and log beside each image. It injects QuickRoute's
-actual German translations; native Blizzard labels and item names retain the
-simulator locale. The acquisition and empty-vendor fixtures are explicit examples.
+Each wrapper accepts `--view`; use `--help` for its exact scene names. Outputs include the generated Lua scene, renderer log, raw WebP and a provenance text file. The shared renderer checks the loaded addon version against the current TOC and rejects execution errors. Provenance records source, binary, scene and image hashes.
 
-Keep the main-window scene unfiltered: secure icons are parented to UIParent,
-and filtering only the main frame removes them. The unfiltered game UI also
-reveals action-bar/window ordering that an isolated component image conceals.
+The [published manifest](../render-provenance.txt) contains the per-image records. Content hashes include untracked addon/fixture files; changed inputs and a missing completed-scene marker invalidate a capture.
+
+## Scene groups
+
+- **Player:** Settings, small-screen teleport inventory, overlapping help/menu/settings, map sidebar and acquisition/currency empty states.
+- **ATT:** removed acquisition labels, icon badge, acquisition help, Vilo's purchase requirements, item search and vendor search.
+- **Features:** a three-stop trip after completing its first stop, plus paired classic-Uldum routes with present/past phase assumptions. The present-phase route contains a Zidormi transition; the past-phase route does not.
+- **Gallery:** a dungeon route, owned teleport inventory, compact teleport menu, and a quest route with a matching tracker button.
+
+The Settings image and other simulated native frames retain the simulator locale and addon list. Its world background does not recreate the player's 3D scene. These differences are not evidence of an addon layout change.
+
+## Shared seeds
+
+`common.lua` supplies the explicit small collection and helpers for opening views and advancing QuickRoute's throttled overlay handlers. `graph.lua` rescans that collection and builds the actual travel graph. `waypoint.lua` provides the map-pin storage contract for the historical standalone view seeds.
+
+The `view-*.lua` files preserve earlier individual scenarios. Current gallery production uses the four wrappers above: those exercise completed initialization and meaningful active states, rather than merely opening empty windows. No post-render cropping, border removal or image retouching is needed.
+
+Keep activation-control views unfiltered: secure icons are parented to UIParent, so filtering only the main frame would remove them and conceal layering defects. The shared renderer also rejects active secure overlays still bound to UIParent's drawing level.

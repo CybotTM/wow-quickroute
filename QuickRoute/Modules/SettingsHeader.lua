@@ -54,7 +54,11 @@ function QuickRouteSettingsHeaderMixin:OnLoad()
     if self.Logo then return end
     self:SetHeight(HEADER_HEIGHT)
     local background = self:CreateTexture(nil, "BACKGROUND")
-    background:SetAllPoints()
+    -- Blizzard_SettingsPanel.xml places Container 16px right of CategoryList
+    -- and at y=-76, while Options_InnerFrame starts at y=-64. Fill those
+    -- surrounding gutters without shifting content or the native Defaults.
+    background:SetPoint("TOPLEFT", self, "TOPLEFT", -16, 12)
+    background:SetPoint("BOTTOMRIGHT", self, "BOTTOMRIGHT", 0, 0)
     background:SetColorTexture(0.035, 0.05, 0.08, 0.78)
 
     -- Retain the travel-network motif quietly behind the readable text.

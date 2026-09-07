@@ -1723,3 +1723,45 @@ T:run("/qrverifymap is registered", function(t)
     t:assertEqual("/qrverifymap", _G.SLASH_QRVERIFYMAP1, "the command exists")
     t:assertNotNil(SlashCmdList and SlashCmdList["QRVERIFYMAP"], "and has a handler")
 end)
+
+T:run("RefreshRoute subtitles avoid duplicate zones in normal and precomputed routes", function(t)
+    ensureUIFrame()
+    local ui, main, integration = QR.UI, QR.MainFrame, QR.WaypointIntegration
+    local saved = {mapInfo = C_Map.GetMapInfo, active = integration.GetActiveWaypoint,
+        calculate = integration.CalculatePathToWaypoint, update = ui.UpdateRoute,
+        tab = main.activeTab, subtitle = main.subtitle:GetText(), locked = QR.db.destinationLocked,
+        destination = QR.db.lastDestination, pending = ui._pendingPOIRoute, calculating = ui.isCalculating,
+        refreshed = ui.lastRefreshTime}
+    local waypoint, zoneName
+    C_Map.GetMapInfo = function() return zoneName and {name = zoneName} or nil end
+    integration.GetActiveWaypoint = function() return waypoint end
+    integration.CalculatePathToWaypoint = function() return {steps = {}, totalTime = 0} end
+    ui.UpdateRoute = function() end
+    main.activeTab, QR.db.destinationLocked = "route", false
+    local ok, err = pcall(function()
+        for _, precomputed in ipairs({false, true}) do
+            for _, example in ipairs({
+                {"Isle of Dorn", "Isle of Dorn", "Isle of Dorn"},
+                {"Zaralek Cavern", "Zaralek Cavern", "Zaralek Cavern"},
+                {"Bank", "Stormwind City", "Bank (Stormwind City)"},
+                {"Uldum (Vergangenheit)", "Uldum", "Uldum (Vergangenheit) (Uldum)"},
+                {"Unmapped destination", false, "Unmapped destination"},
+            }) do
+                waypoint = {mapID = 84, x = .5, y = .5, title = example[1]}
+                zoneName = example[2]
+                QR.db.destinationLocked, ui.isCalculating = false, false
+                ui._pendingPOIRoute = precomputed and {waypoint = waypoint, steps = {}, totalTime = 0} or nil
+                ui:RefreshRoute()
+                t:assertEqual(example[3], main.subtitle:GetText(),
+                    (precomputed and "Precomputed" or "Active") .. " route preserves only distinct location names for " .. example[1])
+            end
+        end
+    end)
+    C_Map.GetMapInfo, integration.GetActiveWaypoint = saved.mapInfo, saved.active
+    integration.CalculatePathToWaypoint, ui.UpdateRoute = saved.calculate, saved.update
+    main.activeTab = saved.tab
+    main.subtitle:SetText(saved.subtitle)
+    QR.db.destinationLocked, QR.db.lastDestination = saved.locked, saved.destination
+    ui._pendingPOIRoute, ui.isCalculating, ui.lastRefreshTime = saved.pending, saved.calculating, saved.refreshed
+    if not ok then error(err) end
+end)
