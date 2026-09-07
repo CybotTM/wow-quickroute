@@ -562,6 +562,29 @@ end
 local eventFrame = CreateFrame("Frame")
 PlayerInventory.eventFrame = eventFrame
 local debounceTimer = nil
+local forceGraphRefresh = false
+
+-- Ordinary loot still needs a bag scan, but unchanged teleport options do not
+-- require rebuilding every travel connection. Compare the flat scan records;
+-- their destination data references are shared with the static data tables.
+local function SameTeleports(before, after)
+    for id, entry in pairs(before) do
+        local other = after[id]
+        if not other then return false end
+        for key, value in pairs(entry) do
+            local newValue = other[key]
+            if issecretvalue and (issecretvalue(value) or issecretvalue(newValue)) then return false end
+            if value ~= newValue then return false end
+        end
+        for key in pairs(other) do
+            if entry[key] == nil then return false end
+        end
+    end
+    for id in pairs(after) do
+        if not before[id] then return false end
+    end
+    return true
+end
 
 -- Events that should trigger a rescan
 eventFrame:RegisterEvent("BAG_UPDATE")
@@ -571,6 +594,9 @@ eventFrame:RegisterEvent("SPELLS_CHANGED")
 eventFrame:RegisterEvent("SKILL_LINES_CHANGED")
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
+    -- Preserve capability/equipment invalidation even when this event joins a
+    -- pending BAG_UPDATE batch (e.g. looting and learning a riding spell).
+    if event ~= "BAG_UPDATE" then forceGraphRefresh = true end
     if event == "SKILL_LINES_CHANGED" and QR.PlayerInfo then
         QR.PlayerInfo:InvalidateCache()
     end
@@ -590,15 +616,19 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     -- Set a new timer
     debounceTimer = C_Timer.NewTimer(DEBOUNCE_DELAY, function()
         PlayerInventory.pendingScan = false
+        local force = forceGraphRefresh
+        forceGraphRefresh = false
 
         -- Skip scan if addon not fully initialized yet
         if not QR.db then return end
 
         -- Perform the scan
+        local before = not force and PlayerInventory:GetAllTeleports()
         PlayerInventory:ScanAll()
+        local changed = force or not SameTeleports(before, PlayerInventory:GetAllTeleports())
 
         -- Notify PathCalculator if it exists (defer during combat to avoid expensive graph rebuild)
-        if QR.PathCalculator and QR.PathCalculator.OnInventoryChanged then
+        if changed and QR.PathCalculator and QR.PathCalculator.OnInventoryChanged then
             if InCombatLockdown() then
                 QR.PathCalculator.graphDirty = true
             else

@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Fixed
+- Reduced background quest-route CPU work during movement by validating the chosen route's phase requirements before scanning unrelated graph connections.
+- Kept unchanged quest-tracker teleport buttons visible and attached during asynchronous refreshes; retired obsolete choices individually and corrected icons when a reused button changes action.
+- Reused quest-map scan results within each target lookup, avoiding repeated native API calls for unresolved intermediate objectives.
+- Built currency, quest and search indexes only when needed, and bounded the quest-coordinate cache to 256 entries while retaining its freshness and retry rules.
+- Released obsolete travel graphs held by expired or lower-priority quest-button cache entries, including when disabling the feature.
+- Reduced temporary route allocations and graph memory by storing single travel methods without redundant option containers and removing unused index rebuilds.
+- Avoided full travel-graph rebuilds for ordinary bag updates when teleport options are unchanged; capability, equipment and real inventory changes still invalidate routes.
+- Kept inactive quest-button icons briefly in place across missing route/position data, retried recovery without stale clickable actions, and confirmed returning teleport recommendations during flight before showing them again.
+- Projected player origins through verified microzone map transforms and preserved current-map flight speed; tracker buttons no longer collide with achievement/recipe blocks sharing a numeric ID.
+- Excluded the global cooldown from teleport-spell readiness through the native duration API, while preserving real personal cooldowns and safe handling of restricted timing data.
+
+### Validation
+- Added reproducible Lua movement/heap benchmarks and regressions for phase detours, button continuity, pooled replacements, independent catalogue indexes and cache eviction. See the [performance investigation](docs/PERFORMANCE-REVIEW-2026-09-06.md) for measurements and limits.
+
 ## [1.17.0] - 2026-09-05
 
 ### Added
