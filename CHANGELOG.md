@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-09-07
+
 ### Added
 - Added optional ATT searches for cached item and NPC names, item links and numeric IDs, with verified source coordinates, bounded background work and live checks when selecting a result.
 - Added routes to independently located ATT vendors and quest givers. Item purchase reputation is shown separately from access to a confirmed vendor, so players can visit Vilo before they can buy the Broker Translocation Matrix.
@@ -21,6 +23,7 @@
 
 ### Validation
 - Added reproducible Lua movement/heap benchmarks and regressions for phase detours, button continuity, pooled replacements, independent catalogue indexes and cache eviction. See the [performance investigation](docs/PERFORMANCE-REVIEW-2026-09-06.md) for measurements and limits.
+- Validated ATT source access, unavailable acquisitions, cancelled searches and UI layouts with regression tests and six simulator views. See the [ATT acquisition review](docs/ATT-ACQUISITION-REVIEW-2026-09-07.md) for data contracts and live-client verification limits.
 
 ## [1.17.0] - 2026-09-05
 
@@ -368,5 +371,6 @@
 - CI pipeline (luacheck + tests)
 - CurseForge + Wago automated publishing
 
-[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.17.0...HEAD
+[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.0...HEAD
+[1.18.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.16.0...v1.17.0
