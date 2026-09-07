@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.18.1] - 2026-09-07
+
 ### Fixed
 - Filled the native top and left gutters around the Settings header background while preserving the positions of its controls and settings list.
 - Sized grouped teleport cards to the actual scroll viewport so the last column and its status indicators are fully visible.
@@ -379,6 +381,7 @@
 - CI pipeline (luacheck + tests)
 - CurseForge + Wago automated publishing
 
-[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.0...HEAD
+[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.1...HEAD
+[1.18.1]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.16.0...v1.17.0
