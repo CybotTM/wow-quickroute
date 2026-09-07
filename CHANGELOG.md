@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Added
+- Added optional ATT searches for cached item and NPC names, item links and numeric IDs, with verified source coordinates, bounded background work and live checks when selecting a result.
+- Added routes to independently located ATT vendors and quest givers. Item purchase reputation is shown separately from access to a confirmed vendor, so players can visit Vilo before they can buy the Broker Translocation Matrix.
+- Marked missing teleports as currently unobtainable when all recorded ATT sources explicitly establish that status. Existing unlocks and unknown or mixed-source availability remain unchanged.
+
 ### Fixed
 - Reduced background quest-route CPU work during movement by validating the chosen route's phase requirements before scanning unrelated graph connections.
 - Kept unchanged quest-tracker teleport buttons visible and attached during asynchronous refreshes; retired obsolete choices individually and corrected icons when a reused button changes action.
