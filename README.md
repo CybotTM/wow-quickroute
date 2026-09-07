@@ -43,25 +43,27 @@ Routes depend on recorded connections, character access and estimated travel tim
 
 ## Screenshots
 
-Earlier interface captures (before the player workflow fixes):
+Current addon controls rendered with an explicit simulated character:
 
 | Route Panel | Teleport Panel | Quick Teleports |
 |:-----------:|:--------------:|:---------------:|
-| ![Route](screenshots/route-panel.png) | ![Teleports](screenshots/teleport-panel.png) | ![Quick Teleports](screenshots/destination-search.png) |
+| ![Route](screenshots/route-panel.webp) | ![Teleports](screenshots/teleport-panel.webp) | ![Quick Teleports](screenshots/destination-search.webp) |
 
-![Route with Quest Tracker](screenshots/quest-teleport.png)
+![Route with Quest Tracker](screenshots/quest-teleport.webp)
 
-Current Settings header, rendered with all four simulator PRs:
+Settings branding fills the native header region above the divider:
 
 ![Settings Panel](screenshots/settings-player-review.webp)
 
-The [player workflow review](docs/PLAYER-WORKFLOW-REVIEW-2026-09-05.md) includes the corrected header, acquisition help and unfiltered small-screen views from the simulator with PRs 7–10 combined.
+The [screenshot fidelity review](docs/SCREENSHOT-REVIEW-2026-09-07.md) documents the renderer corrections, native Settings color measurement, scene fixtures and verification limits.
 
-The new trip and phase windows, rendered from addon code in the UI simulator:
+The trip example has completed its first stop and shows the computed next leg. The Uldum example targets the past version of the zone while the character is assumed to be in the present, so its route includes speaking to Zidormi.
 
 | Trip planner | Zone phases |
 |:------------:|:-----------:|
 | ![Trip planner](screenshots/multi-route-review.webp) | ![Zone phases](screenshots/zone-phases-review.webp) |
+
+[Compare the same Uldum destination when already in the past phase](screenshots/zone-phases-past-review.webp).
 
 ## Installation
 

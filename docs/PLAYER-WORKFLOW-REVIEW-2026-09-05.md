@@ -65,6 +65,8 @@ The [render script](../scripts/render_player_review.py) loads the current addon 
 
 ## Final captures and verification
 
+The linked gallery files were refreshed on 2026-09-07 after the player identified missed renderer corners and native Settings differences. The [screenshot fidelity review](SCREENSHOT-REVIEW-2026-09-07.md) supersedes their earlier visual provenance; the historical test results below retain their original scope.
+
 | View | What is visible |
 | --- | --- |
 | [Native Settings](../screenshots/settings-player-review.webp) | Branding above the divider, separate action buttons, concise German labels |

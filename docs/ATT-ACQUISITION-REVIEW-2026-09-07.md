@@ -37,6 +37,8 @@ A standalone fixture containing 200,000 item IDs and 20,001 cached NPC names sto
 
 The existing combined wow-ui-sim build renders the actual QuickRoute controls with explicit ATT boundary fixtures. Native simulator names can remain English; the German QuickRoute labels are loaded from the addon. These renders verify layout and the native texture badge, not live ATT initialization or native-client routing acceptance.
 
+The images below were subsequently regenerated with the [renderer fidelity corrections](SCREENSHOT-REVIEW-2026-09-07.md). The earlier review missed repeated scaled border corners; corrected captures now carry source/scene/binary provenance.
+
 - [Unavailable list](../screenshots/att-unobtainable-list.webp)
 - [Grouped native badge](../screenshots/att-unobtainable-grid.webp)
 - [Unavailable help](../screenshots/att-unobtainable-help.webp)

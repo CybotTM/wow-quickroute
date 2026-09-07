@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+- Filled the native top and left gutters around the Settings header background while preserving the positions of its controls and settings list.
+- Sized grouped teleport cards to the actual scroll viewport so the last column and its status indicators are fully visible.
+- Displayed identical destination and zone names only once in route subtitles.
+
+### Documentation
+- Refreshed the screenshot gallery with corrected simulator corners and the measured native Settings background color. Added active trip and paired Uldum phase examples, plus reproducible scene and renderer provenance.
+
 ## [1.18.0] - 2026-09-07
 
 ### Added
