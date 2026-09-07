@@ -1,13 +1,11 @@
 -- Documentation screenshots.
 --
--- The character owns a plausible collection rather than every teleport in the
--- game: eight is what a well-travelled character actually carries, it fills the
--- card grid without a half-row, and it leaves the quick-teleport list short
--- enough to end cleanly instead of being clipped mid-row.
+-- The simulated character owns eight toys and one bag item. This declared
+-- collection fills the inventory example and keeps the quick list readable.
 --
 -- Nothing here fakes a name or an icon. Those come from the simulator's own
--- item, spell and map tables, so what the screenshots show is what the client
--- shows.
+-- item, spell and map tables. The simulator's locale and available records may
+-- differ from a player's live client.
 
 local TOYS = {
   [110560] = true, -- Garrison Hearthstone            -> Garrison

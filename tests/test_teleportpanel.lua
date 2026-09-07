@@ -1161,6 +1161,55 @@ T:run("CardWidth: cards divide the row without spilling out of it", function(t)
     end
 end)
 
+T:run("CreateGroupCards: all columns fit inside the actual scroll viewport", function(t)
+    resetState()
+    ensureTeleportPanelFrame()
+    local panel = QR.TeleportPanel
+    local frame, viewport = panel.frame, panel.frame.scrollFrame
+    local previousWidth, previousGetWidth = frame:GetWidth(), viewport.GetWidth
+    -- The general mock does not resolve GetWidth from opposing anchors.
+    -- Resolve the actual anchors installed by CreateContent for this case.
+    viewport.GetWidth = function(owner) return MockWoW:GetComputedWidth(owner) end
+    local groups = {}
+    for i=1,5 do groups[i] = {name="Destination "..i, mapID=84, teleports={}} end
+    for _, width in ipairs({820, 1200, 540, 500}) do
+        frame:SetWidth(width)
+        -- Content is normally anchored to MainFrame, so change that width too.
+        local window = QR.MainFrame.frame
+        local previousWindowWidth = window:GetWidth()
+        window:SetWidth(width)
+        MockWoW:ClearComputedBounds(window)
+        MockWoW:ClearComputedBounds(frame)
+        MockWoW:ClearComputedBounds(viewport)
+        MockWoW:ClearComputedBounds(frame.scrollChild)
+        panel:ClearCards()
+        panel:CreateGroupCards(groups, 0)
+        local bounds = MockWoW:ComputeFrameBounds(viewport)
+        t:assertEqual(width - 32, bounds.right - bounds.left, "native viewport reserves its 32px gutter at "..width)
+        for index, card in ipairs(panel.cards) do
+            MockWoW:ClearComputedBounds(card)
+            local cardBounds = MockWoW:ComputeFrameBounds(card)
+            t:assertTrue(cardBounds.left >= bounds.left, "card "..index.." stays inside the viewport left at "..width)
+            t:assertTrue(cardBounds.right <= bounds.right - 10 + 0.001,
+                "card "..index.." retains right padding inside the viewport at "..width)
+        end
+        if width == 820 then
+            local first = MockWoW:ComputeFrameBounds(panel.cards[1])
+            local third = MockWoW:ComputeFrameBounds(panel.cards[3])
+            t:assertEqual(first.top, third.top, "the default window retains three complete columns")
+            t:assertEqual(5, panel:IconsPerCard(panel.cards[3]:GetWidth()), "each default card still fits five teleport icons")
+        end
+        panel:ClearCards()
+        window:SetWidth(previousWindowWidth)
+        MockWoW:ClearComputedBounds(window)
+    end
+    frame:SetWidth(previousWidth)
+    viewport.GetWidth = previousGetWidth
+    MockWoW:ClearComputedBounds(frame)
+    MockWoW:ClearComputedBounds(viewport)
+    MockWoW:ClearComputedBounds(frame.scrollChild)
+end)
+
 T:run("IconsPerCard: the status dot keeps its place", function(t)
     local TP = QR.TeleportPanel
     -- A card at the design's own width takes five icons, which is what the

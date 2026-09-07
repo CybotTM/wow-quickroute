@@ -5,6 +5,7 @@ QuickRoute uses its own German strings. Native labels retain the simulator
 locale. ATT presence and an empty currency list are explicit fixtures.
 """
 import argparse
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -58,6 +59,40 @@ VIEWS["sidebar-collapsed"] = (
     "QRMapSidebar", VIEWS["sidebar"][1] + "QR.MapSidebar:Toggle()", 1000, 700,
 )
 
+
+def digest(path):
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def source_state(directory):
+    commit = subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=directory, text=True
+    ).strip()
+    patch = subprocess.check_output(["git", "diff", "HEAD", "--binary"], cwd=directory)
+    return commit, hashlib.sha256(patch).hexdigest()
+
+
+def content_digest(root, paths):
+    """Hash named input files, including files Git does not track yet."""
+    manifest = hashlib.sha256()
+    for path in sorted(paths):
+        manifest.update(path.relative_to(root).as_posix().encode() + b"\0")
+        manifest.update(digest(path).encode() + b"\n")
+    return manifest.hexdigest()
+
+
+def render_inputs(repo):
+    addon = content_digest(repo, (p for p in (repo / "QuickRoute").rglob("*") if p.is_file()))
+    fixtures = content_digest(repo, [
+        repo / "scripts" / name for name in (
+            "render_player_review.py", "render_att_review.py",
+            "render_feature_review.py", "render_gallery_review.py",
+        )
+    ] + [repo / "screenshots/seeds" / name for name in ("common.lua", "graph.lua")])
+    return addon, fixtures
+
+
 # Exercise covering windows without filtering away UIParent-owned cast buttons.
 for scene, action in {
     "overlap-help": """
@@ -82,6 +117,13 @@ def main():
     sim = args.sim_root.resolve()
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
+    versions = [line.split(":", 1)[1].strip()
+                for line in (repo / "QuickRoute/QuickRoute.toc").read_text().splitlines()
+                if line.startswith("## Version:")]
+    if len(versions) != 1 or not all(part.isdigit() for part in versions[0].split(".")):
+        parser.error("The addon TOC must contain one numeric version")
+    initial_inputs = render_inputs(repo)
+    binary = sim / "target/release/wow-sim"
 
     addon_root = output / "addons"
     addon_root.mkdir(exist_ok=True)
@@ -96,9 +138,10 @@ def main():
 
     seeds = repo / "screenshots/seeds"
     common = (seeds / "common.lua").read_text() + "\n" + (seeds / "graph.lua").read_text()
-    locale = """
+    locale = f"""
 local t0 = GetTime(); while GetTime() - t0 < 2.6 do end
 local QR = QR_DOC.FindQR()
+assert(QR and QR.version == "{versions[0]}", "Rendered addon version differs from the current TOC")
 local function translate(...)
     local GetLocale = function() return "deDE" end
 """ + (repo / "QuickRoute/Localization.lua").read_text() + """
@@ -110,10 +153,15 @@ for k, v in pairs(translated.L) do QR.L[k] = v end
     for name, (frame, action, width, height) in VIEWS.items():
         if args.view and name != args.view:
             continue
+        if render_inputs(repo) != initial_inputs:
+            raise SystemExit("Render inputs changed during this run; restart with a stable source tree")
+        addon_commit, addon_patch = source_state(repo)
+        sim_commit, sim_patch = source_state(sim)
+        binary_hash = digest(binary)
         seed = output / ("qr-combined-" + name + ".lua")
         seed.write_text(common + "\n" + locale + """
 QR_DOC.OpenView(function()
-""" + action + """
+""" + action + f"""
     for _, button in ipairs(QR.SecureButtons.pool) do
         local target = button._qrStepFrame
         if button.inUse and target then
@@ -122,10 +170,13 @@ QR_DOC.OpenView(function()
             assert(button:GetFrameLevel() > target:GetFrameLevel(), "Secure overlay is behind its target")
         end
     end
+    A_Print("QR_RENDER_COMPLETE:{name}")
 end)
 """)
         image = output / ("qr-combined-" + name + ".webp")
         log_path = output / ("qr-combined-" + name + ".log")
+        image.unlink(missing_ok=True)
+        image.with_suffix(".provenance.txt").unlink(missing_ok=True)
         command = [
             str(sim / "target/release/wow-sim"), "--no-saved-vars",
             "--exec-lua", "@" + str(seed), "screenshot", "--output", str(image),
@@ -138,8 +189,23 @@ end)
             subprocess.run(command, cwd=sim, env=env, stdout=log,
                            stderr=subprocess.STDOUT, check=True, timeout=90)
         log_text = log_path.read_text()
-        if not image.exists() or "[exec-lua] error:" in log_text or "stack traceback:" in log_text:
+        if (not image.exists() or log_text.count("QR_RENDER_COMPLETE:" + name) != 1
+                or any(marker in log_text for marker in (
+                "[exec-lua] error:", "stack traceback:", "Lua error:"))):
+            image.unlink(missing_ok=True)
             raise SystemExit("Invalid render; inspect " + str(log_path))
+        if (render_inputs(repo) != initial_inputs or digest(binary) != binary_hash
+                or source_state(sim) != (sim_commit, sim_patch)):
+            image.unlink(missing_ok=True)
+            raise SystemExit("Render inputs changed during capture; restart with stable inputs")
+        image.with_suffix(".provenance.txt").write_text(
+            f"View: {name}\nAddon version: {versions[0]}\n"
+            f"Addon commit: {addon_commit}\nAddon working diff SHA256: {addon_patch}\n"
+            f"Addon content SHA256: {initial_inputs[0]}\nRenderer inputs SHA256: {initial_inputs[1]}\n"
+            f"Simulator commit: {sim_commit}\nSimulator working diff SHA256: {sim_patch}\n"
+            f"Simulator binary SHA256: {binary_hash}\n"
+            f"Lua scene SHA256: {digest(seed)}\nImage SHA256: {digest(image)}\n"
+        )
         print(name + ": " + str(image), flush=True)
 
 

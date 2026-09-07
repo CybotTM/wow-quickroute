@@ -1,0 +1,201 @@
+diff --git a/src/iced_app/quad_builders_textures.rs b/src/iced_app/quad_builders_textures.rs
+index b85558841..ea3b48a9e 100644
+--- a/src/iced_app/quad_builders_textures.rs
++++ b/src/iced_app/quad_builders_textures.rs
+@@ -148,7 +148,7 @@ fn emit_textured_quad(
+     alpha: f32,
+ ) {
+     if bar_fill.is_none()
+-        && let Some(uv4) = rotated_quad_uvs(f)
++        && let Some(uv4) = explicit_quad_uvs(f)
+     {
+         let (effective_path, effective_uv4) =
+             remap_atlas_crop_uv4(tex_path, uv4, f.atlas_tex_coords);
+@@ -173,10 +173,12 @@ fn emit_textured_quad(
+     finalize_textured_quad(batch, vert_before, f);
+ }
+ 
+-/// Returns the 4 corner UVs (TL, TR, BR, BL) when the frame has an 8-arg
+-/// SetTexCoord that can't be represented as an axis-aligned rect. Excludes
+-/// UV-repeat tiling (any value > 1.0) which is handled separately.
+-fn rotated_quad_uvs(f: &crate::widget::Frame) -> Option<[[f32; 2]; 4]> {
++/// Explicit 8-arg SetTexCoord values describe one quad (TL, TR, BR, BL),
++/// including axis-aligned crops and mirrors. Texture wrap flags do not add
++/// repeats to a crop inside [0, 1]; BackdropTemplate corners rely on this
++/// when their rendered size differs from their stored size due to UI scale.
++/// UV-repeat tiling (any value > 1.0) is handled separately.
++fn explicit_quad_uvs(f: &crate::widget::Frame) -> Option<[[f32; 2]; 4]> {
+     let raw = f.tex_coords_quad?;
+     if raw.iter().any(|&v| v > 1.0) {
+         return None;
+@@ -185,13 +187,6 @@ fn rotated_quad_uvs(f: &crate::widget::Frame) -> Option<[[f32; 2]; 4]> {
+     let bl = [raw[2], raw[3]];
+     let tr = [raw[4], raw[5]];
+     let br = [raw[6], raw[7]];
+-    let axis_aligned = (tl[0] - bl[0]).abs() < f32::EPSILON
+-        && (tr[0] - br[0]).abs() < f32::EPSILON
+-        && (tl[1] - tr[1]).abs() < f32::EPSILON
+-        && (bl[1] - br[1]).abs() < f32::EPSILON;
+-    if axis_aligned {
+-        return None;
+-    }
+     Some([tl, tr, br, bl])
+ }
+ 
+@@ -607,6 +602,140 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn explicit_uv_backdrop_corners_scale_without_repeating() {
++        // Blizzard_SharedXML/Backdrop.lua supplies these UVs for the four
++        // corners while SetTexture(edgeFile, true, true) enables wrapping.
++        for (left, right) in [
++            (0.5078125, 0.6171875),
++            (0.6328125, 0.7421875),
++            (0.7578125, 0.8671875),
++            (0.8828125, 0.9921875),
++        ] {
++            for scale in [0.75, 1.0, 1.5] {
++                let mut frame = Frame::new(WidgetType::Texture, None, None);
++                frame.texture = Some(r"Interface\Tooltips\UI-Tooltip-Border".into());
++                frame.width = 16.0;
++                frame.height = 16.0;
++                frame.horiz_tile = true;
++                frame.vert_tile = true;
++                frame.tex_coords = Some((left, right, 0.0625, 0.9375));
++                frame.tex_coords_quad =
++                    Some([left, 0.0625, left, 0.9375, right, 0.0625, right, 0.9375]);
++                let mut batch = QuadBatch::new();
++                let bounds = Rectangle::new(
++                    Point::new(10.0, 20.0),
++                    Size::new(16.0 * scale, 16.0 * scale),
++                );
++
++                build_texture_quads(&mut batch, bounds, &frame, None, 1.0);
++
++                assert_eq!(batch.vertices.len(), 4, "one corner at scale {scale}");
++                assert_eq!(batch.texture_requests.len(), 1);
++                let actual: Vec<_> = batch.vertices.iter().map(|v| v.tex_coords).collect();
++                assert_eq!(
++                    actual,
++                    [
++                        [left, 0.0625],
++                        [right, 0.0625],
++                        [right, 0.9375],
++                        [left, 0.9375]
++                    ]
++                );
++                assert_eq!(
++                    batch.vertices[2].position,
++                    [bounds.x + bounds.width, bounds.y + bounds.height]
++                );
++            }
++        }
++    }
++
++    #[test]
++    fn explicit_axis_aligned_uvs_preserve_horizontal_and_vertical_mirrors() {
++        for raw in [
++            [0.8, 0.2, 0.8, 0.9, 0.1, 0.2, 0.1, 0.9],
++            [0.1, 0.9, 0.1, 0.2, 0.8, 0.9, 0.8, 0.2],
++        ] {
++            let mut frame = Frame::new(WidgetType::Texture, None, None);
++            frame.texture = Some("Interface/Test".into());
++            frame.tex_coords = Some((0.1, 0.8, 0.2, 0.9));
++            frame.tex_coords_quad = Some(raw);
++            let mut batch = QuadBatch::new();
++
++            build_texture_quads(
++                &mut batch,
++                Rectangle::new(Point::ORIGIN, Size::new(24.0, 24.0)),
++                &frame,
++                None,
++                1.0,
++            );
++
++            assert_eq!(batch.vertices.len(), 4);
++            let actual: Vec<_> = batch.vertices.iter().map(|v| v.tex_coords).collect();
++            assert_eq!(
++                actual,
++                [
++                    [raw[0], raw[1]],
++                    [raw[4], raw[5]],
++                    [raw[6], raw[7]],
++                    [raw[2], raw[3]]
++                ]
++            );
++        }
++    }
++
++    #[test]
++    fn explicit_backdrop_edge_repeat_still_tiles_with_rotated_uvs() {
++        let mut frame = Frame::new(WidgetType::Texture, None, None);
++        frame.texture = Some(r"Interface\Tooltips\UI-Tooltip-Border".into());
++        frame.height = 16.0;
++        frame.horiz_tile = true;
++        frame.vert_tile = true;
++        frame.tex_coords = Some((0.2578125, 0.3671875, 0.0625, 4.0));
++        frame.tex_coords_quad = Some([
++            0.2578125, 4.0, 0.3671875, 4.0, 0.2578125, 0.0625, 0.3671875, 0.0625,
++        ]);
++        let mut batch = QuadBatch::new();
++
++        build_texture_quads(
++            &mut batch,
++            Rectangle::new(Point::ORIGIN, Size::new(64.0, 16.0)),
++            &frame,
++            None,
++            1.0,
++        );
++
++        assert_eq!(batch.vertices.len(), 16);
++        assert_eq!(batch.texture_requests.len(), 4);
++        assert_eq!(batch.vertices[0].tex_coords, [0.0, 1.0]);
++        assert_eq!(batch.vertices[1].tex_coords, [0.0, 0.0]);
++        assert_eq!(batch.vertices[2].tex_coords, [1.0, 0.0]);
++        assert_eq!(batch.vertices[13].position[0], 64.0);
++    }
++
++    #[test]
++    fn natural_atlas_tiling_without_explicit_quad_is_preserved() {
++        let mut frame = texture_frame_with_atlas("_128-RedButton-Center");
++        frame.horiz_tile = true;
++        let mut batch = QuadBatch::new();
++
++        emit_texture_fill(
++            &mut batch,
++            Rectangle::new(Point::ORIGIN, Size::new(150.0, 128.0)),
++            Some((0.0, 1.0, 0.0, 1.0)),
++            "Interface/Test",
++            &frame,
++            [1.0; 4],
++            1.0,
++        );
++
++        assert_eq!(batch.vertices.len(), 12);
++        assert_eq!(batch.texture_requests.len(), 3);
++        assert_eq!(batch.vertices[1].position[0], 64.0);
++        assert_eq!(batch.vertices[5].position[0], 128.0);
++        assert_eq!(batch.vertices[9].position[0], 150.0);
++    }
++
+     #[test]
+     fn minimap_uses_default_mask_texture() {
+         let mut batch = QuadBatch::new();
+diff --git a/src/lua_api/globals/font_strings_collection/colors.rs b/src/lua_api/globals/font_strings_collection/colors.rs
+index c3b1ddd40..1a242dec4 100644
+--- a/src/lua_api/globals/font_strings_collection/colors.rs
++++ b/src/lua_api/globals/font_strings_collection/colors.rs
+@@ -59,7 +59,10 @@ pub(super) const NAMED_COLOR_GLOBALS: &[(&'static str, (f64, f64, f64, f64))] =
+         "OBJECTIVE_TRACKER_BLOCK_HEADER_COLOR",
+         (1.0, 0.82, 0.0, 1.0),
+     ),
+-    ("PANEL_BACKGROUND_COLOR", (0.15, 0.15, 0.15, 1.0)),
++    (
++        "PANEL_BACKGROUND_COLOR",
++        (31.0 / 255.0, 30.0 / 255.0, 33.0 / 255.0, 0.8),
++    ),
+     ("EDIT_MODE_GRID_LINE_COLOR", (1.0, 1.0, 1.0, 0.3)),
+     ("EDIT_MODE_GRID_CENTER_LINE_COLOR", (0.0, 0.8, 1.0, 0.6)),
+     ("DEBUFF_TYPE_CURSE_COLOR", (0.6, 0.0, 1.0, 1.0)),
