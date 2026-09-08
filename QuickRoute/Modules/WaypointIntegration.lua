@@ -228,9 +228,11 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         return nil
     end
 
-    local questTitle = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID) or QR.L["SOURCE_QUEST"]
-
-    -- Check quest coordinate cache
+    -- Check quest coordinate cache. The title is asked for after the cache is
+    -- consulted, and remembered with the entry: a hit is by far the common case
+    -- -- the cache serves most of the refreshes in a minute of walking -- and
+    -- asking the client for a title it already answered was measured at 925
+    -- calls a minute for 25 quests.
     local now = GetTime()
     local cached = questCoordCache[questID]
     if cached and (now - cached.time) < QUEST_COORD_CACHE_TTL then
@@ -240,13 +242,22 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 mapID = cached.mapID,
                 x = cached.x,
                 y = cached.y,
-                title = questTitle,
+                title = cached.title or QR.L["SOURCE_QUEST"],
             }
         elseif not ignoreNegativeCache then
             -- Cached "not found" result — skip for dropdown queries which retry
             QR:Debug(string_format("Quest %d: negative cache hit (no coords found previously)", questID))
             return nil
         end
+    end
+
+    local questTitle = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID) or QR.L["SOURCE_QUEST"]
+
+    -- Every entry carries the title it was resolved with, so a later hit does
+    -- not have to ask the client for it again.
+    local function RememberQuestCoordinates(entry)
+        entry.title = questTitle
+        CacheQuestCoordinates(questID, entry)
     end
 
     -- Build transit hub set from PortalHubs (cities that are routing intermediaries)
@@ -309,7 +320,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                         -- Check portal-through before returning
                                         local throughMapID, throughX, throughY = CheckPortalThroughZone(questID, childInfo.mapID)
                                         if throughMapID then
-                                            CacheQuestCoordinates(questID, { mapID = throughMapID, x = throughX, y = throughY, time = now })
+                                            RememberQuestCoordinates({ mapID = throughMapID, x = throughX, y = throughY, time = now })
                                             return {
                                                 mapID = throughMapID,
                                                 x = throughX,
@@ -317,7 +328,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                                 title = questTitle,
                                             }
                                         end
-                                        CacheQuestCoordinates(questID, { mapID = childInfo.mapID, x = zoneX, y = zoneY, time = now })
+                                        RememberQuestCoordinates({ mapID = childInfo.mapID, x = zoneX, y = zoneY, time = now })
                                         return {
                                             mapID = childInfo.mapID,
                                             x = zoneX,
@@ -346,7 +357,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     -- Check if quest has objectives beyond a portal from this zone
                     local throughMapID, throughX, throughY = CheckPortalThroughZone(questID, wpMapID)
                     if throughMapID then
-                        CacheQuestCoordinates(questID, { mapID = throughMapID, x = throughX, y = throughY, time = now })
+                        RememberQuestCoordinates({ mapID = throughMapID, x = throughX, y = throughY, time = now })
                         return {
                             mapID = throughMapID,
                             x = throughX,
@@ -354,7 +365,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                             title = questTitle,
                         }
                     end
-                    CacheQuestCoordinates(questID, { mapID = wpMapID, x = wpX, y = wpY, time = now })
+                    RememberQuestCoordinates({ mapID = wpMapID, x = wpX, y = wpY, time = now })
                     return {
                         mapID = wpMapID,
                         x = wpX,
@@ -378,7 +389,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             -- Check if quest has objectives beyond a portal from this zone
             local throughMapID, throughX, throughY = CheckPortalThroughZone(questID, playerMapID)
             if throughMapID then
-                CacheQuestCoordinates(questID, { mapID = throughMapID, x = throughX, y = throughY, time = now })
+                RememberQuestCoordinates({ mapID = throughMapID, x = throughX, y = throughY, time = now })
                 return {
                     mapID = throughMapID,
                     x = throughX,
@@ -386,7 +397,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     title = questTitle,
                 }
             end
-            CacheQuestCoordinates(questID, { mapID = playerMapID, x = wpX, y = wpY, time = now })
+            RememberQuestCoordinates({ mapID = playerMapID, x = wpX, y = wpY, time = now })
             return {
                 mapID = playerMapID,
                 x = wpX,
@@ -417,7 +428,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     local qx, qy = questInfo.x, questInfo.y
                     if qx and qy and (qx ~= 0 or qy ~= 0) and not (transitFallback and transitHubMapIDs[playerMapID]) then
                         QR:Debug(string_format("Quest %d: GetQuestsOnMap -> (%.4f, %.4f)", questID, qx, qy))
-                        CacheQuestCoordinates(questID, { mapID = playerMapID, x = qx, y = qy, time = now })
+                        RememberQuestCoordinates({ mapID = playerMapID, x = qx, y = qy, time = now })
                         return {
                             mapID = playerMapID,
                             x = qx,
@@ -448,7 +459,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                     local qx, qy = questInfo.x, questInfo.y
                                     if qx and qy and (qx ~= 0 or qy ~= 0) then
                                         QR:Debug(string_format("Quest %d: Broad GetQuestsOnMap found objective on map %d (%.4f, %.4f)", questID, zoneID, qx, qy))
-                                        CacheQuestCoordinates(questID, { mapID = zoneID, x = qx, y = qy, time = now })
+                                        RememberQuestCoordinates({ mapID = zoneID, x = qx, y = qy, time = now })
                                         return {
                                             mapID = zoneID,
                                             x = qx,
@@ -486,7 +497,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                         if continent then
                                             QR:Debug(string_format("Quest %d: Dynamic scan found routable objective on map %d (%s) (%.4f, %.4f)",
                                                 questID, childMapID, childInfo.name or "?", qx, qy))
-                                            CacheQuestCoordinates(questID, { mapID = childMapID, x = qx, y = qy, time = now })
+                                            RememberQuestCoordinates({ mapID = childMapID, x = qx, y = qy, time = now })
                                             return {
                                                 mapID = childMapID,
                                                 x = qx,
@@ -512,7 +523,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         local tqX, tqY = C_TaskQuest.GetQuestLocation(questID, playerMapID)
         if tqX and tqY and (tqX ~= 0 or tqY ~= 0) and not (transitFallback and transitHubMapIDs[playerMapID]) then
             QR:Debug(string_format("Quest %d: TaskQuest.GetQuestLocation -> (%.4f, %.4f)", questID, tqX, tqY))
-            CacheQuestCoordinates(questID, { mapID = playerMapID, x = tqX, y = tqY, time = now })
+            RememberQuestCoordinates({ mapID = playerMapID, x = tqX, y = tqY, time = now })
             return {
                 mapID = playerMapID,
                 x = tqX,
@@ -533,7 +544,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     local wpX, wpY = C_QuestLog.GetNextWaypointForMap(questID, zoneID)
                     if wpX and wpY and not transitHubMapIDs[zoneID] then
                         QR:Debug(string_format("Quest %d: Broad scan found on map %d (%.4f, %.4f)", questID, zoneID, wpX, wpY))
-                        CacheQuestCoordinates(questID, { mapID = zoneID, x = wpX, y = wpY, time = now })
+                        RememberQuestCoordinates({ mapID = zoneID, x = wpX, y = wpY, time = now })
                         return {
                             mapID = zoneID,
                             x = wpX,
@@ -577,7 +588,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                     if qx and qy and (qx ~= 0 or qy ~= 0) then
                                         QR:Debug(string_format("Quest %d: header %q -> zone %d, GetQuestsOnMap (%.4f, %.4f)",
                                             questID, questHeader, zoneID, qx, qy))
-                                        CacheQuestCoordinates(questID, { mapID = zoneID, x = qx, y = qy, time = now })
+                                        RememberQuestCoordinates({ mapID = zoneID, x = qx, y = qy, time = now })
                                         return {
                                             mapID = zoneID,
                                             x = qx,
@@ -635,7 +646,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                     if entrances and #entrances == 1 then
                         local entrance = entrances[1]
                         if playerInstanceID and entrance.journalInstanceID == playerInstanceID then
-                            CacheQuestCoordinates(questID, { time = now })
+                            RememberQuestCoordinates({ time = now })
                             return nil
                         end
                         local ex, ey
@@ -650,7 +661,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                         if ex and ey then
                             QR:Debug(string_format("Quest %d: Entrance %q at map %d (%.4f, %.4f)",
                                 questID, entrance.name or "?", highlightMapID, ex, ey))
-                            CacheQuestCoordinates(questID, { mapID = highlightMapID, x = ex, y = ey, time = now })
+                            RememberQuestCoordinates({ mapID = highlightMapID, x = ex, y = ey, time = now })
                             return {
                                 mapID = highlightMapID,
                                 x = ex,
@@ -668,10 +679,10 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             for instanceID, inst in pairs(QR.DungeonData.instances) do
                 if inst.name and inst.zoneMapID and inst.x and inst.y then
                     if string_lower(inst.name) == string_lower(questHeader) then
-                        if playerInstanceID == instanceID then CacheQuestCoordinates(questID, { time = now }); return nil end
+                        if playerInstanceID == instanceID then RememberQuestCoordinates({ time = now }); return nil end
                         QR:Debug(string_format("Quest %d: header matches dungeon %q (instance %d) at map %d",
                             questID, inst.name, instanceID, inst.zoneMapID))
-                        CacheQuestCoordinates(questID, { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now })
+                        RememberQuestCoordinates({ mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now })
                         return {
                             mapID = inst.zoneMapID,
                             x = inst.x,
@@ -694,10 +705,10 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 for instanceID, inst in pairs(QR.DungeonData.instances) do
                     if inst.name and inst.zoneMapID and inst.x and inst.y then
                         if string_lower(inst.name) == string_lower(titlePrefix) then
-                            if playerInstanceID == instanceID then CacheQuestCoordinates(questID, { time = now }); return nil end
+                            if playerInstanceID == instanceID then RememberQuestCoordinates({ time = now }); return nil end
                             QR:Debug(string_format("Quest %d: title prefix matches dungeon %q (instance %d) at map %d",
                                 questID, inst.name, instanceID, inst.zoneMapID))
-                            CacheQuestCoordinates(questID, { mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now })
+                            RememberQuestCoordinates({ mapID = inst.zoneMapID, x = inst.x, y = inst.y, time = now })
                             return {
                                 mapID = inst.zoneMapID,
                                 x = inst.x,
@@ -730,7 +741,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                 if qx and qy and (qx ~= 0 or qy ~= 0) then
                                     QR:Debug(string_format("Quest %d: broad GetQuestsOnMap found on map %d (%.4f, %.4f)",
                                         questID, zoneID, qx, qy))
-                                    CacheQuestCoordinates(questID, { mapID = zoneID, x = qx, y = qy, time = now })
+                                    RememberQuestCoordinates({ mapID = zoneID, x = qx, y = qy, time = now })
                                     return {
                                         mapID = zoneID,
                                         x = qx,
@@ -762,7 +773,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                                         if continent then
                                             QR:Debug(string_format("Quest %d: dynamic scan found on routable map %d (%s) (%.4f, %.4f)",
                                                 questID, childMapID, childInfo.name or "?", qx, qy))
-                                            CacheQuestCoordinates(questID, { mapID = childMapID, x = qx, y = qy, time = now })
+                                            RememberQuestCoordinates({ mapID = childMapID, x = qx, y = qy, time = now })
                                             return {
                                                 mapID = childMapID,
                                                 x = qx,
@@ -787,13 +798,13 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
     -- transit hub.
     if transitFallback then
         QR:Debug(string_format("Quest %d: no better destination found, using transit hub fallback map %d", questID, transitFallback.mapID))
-        CacheQuestCoordinates(questID, { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, time = now })
+        RememberQuestCoordinates({ mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, time = now })
         return { mapID = transitFallback.mapID, x = transitFallback.x, y = transitFallback.y, title = questTitle }
     end
 
     -- No coordinates found from any API - cache negative result to avoid repeated scans
     QR:Debug(string_format("Quest %d (%s): no coordinates found from any API", questID, questTitle))
-    CacheQuestCoordinates(questID, { time = now })
+    RememberQuestCoordinates({ time = now })
     return nil
 end
 
