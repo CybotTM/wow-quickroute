@@ -779,7 +779,24 @@ function QTB:RegisterEvents()
     self.eventFrame:SetScript("OnEvent", function(frame, event, ...)
         -- Quest targets can change during combat or while this feature is
         -- disabled. Invalidate Lua state now; defer all button work.
-        if InCombatLockdown() or not QTB.enabled then QTB:InvalidateCache(); return end
+        if InCombatLockdown() then
+            -- Which quests are tracked can change mid-fight, and a route cached
+            -- for a quest that is no longer tracked is wrong in a way no field
+            -- of the cache key can show. Everything else keeps its cache:
+            -- emptying it here does not save a frame during the fight, it moves
+            -- a full recompute of every tracked quest to the moment the fight
+            -- ends, on top of the scan and the graph rebuild that land there.
+            -- SPELL_UPDATE_COOLDOWN stays out of it because confirming one
+            -- means walking the teleport list, which is the work combat is
+            -- meant to avoid; the first firing after the fight settles it.
+            if event == "QUEST_WATCH_LIST_CHANGED" or event == "SUPER_TRACKING_CHANGED" then
+                QTB:InvalidateCache()
+            else
+                QTB:CancelRefresh()
+            end
+            return
+        end
+        if not QTB.enabled then QTB:InvalidateCache(); return end
         if event == "SPELL_UPDATE_COOLDOWN" and not UpdateCooldownState() then return end
 
         -- Only the events that change WHICH quests are tracked empty the cache.

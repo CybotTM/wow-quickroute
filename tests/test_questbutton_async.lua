@@ -414,7 +414,13 @@ T:run("Quest button movement probe: coalesces active batches and runs without vi
     end)
 end)
 
-T:run("Quest button cache: quest events during combat invalidate targets without secure work", function(t)
+-- The wipe this used to assert on QUEST_LOG_UPDATE was the blanket
+-- invalidation removed for issue #66: every field a cached entry depends on is
+-- checked when it is read, in combat as out of it, so emptying the cache here
+-- bought no freshness and moved a full recompute of every tracked quest to the
+-- moment the fight ended. What a fight can still change is which quests are
+-- tracked, and that is asserted below.
+T:run("Quest button cache: quest events during combat do no secure work, and only a tracked-set change invalidates", function(t)
     withRefresh(function(qtb,state)
         state.watched={10001}
         qtb:RefreshButtons()
@@ -428,9 +434,13 @@ T:run("Quest button cache: quest events during combat invalidate targets without
         local writes=state.writes
         MockWoW.config.inCombatLockdown=true
         callback(frame,"QUEST_LOG_UPDATE")
-        t:assertNil(qtb.questCache[10001],"Quest changes in combat invalidate stale target coordinates")
+        t:assertNotNil(qtb.questCache[10001],"An ordinary quest event in combat keeps the cached target")
         t:assertEqual(writes,state.writes,"Combat quest events perform no protected attribute writes")
         t:assertEqual(1,state.calls,"Combat quest event schedules no route calculation")
+        callback(frame,"QUEST_WATCH_LIST_CHANGED")
+        t:assertNil(qtb.questCache[10001],"A change to which quests are tracked does invalidate, in combat too")
+        t:assertEqual(writes,state.writes,"and still performs no protected attribute writes")
+        t:assertEqual(1,state.calls,"and still schedules no route calculation")
         frame:UnregisterAllEvents()
         qtb.eventFrame=oldEvent
     end)
