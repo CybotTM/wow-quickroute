@@ -36,21 +36,34 @@ QR.QuestTeleportButtons = {
 
 local QTB = QR.QuestTeleportButtons
 
--- Events after which a cached route may be wrong in a way no field of the cache
--- key can show. Both change which quests exist to route to, and a stale entry
--- would then belong to a quest that is no longer tracked. SPELL_UPDATE_COOLDOWN
--- joins them only once UpdateCooldownState has confirmed a cooldown really
--- moved: a teleport coming off cooldown can beat the one a cached entry chose,
--- and the read path only re-checks the cooldown of the teleport already cached.
+-- The one event after which a cached route may be wrong in a way no field of
+-- the cache key can show: a teleport coming off cooldown can beat the one a
+-- cached entry chose, and the read path only re-checks the cooldown of the
+-- teleport already cached. SPELL_UPDATE_COOLDOWN reaches this table only once
+-- UpdateCooldownState has confirmed a readiness really moved.
 --
--- SPELLS_CHANGED and BAG_UPDATE_DELAYED are deliberately absent. A teleport
--- appearing or disappearing reaches the graph through PlayerInventory's rescan,
--- which builds a new graph, and every cached entry records the graph it was
--- computed against -- so those invalidate themselves, without paying for the
--- far more common firings that change no teleport at all.
+-- Every other event this module listens to is deliberately absent.
+--
+-- SUPER_TRACKING_CHANGED changes which quest carries the arrow, not what any
+-- quest's route is: WaypointIntegration:GetQuestWaypoint takes an explicit
+-- questID and never consults C_SuperTrack. Measured with 25 tracked quests, a
+-- firing re-computed all 25 routes and none of the 25 values differed, at 62 ms
+-- for a character with a full teleport collection. It fires on every quest
+-- turn-in and accept, whenever an objective auto-advances the arrow, on any
+-- click in the tracker or on the map, and whenever another addon calls
+-- C_SuperTrack.SetSuperTrackedQuestID. WaypointIntegration says the same of its
+-- own cache one file over: "per-questID entries are already keyed correctly".
+--
+-- QUEST_WATCH_LIST_CHANGED does change the watched set, but only for the quest
+-- added or removed. Every refresh ends in PruneQuestCache(watched), which drops
+-- exactly the entries no longer watched, and a newly watched quest has no entry
+-- to be stale. Wiping the other 24 measured 50 ms and changed nothing.
+--
+-- SPELLS_CHANGED and BAG_UPDATE_DELAYED: a teleport appearing or disappearing
+-- reaches the graph through PlayerInventory's rescan, which builds a new graph,
+-- and every cached entry records the graph it was computed against -- so those
+-- invalidate themselves.
 local INVALIDATING_EVENTS = {
-    QUEST_WATCH_LIST_CHANGED = true,
-    SUPER_TRACKING_CHANGED = true,
     SPELL_UPDATE_COOLDOWN = true,
 }
 
@@ -780,27 +793,22 @@ function QTB:RegisterEvents()
         -- Quest targets can change during combat or while this feature is
         -- disabled. Invalidate Lua state now; defer all button work.
         if InCombatLockdown() then
-            -- Which quests are tracked can change mid-fight, and a route cached
-            -- for a quest that is no longer tracked is wrong in a way no field
-            -- of the cache key can show. Everything else keeps its cache:
-            -- emptying it here does not save a frame during the fight, it moves
-            -- a full recompute of every tracked quest to the moment the fight
-            -- ends, on top of the scan and the graph rebuild that land there.
-            -- SPELL_UPDATE_COOLDOWN stays out of it because confirming one
-            -- means walking the teleport list, which is the work combat is
-            -- meant to avoid; the first firing after the fight settles it.
-            if event == "QUEST_WATCH_LIST_CHANGED" or event == "SUPER_TRACKING_CHANGED" then
-                QTB:InvalidateCache()
-            else
-                QTB:CancelRefresh()
-            end
+            -- Nothing is read from the cache during a fight and no button work
+            -- runs, so there is nothing to keep fresh; emptying it here would
+            -- only move a full recompute of every tracked quest to the moment
+            -- the fight ends, on top of the inventory scan and graph rebuild
+            -- that land there. A quest untracked mid-fight is dropped by the
+            -- PruneQuestCache at the end of the first refresh afterwards, and a
+            -- newly tracked one has no entry to be stale.
+            QTB:CancelRefresh()
             return
         end
         if not QTB.enabled then QTB:InvalidateCache(); return end
         if event == "SPELL_UPDATE_COOLDOWN" and not UpdateCooldownState() then return end
 
-        -- Only the events that change WHICH quests are tracked empty the cache.
-        -- Everything a cached entry depends on besides that -- the player's
+        -- Only a confirmed cooldown change empties the cache; see
+        -- INVALIDATING_EVENTS above for why nothing else has to.
+        -- Everything a cached entry depends on -- the player's
         -- position bucket, the graph it was computed against, whether the graph
         -- is dirty, the entry's age, and the teleport's cooldown -- is checked
         -- on every read, so a wholesale wipe here adds no freshness. It did

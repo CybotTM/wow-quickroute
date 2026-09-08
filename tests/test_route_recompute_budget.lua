@@ -131,10 +131,29 @@ T:run("changing zone routes again, even at the same coordinates", function(t)
     end)
 end)
 
-T:run("a change to which quests are tracked routes again", function(t)
+-- A tracked-set change used to empty the cache. Measured with 25 quests, that
+-- re-routed all of them and changed none: only the quest added or removed is
+-- affected, and PruneQuestCache already drops what is no longer watched. These
+-- two pin that outcome instead of the wipe.
+T:run("a newly tracked quest is routed, and only that one", function(t)
     withCountedRoutes(function()
         routesFor("QUEST_LOG_UPDATE")
-        t:assertTrue(routesFor("QUEST_WATCH_LIST_CHANGED") > 0,
-            "the tracked set changed, so a cached route may belong to no quest")
+        local watches = MockWoW.config.questWatches
+        watches[#watches + 1] = 71004
+        MockWoW.config.questWaypoints[71004] = { mapID = 84, x = 0.5, y = 0.5 }
+        MockWoW.config.questTitles[71004] = "Budget quest 71004"
+        t:assertEqual(1, routesFor("QUEST_WATCH_LIST_CHANGED"),
+            "the quest just tracked is routed; the three already cached are reused")
+    end)
+end)
+
+T:run("an untracked quest's cached route is dropped", function(t)
+    withCountedRoutes(function()
+        routesFor("QUEST_LOG_UPDATE")
+        t:assertNotNil(QTB.questCache[71003], "cached while the quest was tracked")
+        local watches = MockWoW.config.questWatches
+        watches[#watches] = nil
+        routesFor("QUEST_WATCH_LIST_CHANGED")
+        t:assertNil(QTB.questCache[71003], "and dropped once it is no longer watched")
     end)
 end)

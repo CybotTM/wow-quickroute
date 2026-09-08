@@ -420,7 +420,7 @@ end)
 -- bought no freshness and moved a full recompute of every tracked quest to the
 -- moment the fight ended. What a fight can still change is which quests are
 -- tracked, and that is asserted below.
-T:run("Quest button cache: quest events during combat do no secure work, and only a tracked-set change invalidates", function(t)
+T:run("Quest button cache: quest events during combat do no secure work and keep the cache", function(t)
     withRefresh(function(qtb,state)
         state.watched={10001}
         qtb:RefreshButtons()
@@ -438,7 +438,7 @@ T:run("Quest button cache: quest events during combat do no secure work, and onl
         t:assertEqual(writes,state.writes,"Combat quest events perform no protected attribute writes")
         t:assertEqual(1,state.calls,"Combat quest event schedules no route calculation")
         callback(frame,"QUEST_WATCH_LIST_CHANGED")
-        t:assertNil(qtb.questCache[10001],"A change to which quests are tracked does invalidate, in combat too")
+        t:assertNotNil(qtb.questCache[10001],"A tracked-set change in combat keeps the entries it did not touch; PruneQuestCache drops what is no longer watched at the next refresh")
         t:assertEqual(writes,state.writes,"and still performs no protected attribute writes")
         t:assertEqual(1,state.calls,"and still schedules no route calculation")
         frame:UnregisterAllEvents()
