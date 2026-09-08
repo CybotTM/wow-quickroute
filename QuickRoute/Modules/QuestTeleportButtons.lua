@@ -36,6 +36,17 @@ QR.QuestTeleportButtons = {
 
 local QTB = QR.QuestTeleportButtons
 
+--- Drop the cooldown answers remembered for one refresh batch.
+-- Called from every path that leaves a batch, including the ones that abandon
+-- it half way: a batch left open would keep answering later callers -- the
+-- panels, the filters, the readiness check -- from memory, and cooldowns are
+-- live state.
+local function EndCooldownBatch()
+    if QR.CooldownTracker and QR.CooldownTracker.EndBatch then
+        QR.CooldownTracker:EndBatch()
+    end
+end
+
 -- The one event after which a cached route may be wrong in a way no field of
 -- the cache key can show: a teleport coming off cooldown can beat the one a
 -- cached entry chose, and the read path only re-checks the cooldown of the
@@ -194,6 +205,7 @@ end
 function QTB:CancelRefresh()
     self._refreshGeneration = (self._refreshGeneration or 0) + 1
     self._refreshRunning = false
+    EndCooldownBatch()
 end
 
 -- TTL must release entries, not just stop reusing them. Lower-priority quests
@@ -512,17 +524,23 @@ function QTB:RefreshButtons()
     local index, activeCount, retained = 1, 0, {}
     self._pendingRefreshAt = nil
     self._refreshRunning = true
+    -- Every route in this batch prices every teleport against its cooldown, and
+    -- the batch runs one route per frame, so the same question reaches the
+    -- client once per tracked quest. One answer serves the batch.
+    if QR.CooldownTracker and QR.CooldownTracker.BeginBatch then
+        QR.CooldownTracker:BeginBatch()
+    end
     local function IsCurrent()
         return generation == QTB._refreshGeneration and QTB.initialized and QTB.enabled and not InCombatLockdown()
     end
     local function RefreshOne()
-        if not IsCurrent() then return end
+        if not IsCurrent() then EndCooldownBatch(); return end
         local questID = trackedQuests[index]
-        if not questID or activeCount >= POOL_SIZE then return end
+        if not questID or activeCount >= POOL_SIZE then EndCooldownBatch(); return end
         -- A route calculation can take several milliseconds. Never calculate
         -- every watched quest in the same quest-log/event frame.
         local ok, teleportID, sourceType, data, incomplete, direct = pcall(GetCachedTeleportForQuest, questID)
-        if not IsCurrent() then return end
+        if not IsCurrent() then EndCooldownBatch(); return end
         if not ok then
             QR:Debug("Quest button route unavailable: " .. tostring(teleportID))
             teleportID = nil
@@ -600,6 +618,7 @@ function QTB:RefreshButtons()
             end
             if not next(QTB.activeButtons) and QTB.updateFrame then QTB.updateFrame:Hide() end
             QTB._refreshRunning = false
+            EndCooldownBatch()
             QTB._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph
         end
     end

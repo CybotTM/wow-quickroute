@@ -273,3 +273,85 @@ T:run("GetReadyTeleports: returns empty table when all on cooldown", function(t)
     -- The spell should not be in the ready list
     t:assertNil(ready[53140], "Spell on cooldown not in ready list")
 end)
+
+-------------------------------------------------------------------------------
+-- Batch memo
+-------------------------------------------------------------------------------
+
+--- Count the queries that reach the client, not the wrapper the memo sits in.
+local function withCountedQueries(body)
+    local CT = QR.CooldownTracker
+    local realSpell, realItem = CT.GetSpellCooldown, CT.GetItemCooldown
+    local queries = 0
+    CT.GetSpellCooldown = function(self, ...) queries = queries + 1; return realSpell(self, ...) end
+    CT.GetItemCooldown = function(self, ...) queries = queries + 1; return realItem(self, ...) end
+    local ok, err = pcall(body, function() return queries end, function() queries = 0 end)
+    CT.GetSpellCooldown, CT.GetItemCooldown = realSpell, realItem
+    CT:EndBatch()
+    if not ok then error(err, 0) end
+end
+
+T:run("Cooldown batch: one client query serves the whole batch", function(t)
+    withCountedQueries(function(count, reset)
+        local CT = QR.CooldownTracker
+        CT:EndBatch()
+        reset()
+        for _ = 1, 5 do CT:GetCooldown(3561, "spell") end
+        t:assertEqual(5, count(), "outside a batch every ask reaches the client")
+
+        CT:BeginBatch()
+        reset()
+        for _ = 1, 5 do CT:GetCooldown(3561, "spell") end
+        t:assertEqual(1, count(), "inside a batch the first answer serves the rest")
+        CT:EndBatch()
+    end)
+end)
+
+T:run("Cooldown batch: the memo does not outlive the batch", function(t)
+    withCountedQueries(function(count, reset)
+        local CT = QR.CooldownTracker
+        CT:BeginBatch()
+        CT:GetCooldown(3561, "spell")
+        CT:EndBatch()
+        reset()
+        CT:GetCooldown(3561, "spell")
+        t:assertEqual(1, count(), "after the batch the client is asked again")
+
+        -- A batch abandoned half way must not answer later callers from memory:
+        -- cooldowns are live state and the panels read them between refreshes.
+        CT:BeginBatch()
+        CT:GetCooldown(3561, "spell")
+        CT:BeginBatch() -- a fresh refresh starts without the previous one ending
+        reset()
+        CT:GetCooldown(3561, "spell")
+        t:assertEqual(1, count(), "reopening a batch starts from an empty memo")
+        CT:EndBatch()
+    end)
+end)
+
+T:run("Cooldown batch: entries are copies, not the shared result table", function(t)
+    withCountedQueries(function()
+        local CT = QR.CooldownTracker
+        local savedCooldowns = MockWoW.config.spellCooldowns
+        local savedTime = MockWoW.config.baseTime
+        MockWoW.config.baseTime = 1000010
+        MockWoW.config.spellCooldowns = {
+            [3561] = nil,                                          -- ready
+            [53140] = { start = 1000000, duration = 600, enable = 1 }, -- on cooldown
+        }
+
+        -- Every spell query returns ONE module-level table that the next query
+        -- overwrites, so a memo of references would hand the second spell's
+        -- answer back for the first id.
+        CT:BeginBatch()
+        local ready = CT:GetCooldown(3561, "spell")
+        local onCooldown = CT:GetCooldown(53140, "spell")
+        t:assertTrue(onCooldown.remaining > 0, "the second spell reads as on cooldown")
+        t:assertEqual(0, ready.remaining, "and the first entry still describes the first spell")
+        t:assertTrue(ready ~= onCooldown, "the two ids do not share one table")
+        CT:EndBatch()
+
+        MockWoW.config.spellCooldowns = savedCooldowns
+        MockWoW.config.baseTime = savedTime
+    end)
+end)
