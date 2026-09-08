@@ -86,6 +86,17 @@ end
 -- Cost during combat: there is to be none
 -------------------------------------------------------------------------------
 
+-- Everything below postpones work to a leave-combat callback. If a module's
+-- callback is never registered, the postponement silently becomes a drop -- and
+-- for the inventory scan, a permanent one. Both registrations happen during
+-- addon initialization, so a missing init entry shows up here.
+T:run("the modules that postpone work registered their leave-combat callback", function(t)
+    t:assertTrue(QR.WaypointIntegration.hooksRegistered,
+        "WaypointIntegration:RegisterHooks ran, which registers its callback")
+    t:assertTrue(QR.PlayerInventory.combatCallbackRegistered,
+        "PlayerInventory:RegisterCombatCallback ran")
+end)
+
 T:run("no route is calculated during combat", function(t)
     withCountedRoutes(function()
         routesFor("QUEST_LOG_UPDATE") -- warm, out of combat

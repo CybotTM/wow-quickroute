@@ -648,10 +648,13 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     -- never arrives -- a reload or a logout while fighting ends the fight
     -- without PLAYER_REGEN_ENABLED reaching this session -- pendingScan would
     -- stay set, and the guard below would then swallow every inventory event
-    -- for the rest of the session. Any event that finds work owed and no fight
-    -- in progress settles it.
+    -- for the rest of the session. Releasing both flags lets this event arm a
+    -- timer as usual, so the recovered scan is still debounced rather than run
+    -- inside an event handler. forceGraphRefresh is untouched and still
+    -- carries what the fight accumulated.
     if PlayerInventory.scanDeferredByCombat and not InCombatLockdown() then
-        PlayerInventory:RunDeferredScan()
+        PlayerInventory.scanDeferredByCombat = false
+        PlayerInventory.pendingScan = false
     end
     if event == "SKILL_LINES_CHANGED" and QR.PlayerInfo then
         QR.PlayerInfo:InvalidateCache()

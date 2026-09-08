@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+- Stopped recalculating every tracked quest's route about once a second while moving, which stuttered the game and grew more expensive the more addons were installed. Routes are now reused until the player has actually moved a meaningful distance, changed zone, or changed which quests are tracked.
+- Left the game alone during combat. Routes, inventory scans and zone survey records are no longer computed mid-fight; the postponed work runs once the fight is over, except a zone crossing, which is dropped rather than recorded late against the wrong position.
+
 ## [1.18.1] - 2026-09-07
 
 ### Fixed
