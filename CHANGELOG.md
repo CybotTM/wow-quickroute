@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.18.2] - 2026-09-09
+
 ### Fixed
 - Stopped recalculating every tracked quest's route about once a second while moving, which stuttered the game and grew more expensive the more addons were installed. Routes are now reused until the player has actually moved a meaningful distance, changed zone, or changed which quests are tracked.
 - Left the game alone during combat. Routes, inventory scans and zone survey records are no longer computed mid-fight; the postponed work runs once the fight is over, except a zone crossing, which is dropped rather than recorded late against the wrong position.
@@ -385,7 +387,8 @@
 - CI pipeline (luacheck + tests)
 - CurseForge + Wago automated publishing
 
-[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.1...HEAD
+[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.2...HEAD
+[1.18.2]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.1...v1.18.2
 [1.18.1]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.17.0...v1.18.0
 [1.17.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.16.0...v1.17.0
