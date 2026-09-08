@@ -36,8 +36,36 @@ QR.QuestTeleportButtons = {
 
 local QTB = QR.QuestTeleportButtons
 
+-- Events after which a cached route may be wrong in a way no field of the cache
+-- key can show. Both change which quests exist to route to, and a stale entry
+-- would then belong to a quest that is no longer tracked. SPELL_UPDATE_COOLDOWN
+-- joins them only once UpdateCooldownState has confirmed a cooldown really
+-- moved: a teleport coming off cooldown can beat the one a cached entry chose,
+-- and the read path only re-checks the cooldown of the teleport already cached.
+--
+-- SPELLS_CHANGED and BAG_UPDATE_DELAYED are deliberately absent. A teleport
+-- appearing or disappearing reaches the graph through PlayerInventory's rescan,
+-- which builds a new graph, and every cached entry records the graph it was
+-- computed against -- so those invalidate themselves, without paying for the
+-- far more common firings that change no teleport at all.
+local INVALIDATING_EVENTS = {
+    QUEST_WATCH_LIST_CHANGED = true,
+    SUPER_TRACKING_CHANGED = true,
+    SPELL_UPDATE_COOLDOWN = true,
+}
+
 -- A small stable bucket avoids sub-pixel movement invalidating all quest
 -- routes, while approaching an objective can replace a teleport with walking.
+--
+-- The divisor decides how far the player walks before every tracked quest is
+-- routed again, and each of those is a Dijkstra run over the whole graph. At
+-- 1000 a bucket is a few yards across, so ordinary walking recomputed
+-- everything several times a second. The two decisions the bucket exists for --
+-- the zone changed, or the objective is now close enough to walk to -- are both
+-- answered by a coarse grid, and the mapID in the key covers the first one on
+-- its own.
+local POSITION_BUCKETS = 20
+
 local function GetPositionBucket()
     if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition) then return nil end
     local ok, bucket = pcall(function()
@@ -50,7 +78,8 @@ local function GetPositionBucket()
         if position.GetXY then x, y = position:GetXY() end
         if (issecretvalue and (issecretvalue(x) or issecretvalue(y))) or type(x) ~= "number" or type(y) ~= "number"
             or x ~= x or y ~= y or x < 0 or x > 1 or y < 0 or y > 1 then return end
-        return string_format("%d:%d:%d", mapID, math_floor(x * 1000), math_floor(y * 1000))
+        return string_format("%d:%d:%d", mapID,
+            math_floor(x * POSITION_BUCKETS), math_floor(y * POSITION_BUCKETS))
     end)
     return ok and bucket or nil
 end
@@ -749,7 +778,26 @@ function QTB:RegisterEvents()
         if InCombatLockdown() or not QTB.enabled then QTB:InvalidateCache(); return end
         if event == "SPELL_UPDATE_COOLDOWN" and not UpdateCooldownState() then return end
 
-        QTB:InvalidateCache()
+        -- Only the events that change WHICH quests are tracked empty the cache.
+        -- Everything a cached entry depends on besides that -- the player's
+        -- position bucket, the graph it was computed against, whether the graph
+        -- is dirty, the entry's age, and the teleport's cooldown -- is checked
+        -- on every read, so a wholesale wipe here adds no freshness. It did
+        -- take all of it away: QUEST_LOG_UPDATE fires about once a second while
+        -- the player moves, and every firing then re-routed each tracked quest
+        -- from scratch, which is one Dijkstra run over the whole graph per
+        -- quest. Any addon that makes the client re-check quests, spells or
+        -- bags paid the same bill, which is why the cost grew with the number
+        -- of addons installed rather than with anything QuickRoute was asked to
+        -- do. See https://github.com/CybotTM/wow-quickroute/issues/66.
+        --
+        -- The in-flight refresh is still cancelled on every event: its results
+        -- describe the state before whatever just happened.
+        if INVALIDATING_EVENTS[event] then
+            QTB:InvalidateCache()
+        else
+            QTB:CancelRefresh()
+        end
 
         -- Debounce rapid QUEST_LOG_UPDATE events with a timer
         if QTB.debounceTimer then
