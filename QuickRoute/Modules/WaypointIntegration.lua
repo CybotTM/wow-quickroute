@@ -1127,6 +1127,17 @@ end
 
 --- Internal: process a waypoint change after debounce
 function WaypointIntegration:_ProcessWaypointChange()
+    -- Nothing here is worth a frame drop mid-fight: resolving the waypoint and
+    -- routing to it costs a search over the whole graph, and a route the player
+    -- cannot act on until the fight ends is not urgent. Remembered rather than
+    -- dropped -- the leave-combat callback registered in RegisterHooks runs it
+    -- once, against the state the player is actually in by then.
+    if InCombatLockdown() then
+        self._waypointChangePending = true
+        return
+    end
+    self._waypointChangePending = false
+
     local waypoint, source = self:GetActiveWaypoint()
 
     if waypoint then
@@ -1160,6 +1171,15 @@ end
 function WaypointIntegration:OnWaypointCleared()
     QR:Debug("Waypoint cleared")
 
+    -- Redrawing the route costs the same graph search as computing one, so it
+    -- waits for the fight to end like every other route work. Deferred through
+    -- the same flag: the leave-combat callback re-reads the waypoint, which by
+    -- then reflects whether it is still cleared.
+    if InCombatLockdown() then
+        self._waypointChangePending = true
+        return
+    end
+
     -- Update UI if showing
     if QR.UI and QR.UI.frame and QR.UI.frame:IsShown() then
         QR.UI:RefreshRoute()
@@ -1177,6 +1197,17 @@ function WaypointIntegration:RegisterHooks()
     -- Create event frame if not exists
     if not eventFrame then
         eventFrame = CreateFrame("Frame")
+    end
+
+    -- Run the waypoint change that combat postponed. Registered here rather
+    -- than at file scope because QR:RegisterCombatCallback is declared in
+    -- QuickRoute.lua, which the .toc loads after this file.
+    if QR.RegisterCombatCallback then
+        QR:RegisterCombatCallback(nil, function()
+            if WaypointIntegration._waypointChangePending then
+                WaypointIntegration:_ProcessWaypointChange()
+            end
+        end)
     end
 
     -- Register WoW events

@@ -317,6 +317,14 @@ function ZoneSurvey:Initialize()
         frame.pending = true
         C_Timer.After(1.5, function()
             frame.pending = false
+            -- Dropped in combat, not postponed. A capture that runs once the
+            -- fight is over describes wherever the player ended up, which is
+            -- the invented evidence the comment above refuses; and the arrival
+            -- state it would have been measured against no longer applies.
+            if InCombatLockdown() then
+                ZoneSurvey:ForgetArrivalState()
+                return
+            end
             local ok, err = pcall(function() return ZoneSurvey:Capture() end)
             if not ok then
                 QR:Debug("ZoneSurvey capture failed: " .. tostring(err))

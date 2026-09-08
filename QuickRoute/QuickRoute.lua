@@ -223,6 +223,7 @@ function QR:OnPlayerLogin()
             { "TeleportDestinations", function() QR.TeleportDestinations:Initialize() end },
             { "Graph",              function() QR:InitializeGraph() end },
             { "PlayerTeleports",    function() QR:ScanPlayerTeleports() end },
+            { "InventoryCombat",    function() QR.PlayerInventory:RegisterCombatCallback() end },
             { "SecureButtons",      function() QR.SecureButtons:Initialize() end },
             { "WaypointIntegration",function() QR.WaypointIntegration:Initialize() end },
             { "MainFrame",          function() QR.MainFrame:Initialize() end },

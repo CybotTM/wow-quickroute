@@ -92,15 +92,27 @@ for _, event in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED", "TOYS_UPD
     end)
 end
 
-T:run("Inventory events: combat skips unchanged loot but defers real inventory changes", function(t)
+-- Combat used to scan and merely postpone the rebuild. It now postpones the
+-- scan as well: walking every bag slot is itself work the player is not asking
+-- for mid-fight, and the events that provoke it -- loot, buffs, cooldowns --
+-- arrive constantly while fighting. What must not change is that a real
+-- inventory change is not lost, only deferred.
+T:run("Inventory events: combat does not scan at all, and the change survives it", function(t)
     withInventoryEvents(function(f)
         MockWoW.config.inCombatLockdown, QR.PathCalculator.graphDirty = true, false
-        f.fire("BAG_UPDATE"); f.flush()
-        t:assertFalse(QR.PathCalculator.graphDirty, "Unchanged loot does not queue a post-combat graph rebuild")
         f.replace({})
         f.fire("BAG_UPDATE"); f.flush()
-        t:assertTrue(QR.PathCalculator.graphDirty, "Removed teleport queues a post-combat graph rebuild")
-        local _, notifications = f.counts()
+        local scans, notifications = f.counts()
+        t:assertEqual(0, scans, "A fight is not the time to walk every bag slot")
+        t:assertFalse(QR.PathCalculator.graphDirty, "and nothing is invalidated mid-fight either")
         t:assertEqual(0, notifications, "Combat never invokes the normal inventory-change callback")
+        t:assertTrue(QR.PlayerInventory.scanDeferredByCombat, "the scan is remembered, not dropped")
+
+        -- What the leave-combat callback does once the fight ends.
+        MockWoW.config.inCombatLockdown = false
+        QR.PlayerInventory:RunDeferredScan()
+        scans, notifications = f.counts()
+        t:assertEqual(1, scans, "The postponed scan runs exactly once afterwards")
+        t:assertEqual(1, notifications, "and the removed teleport invalidates the routes then")
     end)
 end)
