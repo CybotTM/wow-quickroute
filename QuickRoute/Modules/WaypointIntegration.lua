@@ -1127,6 +1127,17 @@ end
 
 --- Internal: process a waypoint change after debounce
 function WaypointIntegration:_ProcessWaypointChange()
+    -- Nothing here is worth a frame drop mid-fight: resolving the waypoint and
+    -- routing to it costs a search over the whole graph, and a route the player
+    -- cannot act on until the fight ends is not urgent. Remembered rather than
+    -- dropped -- the leave-combat callback registered in RegisterHooks runs it
+    -- once, against the state the player is actually in by then.
+    if InCombatLockdown() then
+        self._waypointChangePending = "changed"
+        return
+    end
+    self._waypointChangePending = false
+
     local waypoint, source = self:GetActiveWaypoint()
 
     if waypoint then
@@ -1156,9 +1167,35 @@ function WaypointIntegration:_ProcessWaypointChange()
     end
 end
 
+--- Run whichever waypoint work combat postponed, if any.
+-- Called by the leave-combat callback registered in RegisterHooks. Which of the
+-- two paths is owed matters: see the comment in OnWaypointCleared.
+function WaypointIntegration:ResumeDeferredWaypointWork()
+    local pending = self._waypointChangePending
+    self._waypointChangePending = false
+    if pending == "cleared" then
+        self:OnWaypointCleared()
+    elseif pending then
+        self:_ProcessWaypointChange()
+    end
+end
+
 --- Called when waypoint is cleared
 function WaypointIntegration:OnWaypointCleared()
     QR:Debug("Waypoint cleared")
+
+    -- Redrawing the route costs the same graph search as computing one, so it
+    -- waits for the fight to end like every other route work. The flag records
+    -- WHICH work is owed, because the two are not interchangeable: a clear only
+    -- ever refreshes a window that is already open, while a change may open one
+    -- when auto-destination is on. Resuming a clear through the change path
+    -- would pop the route window up after every fight in which the player
+    -- removed their map pin.
+    if InCombatLockdown() then
+        self._waypointChangePending = "cleared"
+        return
+    end
+    self._waypointChangePending = false
 
     -- Update UI if showing
     if QR.UI and QR.UI.frame and QR.UI.frame:IsShown() then
@@ -1177,6 +1214,15 @@ function WaypointIntegration:RegisterHooks()
     -- Create event frame if not exists
     if not eventFrame then
         eventFrame = CreateFrame("Frame")
+    end
+
+    -- Run the waypoint change that combat postponed. Registered here rather
+    -- than at file scope because QR:RegisterCombatCallback is declared in
+    -- QuickRoute.lua, which the .toc loads after this file.
+    if QR.RegisterCombatCallback then
+        QR:RegisterCombatCallback(nil, function()
+            WaypointIntegration:ResumeDeferredWaypointWork()
+        end)
     end
 
     -- Register WoW events

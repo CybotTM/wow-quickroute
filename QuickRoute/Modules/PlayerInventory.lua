@@ -593,10 +593,69 @@ eventFrame:RegisterEvent("TOYS_UPDATED")
 eventFrame:RegisterEvent("SPELLS_CHANGED")
 eventFrame:RegisterEvent("SKILL_LINES_CHANGED")
 
+--- The scan the debounce timer runs. Also called from the leave-combat callback
+-- below, for the case where the timer landed mid-fight and postponed it.
+function PlayerInventory:RunDeferredScan()
+    PlayerInventory.pendingScan = false
+    PlayerInventory.scanDeferredByCombat = false
+    local force = forceGraphRefresh
+    forceGraphRefresh = false
+
+    -- Skip scan if addon not fully initialized yet
+    if not QR.db then return end
+
+    -- Perform the scan
+    local before = not force and PlayerInventory:GetAllTeleports()
+    PlayerInventory:ScanAll()
+    local changed = force or not SameTeleports(before, PlayerInventory:GetAllTeleports())
+
+    -- Notify PathCalculator if it exists. The combat branch is a backstop: the
+    -- callers below only reach here out of combat, but a fight can start
+    -- between that check and this line, and a rebuild is the expensive part.
+    if changed and QR.PathCalculator and QR.PathCalculator.OnInventoryChanged then
+        if InCombatLockdown() then
+            QR.PathCalculator.graphDirty = true
+        else
+            QR.PathCalculator:OnInventoryChanged()
+        end
+    end
+
+    if QR.debugMode then
+        local count = PlayerInventory:GetTeleportCount()
+        QR:Debug(string_format("Inventory updated (%d teleports)", count))
+    end
+end
+
+--- Register the leave-combat callback. Called from Initialize rather than file
+-- scope: QR:RegisterCombatCallback lives in QuickRoute.lua, which the .toc
+-- loads after this file.
+function PlayerInventory:RegisterCombatCallback()
+    if self.combatCallbackRegistered or not QR.RegisterCombatCallback then return end
+    self.combatCallbackRegistered = true
+    QR:RegisterCombatCallback(nil, function()
+        if PlayerInventory.scanDeferredByCombat then
+            PlayerInventory:RunDeferredScan()
+        end
+    end)
+end
+
 eventFrame:SetScript("OnEvent", function(self, event, ...)
     -- Preserve capability/equipment invalidation even when this event joins a
     -- pending BAG_UPDATE batch (e.g. looting and learning a riding spell).
     if event ~= "BAG_UPDATE" then forceGraphRefresh = true end
+
+    -- A deferred scan is normally run by the leave-combat callback. If that
+    -- never arrives -- a reload or a logout while fighting ends the fight
+    -- without PLAYER_REGEN_ENABLED reaching this session -- pendingScan would
+    -- stay set, and the guard below would then swallow every inventory event
+    -- for the rest of the session. Releasing both flags lets this event arm a
+    -- timer as usual, so the recovered scan is still debounced rather than run
+    -- inside an event handler. forceGraphRefresh is untouched and still
+    -- carries what the fight accumulated.
+    if PlayerInventory.scanDeferredByCombat and not InCombatLockdown() then
+        PlayerInventory.scanDeferredByCombat = false
+        PlayerInventory.pendingScan = false
+    end
     if event == "SKILL_LINES_CHANGED" and QR.PlayerInfo then
         QR.PlayerInfo:InvalidateCache()
     end
@@ -615,31 +674,16 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
 
     -- Set a new timer
     debounceTimer = C_Timer.NewTimer(DEBOUNCE_DELAY, function()
-        PlayerInventory.pendingScan = false
-        local force = forceGraphRefresh
-        forceGraphRefresh = false
-
-        -- Skip scan if addon not fully initialized yet
-        if not QR.db then return end
-
-        -- Perform the scan
-        local before = not force and PlayerInventory:GetAllTeleports()
-        PlayerInventory:ScanAll()
-        local changed = force or not SameTeleports(before, PlayerInventory:GetAllTeleports())
-
-        -- Notify PathCalculator if it exists (defer during combat to avoid expensive graph rebuild)
-        if changed and QR.PathCalculator and QR.PathCalculator.OnInventoryChanged then
-            if InCombatLockdown() then
-                QR.PathCalculator.graphDirty = true
-            else
-                QR.PathCalculator:OnInventoryChanged()
-            end
+        -- Bags, spells and cooldowns churn constantly during a fight, and
+        -- scanning them walks every bag slot and every known teleport. Leaving
+        -- pendingScan set makes the rest of the fight's events fold into this
+        -- one deferred scan, which the leave-combat callback then runs; the
+        -- accumulated forceGraphRefresh stays set for it too.
+        if InCombatLockdown() then
+            PlayerInventory.scanDeferredByCombat = true
+            return
         end
-
-        if QR.debugMode then
-            local count = PlayerInventory:GetTeleportCount()
-            QR:Debug(string_format("Inventory updated (%d teleports)", count))
-        end
+        PlayerInventory:RunDeferredScan()
     end)
 end)
 
