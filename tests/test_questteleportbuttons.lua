@@ -571,3 +571,87 @@ T:run("CollectQuestBlocks: a module with neither shape is not a failed provider"
         t:assertTrue(recognised, "and the unrelated module did not spoil it")
     end)
 end)
+
+-------------------------------------------------------------------------------
+-- Button positioning
+-------------------------------------------------------------------------------
+
+--- A tracker block that reports a position and can be moved.
+local function positionedBlock(id, left, top, bottom)
+    return {
+        id = id,
+        HeaderText = { GetText = function() return "Quest " .. id end },
+        IsVisible = function() return true end,
+        GetLeft = function(self) return self.left end,
+        GetTop = function(self) return self.top end,
+        GetBottom = function(self) return self.bottom end,
+        GetEffectiveScale = function() return 1 end,
+        left = left, top = top, bottom = bottom,
+    }
+end
+
+--- Drive QTB:OnUpdate against a tracker holding one block, counting how often
+-- the button is re-anchored. Nothing else in the suite reaches this handler:
+-- the mock has no ObjectiveTrackerFrame, so it returns immediately everywhere
+-- else.
+local function withPositioning(fn)
+    local QTB = QR.QuestTeleportButtons
+    if not QTB.initialized then QTB:Initialize() end
+    local block = positionedBlock(60001, 100, 200, 180)
+    local btn = QTB.pool[1]
+    local savedActive = QTB.activeButtons
+    QTB.activeButtons = { [60001] = btn }
+    local points = 0
+    local realSetPoint = btn.SetPoint
+    btn.SetPoint = function(self, ...) points = points + 1; return realSetPoint(self, ...) end
+
+    withTracker({ modules = { { EnumerateActiveBlocks = function(_, cb) cb(block) end } } }, function()
+        fn(QTB, btn, block, function() return points end)
+    end)
+
+    btn.SetPoint = realSetPoint
+    QTB.activeButtons = savedActive
+    btn._lastX, btn._lastY, btn._lastScale = nil, nil, nil
+end
+
+T:run("Positioning: a block that has not moved is not re-anchored", function(t)
+    withPositioning(function(QTB, btn, block, points)
+        QTB.updateElapsed = 10
+        QTB:OnUpdate(0)
+        local first = points()
+        t:assertTrue(first > 0, "the first tick anchors the button")
+        QTB.updateElapsed = 10
+        QTB:OnUpdate(0)
+        QTB.updateElapsed = 10
+        QTB:OnUpdate(0)
+        t:assertEqual(first, points(), "later ticks over an unmoved block do nothing")
+    end)
+end)
+
+T:run("Positioning: a block that moved is re-anchored", function(t)
+    withPositioning(function(QTB, btn, block, points)
+        QTB.updateElapsed = 10
+        QTB:OnUpdate(0)
+        local before = points()
+        block.top, block.bottom = 400, 380
+        QTB.updateElapsed = 10
+        QTB:OnUpdate(0)
+        t:assertTrue(points() > before, "the button follows its block")
+    end)
+end)
+
+T:run("Positioning: a recycled button is anchored for its new quest", function(t)
+    withPositioning(function(QTB, btn, block, points)
+        QTB.updateElapsed = 10
+        QTB:OnUpdate(0)
+        -- The pool hands this button to another quest, whose block happens to
+        -- sit where the last one did. Releasing has to forget the position, or
+        -- the new owner is never anchored at all.
+        QTB:ReleaseAllButtons()
+        QTB.activeButtons = { [60001] = btn }
+        local before = points()
+        QTB.updateElapsed = 10
+        QTB:OnUpdate(0)
+        t:assertTrue(points() > before, "the button is placed again after being reused")
+    end)
+end)

@@ -367,6 +367,9 @@ local function ReleaseButton(btn)
     btn._pendingTeleportID, btn._pendingSourceType = nil, nil
     btn.inUse = false
     btn.questID = nil
+    -- The next quest to use this button must be positioned, not assumed to be
+    -- where the last one was.
+    btn._lastX, btn._lastY, btn._lastScale = nil, nil, nil
     btn.tooltipText = nil
     btn.tooltipSubtext = nil
     if btn.icon then
@@ -660,19 +663,33 @@ end
 --   that raised -- in both cases the block set is incomplete and the caller
 --   must not conclude a quest's block is gone. One provider failing is enough:
 --   its blocks are missing from an otherwise plausible-looking result.
+-- Reused across calls. This runs five times a second for as long as a quest
+-- teleport button is on screen, and two fresh tables plus two closures per call
+-- measured 2.9 KiB each time -- around 50 MiB an hour of standing still. The
+-- returned table is only read before the next call, which is the same contract
+-- CooldownTracker's result tables carry.
+local collectedBlocks = {}
+local collectedQuestTagged = {}
+
 function QTB:CollectQuestBlocks()
-    local blocks = {}
-    local questTagged = {}
+    local blocks = collectedBlocks
+    local questTagged = collectedQuestTagged
+    wipe(blocks)
+    wipe(questTagged)
     local recognised = false
     local failed = false
 
-    local function record(id, block, isQuestModule)
-        if type(id) == "number" and not (issecretvalue and issecretvalue(id))
-            and type(block) == "table" and block.HeaderText
-            and (isQuestModule or not questTagged[id]) then
-            blocks[id] = block
-            questTagged[id] = isQuestModule
+    local record = self._recordQuestBlock
+    if not record then
+        record = function(id, block, isQuestModule)
+            if type(id) == "number" and not (issecretvalue and issecretvalue(id))
+                and type(block) == "table" and block.HeaderText
+                and (isQuestModule or not questTagged[id]) then
+                blocks[id] = block
+                questTagged[id] = isQuestModule
+            end
         end
+        self._recordQuestBlock = record
     end
 
     local modules = ObjectiveTrackerFrame and
@@ -753,6 +770,12 @@ function QTB:OnUpdate(elapsed)
 
     if InCombatLockdown() then return end
 
+    -- Nothing to position. The frame is hidden when the last button goes, so
+    -- this is belt and braces -- but walking the tracker's whole module tree
+    -- five times a second to place no buttons is the one case worth spelling
+    -- out.
+    if not next(self.activeButtons) then return end
+
     -- No ObjectiveTrackerFrame in test environment or if hidden
     if not ObjectiveTrackerFrame then
         return
@@ -777,9 +800,18 @@ function QTB:OnUpdate(elapsed)
             local bottom = block:GetBottom()
             if left and top and bottom then
                 local centerY = (top + bottom) / 2
-                btn:SetScale(block:GetEffectiveScale() / UIParent:GetEffectiveScale())
-                btn:ClearAllPoints()
-                btn:SetPoint("RIGHT", UIParent, "BOTTOMLEFT", left + BUTTON_OFFSET_X, centerY)
+                local anchorX = left + BUTTON_OFFSET_X
+                local scale = block:GetEffectiveScale() / UIParent:GetEffectiveScale()
+                -- Re-anchoring invalidates the frame's layout, so it is done
+                -- only when the block actually moved. The tracker is static
+                -- most of the time, and this runs five times a second.
+                -- SecureButtons' overlay loop guards the same way.
+                if btn._lastX ~= anchorX or btn._lastY ~= centerY or btn._lastScale ~= scale then
+                    btn:SetScale(scale)
+                    btn:ClearAllPoints()
+                    btn:SetPoint("RIGHT", UIParent, "BOTTOMLEFT", anchorX, centerY)
+                    btn._lastX, btn._lastY, btn._lastScale = anchorX, centerY, scale
+                end
                 if not btn:IsShown() then
                     btn:Show()
                 end
