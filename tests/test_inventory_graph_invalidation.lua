@@ -92,6 +92,26 @@ for _, event in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED", "TOYS_UPD
     end)
 end
 
+-- The leave-combat callback normally runs the postponed scan. A reload or a
+-- logout mid-fight ends the fight without PLAYER_REGEN_ENABLED reaching this
+-- session, and the pending flag that coalesces a fight's events would then
+-- suppress every later scan for good.
+T:run("Inventory events: a deferred scan is not lost when leaving combat goes unseen", function(t)
+    withInventoryEvents(function(f)
+        MockWoW.config.inCombatLockdown = true
+        f.fire("BAG_UPDATE"); f.flush()
+        t:assertEqual(0, (f.counts()), "nothing scanned during the fight")
+
+        -- No PLAYER_REGEN_ENABLED, no callback: just the next inventory event.
+        MockWoW.config.inCombatLockdown = false
+        f.replace({})
+        f.fire("BAG_UPDATE"); f.flush()
+        local scans, notifications = f.counts()
+        t:assertTrue(scans > 0, "the next event out of combat settles the owed scan")
+        t:assertEqual(1, notifications, "and the inventory change is still noticed")
+    end)
+end)
+
 -- Combat used to scan and merely postpone the rebuild. It now postpones the
 -- scan as well: walking every bag slot is itself work the player is not asking
 -- for mid-fight, and the events that provoke it -- loot, buffs, cooldowns --

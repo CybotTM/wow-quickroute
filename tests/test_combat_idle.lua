@@ -39,6 +39,7 @@ local function withCountedRoutes(body)
         MockWoW.config.questWaypoints[id] = { mapID = 84, x = 0.5, y = 0.5 }
         MockWoW.config.questTitles[id] = "Budget quest " .. id
     end
+    saved.knownSpell = MockWoW.config.knownSpells[3561]
     MockWoW.config.knownSpells[3561] = true
     QR.PlayerInventory:ScanAll()
 
@@ -69,6 +70,7 @@ local function withCountedRoutes(body)
     MockWoW.config.questTitles = saved.titles
     QR.PathCalculator.CalculatePath = saved.calculate
     QR.PathCalculator.graphDirty = saved.graphDirty
+    MockWoW.config.knownSpells[3561] = saved.knownSpell
     QTB.enabled = saved.enabled
     if not ok then error(err, 0) end
 end
@@ -124,19 +126,66 @@ T:run("the zone survey does not record during combat", function(t)
     QR.db.zoneSurveyEnabled = savedEnabled
 end)
 
+T:run("a waypoint cleared in combat does not open the window afterwards", function(t)
+    local WI = QR.WaypointIntegration
+    local savedCombat, savedAuto = MockWoW.config.inCombatLockdown, QR.db.autoDestination
+    local savedShowing = QR.MainFrame.isShowing
+    local shows = 0
+    local realShow = QR.MainFrame.Show
+    QR.MainFrame.Show = function(self, ...) shows = shows + 1; return realShow(self, ...) end
+
+    -- Auto-destination opens the route window on a waypoint CHANGE. Clearing a
+    -- map pin never did, and must not start doing so just because the clear was
+    -- postponed by a fight.
+    QR.db.autoDestination = true
+    if QR.MainFrame.frame then QR.MainFrame.frame:Hide() end
+    QR.MainFrame.isShowing = false
+    WI._waypointChangePending = false
+
+    MockWoW.config.inCombatLockdown = true
+    WI:OnWaypointCleared()
+    t:assertEqual("cleared", WI._waypointChangePending, "the clear is remembered as a clear")
+
+    MockWoW.config.inCombatLockdown = false
+    shows = 0
+    WI:ResumeDeferredWaypointWork() -- what the leave-combat callback calls
+    t:assertEqual(0, shows, "resuming a clear leaves a closed window closed")
+    t:assertFalse(WI._waypointChangePending, "and the owed work is consumed")
+
+    QR.MainFrame.Show = realShow
+    QR.MainFrame.isShowing = savedShowing
+    MockWoW.config.inCombatLockdown = savedCombat
+    QR.db.autoDestination = savedAuto
+    WI._waypointChangePending = false
+end)
+
 T:run("a waypoint change in combat waits for the fight to end", function(t)
     withCountedRoutes(function()
         local WI = QR.WaypointIntegration
         WI._waypointChangePending = false
+        -- Auto-destination is what turns a waypoint change into a route, so the
+        -- test states it rather than inheriting whatever the suite left.
+        -- Auto-destination is what makes a waypoint change reach the UI, so the
+        -- test states it rather than inheriting whatever the suite left. The
+        -- observable effect of the change path is that call: the clear path
+        -- never makes it, which is what the test above pins.
+        local savedAuto = QR.db.autoDestination
+        QR.db.autoDestination = true
+        local shows = 0
+        local realShow = QR.UI.Show
+        QR.UI.Show = function(self, ...) shows = shows + 1; return realShow(self, ...) end
 
         MockWoW.config.inCombatLockdown = true
         routeCalls = 0
         WI:_ProcessWaypointChange()
         t:assertEqual(0, routeCalls, "no route is computed while the player is fighting")
-        t:assertTrue(WI._waypointChangePending, "but the change is remembered")
+        t:assertEqual("changed", WI._waypointChangePending, "but the change is remembered as a change")
 
         MockWoW.config.inCombatLockdown = false
-        WI:_ProcessWaypointChange()
+        WI:ResumeDeferredWaypointWork() -- what the leave-combat callback calls
         t:assertFalse(WI._waypointChangePending, "and is consumed once the fight is over")
+        t:assertEqual(1, shows, "and the change path is the one that runs")
+        QR.UI.Show = realShow
+        QR.db.autoDestination = savedAuto
     end)
 end)

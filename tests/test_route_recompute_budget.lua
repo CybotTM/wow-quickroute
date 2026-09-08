@@ -40,6 +40,7 @@ local function withCountedRoutes(body)
         MockWoW.config.questWaypoints[id] = { mapID = 84, x = 0.5, y = 0.5 }
         MockWoW.config.questTitles[id] = "Budget quest " .. id
     end
+    saved.knownSpell = MockWoW.config.knownSpells[3561]
     MockWoW.config.knownSpells[3561] = true
     QR.PlayerInventory:ScanAll()
 
@@ -70,6 +71,7 @@ local function withCountedRoutes(body)
     MockWoW.config.questTitles = saved.titles
     QR.PathCalculator.CalculatePath = saved.calculate
     QR.PathCalculator.graphDirty = saved.graphDirty
+    MockWoW.config.knownSpells[3561] = saved.knownSpell
     QTB.enabled = saved.enabled
     if not ok then error(err, 0) end
 end

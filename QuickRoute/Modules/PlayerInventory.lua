@@ -609,7 +609,9 @@ function PlayerInventory:RunDeferredScan()
     PlayerInventory:ScanAll()
     local changed = force or not SameTeleports(before, PlayerInventory:GetAllTeleports())
 
-    -- Notify PathCalculator if it exists (defer during combat to avoid expensive graph rebuild)
+    -- Notify PathCalculator if it exists. The combat branch is a backstop: the
+    -- callers below only reach here out of combat, but a fight can start
+    -- between that check and this line, and a rebuild is the expensive part.
     if changed and QR.PathCalculator and QR.PathCalculator.OnInventoryChanged then
         if InCombatLockdown() then
             QR.PathCalculator.graphDirty = true
@@ -641,6 +643,16 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     -- Preserve capability/equipment invalidation even when this event joins a
     -- pending BAG_UPDATE batch (e.g. looting and learning a riding spell).
     if event ~= "BAG_UPDATE" then forceGraphRefresh = true end
+
+    -- A deferred scan is normally run by the leave-combat callback. If that
+    -- never arrives -- a reload or a logout while fighting ends the fight
+    -- without PLAYER_REGEN_ENABLED reaching this session -- pendingScan would
+    -- stay set, and the guard below would then swallow every inventory event
+    -- for the rest of the session. Any event that finds work owed and no fight
+    -- in progress settles it.
+    if PlayerInventory.scanDeferredByCombat and not InCombatLockdown() then
+        PlayerInventory:RunDeferredScan()
+    end
     if event == "SKILL_LINES_CHANGED" and QR.PlayerInfo then
         QR.PlayerInfo:InvalidateCache()
     end

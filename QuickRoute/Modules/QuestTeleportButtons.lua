@@ -59,11 +59,15 @@ local INVALIDATING_EVENTS = {
 --
 -- The divisor decides how far the player walks before every tracked quest is
 -- routed again, and each of those is a Dijkstra run over the whole graph. At
--- 1000 a bucket is a few yards across, so ordinary walking recomputed
--- everything several times a second. The two decisions the bucket exists for --
--- the zone changed, or the objective is now close enough to walk to -- are both
--- answered by a coarse grid, and the mapID in the key covers the first one on
--- its own.
+-- 1000 a bucket was a few yards across, so ordinary walking recomputed
+-- everything several times a second -- both here and through the movement
+-- probe in OnMovementUpdate, which compares the same bucket.
+--
+-- Of the two decisions the bucket exists for, the zone change is carried by the
+-- mapID in the key on its own. The other -- the objective is now close enough
+-- to walk to -- is not answered by any divisor: CACHE_TTL already expires every
+-- entry within 30 seconds regardless of where the player stands, so that is
+-- what bounds how stale this choice can get, and it did so at 1000 too.
 local POSITION_BUCKETS = 20
 
 local function GetPositionBucket()
