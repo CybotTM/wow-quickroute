@@ -1,4 +1,4 @@
-local T, QR = ...
+local T, QR, MockWoW = ...
 
 local function isolated(body)
     local changes = {}
@@ -148,4 +148,76 @@ T:run("Spell cooldown: GCD-only events do not notify views or arm expiry timers"
         t:assertEqual(3, callbacks, "A real personal cooldown still notifies the visible view")
         t:assertEqual(1, timers, "A real personal cooldown still schedules its expiry")
     end)
+end)
+
+-- Items and toys share the global cooldown, so pressing any ability at all
+-- makes every one of them unavailable for about a second and a half. Treating
+-- that as a readiness change emptied the quest route cache and re-routed every
+-- tracked quest on every keypress. No route can change over a window that
+-- closes before the player could act on the answer.
+T:run("Quest replanning: the global cooldown is not a readiness change", function(t)
+    local QTB = QR.QuestTeleportButtons
+    if not QTB.initialized then QTB:Initialize() end
+    local saved = {
+        combat = MockWoW.config.inCombatLockdown,
+        time = MockWoW.config.baseTime,
+        cooldowns = MockWoW.config.spellCooldowns,
+        items = MockWoW.config.itemCooldowns,
+        state = QTB.cooldownState,
+        watches = MockWoW.config.questWatches,
+    }
+    MockWoW.config.inCombatLockdown = false
+    MockWoW.config.baseTime = 1000000
+    MockWoW.config.spellCooldowns, MockWoW.config.itemCooldowns = {}, {}
+    MockWoW.config.knownSpells[3561] = true
+    QR.PlayerInventory:ScanAll()
+
+    -- Quests to route, or a wiped cache costs nothing and the assertion below
+    -- would hold whether or not the code is right.
+    saved.waypoints, saved.titles = MockWoW.config.questWaypoints, MockWoW.config.questTitles
+    MockWoW.config.questWatches = { 78001, 78002, 78003 }
+    MockWoW.config.questWaypoints, MockWoW.config.questTitles = {}, {}
+    for _, id in ipairs(MockWoW.config.questWatches) do
+        MockWoW.config.questWaypoints[id] = { mapID = 84, x = 0.5, y = 0.5 }
+        MockWoW.config.questTitles[id] = "GCD quest " .. id
+    end
+    QR.WaypointIntegration:ClearQuestCoordCache()
+    QTB:InvalidateCache()
+    if not QR.PathCalculator.graph then QR.PathCalculator:BuildGraph() end
+    QR.PathCalculator.graphDirty = false
+
+    local routes = 0
+    local realCalc = QR.PathCalculator.CalculatePath
+    QR.PathCalculator.CalculatePath = function(self, ...)
+        routes = routes + 1
+        return realCalc(self, ...)
+    end
+
+    local frame = QTB.eventFrame
+    frame:GetScript("OnEvent")(frame, "QUEST_LOG_UPDATE")        -- fill the cache
+    frame:GetScript("OnEvent")(frame, "SPELL_UPDATE_COOLDOWN")   -- settle the state
+    t:assertNotNil(next(QTB.questCache), "the quests are cached before the ability press")
+    routes = 0
+
+    -- One ability press: everything that shares the global cooldown reports a
+    -- 1.5s wait.
+    MockWoW.config.spellCooldowns[3561] = { start = 1000000, duration = 1.5, enable = 1 }
+    frame:GetScript("OnEvent")(frame, "SPELL_UPDATE_COOLDOWN")
+    t:assertEqual(0, routes, "a global cooldown does not re-route anything")
+
+    -- A real teleport cooldown still does. The refresh that follows refills the
+    -- cache in the same breath here, because the mock runs timers immediately,
+    -- so the observable is the routing rather than an empty table.
+    routes = 0
+    MockWoW.config.spellCooldowns[3561] = { start = 1000000, duration = 1800, enable = 1 }
+    frame:GetScript("OnEvent")(frame, "SPELL_UPDATE_COOLDOWN")
+    t:assertTrue(routes > 0, "a real cooldown still re-routes the tracked quests")
+
+    QR.PathCalculator.CalculatePath = realCalc
+    QTB.cooldownState = saved.state
+    MockWoW.config.spellCooldowns, MockWoW.config.itemCooldowns = saved.cooldowns, saved.items
+    MockWoW.config.baseTime = saved.time
+    MockWoW.config.inCombatLockdown = saved.combat
+    MockWoW.config.questWatches = saved.watches
+    MockWoW.config.questWaypoints, MockWoW.config.questTitles = saved.waypoints, saved.titles
 end)
