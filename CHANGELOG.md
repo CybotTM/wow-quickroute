@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [1.18.3] - 2026-09-09
+
+### Fixed
+- Stopped recomputing every tracked quest's route when the quest arrow moves to another quest, or when a quest is added to or removed from the tracker. Neither changes any other quest's route, and with 25 quests tracked each one cost about 18 ms.
+- Kept the quest teleport a button offers in step with the quest: a route is now discarded when the quest's objective moves to another zone, which it can do without the player moving at all.
+- Kept the cached routes across a fight instead of emptying them, which used to move a full recomputation to the moment combat ended.
+
+### Changed
+- Asked the client for far less. Cooldowns are read once per refresh rather than once per route, and zone names, quest titles and spell cast times are no longer re-read for answers that cannot have changed.
+- Stopped allocating and re-anchoring the quest teleport buttons five times a second while they are on screen; they are repositioned when their tracker block actually moves.
+
 ## [1.18.2] - 2026-09-09
 
 ### Fixed
@@ -387,7 +398,8 @@
 - CI pipeline (luacheck + tests)
 - CurseForge + Wago automated publishing
 
-[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.2...HEAD
+[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.3...HEAD
+[1.18.3]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.2...v1.18.3
 [1.18.2]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.1...v1.18.2
 [1.18.1]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.0...v1.18.1
 [1.18.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.17.0...v1.18.0
