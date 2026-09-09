@@ -1984,3 +1984,63 @@ T:run("Quest coordinates: a title that had not loaded yet is not remembered", fu
     MockWoW.config.questWaypoints = savedWaypoints
     WI:ClearQuestCoordCache()
 end)
+
+-------------------------------------------------------------------------------
+-- Waypoint resolution cost (/qrwpcost)
+-------------------------------------------------------------------------------
+
+T:run("/qrwpcost is registered", function(t)
+    t:assertEqual("/qrwpcost", _G.SLASH_QRWPCOST1, "the command exists")
+    t:assertNotNil(SlashCmdList and SlashCmdList["QRWPCOST"], "and has a handler")
+end)
+
+T:run("Waypoint cost: every tracked quest is timed, cold and warm", function(t)
+    resetState()
+    MockWoW.config.profileStep = 2
+    MockWoW.config.questWatches = { 4001, 4002 }
+    MockWoW.config.questWaypoints[4001] = { mapID = 84, x = 0.3, y = 0.7 }
+    MockWoW.config.questWaypoints[4002] = { mapID = 85, x = 0.4, y = 0.4 }
+    -- Restored: this is a global the rest of the suite reads, and leaving it
+    -- pointed at 84 moved every ZoneSurvey test off the map it expected.
+    local bestMap = _G.C_Map.GetBestMapForUnit
+    _G.C_Map.GetBestMapForUnit = function() return 84 end
+    -- The warm column is only worth printing if it is a cache hit. Counting the
+    -- client call the resolution starts from is how that is visible.
+    local nextWaypoint, resolutions = _G.C_QuestLog.GetNextWaypoint, 0
+    _G.C_QuestLog.GetNextWaypoint = function(...)
+        resolutions = resolutions + 1
+        return nextWaypoint(...)
+    end
+
+    local ok, report = pcall(function()
+        return QR.WaypointIntegration:MeasureWaypointCost()
+    end)
+    _G.C_Map.GetBestMapForUnit = bestMap
+    _G.C_QuestLog.GetNextWaypoint = nextWaypoint
+    if not ok then error(report) end
+
+    t:assertEqual(2, resolutions,
+        "each quest resolved once: the cold pass, with the warm pass hitting the cache")
+
+    t:assertTrue(report:find("4001", 1, true) ~= nil, "the first tracked quest is in the report")
+    t:assertTrue(report:find("4002", 1, true) ~= nil, "and so is the second")
+    t:assertTrue(report:find("2 quest%(s%) tracked") ~= nil, "the count is stated")
+    t:assertTrue(report:find("the player's own", 1, true) ~= nil,
+        "a quest on the player's map is distinguished from one elsewhere")
+    -- Two calls per measurement, profileStep 2, so each interval is 2 ms and
+    -- the cold total over two quests is 4.
+    t:assertTrue(report:find("cold total : 4.000 ms for 2 quest(s)", 1, true) ~= nil,
+        "the cold total is the sum of the per-quest measurements")
+end)
+
+T:run("Waypoint cost: an empty tracker measures nothing and says so", function(t)
+    resetState()
+    MockWoW.config.questWatches = {}
+
+    local report = QR.WaypointIntegration:MeasureWaypointCost()
+
+    t:assertTrue(report:find("No quests are being tracked", 1, true) ~= nil,
+        "an empty tracker is reported rather than measured")
+    t:assertNil(report:find("cold total", 1, true),
+        "and no total is offered for a measurement that did not happen")
+end)

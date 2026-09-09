@@ -87,6 +87,10 @@ MockWoW.config = {
     -- GetTime base (seconds since epoch, monotonic)
     baseTime = 1000000,
 
+    -- debugprofilestop: milliseconds, and how far each call advances it
+    profileClock = 0,
+    profileStep = 1,
+
     -- Sound tracking for PlaySound tests
     playedSounds = {},
 
@@ -352,6 +356,8 @@ function MockWoW:Reset()
     self.config.mapChildren = {}
     self.config.tomtom = nil
     self.config.baseTime = 1000000
+    self.config.profileClock = 0
+    self.config.profileStep = 1
     self.config.playedSounds = {}
     self.config.bindLocation = "Stormwind City"
     self.config.questAdditionalHighlights = {}
@@ -874,6 +880,16 @@ function MockWoW:Install()
     -- GetTime (monotonic seconds)
     _G.GetTime = function()
         return cfg.baseTime
+    end
+
+    -- debugprofilestop (milliseconds since the profiler was last reset).
+    -- Advanced by profileStep on every call so a measured interval is a
+    -- non-zero, predictable number rather than always 0: a test that times
+    -- something needs the clock to move, and a test that asserts on a total
+    -- needs to know by how much.
+    _G.debugprofilestop = function()
+        cfg.profileClock = (cfg.profileClock or 0) + (cfg.profileStep or 1)
+        return cfg.profileClock
     end
 
     -- hooksecurefunc
