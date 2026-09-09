@@ -160,6 +160,24 @@ T:run("walking does not re-route on every QUEST_LOG_UPDATE", function(t)
     end)
 end)
 
+-- Whether a cached route still applies is a question of distance from where it
+-- was computed, not of which cell of a grid the player stands in. A grid has
+-- edges, and a player who works along one -- circling an objective, strafing in
+-- a fight -- crosses it over and over.
+T:run("stepping back and forth across one spot never re-routes", function(t)
+    withCountedRoutes(function()
+        -- Sit exactly on what used to be a bucket boundary.
+        MockWoW.config.playerX = 0.4999
+        routesFor("QUEST_LOG_UPDATE")
+        local total = 0
+        for step = 1, 10 do
+            MockWoW.config.playerX = (step % 2 == 1) and 0.5001 or 0.4999
+            total = total + routesFor("QUEST_LOG_UPDATE")
+        end
+        t:assertEqual(0, total, "a fifth of a yard back and forth is not a new route")
+    end)
+end)
+
 T:run("crossing the zone does route again", function(t)
     withCountedRoutes(function()
         routesFor("QUEST_LOG_UPDATE")
