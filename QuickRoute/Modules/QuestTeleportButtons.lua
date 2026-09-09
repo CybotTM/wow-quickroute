@@ -99,6 +99,22 @@ local INVALIDATING_EVENTS = {
 -- what bounds how stale this choice can get, and it did so at 1000 too.
 local POSITION_BUCKETS = 20
 
+--- Where a quest points, at the same resolution as the player's own position.
+-- Keyed on the map alone this missed an objective advancing to another part of
+-- the same zone -- a destination is wired into the graph by its coordinates, so
+-- two points in one zone attach to different nearby nodes and can pick a
+-- different first teleport. Keyed on exact coordinates it would recompute
+-- constantly instead: C_QuestLog.GetNextWaypoint walks a multi-step quest along
+-- its path, so the coordinates drift while the destination does not. The same
+-- grid that decides the player has moved decides the objective has.
+local function DestinationBucket(waypoint)
+    if not waypoint or not waypoint.mapID then return nil end
+    local x, y = waypoint.x, waypoint.y
+    if type(x) ~= "number" or type(y) ~= "number" then return waypoint.mapID .. ":?" end
+    return string_format("%d:%d:%d", waypoint.mapID,
+        math_floor(x * POSITION_BUCKETS), math_floor(y * POSITION_BUCKETS))
+end
+
 local function GetPositionBucket()
     if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition) then return nil end
     local ok, bucket = pcall(function()
@@ -180,11 +196,11 @@ local function GetCachedTeleportForQuest(questID)
     -- comparing them would recompute a route that cannot have changed. Which
     -- zone the player is being sent to is what decides the first step.
     local waypoint = ResolveQuestWaypoint(questID)
-    local destMapID = waypoint and waypoint.mapID
+    local destination = DestinationBucket(waypoint)
 
     if cached and not (QTB.flightChoices and QTB.flightChoices[questID])
         and cached.position == position and cached.graph == (calculator and calculator.graph)
-        and cached.destMapID == destMapID
+        and cached.destination == destination
         and not (calculator and calculator.graphDirty) and (now - cached.time) < CACHE_TTL then
         local cooldown = cached.teleportID and QR.CooldownTracker
             and QR.CooldownTracker:GetCooldown(cached.teleportID, cached.sourceType)
@@ -211,13 +227,13 @@ local function GetCachedTeleportForQuest(questID)
             data = entry.data,
             time = now,
             position = position,
-            destMapID = destMapID,
+            destination = destination,
             graph = QR.PathCalculator and QR.PathCalculator.graph,
         }
         return teleportID, entry.sourceType, entry.data
     end
 
-    QTB.questCache[questID] = { time = now, position = position, destMapID = destMapID,
+    QTB.questCache[questID] = { time = now, position = position, destination = destination,
         graph = QR.PathCalculator and QR.PathCalculator.graph, direct = direct }
     return nil, nil, nil, nil, direct
 end
