@@ -610,3 +610,91 @@ class InputGuardTest(FixtureMixin, unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NetworkTest(FixtureMixin, unittest.TestCase):
+    """The taxi network each zone's flight master belongs to.
+
+    The world map is a proxy for this and is wrong both ways: one map can hold
+    two unconnected networks, and one network can span two maps. The component
+    has to be computed over flight masters ONLY -- taken over all taxi nodes it
+    merges through the client's own scripted and internal nodes, and the result
+    claims two continents are one flight apart.
+
+    Every cluster below is a triangle. A pair would give each node one
+    neighbour, and MIN_NEIGHBOURS drops those before any of this runs.
+    """
+
+    INTERNAL = str(gen.FLAG_INTERNAL | gen.FLAG_FACTIONS)
+
+    def resolve(self, taxi_rows, path_rows):
+        directory = self.build_inputs(taxi_rows, path_rows)
+        gen.MIN_ZONES = 0
+        try:
+            return gen.build(directory)
+        finally:
+            gen.MIN_ZONES = 100
+
+    @staticmethod
+    def links(*pairs):
+        rows = []
+        for a, b in pairs:
+            rows.append({"FromTaxiNode": str(a), "ToTaxiNode": str(b)})
+            rows.append({"FromTaxiNode": str(b), "ToTaxiNode": str(a)})
+        return rows
+
+    def two_clusters(self, joiner_rows=(), joiner_links=()):
+        """Alpha Vale and Beta Reach, one triangle each, optionally joined."""
+        nodes = [self.node(1, "Alpha Vale", 50, 50),
+                 self.node(2, "North Camp, Alpha Vale", 60, 60),
+                 self.node(3, "South Camp, Alpha Vale", 40, 40),
+                 self.node(4, "Beta Reach", 250, 250),
+                 self.node(5, "North Camp, Beta Reach", 255, 255),
+                 self.node(6, "South Camp, Beta Reach", 245, 245)]
+        nodes.extend(joiner_rows)
+        paths = self.links((1, 2), (2, 3), (1, 3), (4, 5), (5, 6), (4, 6))
+        paths.extend(self.links(*joiner_links))
+        return self.resolve(nodes, paths)
+
+    def test_one_network_can_span_two_world_maps(self):
+        # Alpha Vale is assigned to world maps 1 and 2. A triangle whose third
+        # node sits on the other map is still one network -- the case the
+        # world-map test gets wrong, and 30 real flight-master pairs look
+        # like this.
+        nodes = [self.node(1, "Alpha Vale", 50, 50, continent="1"),
+                 self.node(2, "North Camp, Alpha Vale", 60, 60, continent="1"),
+                 self.node(3, "Far Post, Alpha Vale", 50, 50, continent="2")]
+        final = self.resolve(nodes, self.links((1, 2), (2, 3), (1, 3)))
+        networks = {uid: entry["network"] for uid, entry in final.items()}
+        self.assertEqual(len(set(networks.values())), 1,
+                         "nodes joined by taxi paths are one network: %r" % networks)
+
+    def test_one_world_map_can_hold_two_networks(self):
+        # Both clusters sit on world map 1 and nothing connects them. This is
+        # the Outland case: map 530 holds two networks that never meet.
+        final = self.two_clusters()
+        self.assertNotEqual(final[self.ZONE_A]["network"], final[self.ZONE_B]["network"],
+                            "zones with no taxi path between them are separate networks")
+
+    def test_an_internal_node_does_not_merge_two_networks(self):
+        # A node the client keeps for its own purposes, joining one cluster to
+        # the other. It is not a flight master -- no real one carries 0x400 --
+        # and routing the components through it would claim the two zones are
+        # one flight apart.
+        joiner = [self.node(9, "Scripted Hop", 150, 150, flags=self.INTERNAL)]
+        final = self.two_clusters(joiner, ((1, 9), (9, 4)))
+        self.assertNotEqual(final[self.ZONE_A]["network"], final[self.ZONE_B]["network"],
+                            "an internal node must not join two flight networks")
+
+    def test_a_real_flight_master_does_merge_them(self):
+        # The same shape with an ordinary node, so the test above is pinned to
+        # the flag rather than to the joining itself.
+        joiner = [self.node(9, "Waypost", 150, 150)]
+        final = self.two_clusters(joiner, ((1, 9), (9, 4)))
+        self.assertEqual(final[self.ZONE_A]["network"], final[self.ZONE_B]["network"],
+                         "a flight master between them makes one network")
+
+    def test_every_entry_carries_a_network(self):
+        final = self.two_clusters()
+        for uid, entry in final.items():
+            self.assertIsNotNone(entry["network"], "zone %s has no network" % uid)

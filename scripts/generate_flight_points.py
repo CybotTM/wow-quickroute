@@ -139,6 +139,43 @@ def build(csv_dir):
         neighbours[row["ToTaxiNode"]].add(row["FromTaxiNode"])
     degree = {k: len(v - {k}) for k, v in neighbours.items()}
 
+    def is_flight_master(node):
+        """The three filters that decide what a node IS, not where it is.
+
+        The zone-assignment filters below drop nodes for reasons that have
+        nothing to do with being a flight master -- no zone box contains it, a
+        name that contradicts the geometry. Those nodes still connect the taxi
+        network, so the components have to be computed over this set rather
+        than over the survivors of the whole chain.
+        """
+        if degree.get(node["ID"], 0) < MIN_NEIGHBOURS:
+            return False
+        if INTERNAL_NAME.search(node["Name_lang"]):
+            return False
+        try:
+            flags = int(node["Flags"])
+        except (KeyError, ValueError):
+            flags = 0
+        return not (flags & FLAG_INTERNAL) and bool(flags & FLAG_FACTIONS)
+
+    # Connected components over flight masters ONLY. Taken over all taxi nodes
+    # they merge through boat, zeppelin and scripted-quest nodes, and the result
+    # claims Darnassus and the Sunken Temple are one flight apart.
+    masters = {node["ID"] for node in nodes if is_flight_master(node)}
+    network_of, network_count = {}, 0
+    for start in sorted(masters):
+        if start in network_of:
+            continue
+        network_count += 1
+        stack = [start]
+        network_of[start] = network_count
+        while stack:
+            current = stack.pop()
+            for other in neighbours[current]:
+                if other in masters and other not in network_of:
+                    network_of[other] = network_count
+                    stack.append(other)
+
     uimap = {r["ID"]: r for r in uimaps}
     boxes = collections.defaultdict(list)
     for row in assignments:
@@ -242,6 +279,7 @@ def build(csv_dir):
             "degree": degree.get(node["ID"], 0),
             "id": int(node["ID"]),
             "factions": flags & FLAG_FACTIONS,
+            "network": network_of.get(node["ID"]),
         })
 
     # Rule 3 needs to know which zones are represented at all, so it runs after
@@ -421,7 +459,7 @@ def emit(final, out_path):
             node = e["name"].replace("\\", "\\\\").replace('"', '\\"')
             return (f'x = {e["x"]:.4f}, y = {e["y"]:.4f}, '
                     f'worldX = {e["wx"]:.1f}, worldY = {e["wy"]:.1f}, '
-                    f'node = "{node}"')
+                    f'node = "{node}", network = {e["network"]}')
         alt = entry.get("alt")
         tail = ""
         if alt:

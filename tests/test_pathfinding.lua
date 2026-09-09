@@ -2809,3 +2809,33 @@ T:run("AddZoneNodes: a neutral city is there for both sides", function(t)
     resetState()
 end)
 
+
+-- The taxi network, not the world map, decides whether a flight is possible.
+-- Isle of Dorn and The Ringing Deeps are on world maps 2552 and 2601 and their
+-- flight masters are one taxi path apart -- the world-map test refused the pair
+-- outright. Both zones now have nodes in the route graph, which is the
+-- condition #33 named for revisiting this.
+T:run("Flight edges follow the taxi network across a world-map boundary", function(t)
+    resetState()
+    local dorn, deeps = QR.FlightPoints[2248], QR.FlightPoints[2214]
+    t:assertNotNil(dorn and dorn.network, "Isle of Dorn carries a network")
+    t:assertNotNil(deeps and deeps.network, "The Ringing Deeps carries a network")
+    t:assertEqual(dorn.network, deeps.network, "and the client's taxi graph joins them")
+    t:assertTrue(dorn.continentID ~= deeps.continentID,
+        "while their world maps differ, which is what used to decide it")
+
+    flightGraphSnapshot(allFlightZones(), 84)
+    local pc = QR.PathCalculator
+    local a, b = pc:FlightAnchorForMap(2248), pc:FlightAnchorForMap(2214)
+    t:assertNotNil(a, "Isle of Dorn has a flight anchor in the graph")
+    t:assertNotNil(b, "The Ringing Deeps has a flight anchor in the graph")
+    local edge = pc.graph:GetEdge(a, b) or pc.graph:GetEdge(b, a)
+    t:assertNotNil(edge, "the two are connected in the graph")
+    QR.PathCalculator.knownFlightZonesOverride = nil
+end)
+
+-- The other half -- that connectivity alone must not price a flight across two
+-- continents -- is already pinned by "Flight edges stay inside one continent"
+-- above: removing the pricing test takes it from 0 cross-continent flight edges
+-- to 700. A second assertion here reddened under no mutation, so it is not
+-- repeated.

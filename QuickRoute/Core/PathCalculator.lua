@@ -1519,9 +1519,52 @@ local function WorldMapMixesContinents(continentID)
     return mixedWorldMaps[continentID] or false
 end
 
+--- Would the game let the player fly between these two zones at all?
+-- The client's taxi graph decides this, and FlightPoints carries the answer as
+-- `network` -- the connected component of the flight-master subgraph the zone's
+-- node belongs to. The world map is a proxy for it and is wrong in both
+-- directions: map 530 holds Outland and the Burning Crusade starting zones,
+-- which are not one network, and 30 flight-master-to-flight-master taxi paths
+-- join two different world maps.
+--
+-- Reachability only. Whether the edge is worth PRICING as a flight is a
+-- separate question, answered below -- see #33.
+local function SameTaxiNetwork(a, b)
+    local na, nb = a.point.network, b.point.network
+    -- A regenerated FlightPoints always carries the field. An older one does
+    -- not, and answering "different network" for a missing field would delete
+    -- every flight edge in the graph, so the absence falls back to the world
+    -- map, which is what decided this before the field existed.
+    if not na or not nb then
+        return a.point.continentID == b.point.continentID
+    end
+    return na == nb
+end
+
 local function SameFlightNetwork(a, b)
-    if a.point.continentID ~= b.point.continentID then
+    if not SameTaxiNetwork(a, b) then
         return false
+    end
+    -- Pricing, not reachability. A single Vashj'ir-to-Orgrimmar flight joins the
+    -- Eastern Kingdoms and Kalimdor networks, so by connectivity alone Darnassus
+    -- and the Sunken Temple are one edge apart. The game would auto-route it, at
+    -- length; the weight here is a straight line divided by a speed, which is
+    -- fair within one landmass and nonsense across two. Refusing the pair is the
+    -- price of not lying about the price: measured across all zone pairs, the
+    -- network test alone allows 881 the world map refuses, and 790 of those are
+    -- cross-continent.
+    --
+    -- A neutral continent is compatible with anything. Mechagon and Tol Dagor
+    -- are BFA_NEUTRAL while the rest of Kul Tiras is KUL_TIRAS, and those
+    -- flights exist; the world-map rule let them through by never reaching its
+    -- continent test, and this says it directly instead.
+    local pa = QR.GetContinentForZone and QR.GetContinentForZone(a.mapID)
+    local pb = QR.GetContinentForZone and QR.GetContinentForZone(b.mapID)
+    if pa and pb and not (IsNeutral(pa) or IsNeutral(pb)) and pa ~= pb then
+        return false
+    end
+    if a.point.continentID ~= b.point.continentID then
+        return true
     end
     if not WorldMapMixesContinents(a.point.continentID) then
         return true
