@@ -22,6 +22,10 @@ QR.CooldownTracker = {}
 
 local CooldownTracker = QR.CooldownTracker
 
+-- How long a refresh batch may hold remembered cooldowns before it is treated
+-- as abandoned. A 25-quest refresh spends about 0.4s spread across frames.
+local BATCH_MAX_SECONDS = 2
+
 -------------------------------------------------------------------------------
 -- Visible inventory/map views share one event observer and expiry timer.
 -------------------------------------------------------------------------------
@@ -252,15 +256,77 @@ end
 -- @param id number The item or spell ID
 -- @param sourceType string "item", "toy", "spell", or "equipped"
 -- @return table {ready=bool, remaining=seconds, start=number, duration=number}
+--- Reuse client answers about cooldowns until EndBatch.
+-- A refresh computes one route per tracked quest, each on its own frame, and
+-- every route prices every teleport it could take: measured at 2300 cooldown
+-- queries for 92 distinct teleports in a single refresh of 25 quests. Inside a
+-- batch that is the same question asked over and over within a fraction of a
+-- second, so the first answer stands for all of them.
+--
+-- Scoped to a batch rather than to wall time on purpose. This is live state:
+-- outside a batch every caller -- the panels, the filters, the readiness check
+-- that decides whether a cooldown moved -- reads the client, and a memo with a
+-- timer instead of a scope would answer them with its own last word and hide
+-- the very change they exist to notice.
+-- Opening is idempotent rather than counted: one refresh batch runs at a time,
+-- and a batch left open by a cancelled refresh would otherwise go on answering
+-- from stale memory. Opening always starts from an empty memo.
+function CooldownTracker:BeginBatch()
+    self.batchOpen = true
+    self.batchStamp = GetTime and GetTime() or 0
+    if self.batchMemo then wipe(self.batchMemo) end
+end
+
+--- End the batch opened by BeginBatch and drop what it remembered.
+-- Safe to call when no batch is open, so a cancelled refresh can call it
+-- unconditionally.
+function CooldownTracker:EndBatch()
+    self.batchOpen = false
+    if self.batchMemo then wipe(self.batchMemo) end
+end
+
 function CooldownTracker:GetCooldown(id, sourceType)
+    -- A batch is closed on every path that leaves a refresh, but the tail of
+    -- that refresh is not all inside a pcall: an error there would leave one
+    -- open, and every panel and filter in the addon reads through here. The
+    -- stamp bounds that to BATCH_MAX_SECONDS rather than to the next refresh.
+    -- It is a backstop, not the scope -- the scope is the batch.
+    if self.batchOpen and self.batchStamp
+        and (GetTime and GetTime() or 0) - self.batchStamp > BATCH_MAX_SECONDS then
+        self:EndBatch()
+    end
+
+    local memo, key
+    if self.batchOpen then
+        memo = self.batchMemo
+        if not memo then memo = {}; self.batchMemo = memo end
+        key = (sourceType or "item") .. ":" .. tostring(id)
+        local entry = memo[key]
+        if entry then return entry end
+    end
+
+    local result
     if sourceType == "spell" then
-        return self:GetSpellCooldown(id)
+        result = self:GetSpellCooldown(id)
     elseif sourceType == "toy" then
-        return self:GetToyCooldown(id)
+        result = self:GetToyCooldown(id)
     else
         -- "item" or "equipped" both use item cooldown
-        return self:GetItemCooldown(id)
+        result = self:GetItemCooldown(id)
     end
+
+    if not memo then return result end
+    -- A copy, never the shared result table the queries above return: those are
+    -- overwritten by the next query, so a memo of references would answer every
+    -- id with whatever was asked last.
+    local entry = {
+        ready = result.ready,
+        remaining = result.remaining,
+        start = result.start,
+        duration = result.duration,
+    }
+    memo[key] = entry
+    return entry
 end
 
 --- Check if a teleport is ready (off cooldown)

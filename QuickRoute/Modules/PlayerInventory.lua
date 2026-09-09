@@ -643,6 +643,10 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     -- Preserve capability/equipment invalidation even when this event joins a
     -- pending BAG_UPDATE batch (e.g. looting and learning a riding spell).
     if event ~= "BAG_UPDATE" then forceGraphRefresh = true end
+    -- A learned or unlearned spell is the only thing that changes a cast time.
+    if event == "SPELLS_CHANGED" and QR.TravelTime then
+        QR.TravelTime.castTimeBySpell = nil
+    end
 
     -- A deferred scan is normally run by the leave-combat callback. If that
     -- never arrives -- a reload or a logout while fighting ends the fight

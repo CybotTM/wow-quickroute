@@ -1959,3 +1959,28 @@ T:run("Inside-dungeon: unrelated instance does not suppress the quest target ent
     t:assertEqual(634, wp and wp.mapID, "Quest routes to Stormheim rather than stopping inside Stonevault")
     resetState()
 end)
+
+T:run("Quest coordinates: a title that had not loaded yet is not remembered", function(t)
+    local WI = QR.WaypointIntegration
+    local savedTitles = MockWoW.config.questTitles
+    local savedWaypoints = MockWoW.config.questWaypoints
+    local savedGetTitle = _G.C_QuestLog.GetTitleForQuestID
+    -- The client answers nil while quest data is still streaming in after
+    -- login; the mock otherwise synthesises a title from the id.
+    MockWoW.config.questTitles = {}
+    MockWoW.config.questWaypoints = { [77001] = { mapID = 84, x = 0.5, y = 0.5 } }
+    _G.C_QuestLog.GetTitleForQuestID = function(id) return MockWoW.config.questTitles[id] end
+    WI:ClearQuestCoordCache()
+
+    local first = WI:GetQuestWaypoint(77001)
+    t:assertNotNil(first, "the waypoint resolves even without a title")
+    MockWoW.config.questTitles[77001] = "Bring Me A Shrubbery"
+    local second = WI:GetQuestWaypoint(77001)
+    t:assertEqual("Bring Me A Shrubbery", second and second.title,
+        "the title is asked for again once the client has it")
+
+    _G.C_QuestLog.GetTitleForQuestID = savedGetTitle
+    MockWoW.config.questTitles = savedTitles
+    MockWoW.config.questWaypoints = savedWaypoints
+    WI:ClearQuestCoordCache()
+end)

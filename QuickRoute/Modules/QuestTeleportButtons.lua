@@ -36,21 +36,50 @@ QR.QuestTeleportButtons = {
 
 local QTB = QR.QuestTeleportButtons
 
--- Events after which a cached route may be wrong in a way no field of the cache
--- key can show. Both change which quests exist to route to, and a stale entry
--- would then belong to a quest that is no longer tracked. SPELL_UPDATE_COOLDOWN
--- joins them only once UpdateCooldownState has confirmed a cooldown really
--- moved: a teleport coming off cooldown can beat the one a cached entry chose,
--- and the read path only re-checks the cooldown of the teleport already cached.
+--- Drop the cooldown answers remembered for one refresh batch.
+-- Called from every path that leaves a batch, including the ones that abandon
+-- it half way: a batch left open would keep answering later callers -- the
+-- panels, the filters, the readiness check -- from memory, and cooldowns are
+-- live state.
+local function EndCooldownBatch(generation)
+    -- A refresh that has been superseded still gets one more frame, and it must
+    -- not close the batch its successor just opened. Callers inside a refresh
+    -- pass their generation; callers that mean "close whatever is open" -- the
+    -- readiness check, CancelRefresh -- pass nothing.
+    if generation and generation ~= QTB._refreshGeneration then return end
+    if QR.CooldownTracker and QR.CooldownTracker.EndBatch then
+        QR.CooldownTracker:EndBatch()
+    end
+end
+
+-- The one event after which a cached route may be wrong in a way no field of
+-- the cache key can show: a teleport coming off cooldown can beat the one a
+-- cached entry chose, and the read path only re-checks the cooldown of the
+-- teleport already cached. SPELL_UPDATE_COOLDOWN reaches this table only once
+-- UpdateCooldownState has confirmed a readiness really moved.
 --
--- SPELLS_CHANGED and BAG_UPDATE_DELAYED are deliberately absent. A teleport
--- appearing or disappearing reaches the graph through PlayerInventory's rescan,
--- which builds a new graph, and every cached entry records the graph it was
--- computed against -- so those invalidate themselves, without paying for the
--- far more common firings that change no teleport at all.
+-- Every other event this module listens to is deliberately absent.
+--
+-- SUPER_TRACKING_CHANGED changes which quest carries the arrow, not what any
+-- quest's route is: WaypointIntegration:GetQuestWaypoint takes an explicit
+-- questID and never consults C_SuperTrack. Measured with 25 tracked quests, a
+-- firing re-computed all 25 routes and none of the 25 values differed, at 62 ms
+-- for a character with a full teleport collection. It fires on every quest
+-- turn-in and accept, whenever an objective auto-advances the arrow, on any
+-- click in the tracker or on the map, and whenever another addon calls
+-- C_SuperTrack.SetSuperTrackedQuestID. WaypointIntegration says the same of its
+-- own cache one file over: "per-questID entries are already keyed correctly".
+--
+-- QUEST_WATCH_LIST_CHANGED does change the watched set, but only for the quest
+-- added or removed. Every refresh ends in PruneQuestCache(watched), which drops
+-- exactly the entries no longer watched, and a newly watched quest has no entry
+-- to be stale. Wiping the other 24 measured 50 ms and changed nothing.
+--
+-- SPELLS_CHANGED and BAG_UPDATE_DELAYED: a teleport appearing or disappearing
+-- reaches the graph through PlayerInventory's rescan, which builds a new graph,
+-- and every cached entry records the graph it was computed against -- so those
+-- invalidate themselves.
 local INVALIDATING_EVENTS = {
-    QUEST_WATCH_LIST_CHANGED = true,
-    SUPER_TRACKING_CHANGED = true,
     SPELL_UPDATE_COOLDOWN = true,
 }
 
@@ -95,13 +124,19 @@ end
 --- Offer only an immediately usable first step of the computed quest route.
 -- A teleport on the same continent is not necessarily faster than walking,
 -- and a teleport later in the route must not skip its preceding travel.
-local function FindBestTeleportForQuest(questID)
+--- Where this quest currently points. Resolved through WaypointIntegration's
+-- own 30-second coordinate cache, so asking on every read is cheap.
+local function ResolveQuestWaypoint(questID)
+    if not QR.WaypointIntegration then return nil end
+    local button = QTB.activeButtons[questID]
+    local retry = button and button._pendingSince ~= nil
+    return QR.WaypointIntegration:GetQuestWaypoint(questID, retry)
+end
+
+local function FindBestTeleportForQuest(questID, waypoint)
     if not (QR.WaypointIntegration and QR.PathCalculator and QR.PlayerInventory) then
         return nil, nil, true
     end
-    local button = QTB.activeButtons[questID]
-    local retry = button and button._pendingSince ~= nil
-    local waypoint = QR.WaypointIntegration:GetQuestWaypoint(questID, retry)
     if not waypoint then return nil, nil, true end
 
     local route = QR.PathCalculator:CalculatePath(waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
@@ -134,8 +169,22 @@ local function GetCachedTeleportForQuest(questID)
     if not position then QTB.questCache[questID] = nil; return nil, nil, nil, true end
     local cached = QTB.questCache[questID]
     local calculator = QR.PathCalculator
+
+    -- Where the quest points is part of the key. Completing an objective can
+    -- advance a quest to one on another continent without the player moving a
+    -- step, and every other field of this key would still match -- the cached
+    -- entry would go on offering a teleport to where the quest used to be.
+    --
+    -- The map, not the coordinates: GetNextWaypoint walks a multi-step quest
+    -- along its path, so x and y drift while the destination stays put, and
+    -- comparing them would recompute a route that cannot have changed. Which
+    -- zone the player is being sent to is what decides the first step.
+    local waypoint = ResolveQuestWaypoint(questID)
+    local destMapID = waypoint and waypoint.mapID
+
     if cached and not (QTB.flightChoices and QTB.flightChoices[questID])
         and cached.position == position and cached.graph == (calculator and calculator.graph)
+        and cached.destMapID == destMapID
         and not (calculator and calculator.graphDirty) and (now - cached.time) < CACHE_TTL then
         local cooldown = cached.teleportID and QR.CooldownTracker
             and QR.CooldownTracker:GetCooldown(cached.teleportID, cached.sourceType)
@@ -145,7 +194,7 @@ local function GetCachedTeleportForQuest(questID)
     end
 
     local generation = QTB._refreshGeneration
-    local teleportID, entry, incomplete, direct = FindBestTeleportForQuest(questID)
+    local teleportID, entry, incomplete, direct = FindBestTeleportForQuest(questID, waypoint)
     -- Reentrant invalidation cancels this result as well as its UI callback.
     -- Never refill the cache with a route from the cancelled calculation.
     if generation ~= QTB._refreshGeneration then return nil, nil, nil, true end
@@ -162,12 +211,14 @@ local function GetCachedTeleportForQuest(questID)
             data = entry.data,
             time = now,
             position = position,
+            destMapID = destMapID,
             graph = QR.PathCalculator and QR.PathCalculator.graph,
         }
         return teleportID, entry.sourceType, entry.data
     end
 
-    QTB.questCache[questID] = { time = now, position = position, graph = QR.PathCalculator and QR.PathCalculator.graph, direct = direct }
+    QTB.questCache[questID] = { time = now, position = position, destMapID = destMapID,
+        graph = QR.PathCalculator and QR.PathCalculator.graph, direct = direct }
     return nil, nil, nil, nil, direct
 end
 
@@ -181,6 +232,7 @@ end
 function QTB:CancelRefresh()
     self._refreshGeneration = (self._refreshGeneration or 0) + 1
     self._refreshRunning = false
+    EndCooldownBatch()
 end
 
 -- TTL must release entries, not just stop reusing them. Lower-priority quests
@@ -200,6 +252,13 @@ end
 -- SPELL_UPDATE_COOLDOWN also fires for unrelated abilities and global
 -- cooldown updates. Replan quests only when a teleport's readiness changes.
 local function UpdateCooldownState()
+    -- This is the check that decides whether a cooldown moved, so it has to see
+    -- the client and not a batch's remembered answers -- CooldownTracker's own
+    -- comment says as much. A refresh batch spans a frame per tracked quest, so
+    -- one can still be open when SPELL_UPDATE_COOLDOWN arrives; reading its
+    -- memo here would report "nothing changed" for the very teleport the player
+    -- just used, and the rest of the batch would hand out a button for it.
+    EndCooldownBatch()
     local previous = QTB.cooldownState or {}
     local current, changed = {}, false
     local teleports = QR.PlayerInventory and QR.PlayerInventory:GetAllTeleports() or {}
@@ -342,6 +401,9 @@ local function ReleaseButton(btn)
     btn._pendingTeleportID, btn._pendingSourceType = nil, nil
     btn.inUse = false
     btn.questID = nil
+    -- The next quest to use this button must be positioned, not assumed to be
+    -- where the last one was.
+    btn._lastX, btn._lastY, btn._lastScale = nil, nil, nil
     btn.tooltipText = nil
     btn.tooltipSubtext = nil
     if btn.icon then
@@ -499,17 +561,23 @@ function QTB:RefreshButtons()
     local index, activeCount, retained = 1, 0, {}
     self._pendingRefreshAt = nil
     self._refreshRunning = true
+    -- Every route in this batch prices every teleport against its cooldown, and
+    -- the batch runs one route per frame, so the same question reaches the
+    -- client once per tracked quest. One answer serves the batch.
+    if QR.CooldownTracker and QR.CooldownTracker.BeginBatch then
+        QR.CooldownTracker:BeginBatch()
+    end
     local function IsCurrent()
         return generation == QTB._refreshGeneration and QTB.initialized and QTB.enabled and not InCombatLockdown()
     end
     local function RefreshOne()
-        if not IsCurrent() then return end
+        if not IsCurrent() then EndCooldownBatch(generation); return end
         local questID = trackedQuests[index]
-        if not questID or activeCount >= POOL_SIZE then return end
+        if not questID or activeCount >= POOL_SIZE then EndCooldownBatch(generation); return end
         -- A route calculation can take several milliseconds. Never calculate
         -- every watched quest in the same quest-log/event frame.
         local ok, teleportID, sourceType, data, incomplete, direct = pcall(GetCachedTeleportForQuest, questID)
-        if not IsCurrent() then return end
+        if not IsCurrent() then EndCooldownBatch(generation); return end
         if not ok then
             QR:Debug("Quest button route unavailable: " .. tostring(teleportID))
             teleportID = nil
@@ -587,6 +655,7 @@ function QTB:RefreshButtons()
             end
             if not next(QTB.activeButtons) and QTB.updateFrame then QTB.updateFrame:Hide() end
             QTB._refreshRunning = false
+            EndCooldownBatch(generation)
             QTB._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph
         end
     end
@@ -628,19 +697,33 @@ end
 --   that raised -- in both cases the block set is incomplete and the caller
 --   must not conclude a quest's block is gone. One provider failing is enough:
 --   its blocks are missing from an otherwise plausible-looking result.
+-- Reused across calls. This runs five times a second for as long as a quest
+-- teleport button is on screen, and two fresh tables plus two closures per call
+-- measured 2.9 KiB each time -- around 50 MiB an hour of standing still. The
+-- returned table is only read before the next call, which is the same contract
+-- CooldownTracker's result tables carry.
+local collectedBlocks = {}
+local collectedQuestTagged = {}
+
 function QTB:CollectQuestBlocks()
-    local blocks = {}
-    local questTagged = {}
+    local blocks = collectedBlocks
+    local questTagged = collectedQuestTagged
+    wipe(blocks)
+    wipe(questTagged)
     local recognised = false
     local failed = false
 
-    local function record(id, block, isQuestModule)
-        if type(id) == "number" and not (issecretvalue and issecretvalue(id))
-            and type(block) == "table" and block.HeaderText
-            and (isQuestModule or not questTagged[id]) then
-            blocks[id] = block
-            questTagged[id] = isQuestModule
+    local record = self._recordQuestBlock
+    if not record then
+        record = function(id, block, isQuestModule)
+            if type(id) == "number" and not (issecretvalue and issecretvalue(id))
+                and type(block) == "table" and block.HeaderText
+                and (isQuestModule or not questTagged[id]) then
+                blocks[id] = block
+                questTagged[id] = isQuestModule
+            end
         end
+        self._recordQuestBlock = record
     end
 
     local modules = ObjectiveTrackerFrame and
@@ -721,6 +804,12 @@ function QTB:OnUpdate(elapsed)
 
     if InCombatLockdown() then return end
 
+    -- Nothing to position. The frame is hidden when the last button goes, so
+    -- this is belt and braces -- but walking the tracker's whole module tree
+    -- five times a second to place no buttons is the one case worth spelling
+    -- out.
+    if not next(self.activeButtons) then return end
+
     -- No ObjectiveTrackerFrame in test environment or if hidden
     if not ObjectiveTrackerFrame then
         return
@@ -745,9 +834,18 @@ function QTB:OnUpdate(elapsed)
             local bottom = block:GetBottom()
             if left and top and bottom then
                 local centerY = (top + bottom) / 2
-                btn:SetScale(block:GetEffectiveScale() / UIParent:GetEffectiveScale())
-                btn:ClearAllPoints()
-                btn:SetPoint("RIGHT", UIParent, "BOTTOMLEFT", left + BUTTON_OFFSET_X, centerY)
+                local anchorX = left + BUTTON_OFFSET_X
+                local scale = block:GetEffectiveScale() / UIParent:GetEffectiveScale()
+                -- Re-anchoring invalidates the frame's layout, so it is done
+                -- only when the block actually moved. The tracker is static
+                -- most of the time, and this runs five times a second.
+                -- SecureButtons' overlay loop guards the same way.
+                if btn._lastX ~= anchorX or btn._lastY ~= centerY or btn._lastScale ~= scale then
+                    btn:SetScale(scale)
+                    btn:ClearAllPoints()
+                    btn:SetPoint("RIGHT", UIParent, "BOTTOMLEFT", anchorX, centerY)
+                    btn._lastX, btn._lastY, btn._lastScale = anchorX, centerY, scale
+                end
                 if not btn:IsShown() then
                     btn:Show()
                 end
@@ -780,27 +878,22 @@ function QTB:RegisterEvents()
         -- Quest targets can change during combat or while this feature is
         -- disabled. Invalidate Lua state now; defer all button work.
         if InCombatLockdown() then
-            -- Which quests are tracked can change mid-fight, and a route cached
-            -- for a quest that is no longer tracked is wrong in a way no field
-            -- of the cache key can show. Everything else keeps its cache:
-            -- emptying it here does not save a frame during the fight, it moves
-            -- a full recompute of every tracked quest to the moment the fight
-            -- ends, on top of the scan and the graph rebuild that land there.
-            -- SPELL_UPDATE_COOLDOWN stays out of it because confirming one
-            -- means walking the teleport list, which is the work combat is
-            -- meant to avoid; the first firing after the fight settles it.
-            if event == "QUEST_WATCH_LIST_CHANGED" or event == "SUPER_TRACKING_CHANGED" then
-                QTB:InvalidateCache()
-            else
-                QTB:CancelRefresh()
-            end
+            -- Nothing is read from the cache during a fight and no button work
+            -- runs, so there is nothing to keep fresh; emptying it here would
+            -- only move a full recompute of every tracked quest to the moment
+            -- the fight ends, on top of the inventory scan and graph rebuild
+            -- that land there. A quest untracked mid-fight is dropped by the
+            -- PruneQuestCache at the end of the first refresh afterwards, and a
+            -- newly tracked one has no entry to be stale.
+            QTB:CancelRefresh()
             return
         end
         if not QTB.enabled then QTB:InvalidateCache(); return end
         if event == "SPELL_UPDATE_COOLDOWN" and not UpdateCooldownState() then return end
 
-        -- Only the events that change WHICH quests are tracked empty the cache.
-        -- Everything a cached entry depends on besides that -- the player's
+        -- Only a confirmed cooldown change empties the cache; see
+        -- INVALIDATING_EVENTS above for why nothing else has to.
+        -- Everything a cached entry depends on -- the player's
         -- position bucket, the graph it was computed against, whether the graph
         -- is dirty, the entry's age, and the teleport's cooldown -- is checked
         -- on every read, so a wholesale wipe here adds no freshness. It did
