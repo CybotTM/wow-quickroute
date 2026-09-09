@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.18.5] - 2026-09-09
+
+### Fixed
+- Stopped treating the global cooldown as a reason to reconsider every tracked quest's teleport. Items and toys share it, so pressing any ability at all made all of them briefly unavailable and cost a route calculation per tracked quest — 13.8 ms on every keypress with 52 teleports and 25 quests tracked.
+- Stopped re-routing when the player crosses an invisible grid line. Whether a computed route still applies is now a question of how far the player has moved from where it was computed, so circling an objective or strafing across one spot no longer recomputes anything — measured at 80 route calculations for ten small steps back and forth across a boundary, and none after.
+
 ## [1.18.4] - 2026-09-09
 
 ### Fixed
@@ -404,7 +410,8 @@
 - CI pipeline (luacheck + tests)
 - CurseForge + Wago automated publishing
 
-[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.4...HEAD
+[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.5...HEAD
+[1.18.5]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.4...v1.18.5
 [1.18.4]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.3...v1.18.4
 [1.18.3]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.2...v1.18.3
 [1.18.2]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.1...v1.18.2
