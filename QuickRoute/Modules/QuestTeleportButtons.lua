@@ -97,6 +97,10 @@ local INVALIDATING_EVENTS = {
 -- to walk to -- is not answered by any divisor: CACHE_TTL already expires every
 -- entry within 30 seconds regardless of where the player stands, so that is
 -- what bounds how stale this choice can get, and it did so at 1000 too.
+-- The longest a teleport can be unavailable without it being worth replanning.
+-- The global cooldown is 1.5 seconds and every item and toy teleport shares it.
+local GLOBAL_COOLDOWN = 1.5
+
 local POSITION_BUCKETS = 20
 
 --- Where a quest points, at the same resolution as the player's own position.
@@ -280,7 +284,21 @@ local function UpdateCooldownState()
     local teleports = QR.PlayerInventory and QR.PlayerInventory:GetAllTeleports() or {}
     for id, entry in pairs(teleports) do
         local cooldown = QR.CooldownTracker and QR.CooldownTracker:GetCooldown(id, entry.sourceType)
-        current[id] = cooldown and cooldown.ready or false
+        -- A teleport that is a global cooldown away from being usable counts as
+        -- ready HERE, which is a question about replanning and not about what
+        -- the player is shown. Items and toys share the global cooldown, so
+        -- pressing any ability at all flips every one of them to unavailable
+        -- for about a second and a half; taking that for a readiness change
+        -- emptied the quest route cache and re-routed every tracked quest on
+        -- every keypress -- measured at 13.8 ms and eight routes per press with
+        -- 52 teleports and 25 quests tracked. No route can change over a window
+        -- that closes before the player could act on the answer.
+        --
+        -- CooldownTracker deliberately does not make this inference when it
+        -- reports a cooldown, because a short real cooldown is a real cooldown.
+        -- That is the reporting question; this is the planning one.
+        local remaining = cooldown and cooldown.remaining or 0
+        current[id] = (cooldown and cooldown.ready) or remaining <= GLOBAL_COOLDOWN or false
         if current[id] ~= previous[id] then changed = true end
     end
     for id in pairs(previous) do
