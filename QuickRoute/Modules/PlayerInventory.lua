@@ -598,8 +598,13 @@ eventFrame:RegisterEvent("SKILL_LINES_CHANGED")
 function PlayerInventory:RunDeferredScan()
     PlayerInventory.pendingScan = false
     PlayerInventory.scanDeferredByCombat = false
-    local force = forceGraphRefresh
+    -- What the graph was built against, besides the teleports themselves. A
+    -- change here has to rebuild; an unchanged signature means the comparison
+    -- below is the whole story.
+    local capabilities = QR.PlayerInfo and QR.PlayerInfo:CapabilitySignature()
+    local force = forceGraphRefresh or (capabilities ~= PlayerInventory.graphCapabilities)
     forceGraphRefresh = false
+    PlayerInventory.graphCapabilities = capabilities
 
     -- Skip scan if addon not fully initialized yet
     if not QR.db then return end
@@ -640,9 +645,22 @@ function PlayerInventory:RegisterCombatCallback()
 end
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
-    -- Preserve capability/equipment invalidation even when this event joins a
-    -- pending BAG_UPDATE batch (e.g. looting and learning a riding spell).
-    if event ~= "BAG_UPDATE" then forceGraphRefresh = true end
+    -- Every event except BAG_UPDATE used to force a full graph rebuild here,
+    -- on the grounds that it might have changed something the teleport
+    -- comparison cannot see. SPELLS_CHANGED fires constantly for reasons that
+    -- have nothing to do with travel, and each firing cost a rebuild of the
+    -- whole graph plus a route for every tracked quest -- measured at 44 ms in
+    -- one frame with 51 teleports and 25 quests tracked, which is a visible
+    -- stutter and the one players reported.
+    --
+    -- What that force protected is now stated instead of assumed: the teleport
+    -- set is compared entry by entry, and PlayerInfo:CapabilitySignature covers
+    -- the rest of what CanUseTeleport reads -- faction, class, race,
+    -- Engineering. Equipment changes reach the comparison because an equipped
+    -- teleport carries its slot in the entry. The requirement checks the build
+    -- makes for flight edges depend on quest and phase state, which this force
+    -- never covered either: TravelRequirements marks the graph dirty on the
+    -- zone and world events that change them.
     -- A learned or unlearned spell is the only thing that changes a cast time.
     if event == "SPELLS_CHANGED" and QR.TravelTime then
         QR.TravelTime.castTimeBySpell = nil
