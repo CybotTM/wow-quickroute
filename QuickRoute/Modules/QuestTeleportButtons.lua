@@ -103,6 +103,10 @@ local GLOBAL_COOLDOWN = 1.5
 
 local POSITION_BUCKETS = 20
 
+-- How far the player may move before a computed route is asked for again, as a
+-- fraction of the map. The same span as one position bucket, without the edges.
+local POSITION_TOLERANCE = 1 / POSITION_BUCKETS
+
 --- Where a quest points, at the same resolution as the player's own position.
 -- Keyed on the map alone this missed an objective advancing to another part of
 -- the same zone -- a destination is wired into the graph by its coordinates, so
@@ -117,6 +121,42 @@ local function DestinationBucket(waypoint)
     if type(x) ~= "number" or type(y) ~= "number" then return waypoint.mapID .. ":?" end
     return string_format("%d:%d:%d", waypoint.mapID,
         math_floor(x * POSITION_BUCKETS), math_floor(y * POSITION_BUCKETS))
+end
+
+--- Where the player is, unrounded, or nil when the client cannot say.
+-- The bucket below answers "should we look again"; this answers "is the answer
+-- we have still the answer", and those want different shapes -- see
+-- PositionStillValid.
+local function GetPlayerPosition()
+    if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition) then return nil end
+    local ok, mapID, x, y = pcall(function()
+        local map = C_Map.GetBestMapForUnit("player")
+        if type(map) ~= "number" or (issecretvalue and issecretvalue(map))
+            or map ~= map or map <= 0 or map >= math_huge or map % 1 ~= 0 then return end
+        local position = C_Map.GetPlayerMapPosition(map, "player")
+        if not position then return end
+        local px, py = position.x, position.y
+        if position.GetXY then px, py = position:GetXY() end
+        if (issecretvalue and (issecretvalue(px) or issecretvalue(py)))
+            or type(px) ~= "number" or type(py) ~= "number"
+            or px ~= px or py ~= py or px < 0 or px > 1 or py < 0 or py > 1 then return end
+        return map, px, py
+    end)
+    if not ok or not mapID then return nil end
+    return mapID, x, y
+end
+
+--- Is a route computed at (mapID, x, y) still the route for where we are now?
+-- Distance, not a grid cell. A grid has edges, and a player who walks along one
+-- -- circling an objective, strafing in a fight -- crosses it over and over: a
+-- measured 80 route calculations for ten steps of 0.0002 across one boundary,
+-- against none for the same movement a little to either side. Distance from the
+-- position the answer was computed at has no edges to flap across.
+local function PositionStillValid(cached, mapID, x, y)
+    if not cached or not mapID or cached.mapID ~= mapID then return false end
+    if type(cached.x) ~= "number" or type(cached.y) ~= "number" then return false end
+    local dx, dy = x - cached.x, y - cached.y
+    return (dx * dx + dy * dy) <= POSITION_TOLERANCE * POSITION_TOLERANCE
 end
 
 local function GetPositionBucket()
@@ -185,8 +225,8 @@ end
 -- @return table|nil data from TeleportItemsData
 local function GetCachedTeleportForQuest(questID)
     local now = GetTime()
-    local position = GetPositionBucket()
-    if not position then QTB.questCache[questID] = nil; return nil, nil, nil, true end
+    local mapID, px, py = GetPlayerPosition()
+    if not mapID then QTB.questCache[questID] = nil; return nil, nil, nil, true end
     local cached = QTB.questCache[questID]
     local calculator = QR.PathCalculator
 
@@ -203,7 +243,8 @@ local function GetCachedTeleportForQuest(questID)
     local destination = DestinationBucket(waypoint)
 
     if cached and not (QTB.flightChoices and QTB.flightChoices[questID])
-        and cached.position == position and cached.graph == (calculator and calculator.graph)
+        and PositionStillValid(cached.position, mapID, px, py)
+        and cached.graph == (calculator and calculator.graph)
         and cached.destination == destination
         and not (calculator and calculator.graphDirty) and (now - cached.time) < CACHE_TTL then
         local cooldown = cached.teleportID and QR.CooldownTracker
@@ -230,14 +271,15 @@ local function GetCachedTeleportForQuest(questID)
             sourceType = entry.sourceType,
             data = entry.data,
             time = now,
-            position = position,
+            position = { mapID = mapID, x = px, y = py },
             destination = destination,
             graph = QR.PathCalculator and QR.PathCalculator.graph,
         }
         return teleportID, entry.sourceType, entry.data
     end
 
-    QTB.questCache[questID] = { time = now, position = position, destination = destination,
+    QTB.questCache[questID] = { time = now, position = { mapID = mapID, x = px, y = py },
+        destination = destination,
         graph = QR.PathCalculator and QR.PathCalculator.graph, direct = direct }
     return nil, nil, nil, nil, direct
 end
