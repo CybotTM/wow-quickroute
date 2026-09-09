@@ -41,7 +41,12 @@ local QTB = QR.QuestTeleportButtons
 -- it half way: a batch left open would keep answering later callers -- the
 -- panels, the filters, the readiness check -- from memory, and cooldowns are
 -- live state.
-local function EndCooldownBatch()
+local function EndCooldownBatch(generation)
+    -- A refresh that has been superseded still gets one more frame, and it must
+    -- not close the batch its successor just opened. Callers inside a refresh
+    -- pass their generation; callers that mean "close whatever is open" -- the
+    -- readiness check, CancelRefresh -- pass nothing.
+    if generation and generation ~= QTB._refreshGeneration then return end
     if QR.CooldownTracker and QR.CooldownTracker.EndBatch then
         QR.CooldownTracker:EndBatch()
     end
@@ -119,13 +124,19 @@ end
 --- Offer only an immediately usable first step of the computed quest route.
 -- A teleport on the same continent is not necessarily faster than walking,
 -- and a teleport later in the route must not skip its preceding travel.
-local function FindBestTeleportForQuest(questID)
+--- Where this quest currently points. Resolved through WaypointIntegration's
+-- own 30-second coordinate cache, so asking on every read is cheap.
+local function ResolveQuestWaypoint(questID)
+    if not QR.WaypointIntegration then return nil end
+    local button = QTB.activeButtons[questID]
+    local retry = button and button._pendingSince ~= nil
+    return QR.WaypointIntegration:GetQuestWaypoint(questID, retry)
+end
+
+local function FindBestTeleportForQuest(questID, waypoint)
     if not (QR.WaypointIntegration and QR.PathCalculator and QR.PlayerInventory) then
         return nil, nil, true
     end
-    local button = QTB.activeButtons[questID]
-    local retry = button and button._pendingSince ~= nil
-    local waypoint = QR.WaypointIntegration:GetQuestWaypoint(questID, retry)
     if not waypoint then return nil, nil, true end
 
     local route = QR.PathCalculator:CalculatePath(waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
@@ -158,8 +169,22 @@ local function GetCachedTeleportForQuest(questID)
     if not position then QTB.questCache[questID] = nil; return nil, nil, nil, true end
     local cached = QTB.questCache[questID]
     local calculator = QR.PathCalculator
+
+    -- Where the quest points is part of the key. Completing an objective can
+    -- advance a quest to one on another continent without the player moving a
+    -- step, and every other field of this key would still match -- the cached
+    -- entry would go on offering a teleport to where the quest used to be.
+    --
+    -- The map, not the coordinates: GetNextWaypoint walks a multi-step quest
+    -- along its path, so x and y drift while the destination stays put, and
+    -- comparing them would recompute a route that cannot have changed. Which
+    -- zone the player is being sent to is what decides the first step.
+    local waypoint = ResolveQuestWaypoint(questID)
+    local destMapID = waypoint and waypoint.mapID
+
     if cached and not (QTB.flightChoices and QTB.flightChoices[questID])
         and cached.position == position and cached.graph == (calculator and calculator.graph)
+        and cached.destMapID == destMapID
         and not (calculator and calculator.graphDirty) and (now - cached.time) < CACHE_TTL then
         local cooldown = cached.teleportID and QR.CooldownTracker
             and QR.CooldownTracker:GetCooldown(cached.teleportID, cached.sourceType)
@@ -169,7 +194,7 @@ local function GetCachedTeleportForQuest(questID)
     end
 
     local generation = QTB._refreshGeneration
-    local teleportID, entry, incomplete, direct = FindBestTeleportForQuest(questID)
+    local teleportID, entry, incomplete, direct = FindBestTeleportForQuest(questID, waypoint)
     -- Reentrant invalidation cancels this result as well as its UI callback.
     -- Never refill the cache with a route from the cancelled calculation.
     if generation ~= QTB._refreshGeneration then return nil, nil, nil, true end
@@ -186,12 +211,14 @@ local function GetCachedTeleportForQuest(questID)
             data = entry.data,
             time = now,
             position = position,
+            destMapID = destMapID,
             graph = QR.PathCalculator and QR.PathCalculator.graph,
         }
         return teleportID, entry.sourceType, entry.data
     end
 
-    QTB.questCache[questID] = { time = now, position = position, graph = QR.PathCalculator and QR.PathCalculator.graph, direct = direct }
+    QTB.questCache[questID] = { time = now, position = position, destMapID = destMapID,
+        graph = QR.PathCalculator and QR.PathCalculator.graph, direct = direct }
     return nil, nil, nil, nil, direct
 end
 
@@ -225,6 +252,13 @@ end
 -- SPELL_UPDATE_COOLDOWN also fires for unrelated abilities and global
 -- cooldown updates. Replan quests only when a teleport's readiness changes.
 local function UpdateCooldownState()
+    -- This is the check that decides whether a cooldown moved, so it has to see
+    -- the client and not a batch's remembered answers -- CooldownTracker's own
+    -- comment says as much. A refresh batch spans a frame per tracked quest, so
+    -- one can still be open when SPELL_UPDATE_COOLDOWN arrives; reading its
+    -- memo here would report "nothing changed" for the very teleport the player
+    -- just used, and the rest of the batch would hand out a button for it.
+    EndCooldownBatch()
     local previous = QTB.cooldownState or {}
     local current, changed = {}, false
     local teleports = QR.PlayerInventory and QR.PlayerInventory:GetAllTeleports() or {}
@@ -537,13 +571,13 @@ function QTB:RefreshButtons()
         return generation == QTB._refreshGeneration and QTB.initialized and QTB.enabled and not InCombatLockdown()
     end
     local function RefreshOne()
-        if not IsCurrent() then EndCooldownBatch(); return end
+        if not IsCurrent() then EndCooldownBatch(generation); return end
         local questID = trackedQuests[index]
-        if not questID or activeCount >= POOL_SIZE then EndCooldownBatch(); return end
+        if not questID or activeCount >= POOL_SIZE then EndCooldownBatch(generation); return end
         -- A route calculation can take several milliseconds. Never calculate
         -- every watched quest in the same quest-log/event frame.
         local ok, teleportID, sourceType, data, incomplete, direct = pcall(GetCachedTeleportForQuest, questID)
-        if not IsCurrent() then EndCooldownBatch(); return end
+        if not IsCurrent() then EndCooldownBatch(generation); return end
         if not ok then
             QR:Debug("Quest button route unavailable: " .. tostring(teleportID))
             teleportID = nil
@@ -621,7 +655,7 @@ function QTB:RefreshButtons()
             end
             if not next(QTB.activeButtons) and QTB.updateFrame then QTB.updateFrame:Hide() end
             QTB._refreshRunning = false
-            EndCooldownBatch()
+            EndCooldownBatch(generation)
             QTB._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph
         end
     end

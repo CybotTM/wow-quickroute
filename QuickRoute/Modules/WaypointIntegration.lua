@@ -242,7 +242,12 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
                 mapID = cached.mapID,
                 x = cached.x,
                 y = cached.y,
-                title = cached.title or QR.L["SOURCE_QUEST"],
+                -- Asked for again when the entry has none: quest data streams
+                -- in after login, so an early miss would otherwise freeze
+                -- "Quest Objective" into the entry for the next 30 seconds.
+                title = cached.title
+                    or (C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID))
+                    or QR.L["SOURCE_QUEST"],
             }
         elseif not ignoreNegativeCache then
             -- Cached "not found" result — skip for dropdown queries which retry
@@ -256,7 +261,9 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
     -- Every entry carries the title it was resolved with, so a later hit does
     -- not have to ask the client for it again.
     local function RememberQuestCoordinates(entry)
-        entry.title = questTitle
+        -- Only a real title is kept. The fallback means the client has not
+        -- loaded this quest yet, and remembering it would outlive the reason.
+        if questTitle ~= QR.L["SOURCE_QUEST"] then entry.title = questTitle end
         CacheQuestCoordinates(questID, entry)
     end
 

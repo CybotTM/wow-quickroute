@@ -22,6 +22,10 @@ QR.CooldownTracker = {}
 
 local CooldownTracker = QR.CooldownTracker
 
+-- How long a refresh batch may hold remembered cooldowns before it is treated
+-- as abandoned. A 25-quest refresh spends about 0.4s spread across frames.
+local BATCH_MAX_SECONDS = 2
+
 -------------------------------------------------------------------------------
 -- Visible inventory/map views share one event observer and expiry timer.
 -------------------------------------------------------------------------------
@@ -269,6 +273,7 @@ end
 -- from stale memory. Opening always starts from an empty memo.
 function CooldownTracker:BeginBatch()
     self.batchOpen = true
+    self.batchStamp = GetTime and GetTime() or 0
     if self.batchMemo then wipe(self.batchMemo) end
 end
 
@@ -281,6 +286,16 @@ function CooldownTracker:EndBatch()
 end
 
 function CooldownTracker:GetCooldown(id, sourceType)
+    -- A batch is closed on every path that leaves a refresh, but the tail of
+    -- that refresh is not all inside a pcall: an error there would leave one
+    -- open, and every panel and filter in the addon reads through here. The
+    -- stamp bounds that to BATCH_MAX_SECONDS rather than to the next refresh.
+    -- It is a backstop, not the scope -- the scope is the batch.
+    if self.batchOpen and self.batchStamp
+        and (GetTime and GetTime() or 0) - self.batchStamp > BATCH_MAX_SECONDS then
+        self:EndBatch()
+    end
+
     local memo, key
     if self.batchOpen then
         memo = self.batchMemo

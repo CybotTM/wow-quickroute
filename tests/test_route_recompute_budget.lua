@@ -84,6 +84,27 @@ local function routesFor(event)
 end
 
 -------------------------------------------------------------------------------
+-- Freshness: what the cache must never serve
+-------------------------------------------------------------------------------
+
+-- Completing an objective can advance a quest to one in another zone without
+-- the player moving a step. Position, graph and age all still match, so the
+-- destination has to be part of the key -- otherwise the button goes on
+-- offering the teleport for where the quest used to point, and the player is
+-- sent to the wrong place.
+T:run("a quest whose objective moved to another zone is routed again", function(t)
+    withCountedRoutes(function()
+        routesFor("QUEST_LOG_UPDATE")
+        t:assertEqual(0, routesFor("QUEST_LOG_UPDATE"), "nothing changed, nothing recomputed")
+
+        MockWoW.config.questWaypoints[71001] = { mapID = 1670, x = 0.5, y = 0.5 }
+        QR.WaypointIntegration:ClearQuestCoordCache()
+        t:assertEqual(1, routesFor("QUEST_LOG_UPDATE"),
+            "the quest that moved is routed again, and only that one")
+    end)
+end)
+
+-------------------------------------------------------------------------------
 -- Cost while moving
 -------------------------------------------------------------------------------
 
