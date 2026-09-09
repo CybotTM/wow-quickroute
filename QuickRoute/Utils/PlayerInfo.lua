@@ -84,6 +84,25 @@ function PlayerInfo:CanUseTeleport(data)
     return true
 end
 
+--- A fingerprint of everything about the player that the travel graph is built
+-- against. Faction, class and race decide which teleports exist for this
+-- character at all, and Engineering gates the profession-only ones -- exactly
+-- the inputs CanUseTeleport reads. All four are cached, so this costs four
+-- table reads once the cache is warm.
+--
+-- It exists so that an inventory event does not have to assume the worst. The
+-- teleport set is compared directly; this covers the rest of what a rebuild
+-- would have picked up.
+-- @return string
+function PlayerInfo:CapabilitySignature()
+    return table.concat({
+        tostring(self:GetFaction()),
+        tostring(self:GetClass()),
+        tostring(self:GetRace()),
+        tostring(self:HasEngineering()),
+    }, "|")
+end
+
 --- Check if player class matches the given class name
 -- @param className string Uppercase class token to check (e.g. "MAGE")
 -- @return boolean True if the player's class matches

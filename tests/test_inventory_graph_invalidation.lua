@@ -76,18 +76,55 @@ T:run("Inventory events: changed source and usability remain routing changes", f
     end)
 end)
 
+-- These events used to invalidate the travel graph unconditionally, on the
+-- grounds that they might have changed something the teleport comparison
+-- cannot see. What they can change is now stated: PlayerInfo's capability
+-- signature. The pair below keeps the property the blanket force existed for --
+-- a capability change is not lost when the event coalesces into a pending
+-- BAG_UPDATE batch, which is the "looting while learning a riding spell" case
+-- -- and adds the half that was previously untestable: an event that changed
+-- nothing costs nothing.
 for _, event in ipairs({ "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED", "TOYS_UPDATED", "SKILL_LINES_CHANGED" }) do
-    T:run("Inventory events: coalesced " .. event .. " still invalidates unchanged teleports", function(t)
+    T:run("Inventory events: coalesced " .. event .. " with a capability change invalidates", function(t)
         withInventoryEvents(function(f)
+            local savedProfessions = MockWoW.config.professions
+            MockWoW.config.professions = {}
+            QR.PlayerInfo:InvalidateCache()
+            QR.PlayerInventory.graphCapabilities = QR.PlayerInfo:CapabilitySignature()
+
+            -- The player picks up Engineering, which decides whether the
+            -- profession-only teleports exist for this character at all.
+            MockWoW.config.professions = {
+                { name = "Engineering", skillLineID = 202 },
+            }
+            QR.PlayerInfo:InvalidateCache()
+
             f.fire("BAG_UPDATE")
             f.fire(event)
             f.flush()
             local scans, notifications = f.counts()
             t:assertEqual(1, scans, "Coalesced events use one inventory scan")
-            t:assertEqual(1, notifications, "Capability or equipment changes still invalidate routes")
+            t:assertEqual(1, notifications, "The capability change still invalidates routes")
             f.fire("BAG_UPDATE"); f.flush()
             local _, later = f.counts()
-            t:assertEqual(1, later, "The forced refresh does not leak into the next ordinary loot batch")
+            t:assertEqual(1, later, "and does not leak into the next ordinary loot batch")
+
+            MockWoW.config.professions = savedProfessions
+            QR.PlayerInfo:InvalidateCache()
+        end)
+    end)
+
+    T:run("Inventory events: coalesced " .. event .. " that changed nothing does not invalidate", function(t)
+        withInventoryEvents(function(f)
+            QR.PlayerInfo:InvalidateCache()
+            QR.PlayerInventory.graphCapabilities = QR.PlayerInfo:CapabilitySignature()
+            f.fire("BAG_UPDATE")
+            f.fire(event)
+            f.flush()
+            local scans, notifications = f.counts()
+            t:assertEqual(1, scans, "the inventory is still rescanned")
+            t:assertEqual(0, notifications,
+                "no teleport and no capability changed, so the graph is left alone")
         end)
     end)
 end

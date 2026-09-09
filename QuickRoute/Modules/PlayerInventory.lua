@@ -562,7 +562,6 @@ end
 local eventFrame = CreateFrame("Frame")
 PlayerInventory.eventFrame = eventFrame
 local debounceTimer = nil
-local forceGraphRefresh = false
 
 -- Ordinary loot still needs a bag scan, but unchanged teleport options do not
 -- require rebuilding every travel connection. Compare the flat scan records;
@@ -598,11 +597,17 @@ eventFrame:RegisterEvent("SKILL_LINES_CHANGED")
 function PlayerInventory:RunDeferredScan()
     PlayerInventory.pendingScan = false
     PlayerInventory.scanDeferredByCombat = false
-    local force = forceGraphRefresh
-    forceGraphRefresh = false
+    -- What the graph was built against, besides the teleports themselves. A
+    -- change here has to rebuild; an unchanged signature means the comparison
+    -- below is the whole story.
+    local capabilities = QR.PlayerInfo and QR.PlayerInfo:CapabilitySignature()
+    local force = capabilities ~= PlayerInventory.graphCapabilities
 
     -- Skip scan if addon not fully initialized yet
     if not QR.db then return end
+    -- Recorded only now: stored above, it would be consumed by a scan that did
+    -- not run, and the change it described would never force a rebuild.
+    PlayerInventory.graphCapabilities = capabilities
 
     -- Perform the scan
     local before = not force and PlayerInventory:GetAllTeleports()
@@ -640,9 +645,28 @@ function PlayerInventory:RegisterCombatCallback()
 end
 
 eventFrame:SetScript("OnEvent", function(self, event, ...)
-    -- Preserve capability/equipment invalidation even when this event joins a
-    -- pending BAG_UPDATE batch (e.g. looting and learning a riding spell).
-    if event ~= "BAG_UPDATE" then forceGraphRefresh = true end
+    -- Every event except BAG_UPDATE used to force a full graph rebuild here,
+    -- on the grounds that it might have changed something the teleport
+    -- comparison cannot see. SPELLS_CHANGED fires constantly for reasons that
+    -- have nothing to do with travel, and each firing cost a rebuild of the
+    -- whole graph plus a route for every tracked quest -- measured at 44 ms in
+    -- one frame with 51 teleports and 25 quests tracked, which is a visible
+    -- stutter and the one players reported.
+    --
+    -- What that force protected is now stated instead of assumed: the teleport
+    -- set is compared entry by entry, and PlayerInfo:CapabilitySignature covers
+    -- the rest of what CanUseTeleport reads -- faction, class, race,
+    -- Engineering. Equipment changes reach the comparison because an equipped
+    -- teleport carries its slot in the entry.
+    --
+    -- The build also gates flight edges on TravelRequirements:Check, and an
+    -- edge it rejects is absent from the graph rather than filtered at search
+    -- time. What that check reads for a flight edge is whether the flight
+    -- master is discovered, plus faction on the four edges in TravelTransitions
+    -- that carry a requirement at all -- faction is in the signature, and
+    -- discovery is covered by the frame in PathCalculator that marks the graph
+    -- dirty on TAXIMAP_OPENED, TAXI_NODE_STATUS_CHANGED and the zone events.
+    -- Discovering a flight master means talking to one, which opens that map.
     -- A learned or unlearned spell is the only thing that changes a cast time.
     if event == "SPELLS_CHANGED" and QR.TravelTime then
         QR.TravelTime.castTimeBySpell = nil
@@ -654,8 +678,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     -- stay set, and the guard below would then swallow every inventory event
     -- for the rest of the session. Releasing both flags lets this event arm a
     -- timer as usual, so the recovered scan is still debounced rather than run
-    -- inside an event handler. forceGraphRefresh is untouched and still
-    -- carries what the fight accumulated.
+    -- inside an event handler. The capability signature is compared when the
+    -- scan finally runs, so a change made during the fight is still noticed.
     if PlayerInventory.scanDeferredByCombat and not InCombatLockdown() then
         PlayerInventory.scanDeferredByCombat = false
         PlayerInventory.pendingScan = false
@@ -681,8 +705,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- Bags, spells and cooldowns churn constantly during a fight, and
         -- scanning them walks every bag slot and every known teleport. Leaving
         -- pendingScan set makes the rest of the fight's events fold into this
-        -- one deferred scan, which the leave-combat callback then runs; the
-        -- accumulated forceGraphRefresh stays set for it too.
+        -- one deferred scan, which the leave-combat callback then runs.
         if InCombatLockdown() then
             PlayerInventory.scanDeferredByCombat = true
             return
