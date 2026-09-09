@@ -242,10 +242,23 @@ local function GetCachedTeleportForQuest(questID)
     local waypoint = ResolveQuestWaypoint(questID)
     local destination = DestinationBucket(waypoint)
 
+    -- A destination the client cannot state right now is not a quest that
+    -- points nowhere, and the two arrive here as the same nil. Comparing them
+    -- evicted a good entry over a gap the rest of the module is built to ride
+    -- out: the miss recomputed with no waypoint, came back incomplete, deleted
+    -- the entry and cleared the button, leaving an icon on screen that does
+    -- nothing until PENDING_GRACE hides it. Before the destination joined this
+    -- key a hit never consulted the waypoint layer at all.
+    --
+    -- What this stops detecting: a quest that genuinely loses its waypoint for
+    -- good keeps its cached teleport until the TTL, the player moves, or the
+    -- graph changes -- at most CACHE_TTL, and what happened before #69.
+    local destinationKnown = destination ~= nil
+
     if cached and not (QTB.flightChoices and QTB.flightChoices[questID])
         and PositionStillValid(cached.position, mapID, px, py)
         and cached.graph == (calculator and calculator.graph)
-        and cached.destination == destination
+        and (not destinationKnown or cached.destination == destination)
         and not (calculator and calculator.graphDirty) and (now - cached.time) < CACHE_TTL then
         local cooldown = cached.teleportID and QR.CooldownTracker
             and QR.CooldownTracker:GetCooldown(cached.teleportID, cached.sourceType)
@@ -320,7 +333,16 @@ local function UpdateCooldownState()
     -- one can still be open when SPELL_UPDATE_COOLDOWN arrives; reading its
     -- memo here would report "nothing changed" for the very teleport the player
     -- just used, and the rest of the batch would hand out a button for it.
-    EndCooldownBatch()
+    --
+    -- Suspended rather than ended, because this event arrives on every global
+    -- cooldown and almost always finds nothing moved. Ending it stripped a
+    -- running refresh of its memo for its remaining frames -- 12 client reads
+    -- for a refresh of 12 quests where an undisturbed one takes 3 -- and gave
+    -- back the saving on the path that fires most often. The scan below reads
+    -- live either way; only what happens afterwards differs.
+    local ct = QR.CooldownTracker
+    local suspended = ct and ct.SuspendBatch and ct:SuspendBatch()
+    if not (ct and ct.SuspendBatch) then EndCooldownBatch() end
     local previous = QTB.cooldownState or {}
     local current, changed = {}, false
     local teleports = QR.PlayerInventory and QR.PlayerInventory:GetAllTeleports() or {}
@@ -347,6 +369,14 @@ local function UpdateCooldownState()
         if current[id] == nil then changed = true end
     end
     QTB.cooldownState = current
+    -- A readiness that moved invalidates the cache and re-routes, so the memo
+    -- of the batch that was running describes a world that no longer holds:
+    -- drop it. Nothing moved means the memo is still the same answer it was.
+    if changed then
+        EndCooldownBatch()
+    elseif ct and ct.ResumeBatch then
+        ct:ResumeBatch(suspended)
+    end
     return changed
 end
 

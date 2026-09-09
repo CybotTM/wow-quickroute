@@ -285,6 +285,29 @@ function CooldownTracker:EndBatch()
     if self.batchMemo then wipe(self.batchMemo) end
 end
 
+--- Read the client rather than the memo, without discarding it.
+-- For the one caller that has to see live state in the middle of somebody
+-- else's batch: the readiness check that decides whether a cooldown moved. It
+-- used to end the batch outright, which is correct but throws away the memo of
+-- a refresh that is still running -- and SPELL_UPDATE_COOLDOWN fires on every
+-- global cooldown, so that was the common case rather than the rare one.
+-- @return boolean Whether a batch was open, to hand back to ResumeBatch
+function CooldownTracker:SuspendBatch()
+    local wasOpen = self.batchOpen or false
+    self.batchOpen = false
+    return wasOpen
+end
+
+--- Reopen a batch suspended by SuspendBatch, with its memo intact.
+-- Only sound when the caller established that nothing it cares about moved --
+-- otherwise the memo would answer the rest of the batch with the state from
+-- before the change. EndBatch is the other exit, and it is the right one
+-- whenever readiness did move.
+-- @param wasOpen boolean The value SuspendBatch returned
+function CooldownTracker:ResumeBatch(wasOpen)
+    if wasOpen then self.batchOpen = true end
+end
+
 function CooldownTracker:GetCooldown(id, sourceType)
     -- A batch is closed on every path that leaves a refresh, but the tail of
     -- that refresh is not all inside a pcall: an error there would leave one
