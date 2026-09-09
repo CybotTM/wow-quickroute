@@ -42,7 +42,23 @@ local function withRefresh(fn)
         qtb.pool[index] = btn
     end
     QR.PlayerInventory = {GetAllTeleports=function()return {[3561]={sourceType="spell",data={name="Stormwind"}}}end}
-    QR.CooldownTracker = {GetCooldown=function()return {ready=true}end}
+    -- A stand-in that behaves like the real one: it remembers answers for the
+    -- duration of a batch. Without that, nothing routed through it can tell a
+    -- remembered answer from a fresh one, and a guard on the readiness check
+    -- passes whether or not the code is correct.
+    QR.CooldownTracker = {
+        batchOpen = false, memo = {}, liveReads = 0,
+        BeginBatch = function(self) self.batchOpen = true; self.memo = {} end,
+        EndBatch = function(self) self.batchOpen = false; self.memo = {} end,
+        GetCooldown = function(self, id, sourceType)
+            local key = tostring(sourceType) .. ":" .. tostring(id)
+            if self.batchOpen and self.memo[key] then return self.memo[key] end
+            self.liveReads = self.liveReads + 1
+            local answer = { ready = state.cooldownReady ~= false }
+            if self.batchOpen then self.memo[key] = answer end
+            return answer
+        end,
+    }
     QR.WaypointIntegration = {GetQuestWaypoint=function(_,id)return {mapID=84,x=0.5,y=0.5,title=tostring(id)}end}
     QR.PathCalculator = {graph={},CalculatePath=function()
         state.calls = state.calls + 1
@@ -609,5 +625,30 @@ T:run("Quest button cache: disabling the feature releases all graph references",
         collectgarbage("collect")
         t:assertNil(oldGraph[1], "Disabled quest buttons retain neither cached routes nor the previous movement graph")
         t:assertTableCount(qtb.questCache, 0, "Disabled feature has no route cache left to retain graphs")
+    end)
+end)
+
+-- The readiness check that consumes SPELL_UPDATE_COOLDOWN decides whether a
+-- cooldown moved. A refresh batch spans one frame per tracked quest, so a batch
+-- can be open when the event arrives, and reading its remembered answers there
+-- would report "nothing changed" about the very teleport the player just used.
+-- Nothing could catch that before: the stand-in above had no memo, so the
+-- assertion passed whether or not the code read past one.
+T:run("Quest button cooldowns: the readiness check reads past an open batch", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001, 10002, 10003}
+        qtb:RefreshButtons()
+        state.pending[1]()                      -- one quest routed; batch is open
+        local ct = QR.CooldownTracker
+        t:assertTrue(ct.batchOpen, "the refresh opened a cooldown batch")
+        ct:GetCooldown(3561, "spell")           -- remembered as ready
+        state.cooldownReady = false             -- the player uses the teleport
+        local before = ct.liveReads
+
+        local frame = qtb.eventFrame
+        if frame then frame:GetScript("OnEvent")(frame, "SPELL_UPDATE_COOLDOWN") end
+
+        t:assertTrue(ct.liveReads > before,
+            "the readiness check asked the client rather than the open batch")
     end)
 end)

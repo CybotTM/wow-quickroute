@@ -43,6 +43,10 @@ local function withCountedRoutes(body)
     saved.knownSpell = MockWoW.config.knownSpells[3561]
     MockWoW.config.knownSpells[3561] = true
     QR.PlayerInventory:ScanAll()
+    -- WaypointIntegration caches quest coordinates for 30 seconds and that
+    -- cache outlives a test. Without this, a test that moved an objective
+    -- leaves the next one resolving the old position.
+    QR.WaypointIntegration:ClearQuestCoordCache()
 
     -- Every cached route records the graph it was computed against and is
     -- discarded while a rebuild is pending. Both are shared with the rest of
@@ -101,6 +105,32 @@ T:run("a quest whose objective moved to another zone is routed again", function(
         QR.WaypointIntegration:ClearQuestCoordCache()
         t:assertEqual(1, routesFor("QUEST_LOG_UPDATE"),
             "the quest that moved is routed again, and only that one")
+    end)
+end)
+
+-- The destination is compared at the same resolution as the player's position,
+-- not by map alone. A quest whose objective advances to the far side of the
+-- same zone gets a different route: the destination is wired into the graph by
+-- its coordinates, so it attaches to different nearby nodes.
+T:run("a quest whose objective moved across its zone is routed again", function(t)
+    withCountedRoutes(function()
+        routesFor("QUEST_LOG_UPDATE")
+        MockWoW.config.questWaypoints[71001] = { mapID = 84, x = 0.95, y = 0.95 }
+        QR.WaypointIntegration:ClearQuestCoordCache()
+        t:assertEqual(1, routesFor("QUEST_LOG_UPDATE"),
+            "the quest that moved is routed again, and only that one")
+    end)
+end)
+
+T:run("a quest objective drifting along its path is not routed again", function(t)
+    withCountedRoutes(function()
+        routesFor("QUEST_LOG_UPDATE")
+        -- GetNextWaypoint walks a multi-step quest along its path, so the
+        -- coordinates move a little between readings while the destination
+        -- does not. That must not recompute anything.
+        MockWoW.config.questWaypoints[71001] = { mapID = 84, x = 0.505, y = 0.503 }
+        QR.WaypointIntegration:ClearQuestCoordCache()
+        t:assertEqual(0, routesFor("QUEST_LOG_UPDATE"), "a step along the path changes nothing")
     end)
 end)
 
