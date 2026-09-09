@@ -562,7 +562,6 @@ end
 local eventFrame = CreateFrame("Frame")
 PlayerInventory.eventFrame = eventFrame
 local debounceTimer = nil
-local forceGraphRefresh = false
 
 -- Ordinary loot still needs a bag scan, but unchanged teleport options do not
 -- require rebuilding every travel connection. Compare the flat scan records;
@@ -602,12 +601,13 @@ function PlayerInventory:RunDeferredScan()
     -- change here has to rebuild; an unchanged signature means the comparison
     -- below is the whole story.
     local capabilities = QR.PlayerInfo and QR.PlayerInfo:CapabilitySignature()
-    local force = forceGraphRefresh or (capabilities ~= PlayerInventory.graphCapabilities)
-    forceGraphRefresh = false
-    PlayerInventory.graphCapabilities = capabilities
+    local force = capabilities ~= PlayerInventory.graphCapabilities
 
     -- Skip scan if addon not fully initialized yet
     if not QR.db then return end
+    -- Recorded only now: stored above, it would be consumed by a scan that did
+    -- not run, and the change it described would never force a rebuild.
+    PlayerInventory.graphCapabilities = capabilities
 
     -- Perform the scan
     local before = not force and PlayerInventory:GetAllTeleports()
@@ -657,10 +657,16 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     -- set is compared entry by entry, and PlayerInfo:CapabilitySignature covers
     -- the rest of what CanUseTeleport reads -- faction, class, race,
     -- Engineering. Equipment changes reach the comparison because an equipped
-    -- teleport carries its slot in the entry. The requirement checks the build
-    -- makes for flight edges depend on quest and phase state, which this force
-    -- never covered either: TravelRequirements marks the graph dirty on the
-    -- zone and world events that change them.
+    -- teleport carries its slot in the entry.
+    --
+    -- The build also gates flight edges on TravelRequirements:Check, and an
+    -- edge it rejects is absent from the graph rather than filtered at search
+    -- time. What that check reads for a flight edge is whether the flight
+    -- master is discovered, plus faction on the four edges in TravelTransitions
+    -- that carry a requirement at all -- faction is in the signature, and
+    -- discovery is covered by the frame in PathCalculator that marks the graph
+    -- dirty on TAXIMAP_OPENED, TAXI_NODE_STATUS_CHANGED and the zone events.
+    -- Discovering a flight master means talking to one, which opens that map.
     -- A learned or unlearned spell is the only thing that changes a cast time.
     if event == "SPELLS_CHANGED" and QR.TravelTime then
         QR.TravelTime.castTimeBySpell = nil
@@ -672,8 +678,8 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
     -- stay set, and the guard below would then swallow every inventory event
     -- for the rest of the session. Releasing both flags lets this event arm a
     -- timer as usual, so the recovered scan is still debounced rather than run
-    -- inside an event handler. forceGraphRefresh is untouched and still
-    -- carries what the fight accumulated.
+    -- inside an event handler. The capability signature is compared when the
+    -- scan finally runs, so a change made during the fight is still noticed.
     if PlayerInventory.scanDeferredByCombat and not InCombatLockdown() then
         PlayerInventory.scanDeferredByCombat = false
         PlayerInventory.pendingScan = false
@@ -699,8 +705,7 @@ eventFrame:SetScript("OnEvent", function(self, event, ...)
         -- Bags, spells and cooldowns churn constantly during a fight, and
         -- scanning them walks every bag slot and every known teleport. Leaving
         -- pendingScan set makes the rest of the fight's events fold into this
-        -- one deferred scan, which the leave-combat callback then runs; the
-        -- accumulated forceGraphRefresh stays set for it too.
+        -- one deferred scan, which the leave-combat callback then runs.
         if InCombatLockdown() then
             PlayerInventory.scanDeferredByCombat = true
             return
