@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.18.4] - 2026-09-09
+
+### Fixed
+- Stopped rebuilding the whole travel graph whenever the client reported a spell change. That fires constantly for reasons unrelated to travel, and each one cost a rebuild plus a route for every tracked quest — measured at 44 ms in a single frame, which is the stutter that remained after 1.18.3. A rebuild now happens when the teleports or the character's own capabilities actually changed.
+- Kept the teleport a quest button offers in step with the quest when its objective moves to another part of the same zone, not only to another zone.
+
 ## [1.18.3] - 2026-09-09
 
 ### Fixed
@@ -398,7 +404,8 @@
 - CI pipeline (luacheck + tests)
 - CurseForge + Wago automated publishing
 
-[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.3...HEAD
+[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.4...HEAD
+[1.18.4]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.3...v1.18.4
 [1.18.3]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.2...v1.18.3
 [1.18.2]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.1...v1.18.2
 [1.18.1]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.0...v1.18.1
