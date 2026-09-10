@@ -405,3 +405,196 @@ T:run("ZoneSurvey: a malformed record is not carried forward by a capture", func
     t:assertNil(QR.db.zoneSurvey[77].from,
         "the capture drops it rather than copying it into the new record")
 end)
+
+-------------------------------------------------------------------------------
+-- Doorway endpoints
+--
+-- The half no exported table can supply: where a portal stands and where it
+-- lands. SpellTargetPosition is server-side, so the only way to see a
+-- destination is to walk through and look.
+-------------------------------------------------------------------------------
+
+--- Walk through a doorway: stand somewhere on `fromMap`, load, arrive on `toMap`.
+local function crossLoaded(fromMap, fromX, fromY, toMap, toX, toY)
+    MockWoW.config.currentMapID = fromMap
+    MockWoW.config.playerX, MockWoW.config.playerY = fromX, fromY
+    QR.ZoneSurvey:Capture()
+    -- The sampler runs on a timer; this is the tick before the player steps in.
+    QR.ZoneSurvey:SamplePosition()
+    -- The loading screen. OnUpdate does not fire while it is up, so the sample
+    -- above is still the last one when the arrival event lands.
+    QR.ZoneSurvey:NoteLoadingScreen()
+    MockWoW.config.currentMapID = toMap
+    MockWoW.config.playerX, MockWoW.config.playerY = toX, toY
+    -- The sampler resumes at the destination well before the capture does: it
+    -- ticks twice a second and the capture is debounced by a second and a half.
+    -- So by the time anything reads a position, the live one is the ARRIVAL --
+    -- which is why the departure has to come from the snapshot taken above.
+    QR.ZoneSurvey:SamplePosition()
+    QR.ZoneSurvey:Capture()
+end
+
+local function doorways(intoMap, fromMap)
+    local record = QR.db.zoneSurvey[intoMap]
+    local entry = record and record.from and record.from[fromMap]
+    return entry and entry.endpoints or nil
+end
+
+local function onlyDoorway(t, intoMap, fromMap)
+    local ends = doorways(intoMap, fromMap)
+    t:assertNotNil(ends, "the crossing recorded endpoints")
+    if not ends then return nil end
+    local found, count = nil, 0
+    for _, door in pairs(ends) do found = door; count = count + 1 end
+    t:assertEqual(1, count, "exactly one doorway on record")
+    return found
+end
+
+T:run("ZoneSurvey: a portal records where it stands and where it lands", function(t)
+    resetState()
+    -- Bastion -> Oribos, the shape #40 needs: the destination is known, the
+    -- portal's position inside the zone is what is missing.
+    crossLoaded(1533, 0.4312, 0.5578, 1670, 0.4483, 0.6466)
+
+    local door = onlyDoorway(t, 1670, 1533)
+    if not door then return end
+    t:assertEqual(0.4312, door.fromX, "the departure x is where the player stood")
+    t:assertEqual(0.5578, door.fromY, "the departure y too")
+    t:assertEqual(0.4483, door.toX, "the arrival x is where the player landed")
+    t:assertEqual(0.6466, door.toY, "the arrival y too")
+    t:assertEqual(1, door.count, "seen once")
+end)
+
+T:run("ZoneSurvey: the same portal twice is one doorway, counted", function(t)
+    resetState()
+    crossLoaded(1533, 0.4312, 0.5578, 1670, 0.4483, 0.6466)
+    -- Back and through again, standing a yard or so off the first spot.
+    crossLoaded(1533, 0.4315, 0.5581, 1670, 0.4483, 0.6466)
+
+    local door = onlyDoorway(t, 1670, 1533)
+    if not door then return end
+    t:assertEqual(2, door.count, "one doorway used twice, not two doorways")
+end)
+
+T:run("ZoneSurvey: two portals in one zone stay apart", function(t)
+    resetState()
+    crossLoaded(1533, 0.1000, 0.1000, 1670, 0.4483, 0.6466)
+    crossLoaded(1533, 0.9000, 0.9000, 1670, 0.4483, 0.6466)
+
+    local ends = doorways(1670, 1533)
+    t:assertNotNil(ends, "endpoints were recorded")
+    if not ends then return end
+    local count = 0
+    for _ in pairs(ends) do count = count + 1 end
+    t:assertEqual(2, count, "two departure points, two doorways")
+end)
+
+T:run("ZoneSurvey: a walk records no doorway", function(t)
+    resetState()
+    MockWoW.config.currentMapID = 1533
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4, 0.4
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:SamplePosition()
+    -- No NoteLoadingScreen: the player walked over the border.
+    MockWoW.config.currentMapID = 1536
+    QR.ZoneSurvey:Capture()
+
+    local record = QR.db.zoneSurvey[1536]
+    t:assertNotNil(record, "the arrival was recorded")
+    if not record then return end
+    t:assertEqual(1, record.from[1533].walked, "as a walk")
+    -- No endpoints assertion here. It would be green whatever the branch does:
+    -- departurePosition is written only by NoteLoadingScreen, so on this path
+    -- there is nothing for RecordEndpoints to record even when it is called.
+    -- Moving the call into the walk branch reddens no test, which is the
+    -- evidence that the coupling and not the branch is what protects this.
+end)
+
+T:run("ZoneSurvey: a sample taken after the loading screen is not a departure", function(t)
+    resetState()
+    -- The failure this guards: if the sampler runs during or after the loading
+    -- screen, the "departure" is the arrival position, and the record would
+    -- claim the portal stands where the player landed.
+    MockWoW.config.currentMapID = 1533
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4312, 0.5578
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 1670
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4483, 0.6466
+    QR.ZoneSurvey:SamplePosition()      -- already at the destination
+    QR.ZoneSurvey:NoteLoadingScreen()
+    QR.ZoneSurvey:Capture()
+
+    t:assertNil(doorways(1670, 1533),
+        "a departure sampled on the arrival map is discarded, not recorded")
+end)
+
+T:run("ZoneSurvey: switching off forgets the sampled position", function(t)
+    resetState()
+    MockWoW.config.currentMapID = 1533
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4312, 0.5578
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:SamplePosition()
+    QR.ZoneSurvey:ForgetArrivalState()
+
+    QR.ZoneSurvey:NoteLoadingScreen()
+    MockWoW.config.currentMapID = 1670
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4483, 0.6466
+    QR.ZoneSurvey:Capture()
+
+    t:assertNil(doorways(1670, 1533),
+        "nothing sampled while the survey was off becomes a doorway")
+end)
+
+T:run("ZoneSurvey: the doorway list is capped per map pair", function(t)
+    resetState()
+    for i = 1, 10 do
+        crossLoaded(1533, i / 20, i / 20, 1670, 0.4483, 0.6466)
+    end
+
+    local ends = doorways(1670, 1533)
+    t:assertNotNil(ends, "endpoints were recorded")
+    if not ends then return end
+    local count = 0
+    for _ in pairs(ends) do count = count + 1 end
+    t:assertTrue(count <= 6,
+        "the list is bounded (got " .. tostring(count) .. ")")
+end)
+
+T:run("ZoneSurvey: doorways appear in the report", function(t)
+    resetState()
+    crossLoaded(1533, 0.4312, 0.5578, 1670, 0.4483, 0.6466)
+
+    local report = QR.ZoneSurvey:Render()
+    t:assertTrue(report:find("Observed doorways", 1, true) ~= nil,
+        "the report has a doorway section")
+    t:assertTrue(report:find("0.4312", 1, true) ~= nil,
+        "and states where the portal stands")
+    t:assertTrue(report:find("0.6466", 1, true) ~= nil,
+        "and where it lands")
+end)
+
+T:run("ZoneSurvey: a malformed doorway is cleaned on load", function(t)
+    resetState()
+    QR.db.zoneSurvey = {
+        [1670] = { visits = 1, from = { [1533] = { walked = 0, loaded = 1, endpoints = {
+            ["86:111"] = { fromX = 0.4312, fromY = 0.5578, toX = 0.4483, toY = 0.6466, count = "2" },
+            ["bad"] = { fromX = "not a number", fromY = 0.5, toX = 0.5, toY = 0.5, count = 1 },
+            -- The far end too: a doorway is two points, and a check that only
+            -- looks at the near one leaves the renderer a string to print.
+            ["bad-far"] = { fromX = 0.5, fromY = 0.5, toX = "not a number", toY = 0.5, count = 1 },
+            ["worse"] = "not a table",
+        } } } },
+    }
+    QR.ZoneSurvey:Initialize()
+
+    local ends = doorways(1670, 1533)
+    t:assertNotNil(ends, "the good doorway survived")
+    if not ends then return end
+    t:assertNil(ends["bad"], "a non-numeric departure coordinate is dropped")
+    t:assertNil(ends["bad-far"], "and a non-numeric arrival coordinate too")
+    t:assertNil(ends["worse"], "a non-table entry is dropped")
+    t:assertEqual(2, ends["86:111"].count, "and a string count becomes a number")
+
+    local ok = pcall(function() return QR.ZoneSurvey:Render() end)
+    t:assertTrue(ok, "and the report renders")
+end)

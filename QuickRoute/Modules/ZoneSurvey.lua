@@ -17,6 +17,7 @@ local ADDON_NAME, QR = ...
 local pairs, ipairs, pcall, tostring, tonumber, type =
     pairs, ipairs, pcall, tostring, tonumber, type
 local string_format = string.format
+local math_floor = math.floor
 local table_concat, table_sort = table.concat, table.sort
 local date = date
 
@@ -27,6 +28,28 @@ local ZoneSurvey = QR.ZoneSurvey
 -- game has fewer maps than this. If it is ever hit, something is recording
 -- instance floors in a loop and the cap is the signal.
 local MAX_RECORDS = 3000
+
+-- How often the player's position is sampled while the survey is on.
+--
+-- A doorway is recorded from the last sample taken BEFORE the loading screen,
+-- so this interval is the error bar on where the doorway stands: at a run
+-- speed of about 7 yards a second, half a second is roughly 3.5 yards. That is
+-- far inside what the graph needs -- Portals.lua currently carries several
+-- entries at the 0.50, 0.50 zone centre, which is wrong by half a zone.
+local SAMPLE_INTERVAL = 0.5
+
+-- Distinct doorways are told apart at 1/200 of the map, about 15-25 yards.
+-- Deliberately coarser than the sample error above rather than finer: two
+-- samples of one portal must not become two doorways. Two portals that really
+-- do stand within one bucket merge instead, which is the safer failure -- a
+-- merged pair is visible as one doorway with a high count, a split one looks
+-- like two portals that do not exist.
+local ENDPOINT_BUCKETS = 200
+
+-- Per map pair. A player who uses one portal a hundred times writes one entry;
+-- this bounds the case where the crossing is a teleport spell cast from
+-- wherever the player happened to stand, which has no fixed departure point.
+local MAX_ENDPOINTS = 6
 
 local function CountAdjacent(mapID)
     local adj = QR.ZoneAdjacencies and QR.ZoneAdjacencies[mapID]
@@ -57,9 +80,43 @@ end
 local lastMapID = nil
 local loadedSince = false
 
+-- Where the player was standing, sampled while the world is loaded, and the
+-- copy taken the moment a loading screen ended. The copy is the one that
+-- matters: the sampler resumes at the destination and overwrites the live
+-- value within half a second, while the capture that reads it is debounced by
+-- a second and a half.
+local lastPosition = nil
+local departurePosition = nil
+
+--- Read where the player is, or nil when the client cannot say.
+local function ReadPosition()
+    if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition) then return nil end
+    local mapID = C_Map.GetBestMapForUnit("player")
+    if type(mapID) ~= "number" then return nil end
+    local pos = C_Map.GetPlayerMapPosition(mapID, "player")
+    if not pos then return nil end
+    local x, y = pos.x, pos.y
+    if pos.GetXY then x, y = pos:GetXY() end
+    if type(x) ~= "number" or type(y) ~= "number" then return nil end
+    return { mapID = mapID, x = x, y = y }
+end
+
+--- Take one position sample. Called on a timer while the survey is on.
+function ZoneSurvey:SamplePosition()
+    local position = ReadPosition()
+    if position then lastPosition = position end
+    return position
+end
+
 --- Note that a loading screen happened, so the next transition is not a walk.
+--
+-- This is also the only moment at which the far side of a doorway can still be
+-- read. The player is already at the destination by the time anything else
+-- runs, and OnUpdate does not fire while the loading screen is up, so the last
+-- sample still describes the point the player walked into.
 function ZoneSurvey:NoteLoadingScreen()
     loadedSince = true
+    departurePosition = lastPosition
 end
 
 --- Forget where the player came from and how they got there.
@@ -68,6 +125,49 @@ end
 function ZoneSurvey:ForgetArrivalState()
     lastMapID = nil
     loadedSince = false
+    lastPosition = nil
+    departurePosition = nil
+end
+
+--- Remember both ends of one doorway.
+--
+-- The destination of a portal is not in any exported client table. It is not
+-- that wago.tools happens not to carry it: SpellTargetPosition is a server-side
+-- table, so no client export ever will. Walking through the doorway is the only
+-- way to see it, and this is what turns that walk into data.
+--
+-- Bucketed and counted rather than appended. A doorway is a fixed point, so
+-- repeated uses land in one bucket and raise its count; a teleport spell cast
+-- from wherever the player stood scatters across buckets at a count of one
+-- each. That difference is the signal for reading the report -- a high count
+-- is a doorway, a scatter of ones is not.
+local function RecordEndpoints(entry, from, to)
+    -- Both ends or nothing. A doorway with one end known is not a doorway, and
+    -- the client can decline to give a position at either moment.
+    if type(from.x) ~= "number" or type(from.y) ~= "number" then return end
+    if type(to.x) ~= "number" or type(to.y) ~= "number" then return end
+
+    if type(entry.endpoints) ~= "table" then entry.endpoints = {} end
+    local key = string_format("%d:%d",
+        math_floor(from.x * ENDPOINT_BUCKETS), math_floor(from.y * ENDPOINT_BUCKETS))
+    local seen = entry.endpoints[key]
+    if seen then
+        seen.count = (tonumber(seen.count) or 0) + 1
+        return
+    end
+
+    local n = 0
+    for _ in pairs(entry.endpoints) do n = n + 1 end
+    if n >= MAX_ENDPOINTS then return end
+
+    entry.endpoints[key] = {
+        -- Rounded to the precision the data files use, as Capture does.
+        fromX = tonumber(string_format("%.4f", from.x)),
+        fromY = tonumber(string_format("%.4f", from.y)),
+        toX = tonumber(string_format("%.4f", to.x)),
+        toY = tonumber(string_format("%.4f", to.y)),
+        count = 1,
+    }
 end
 
 --- Record how the player arrived at a map.
@@ -78,12 +178,15 @@ end
 --
 -- A crossing with no loading screen is a walk or a flight, and both follow the
 -- ground. One with a loading screen is a portal or an instance and says
--- nothing about geography, so the two are counted apart rather than mixed.
+-- nothing about geography, so the two are counted apart rather than mixed --
+-- and the loaded case is where both ends of the doorway get recorded.
 local function RecordArrival(store, mapID)
     local from = lastMapID
     lastMapID = mapID
     local hadLoadingScreen = loadedSince
     loadedSince = false
+    local departure = departurePosition
+    departurePosition = nil
 
     if not from or from == mapID then return end
     local record = store[mapID]
@@ -104,6 +207,13 @@ local function RecordArrival(store, mapID)
     entry.loaded = tonumber(entry.loaded) or 0
     if hadLoadingScreen then
         entry.loaded = entry.loaded + 1
+        -- Only for a loaded crossing, and only when the departure sample was
+        -- taken on the map the player actually left. A walk needs no endpoints
+        -- -- the two zones share a border, and the crossing point is not a
+        -- fixed doorway.
+        if departure and departure.mapID == from then
+            RecordEndpoints(entry, departure, { mapID = mapID, x = record.x, y = record.y })
+        end
     else
         entry.walked = entry.walked + 1
     end
@@ -231,6 +341,45 @@ function ZoneSurvey:Render()
         lines[#lines + 1] = "| - | - | - | - |"
     end
 
+    -- Both ends of every doorway walked through. This is the part no exported
+    -- table can supply: a portal's destination lives in a server-side table, so
+    -- walking through it is the only way to see it.
+    --
+    -- Read the count, not just the row. A doorway is a fixed point, so it
+    -- accumulates; a teleport spell cast from wherever the player stood leaves
+    -- a scatter of separate rows at one each.
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "### Observed doorways"
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = string_format(
+        "Departure point accurate to about %.1f yards; distinct doorways told apart at 1/%d of the map.",
+        SAMPLE_INTERVAL * 7, ENDPOINT_BUCKETS)
+    lines[#lines + 1] = ""
+    lines[#lines + 1] = "| from map | at x | at y | into map | at x | at y | times |"
+    lines[#lines + 1] = "|---|---|---|---|---|---|---|"
+    local anyDoor = false
+    for _, mapID in ipairs(ids) do
+        local r = QR.db.zoneSurvey[mapID]
+        local froms = {}
+        for f in pairs(r.from or {}) do froms[#froms + 1] = f end
+        table_sort(froms)
+        for _, f in ipairs(froms) do
+            local keys = {}
+            for k in pairs(r.from[f].endpoints or {}) do keys[#keys + 1] = k end
+            table_sort(keys)
+            for _, k in ipairs(keys) do
+                local e = r.from[f].endpoints[k]
+                lines[#lines + 1] = string_format("| %d | %s | %s | %d | %s | %s | %d |",
+                    f, tostring(e.fromX), tostring(e.fromY),
+                    mapID, tostring(e.toX), tostring(e.toY), e.count or 0)
+                anyDoor = true
+            end
+        end
+    end
+    if not anyDoor then
+        lines[#lines + 1] = "| - | - | - | - | - | - | - |"
+    end
+
     return table_concat(lines, "\n")
 end
 
@@ -270,6 +419,27 @@ local function Sanitize(store)
                     else
                         entry.walked = tonumber(entry.walked) or 0
                         entry.loaded = tonumber(entry.loaded) or 0
+                        if entry.endpoints ~= nil then
+                            if type(entry.endpoints) ~= "table" then
+                                entry.endpoints = nil
+                                dropped = dropped + 1
+                            else
+                                for key, door in pairs(entry.endpoints) do
+                                    -- Every coordinate has to be a number: the
+                                    -- renderer prints them and RecordEndpoints
+                                    -- adds to the count, and a string from a
+                                    -- hand-edited file throws at the add.
+                                    if type(door) ~= "table"
+                                        or type(door.fromX) ~= "number" or type(door.fromY) ~= "number"
+                                        or type(door.toX) ~= "number" or type(door.toY) ~= "number" then
+                                        entry.endpoints[key] = nil
+                                        dropped = dropped + 1
+                                    else
+                                        door.count = tonumber(door.count) or 0
+                                    end
+                                end
+                            end
+                        end
                     end
                 end
             end
@@ -291,6 +461,24 @@ function ZoneSurvey:Initialize()
     end
 
     local frame = CreateFrame("Frame")
+    -- The position sampler. Two client calls twice a second, and only while the
+    -- survey is switched on -- with it off this costs the elapsed accumulation
+    -- and nothing else.
+    --
+    -- Nothing in combat, like the rest of the addon. The cost is not the reason
+    -- here; the reason is that a doorway is not walked into mid-fight, so the
+    -- samples would be pure overhead. What it costs is a portal taken within
+    -- half a second of a fight ending, whose departure point is then the last
+    -- sample from before the fight and is discarded by the map check.
+    frame.sampleElapsed = 0
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        if not (QR.db and QR.db.zoneSurveyEnabled) then return end
+        if InCombatLockdown() then return end
+        self.sampleElapsed = self.sampleElapsed + elapsed
+        if self.sampleElapsed < SAMPLE_INTERVAL then return end
+        self.sampleElapsed = 0
+        ZoneSurvey:SamplePosition()
+    end)
     frame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
     frame:SetScript("OnEvent", function(_, event)
