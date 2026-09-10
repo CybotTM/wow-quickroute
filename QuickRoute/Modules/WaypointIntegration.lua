@@ -1613,6 +1613,131 @@ SlashCmdList["QRDEBUG"] = function(msg)
     print("|cFF888888Tip: Use |cFFFFFF00/qrdebug copy|r|cFF888888 or the Copy Debug button for full diagnostics (markdown, ready for bug reports)|r")
 end
 
+-------------------------------------------------------------------------------
+-- Waypoint resolution cost (/qrwpcost)
+-------------------------------------------------------------------------------
+
+--- Time a cold and a warm GetQuestWaypoint for every tracked quest.
+-- Written for the number #71 asks for and cannot get here: the cost of the
+-- broad zone scan, which only a live client with real quests can produce.
+-- Since #69 the resolution runs on every cache read, and questCoordCache is
+-- wiped on QUEST_LOG_UPDATE and QUEST_POI_UPDATE -- about once a second while
+-- the player moves -- so the cold column is what the refresh actually pays.
+--
+-- Milliseconds, not a call count. Counting client calls would mean wrapping
+-- C_QuestLog functions, and an addon that overwrites a field of a C_ table
+-- taints Blizzard's own quest tracker until the next reload.
+-- @return string The report
+function WaypointIntegration:MeasureWaypointCost()
+    local lines = {}
+    local function add(fmt, ...)
+        local n = select("#", ...)
+        lines[#lines + 1] = n > 0 and string_format(fmt, ...) or fmt
+    end
+
+    add("QuickRoute waypoint resolution cost")
+    add("addon %s", tostring(QR.version))
+    add("")
+
+    local clock = debugprofilestop
+    if not clock then
+        add("debugprofilestop is unavailable -- nothing can be timed here.")
+        return table_concat(lines, "\n")
+    end
+
+    local watched = {}
+    if C_QuestLog and C_QuestLog.GetNumQuestWatches and C_QuestLog.GetQuestIDForQuestWatchIndex then
+        for index = 1, C_QuestLog.GetNumQuestWatches() do
+            local questID = C_QuestLog.GetQuestIDForQuestWatchIndex(index)
+            if questID then watched[#watched + 1] = questID end
+        end
+    end
+    if #watched == 0 then
+        add("No quests are being tracked. Track the quests you play with and run this again --")
+        add("the cost this measures is per tracked quest, so an empty tracker measures nothing.")
+        return table_concat(lines, "\n")
+    end
+
+    local playerMap = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+    add("%d quest(s) tracked, player on map %s", #watched, tostring(playerMap))
+    add("")
+    add("%-8s %8s %8s  %s", "quest", "cold ms", "warm ms", "resolved")
+
+    local coldTotal, warmTotal, coldMax, ownMap, elsewhere, unresolved = 0, 0, 0, 0, 0, 0
+    for _, questID in ipairs(watched) do
+        -- Cleared per quest, not once: resolving one quest populates only its
+        -- own entry, but the negative cache and the LRU are shared, and the
+        -- refresh this stands in for meets an empty cache every time.
+        self:ClearQuestCoordCache()
+        local coldStart = clock()
+        local cold = self:GetQuestWaypoint(questID, true)
+        local coldMs = clock() - coldStart
+
+        local warmStart = clock()
+        self:GetQuestWaypoint(questID, true)
+        local warmMs = clock() - warmStart
+
+        local where
+        if not cold or not cold.mapID then
+            where = "not found"
+            unresolved = unresolved + 1
+        elseif cold.mapID == playerMap then
+            where = string_format("map %d (the player's own)", cold.mapID)
+            ownMap = ownMap + 1
+        else
+            where = string_format("map %d", cold.mapID)
+            elsewhere = elsewhere + 1
+        end
+
+        add("%-8d %8.3f %8.3f  %s", questID, coldMs, warmMs, where)
+        coldTotal = coldTotal + coldMs
+        warmTotal = warmTotal + warmMs
+        if coldMs > coldMax then coldMax = coldMs end
+    end
+
+    add("")
+    add("cold total : %.3f ms for %d quest(s), worst single %.3f ms", coldTotal, #watched, coldMax)
+    add("warm total : %.3f ms", warmTotal)
+    add("resolved   : %d on the player's own map, %d elsewhere, %d not found",
+        ownMap, elsewhere, unresolved)
+    add("")
+    add("The cold total is what a refresh pays when the coordinate cache has just been")
+    add("wiped, which QUEST_LOG_UPDATE and QUEST_POI_UPDATE do about once a second while")
+    add("moving. Compare it against one frame at your frame rate.")
+    add("")
+    add("Measuring the cold case means clearing that cache, so this run left it empty for")
+    add("every quest but the last. The next refresh pays the cold cost once -- the same")
+    add("thing a quest update does on its own.")
+
+    return table_concat(lines, "\n")
+end
+
+SLASH_QRWPCOST1 = "/qrwpcost"
+SlashCmdList["QRWPCOST"] = function()
+    -- Refused rather than deferred: the measurement describes the quests and
+    -- the position it ran at, and one that runs when the fight ends describes
+    -- something else. The addon also does no work at all in combat.
+    if InCombatLockdown and InCombatLockdown() then
+        print("|cFFFF0000QuickRoute|r: not while in combat -- run this again afterwards.")
+        return
+    end
+
+    local report = WaypointIntegration:MeasureWaypointCost()
+    for line in report:gmatch("[^\n]+") do
+        print(line)
+    end
+
+    -- The same copy window the other diagnostics use, so the report can be
+    -- pasted into the issue rather than retyped from the chat frame.
+    if QR.UI and QR.UI.CopyDebugToClipboard then
+        QR.UI:CopyDebugToClipboard()
+        if QR.UI.copyFrame and QR.UI.copyFrame.editBox then
+            QR.UI.copyFrame.editBox:SetText(report)
+            QR.UI.copyFrame.editBox:HighlightText()
+        end
+    end
+end
+
 SLASH_QRWP1 = "/qrwp"
 SlashCmdList["QRWP"] = function(msg)
     local success, err = pcall(function()
