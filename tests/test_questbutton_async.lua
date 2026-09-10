@@ -50,11 +50,22 @@ local function withRefresh(fn)
         batchOpen = false, memo = {}, liveReads = 0,
         BeginBatch = function(self) self.batchOpen = true; self.memo = {} end,
         EndBatch = function(self) self.batchOpen = false; self.memo = {} end,
+        SuspendBatch = function(self)
+            local wasOpen = self.batchOpen or false
+            self.batchOpen = false
+            return wasOpen
+        end,
+        ResumeBatch = function(self, wasOpen) if wasOpen then self.batchOpen = true end end,
         GetCooldown = function(self, id, sourceType)
             local key = tostring(sourceType) .. ":" .. tostring(id)
             if self.batchOpen and self.memo[key] then return self.memo[key] end
             self.liveReads = self.liveReads + 1
-            local answer = { ready = state.cooldownReady ~= false }
+            -- remaining, not only ready: the readiness check treats anything
+            -- within a global cooldown of usable as ready, so an answer with no
+            -- remaining reads as ready whatever `ready` says -- and every flip
+            -- of state.cooldownReady below was invisible to it.
+            local ready = state.cooldownReady ~= false
+            local answer = { ready = ready, remaining = ready and 0 or 900 }
             if self.batchOpen then self.memo[key] = answer end
             return answer
         end,
@@ -650,5 +661,51 @@ T:run("Quest button cooldowns: the readiness check reads past an open batch", fu
 
         t:assertTrue(ct.liveReads > before,
             "the readiness check asked the client rather than the open batch")
+    end)
+end)
+
+-- The same event, when nothing moved. It fires on every global cooldown, so
+-- this is the common case: ending the batch here stripped the refresh that is
+-- still running of its memo for all of its remaining frames, and every one of
+-- those quests went back to asking the client.
+T:run("Quest button cooldowns: an unrelated cooldown event leaves a running batch its memo", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001, 10002, 10003}
+        qtb:RefreshButtons()
+        state.pending[1]()                      -- one quest routed; batch is open
+        local ct = QR.CooldownTracker
+        t:assertTrue(ct.batchOpen, "the refresh opened a cooldown batch")
+
+        local frame = qtb.eventFrame
+        if frame then frame:GetScript("OnEvent")(frame, "SPELL_UPDATE_COOLDOWN") end
+        t:assertTrue(ct.batchOpen, "a batch that was open is still open afterwards")
+
+        local before = ct.liveReads
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertEqual(before, ct.liveReads,
+            "the rest of the refresh answered from the memo the event left alone")
+    end)
+end)
+
+-- A cache hit used to be decided without the waypoint layer. Since the
+-- destination joined the key it is consulted on every read, and a client that
+-- cannot say where a quest points for one frame produced a nil that read as a
+-- changed destination -- evicting an entry that was right.
+T:run("Quest button routes: a momentary waypoint gap keeps the cached teleport", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        refreshOne(qtb, state)
+        local btn = qtb.activeButtons[10001]
+        t:assertNotNil(qtb.questCache[10001], "the quest routed and cached")
+        local calls = state.calls
+
+        local waypoint = QR.WaypointIntegration.GetQuestWaypoint
+        QR.WaypointIntegration.GetQuestWaypoint = function() return nil end
+        refreshOne(qtb, state)
+        QR.WaypointIntegration.GetQuestWaypoint = waypoint
+
+        t:assertNotNil(qtb.questCache[10001], "the gap did not evict the cached route")
+        t:assertEqual("spell", btn:GetAttribute("type"), "the button kept its action")
+        t:assertEqual(calls, state.calls, "and no route was calculated over the gap")
     end)
 end)
