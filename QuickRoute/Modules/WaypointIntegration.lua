@@ -1704,6 +1704,10 @@ function WaypointIntegration:MeasureWaypointCost()
     add("The cold total is what a refresh pays when the coordinate cache has just been")
     add("wiped, which QUEST_LOG_UPDATE and QUEST_POI_UPDATE do about once a second while")
     add("moving. Compare it against one frame at your frame rate.")
+    add("")
+    add("Measuring the cold case means clearing that cache, so this run left it empty for")
+    add("every quest but the last. The next refresh pays the cold cost once -- the same")
+    add("thing a quest update does on its own.")
 
     return table_concat(lines, "\n")
 end
