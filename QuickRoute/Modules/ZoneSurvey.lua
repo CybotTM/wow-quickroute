@@ -31,7 +31,7 @@ local MAX_RECORDS = 3000
 
 -- How often the player's position is sampled while the survey is on.
 --
--- A doorway is recorded from the last sample taken BEFORE the loading screen,
+-- A doorway is recorded from the last sample taken on the map the player left,
 -- so this interval is the error bar on where the doorway stands: at a run
 -- speed of about 7 yards a second, half a second is roughly 3.5 yards. That is
 -- far inside what the graph needs -- Portals.lua currently carries several
@@ -80,13 +80,22 @@ end
 local lastMapID = nil
 local loadedSince = false
 
--- Where the player was standing, sampled while the world is loaded, and the
--- copy taken the moment a loading screen ended. The copy is the one that
--- matters: the sampler resumes at the destination and overwrites the live
--- value within half a second, while the capture that reads it is debounced by
--- a second and a half.
+-- The last sample taken, and the last one taken on a DIFFERENT map. Two are
+-- kept rather than one because the departure point has to be found by map, not
+-- by time.
+--
+-- The first attempt copied the live sample when PLAYER_ENTERING_WORLD arrived,
+-- on the assumption that OnUpdate could not have run yet and the copy was
+-- therefore still the point the player walked into. Measured against a real
+-- session that is false: of 30 loading-screen crossings, 29 had a copy that
+-- already described the ARRIVAL, and the departure-map check below threw them
+-- away. One survived, presumably on timing jitter.
+--
+-- Keeping the previous map's last sample makes the lookup independent of when
+-- the sampler resumes. Whichever of the two was taken on the map the player
+-- left is the departure point, and if neither was, nothing is recorded.
 local lastPosition = nil
-local departurePosition = nil
+local previousMapPosition = nil
 
 --- Read where the player is, or nil when the client cannot say.
 local function ReadPosition()
@@ -102,21 +111,29 @@ local function ReadPosition()
 end
 
 --- Take one position sample. Called on a timer while the survey is on.
+-- A sample on a new map pushes the previous map's last sample aside rather than
+-- discarding it: that displaced one is the departure point of whatever crossing
+-- just happened.
 function ZoneSurvey:SamplePosition()
     local position = ReadPosition()
-    if position then lastPosition = position end
+    if not position then return nil end
+    if lastPosition and lastPosition.mapID ~= position.mapID then
+        previousMapPosition = lastPosition
+    end
+    lastPosition = position
     return position
 end
 
+--- The last position sampled on a given map, if it is still one of the two.
+local function PositionOnMap(mapID)
+    if lastPosition and lastPosition.mapID == mapID then return lastPosition end
+    if previousMapPosition and previousMapPosition.mapID == mapID then return previousMapPosition end
+    return nil
+end
+
 --- Note that a loading screen happened, so the next transition is not a walk.
---
--- This is also the only moment at which the far side of a doorway can still be
--- read. The player is already at the destination by the time anything else
--- runs, and OnUpdate does not fire while the loading screen is up, so the last
--- sample still describes the point the player walked into.
 function ZoneSurvey:NoteLoadingScreen()
     loadedSince = true
-    departurePosition = lastPosition
 end
 
 --- Forget where the player came from and how they got there.
@@ -126,7 +143,7 @@ function ZoneSurvey:ForgetArrivalState()
     lastMapID = nil
     loadedSince = false
     lastPosition = nil
-    departurePosition = nil
+    previousMapPosition = nil
 end
 
 --- Remember both ends of one doorway.
@@ -185,8 +202,9 @@ local function RecordArrival(store, mapID)
     lastMapID = mapID
     local hadLoadingScreen = loadedSince
     loadedSince = false
-    local departure = departurePosition
-    departurePosition = nil
+    -- Looked up by map rather than taken from a snapshot: see the note on
+    -- previousMapPosition for why the snapshot was wrong.
+    local departure = PositionOnMap(from)
 
     if not from or from == mapID then return end
     local record = store[mapID]
@@ -207,11 +225,14 @@ local function RecordArrival(store, mapID)
     entry.loaded = tonumber(entry.loaded) or 0
     if hadLoadingScreen then
         entry.loaded = entry.loaded + 1
-        -- Only for a loaded crossing, and only when the departure sample was
-        -- taken on the map the player actually left. A walk needs no endpoints
-        -- -- the two zones share a border, and the crossing point is not a
-        -- fixed doorway.
-        if departure and departure.mapID == from then
+        -- Only for a loaded crossing. A walk needs no endpoints -- the two
+        -- zones share a border, and the crossing point is not a fixed doorway.
+        --
+        -- No map check on `departure`: PositionOnMap only returns a sample
+        -- taken on the map it was asked about, so one is redundant by
+        -- construction. An earlier version looked the departure up by time
+        -- instead and did need it -- see the note on previousMapPosition.
+        if departure then
             RecordEndpoints(entry, departure, { mapID = mapID, x = record.x, y = record.y })
         end
     else

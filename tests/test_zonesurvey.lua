@@ -12,6 +12,11 @@ local function resetState()
     QR.db = QR.db or {}
     QR.db.zoneSurveyEnabled = true
     QR.db.zoneSurvey = {}
+    -- The recorder's own state is module-level and outlives a test. Without
+    -- this, one test's last sampled position is the next test's departure
+    -- point, and a guard asserting that nothing was recorded passes or fails
+    -- on what ran before it.
+    QR.ZoneSurvey:ForgetArrivalState()
 end
 
 T:run("ZoneSurvey: records the map the client reports", function(t)
@@ -415,22 +420,30 @@ end)
 -------------------------------------------------------------------------------
 
 --- Walk through a doorway: stand somewhere on `fromMap`, load, arrive on `toMap`.
-local function crossLoaded(fromMap, fromX, fromY, toMap, toX, toY)
+--
+-- The order here is the one measured in a real session, not the one I assumed
+-- when writing this: the sampler is already running again at the DESTINATION
+-- by the time PLAYER_ENTERING_WORLD reaches the handler. Of 30 loading-screen
+-- crossings recorded that way, 29 had a live position describing the arrival.
+-- `samplesFirst` false reproduces the other ordering, which happened once.
+local function crossLoaded(fromMap, fromX, fromY, toMap, toX, toY, samplesFirst)
+    if samplesFirst == nil then samplesFirst = true end
     MockWoW.config.currentMapID = fromMap
     MockWoW.config.playerX, MockWoW.config.playerY = fromX, fromY
     QR.ZoneSurvey:Capture()
-    -- The sampler runs on a timer; this is the tick before the player steps in.
+    -- The tick before the player steps into the doorway.
     QR.ZoneSurvey:SamplePosition()
-    -- The loading screen. OnUpdate does not fire while it is up, so the sample
-    -- above is still the last one when the arrival event lands.
-    QR.ZoneSurvey:NoteLoadingScreen()
+
+    -- The loading screen, then the destination.
     MockWoW.config.currentMapID = toMap
     MockWoW.config.playerX, MockWoW.config.playerY = toX, toY
-    -- The sampler resumes at the destination well before the capture does: it
-    -- ticks twice a second and the capture is debounced by a second and a half.
-    -- So by the time anything reads a position, the live one is the ARRIVAL --
-    -- which is why the departure has to come from the snapshot taken above.
-    QR.ZoneSurvey:SamplePosition()
+    if samplesFirst then
+        QR.ZoneSurvey:SamplePosition()
+        QR.ZoneSurvey:NoteLoadingScreen()
+    else
+        QR.ZoneSurvey:NoteLoadingScreen()
+        QR.ZoneSurvey:SamplePosition()
+    end
     QR.ZoneSurvey:Capture()
 end
 
@@ -510,7 +523,30 @@ T:run("ZoneSurvey: a walk records no doorway", function(t)
     -- evidence that the coupling and not the branch is what protects this.
 end)
 
-T:run("ZoneSurvey: a sample taken after the loading screen is not a departure", function(t)
+T:run("ZoneSurvey: the doorway is found whichever side the sampler resumes on", function(t)
+    -- The defect a real session exposed. The first version copied the live
+    -- position when the arrival event landed and assumed it still described the
+    -- departure; 29 of 30 crossings had it describing the arrival instead, and
+    -- the map check discarded every one. Looking the departure up by map is
+    -- what makes both orderings work.
+    resetState()
+    crossLoaded(1533, 0.4312, 0.5578, 1670, 0.4483, 0.6466, true)
+    local door = onlyDoorway(t, 1670, 1533)
+    if door then
+        t:assertEqual(0.4312, door.fromX,
+            "sampler resumed at the destination first: still the departure point")
+    end
+
+    resetState()
+    crossLoaded(1525, 0.7100, 0.2200, 1670, 0.4483, 0.6466, false)
+    local other = onlyDoorway(t, 1670, 1525)
+    if other then
+        t:assertEqual(0.7100, other.fromX,
+            "event arrived first: same answer")
+    end
+end)
+
+T:run("ZoneSurvey: a departure never sampled on the map it left is not invented", function(t)
     resetState()
     -- The failure this guards: if the sampler runs during or after the loading
     -- screen, the "departure" is the arrival position, and the record would
@@ -518,14 +554,16 @@ T:run("ZoneSurvey: a sample taken after the loading screen is not a departure", 
     MockWoW.config.currentMapID = 1533
     MockWoW.config.playerX, MockWoW.config.playerY = 0.4312, 0.5578
     QR.ZoneSurvey:Capture()
+    -- No sample is ever taken on 1533: the survey was switched on mid-flight,
+    -- or the crossing happened inside one sample interval.
     MockWoW.config.currentMapID = 1670
     MockWoW.config.playerX, MockWoW.config.playerY = 0.4483, 0.6466
-    QR.ZoneSurvey:SamplePosition()      -- already at the destination
+    QR.ZoneSurvey:SamplePosition()
     QR.ZoneSurvey:NoteLoadingScreen()
     QR.ZoneSurvey:Capture()
 
     t:assertNil(doorways(1670, 1533),
-        "a departure sampled on the arrival map is discarded, not recorded")
+        "with no position ever seen on the departure map, nothing is recorded")
 end)
 
 T:run("ZoneSurvey: switching off forgets the sampled position", function(t)
