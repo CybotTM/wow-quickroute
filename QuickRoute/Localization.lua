@@ -112,6 +112,8 @@ L["TOOLTIP_ZONE"] = "Copy zone debug information to clipboard"
 L["TOOLTIP_TELEPORTS"] = "Open teleport inventory panel"
 L["TOOLTIP_NAV"] = "Set navigation waypoint to this destination"
 L["TOOLTIP_USE"] = "Use this teleport"
+L["HEARTH_DESTINATION_HINT"] = "QuickRoute does not know this hearthstone's landing yet. Use it once or bind at an inn to include its observed destination in routes."
+L["DEATH_GATE_DESTINATION_HINT"] = "Death Gate's destination depends on your progress and return point. QuickRoute cannot verify it in your current state and leaves it out of route calculations."
 
 -- Action Types
 L["ACTION_TELEPORT"] = "Teleport"
@@ -592,6 +594,8 @@ if GetLocale() == "deDE" then
     L["TOOLTIP_TELEPORTS"] = "Teleport-Inventar öffnen"
     L["TOOLTIP_NAV"] = "Navigations-Wegpunkt zu diesem Ziel setzen"
     L["TOOLTIP_USE"] = "Diesen Teleport verwenden"
+    L["HEARTH_DESTINATION_HINT"] = "QuickRoute kennt das Ziel dieses Ruhesteins noch nicht. Benutze ihn einmal oder binde dich an einen Gasthof, damit das beobachtete Ziel in Routen berücksichtigt wird."
+    L["DEATH_GATE_DESTINATION_HINT"] = "Das Ziel der Todespforte hängt von deinem Fortschritt und Rückkehrpunkt ab. QuickRoute kann es im aktuellen Zustand nicht verifizieren und berücksichtigt es deshalb nicht in der Routenberechnung."
 
     -- Action Types
     L["ACTION_TELEPORT"] = "Teleport"

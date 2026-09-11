@@ -1,4 +1,4 @@
-local T, QR = ...
+local T, QR, MockWoW = ...
 
 local function isolated(body)
     local saved = {}
@@ -121,4 +121,215 @@ T:run("Hearthstone: normal hearth becomes a real graph option", function(t)
             t:assertEqual(37, found.data.teleportData.mapID, "Route goes to observed bind map")
         end
     end)
+end)
+
+-- These events run through the production frame handler. Timers are queued so
+-- a successful cast cannot accidentally record its still-visible origin.
+local function arrivalFixture(replace)
+    setup(replace)
+    replace(MockWoW, "eventFrames", {})
+    local state = { mapID = 627, x = 0.4, y = 0.6, area = "Dalaran", now = 100, timers = {} }
+    replace(_G, "GetTime", function() return state.now end)
+    replace(_G, "GetMinimapZoneText", function() return state.area end)
+    replace(_G, "GetSubZoneText", function() return state.area end)
+    replace(_G, "GetZoneText", function() return state.zone end)
+    replace(_G, "GetRealZoneText", function() return state.zone end)
+    replace(C_Map, "GetBestMapForUnit", function() return state.mapID end)
+    replace(C_Map, "GetPlayerMapPosition", function()
+        if state.unavailable then return nil end
+        return { GetXY = function() return state.x, state.y end }
+    end)
+    replace(C_Item, "GetItemSpell", function(id)
+        if id == 6948 then return "Hearthstone", 8690 end
+        if id == 93672 then return "Dark Portal", 136508 end
+    end)
+    replace(C_Timer, "NewTimer", function(delay, callback)
+        local timer = { callback = callback, delay = delay, Cancel = function(self) self.cancelled = true end }
+        state.timers[#state.timers + 1] = timer
+        return timer
+    end)
+    for _, key in ipairs({ "frame", "pendingArrival", "hearthSpells", "hearthItems" }) do
+        replace(QR.Hearthstone, key, nil)
+    end
+    QR.Hearthstone:Initialize()
+    local handler = QR.Hearthstone.frame:GetScript("OnEvent")
+    function state:event(event, ...)
+        if QR.Hearthstone.frame._events[event] then handler(QR.Hearthstone.frame, event, ...) end
+    end
+    function state:cast(spellID)
+        self:event("UNIT_SPELLCAST_START", "player", "Cast-Hearth", spellID or 8690)
+        self:event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-Hearth", spellID or 8690)
+    end
+    function state:land()
+        self.mapID, self.x, self.y, self.area = 37, 0.43, 0.65, "Lion's Pride Inn"
+    end
+    function state:tick()
+        local timers = self.timers
+        self.timers = {}
+        for _, timer in ipairs(timers) do
+            if not timer.cancelled then
+                if timer.delay <= 0.25 then self.now = self.now + timer.delay; timer.callback()
+                else self.timers[#self.timers + 1] = timer end
+            end
+        end
+    end
+    return state
+end
+
+T:run("Hearthstone: existing binding is learned from the verified arrival, never the cast origin", function(t)
+    isolated(function(replace)
+        local state = arrivalFixture(replace)
+        state:cast()
+        t:assertNil(QR.Hearthstone:GetDestination(), "Successful cast does not immediately save Dalaran")
+        state:event("LOADING_SCREEN_ENABLED")
+        state:land()
+        state:event("PLAYER_ENTERING_WORLD", false, false)
+        t:assertNil(QR.Hearthstone:GetDestination(), "Coordinates during loading are not accepted")
+        state:event("LOADING_SCREEN_DISABLED")
+        state:tick()
+        local destination = QR.Hearthstone:GetDestination()
+        t:assertNotNil(destination, "An old binding becomes routable after using the hearthstone")
+        if destination then
+            t:assertEqual(37, destination.mapID, "Observed destination is the inn map")
+            t:assertEqual(0.43, destination.x, "Observed destination is the actual landing X")
+            t:assertEqual("HEARTHSTONE_ARRIVAL", QR.db.hearthstoneBinds["Player-1-A"].source,
+                "Arrival provenance remains distinct from rebinding")
+        end
+        t:assertTrue(QR.PathCalculator.graphDirty, "Learning an arrival invalidates the graph")
+        local resolved = QR.TeleportDestinations:GetDestinations(6948, { data = QR.TeleportItemsData[6948] })
+        t:assertEqual(1, #resolved, "The learned old bind enters the normal planner destination provider")
+        t:assertEqual(37, resolved[1] and resolved[1].mapID, "Planner receives the observed inn map")
+    end)
+end)
+
+T:run("Hearthstone: completion after the loading events retains the pre-cast origin", function(t)
+    isolated(function(replace)
+        local state = arrivalFixture(replace)
+        state:event("UNIT_SPELLCAST_START", "player", "Cast-Hearth", 8690)
+        state:event("LOADING_SCREEN_ENABLED")
+        state:land()
+        state:event("PLAYER_ENTERING_WORLD", false, false)
+        state:event("LOADING_SCREEN_DISABLED")
+        t:assertNil(QR.Hearthstone:GetDestination(), "A completed loading screen alone does not prove cast success")
+        state:event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-Hearth", 8690)
+        t:assertNotNil(QR.Hearthstone:GetDestination(), "Delayed success still uses the captured departure position")
+    end)
+end)
+
+T:run("Hearthstone: a city-named bind accepts its observed arrival in an inn subzone", function(t)
+    isolated(function(replace)
+        local state = arrivalFixture(replace)
+        replace(_G, "GetBindLocation", function() return "Stormwind City" end)
+        state:cast()
+        state:event("LOADING_SCREEN_ENABLED")
+        state.mapID, state.x, state.y = 84, 0.601, 0.755
+        state.area, state.zone = "The Gilded Rose", "Stormwind City"
+        state:event("LOADING_SCREEN_DISABLED")
+        local destination = QR.Hearthstone:GetDestination()
+        t:assertNotNil(destination, "A matching parent-zone name validates a successful observed landing")
+        if destination then
+            t:assertEqual(0.601, destination.x, "The actual inn coordinate is retained, not the city centre")
+        end
+    end)
+end)
+
+T:run("Hearthstone: idle deadline, canceled retries and unrelated gameplay remain bounded", function(t)
+    isolated(function(replace)
+        local state = arrivalFixture(replace)
+        local calls = 0
+        replace(C_Item, "GetItemSpell", function() calls = calls + 1 end)
+        for i = 1, 100 do
+            state:event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-Other" .. i, 133)
+        end
+        t:assertEqual(0, calls, "Ordinary spell events perform no item lookups")
+        t:assertEqual(0, #state.timers, "Ordinary spell events schedule no capture timers")
+        state:cast()
+        local timeout = state.timers[1]
+        t:assertNotNil(timeout, "A pending hearth has a bounded expiration timer")
+        if timeout then
+            state.now = state.now + 60
+            timeout.callback()
+        end
+        state:land()
+        state:event("LOADING_SCREEN_DISABLED")
+        t:assertNil(QR.Hearthstone:GetDestination(), "An expired cast cannot be revived by a later load")
+        state:cast()
+        state:event("ZONE_CHANGED")
+        local oldTimer = state.timers[#state.timers]
+        state:event("UNIT_SPELLCAST_INTERRUPTED", "player", "Cast-Hearth", 8690)
+        if oldTimer then oldTimer.callback() end
+        t:assertNil(QR.Hearthstone:GetDestination(), "Canceled callbacks cannot resurrect old capture state")
+    end)
+end)
+
+T:run("Hearthstone: late cached toy spell is learned without parsing its localized name", function(t)
+    isolated(function(replace)
+        local state = arrivalFixture(replace)
+        replace(QR.Hearthstone.hearthSpells, 136508, nil)
+        state:event("GET_ITEM_INFO_RECEIVED", 93672, true)
+        state:cast(136508)
+        state:land()
+        state:event("ZONE_CHANGED_NEW_AREA")
+        t:assertNotNil(QR.Hearthstone:GetDestination(), "A cache event resolves the toy's real on-use spell")
+    end)
+end)
+
+T:run("Hearthstone: unrelated loading, interrupted and expired casts cannot create a binding", function(t)
+    for _, scenario in ipairs({ "unrelated", "interrupted", "expired", "wrong-area", "unchanged", "other-cast" }) do
+        isolated(function(replace)
+            local state = arrivalFixture(replace)
+            if scenario ~= "unrelated" then
+                state:event("UNIT_SPELLCAST_START", "player", "Cast-Hearth", 8690)
+                if scenario == "interrupted" then
+                    state:event("UNIT_SPELLCAST_INTERRUPTED", "player", "Cast-Hearth", 8690)
+                else
+                    state:event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-Hearth", 8690)
+                end
+            end
+            state:event("LOADING_SCREEN_ENABLED")
+            if scenario ~= "unchanged" then state:land() end
+            if scenario == "expired" then state.now = state.now + 90 end
+            if scenario == "wrong-area" then state.area = "Another Inn" end
+            if scenario == "other-cast" then state:event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-Other", 3561) end
+            state:event("LOADING_SCREEN_DISABLED")
+            for _ = 1, 16 do state:tick() end
+            t:assertNil(QR.Hearthstone:GetDestination(), scenario .. " does not save a false hearth destination")
+        end)
+    end
+end)
+
+T:run("Hearthstone: cosmetic hearth, delayed map position and same-map arrival are learned", function(t)
+    isolated(function(replace)
+        local state = arrivalFixture(replace)
+        state.mapID = 37
+        state:cast(136508)
+        state:tick()
+        t:assertNil(QR.Hearthstone:GetDestination(), "Toy cast initially retains unknown landing")
+        state:land()
+        state.unavailable = true
+        state:event("ZONE_CHANGED")
+        state:tick()
+        t:assertNil(QR.Hearthstone:GetDestination(), "Unavailable post-cast position is not fabricated")
+        state.unavailable = false
+        state:tick()
+        t:assertNotNil(QR.Hearthstone:GetDestination(), "Same-map toy landing is learned once coordinates arrive")
+    end)
+end)
+
+T:run("Hearthstone: arrival capture rejects changed character, binding and secret payloads", function(t)
+    for _, scenario in ipairs({ "character", "binding", "secret" }) do
+        isolated(function(replace)
+            local state = arrivalFixture(replace)
+            state:cast()
+            state:land()
+            if scenario == "character" then replace(_G, "UnitGUID", function() return "Player-1-B" end) end
+            if scenario == "binding" then replace(_G, "GetBindLocation", function() return "Other Inn" end) end
+            if scenario == "secret" then
+                replace(_G, "issecretvalue", function(value) return value == state.x end)
+            end
+            state:event("ZONE_CHANGED")
+            state:tick()
+            t:assertNil(QR.Hearthstone:GetDestination(), scenario .. " cannot validate an arrival")
+        end)
+    end
 end)

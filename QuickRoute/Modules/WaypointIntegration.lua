@@ -62,6 +62,7 @@ local eventFrame = nil
 local questCoordCache = {} -- { [questID] = { mapID, x, y, time } or { time = t } for "not found" }
 local questCoordCacheOrder = {}
 local questCoordCacheNext = 1
+local questCoordGeneration = 0
 local QUEST_COORD_CACHE_LIMIT = 256
 local QUEST_COORD_CACHE_TTL = 30 -- seconds
 
@@ -222,8 +223,9 @@ end
 -- Uses C_QuestLog APIs (Methods 1-6) with caching and transit hub detection
 -- @param questID number The quest ID to resolve coordinates for
 -- @param ignoreNegativeCache boolean If true, bypass "not found" cache entries (for dropdown queries)
+-- @param scanBatch table|nil Map answers shared only by one caller-owned refresh
 -- @return table|nil {mapID, x, y, title} or nil if no coordinates found
-function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
+function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache, scanBatch)
     if not IsMapID(questID) or not C_QuestLog then
         return nil
     end
@@ -257,6 +259,32 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
     end
 
     local questTitle = C_QuestLog.GetTitleForQuestID and C_QuestLog.GetTitleForQuestID(questID) or QR.L["SOURCE_QUEST"]
+
+    -- A tracker refresh resolves several quests on successive frames. They
+    -- share map-wide API answers, never per-quest visited markers or projection
+    -- answers. The caller discards this context after the refresh; quest events
+    -- invalidate it even when they arrive between two queued callbacks.
+    scanBatch = scanBatch or {}
+    if scanBatch.generation ~= questCoordGeneration then
+        wipe(scanBatch)
+        scanBatch.generation = questCoordGeneration
+        scanBatch.questMaps, scanBatch.queriedQuestMaps = {}, {}
+        scanBatch.mapInfo, scanBatch.queriedMapInfo = {}, {}
+    end
+    local function GetMapInfoOnce(mapID)
+        if not scanBatch.queriedMapInfo[mapID] then
+            scanBatch.queriedMapInfo[mapID] = true
+            scanBatch.mapInfo[mapID] = C_Map.GetMapInfo(mapID)
+        end
+        return scanBatch.mapInfo[mapID]
+    end
+    local function GetWorldChildrenOnce()
+        if not scanBatch.queriedChildren then
+            scanBatch.queriedChildren = true
+            scanBatch.children = C_Map.GetMapChildrenInfo(947, 3, true)
+        end
+        return scanBatch.children
+    end
 
     -- Every entry carries the title it was resolved with, so a later hit does
     -- not have to ask the client for it again.
@@ -304,7 +332,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
             -- Continent-level coordinates are NOT valid on zone-level maps, so we must resolve
             local useContinent = false
             if C_Map and C_Map.GetMapInfo then
-                local mapInfo = C_Map.GetMapInfo(wpMapID)
+                local mapInfo = GetMapInfoOnce(wpMapID)
                 if mapInfo and mapInfo.mapType and mapInfo.mapType <= 2 then
                     useContinent = true
                     QR:Debug(string_format("Quest %d: map %d is continent-level (type %d), resolving to zone",
@@ -414,16 +442,17 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         end
     end
 
-    -- Later fallback passes may revisit the same zones. Keep both empty and
-    -- populated API results for this resolution only, so the header lookup can
-    -- reuse them without broad scans fetching every zone a second time.
-    local scannedMaps, questMapResults = {}, {}
+    -- Visited maps belong to this quest, while both populated and empty map
+    -- answers serve every quest in this refresh. Sharing visited markers would
+    -- silently skip the second quest's objective on an already fetched map.
+    local scannedMaps = {}
     local function GetQuestsOnMapOnce(mapID)
-        if not scannedMaps[mapID] then
-            scannedMaps[mapID] = true
-            questMapResults[mapID] = C_QuestLog.GetQuestsOnMap(mapID)
+        scannedMaps[mapID] = true
+        if not scanBatch.queriedQuestMaps[mapID] then
+            scanBatch.queriedQuestMaps[mapID] = true
+            scanBatch.questMaps[mapID] = C_QuestLog.GetQuestsOnMap(mapID)
         end
-        return questMapResults[mapID]
+        return scanBatch.questMaps[mapID]
     end
 
     -- Method 3: GetQuestsOnMap returns all quests with POIs on a specific map
@@ -488,7 +517,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         -- Only returns results for ROUTABLE zones (known continent) — unroutable maps
         -- (e.g. K'aresh) are skipped so the transit fallback is used instead.
         if C_Map and C_Map.GetMapChildrenInfo then
-            local childMaps = C_Map.GetMapChildrenInfo(947, 3, true) -- world, zones, all descendants
+            local childMaps = GetWorldChildrenOnce()
             if childMaps then
                 for _, childInfo in ipairs(childMaps) do
                     local childMapID = childInfo.mapID
@@ -585,7 +614,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
         for _, continentData in pairs(QR.Continents) do
             for _, zoneID in ipairs(continentData.zones) do
                 if C_Map and C_Map.GetMapInfo then
-                    local mapInfo = C_Map.GetMapInfo(zoneID)
+                    local mapInfo = GetMapInfoOnce(zoneID)
                     if mapInfo and mapInfo.name and string_lower(mapInfo.name) == headerLower then
                         local questsOnMap = GetQuestsOnMapOnce(zoneID)
                         if questsOnMap then
@@ -765,7 +794,7 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache)
 
         -- Phase 2: Dynamic map discovery for zones not in our hardcoded list
         if C_Map and C_Map.GetMapChildrenInfo then
-            local childMaps = C_Map.GetMapChildrenInfo(947, 3, true) -- world, zones, all descendants
+            local childMaps = GetWorldChildrenOnce()
             if childMaps then
                 for _, childInfo in ipairs(childMaps) do
                     local childMapID = childInfo.mapID
@@ -817,6 +846,7 @@ end
 
 --- Clear the quest coordinate cache (used by tests and when quest state changes significantly)
 function WaypointIntegration:ClearQuestCoordCache()
+    questCoordGeneration = questCoordGeneration + 1
     wipe(questCoordCache)
     wipe(questCoordCacheOrder)
     questCoordCacheNext = 1

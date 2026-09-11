@@ -5,6 +5,8 @@
 -------------------------------------------------------------------------------
 
 local T, QR, MockWoW = ...
+local savedLoadingScreenTime = QR.db and QR.db.loadingScreenTime
+local savedMaxCooldownHours = QR.db and QR.db.maxCooldownHours
 
 -------------------------------------------------------------------------------
 -- Helper: reset mock state and force a fresh graph rebuild
@@ -368,7 +370,7 @@ end)
 -- 3. Loading Screen Time Cost
 -------------------------------------------------------------------------------
 
-T:run("LoadingTime: loadingScreenTime=0 adds no extra cost to portals", function(t)
+T:run("LoadingTime: loadingScreenTime=0 retains only the portal graph epsilon", function(t)
     resetState()
     MockWoW.config.currentMapID = 84
     MockWoW.config.playerX = 0.5
@@ -393,11 +395,10 @@ T:run("LoadingTime: loadingScreenTime=0 adds no extra cost to portals", function
         end
     end
     t:assertNotNil(portalEdge, "Found a portal edge")
-    -- Portal base time is 5 (from TravelTime:GetPortalTime())
-    t:assertEqual(5, portalEdge.weight, "Portal weight is base 5 with loadingScreenTime=0")
+    t:assertEqual(0.001, portalEdge.weight, "Zero loading retains only the positive graph epsilon")
 end)
 
-T:run("LoadingTime: loadingScreenTime=10 adds +10s to portal edges", function(t)
+T:run("LoadingTime: loadingScreenTime=10 prices a portal at ten seconds", function(t)
     resetState()
     MockWoW.config.currentMapID = 84
     MockWoW.config.playerX = 0.5
@@ -422,11 +423,10 @@ T:run("LoadingTime: loadingScreenTime=10 adds +10s to portal edges", function(t)
         end
     end
     t:assertNotNil(portalEdge, "Found a portal edge")
-    -- Portal base 5 + loading 10 = 15
-    t:assertEqual(15, portalEdge.weight, "Portal weight is 5+10=15 with loadingScreenTime=10")
+    t:assertEqual(10, portalEdge.weight, "The configured ten-second loading duration is charged once")
 end)
 
-T:run("LoadingTime: loadingScreenTime=10 adds +10s to teleport edges", function(t)
+T:run("LoadingTime: teleport edges use the shared estimate including one load", function(t)
     resetState()
     MockWoW.config.currentMapID = 84
     MockWoW.config.playerX = 0.5
@@ -453,12 +453,10 @@ T:run("LoadingTime: loadingScreenTime=10 adds +10s to teleport edges", function(
     end
     t:assertNotNil(teleportEdge, "Found teleport edge")
 
-    -- Base teleport time (from TravelTime:GetEffectiveTime) + 10 loading
-    -- The base time varies, but it should include the +10
     local baseTime = QR.TravelTime:GetEffectiveTime(446540,
         teleportEdge.data.teleportData, false)
-    t:assertEqual(baseTime + 10, teleportEdge.weight,
-        "Teleport weight includes +10s loading screen time")
+    t:assertEqual(baseTime, teleportEdge.weight,
+        "Teleport weight agrees with the shared estimate instead of adding a second load")
 end)
 
 T:run("LoadingTime: walk edges NOT affected by loading screen time", function(t)
@@ -498,3 +496,8 @@ T:run("LoadingTime: walk edges NOT affected by loading screen time", function(t)
     t:assertEqual(walkWeight0, walkEdge10.weight,
         "Walk edge weight unchanged by loadingScreenTime")
 end)
+
+if QR.db then
+    QR.db.loadingScreenTime = savedLoadingScreenTime
+    QR.db.maxCooldownHours = savedMaxCooldownHours
+end

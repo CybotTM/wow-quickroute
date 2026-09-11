@@ -858,6 +858,23 @@ function TeleportPanel:CreateContent(parentFrame)
     return frame
 end
 
+local function AddDestinationHint(entry)
+    if not entry or not entry.data or (entry.status ~= STATUS.READY
+        and entry.status ~= STATUS.ON_CD and entry.status ~= STATUS.OWNED) then return end
+    local hint
+    if entry.data.isDynamic and entry.data.destination == "Bound Location"
+        and QR.Hearthstone and not QR.Hearthstone:GetDestination() then
+        hint = L["HEARTH_DESTINATION_HINT"]
+    elseif entry.id == 50977 and QR.TeleportDestinations
+        and not QR.TeleportDestinations:CanRouteDeathGate() then
+        hint = L["DEATH_GATE_DESTINATION_HINT"]
+    end
+    if hint then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine(C.GOLD .. hint .. C.R, nil, nil, nil, true)
+    end
+end
+
 --- Configure hover highlight and tooltip with extended info on a row
 -- @param row Frame The row frame to configure
 function TeleportPanel:ConfigureRowTooltip(row)
@@ -901,6 +918,7 @@ function TeleportPanel:ConfigureRowTooltip(row)
             end
             GameTooltip:AddLine(L["ACQUISITION_CLICK_HINT"], 1, 1, 1, true)
         end
+        AddDestinationHint(self.entry)
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
     end)
@@ -996,6 +1014,7 @@ function TeleportPanel:ConfigureRowIcon(row, entry)
                         GameTooltip:AddLine(" ")
                         GameTooltip:AddLine("|cFFFF0000" .. L["CANNOT_USE_IN_COMBAT"] .. "|r")
                     end
+                    AddDestinationHint(entry)
                     QR.AddTooltipBranding(GameTooltip)
                     GameTooltip:Show()
                 end)
@@ -2032,6 +2051,7 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
                         GameTooltip:AddLine(" ")
                         GameTooltip:AddLine("|cFFFF0000" .. L["CANNOT_USE_IN_COMBAT"] .. "|r")
                     end
+                    AddDestinationHint(entry)
                     QR.AddTooltipBranding(GameTooltip)
                     GameTooltip:Show()
                 end)
@@ -2116,6 +2136,7 @@ function TeleportPanel:ConfigureGridIcon(iconFrame, entry)
             end
             GameTooltip:AddLine(L["ACQUISITION_CLICK_HINT"],1,1,1,true)
         end
+        AddDestinationHint(self.entry)
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
     end)

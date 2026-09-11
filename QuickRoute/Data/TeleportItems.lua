@@ -1095,10 +1095,11 @@ QR.ClassTeleportSpells = {
     -- Death Knight
     [50977] = {
         name = "Death Gate",
-        destination = "Ebon Hold",
-        mapID = 23,  -- Eastern Plaguelands (Ebon Hold entrance)
-        x = 0.8390,
-        y = 0.4990,
+        destination = "Acherus",
+        -- Progression and return travel change this spell's destination.
+        -- The resolver confirms the Legion hall before offering its landing.
+        isDynamic = true,
+        requiresDestinationResolution = true,
         cooldown = 60,
         type = QR.TeleportTypes.SPELL,
         faction = "both",

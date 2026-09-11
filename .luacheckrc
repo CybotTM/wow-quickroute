@@ -51,6 +51,7 @@ globals = {
     -- the call sites; declared here so the linter does not flag the tests.
     "C_Housing",
     "C_MountJournal",
+    "C_Garrison",
 
     -- 12.0+ secret-value probe (absent on older clients)
     "issecretvalue",

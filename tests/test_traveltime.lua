@@ -5,6 +5,11 @@
 
 local T, QR, MockWoW = ...
 
+-- These tests exercise the per-type defaults. Explicit settings are covered
+-- in test_travel_loading_costs.lua; do not inherit another file's preference.
+local savedLoadingScreenTime = QR.db and QR.db.loadingScreenTime
+if QR.db then QR.db.loadingScreenTime = nil end
+
 -------------------------------------------------------------------------------
 -- Helper
 -------------------------------------------------------------------------------
@@ -270,3 +275,5 @@ T:run("Flight constants are pinned to the values the data was calibrated for", f
     t:assertEqual(20, QR.TravelTime.FLIGHT_OVERHEAD,
         "FLIGHT_OVERHEAD is 20 seconds for talking to the master and landing")
 end)
+
+if QR.db then QR.db.loadingScreenTime = savedLoadingScreenTime end

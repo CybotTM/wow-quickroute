@@ -124,6 +124,55 @@ def project(px, py, x0, y0, x1, y1, a0, b0, a1, b1):
     return ux, uy
 
 
+def flight_networks(nodes, paths, masters):
+    """Mutually reachable flight masters, separately for each player faction.
+
+    AddFlightEdges writes both directions, so weak components are insufficient:
+    a one-way TaxiPath must not authorize the return trip. An opposing-faction
+    master must not act as an intermediate hop between neutral endpoints.
+    Kosaraju's two iterative passes avoid the recursion limit on large exports.
+    Component IDs are the smallest taxi node ID, stable under CSV row ordering.
+    """
+    result = {node_id: {} for node_id in masters}
+    for faction, bit in (("Alliance", FLAG_ALLIANCE), ("Horde", FLAG_HORDE)):
+        usable = {n["ID"] for n in nodes
+                  if n["ID"] in masters and int(n["Flags"]) & bit}
+        forward, backward = collections.defaultdict(set), collections.defaultdict(set)
+        for path in paths:
+            source, target = path["FromTaxiNode"], path["ToTaxiNode"]
+            if source in usable and target in usable:
+                forward[source].add(target)
+                backward[target].add(source)
+        seen, finished = set(), []
+        for start in sorted(usable, key=int):
+            stack = [(start, False)]
+            while stack:
+                node, exiting = stack.pop()
+                if exiting:
+                    finished.append(node)
+                elif node not in seen:
+                    seen.add(node)
+                    stack.append((node, True))
+                    stack.extend((other, False) for other in sorted(forward[node], key=int)
+                                 if other not in seen)
+        assigned = set()
+        for start in reversed(finished):
+            if start in assigned:
+                continue
+            component, stack = set(), [start]
+            assigned.add(start)
+            while stack:
+                node = stack.pop()
+                component.add(node)
+                for other in backward[node] - assigned:
+                    assigned.add(other)
+                    stack.append(other)
+            network = min(map(int, component))
+            for node in component:
+                result[node][faction] = network
+    return result
+
+
 def build(csv_dir):
     nodes = load(csv_dir, "TaxiNodes.csv",
                  ("Name_lang", "Pos_0", "Pos_1", "ID", "ContinentID", "Flags"))
@@ -138,6 +187,30 @@ def build(csv_dir):
         neighbours[row["FromTaxiNode"]].add(row["ToTaxiNode"])
         neighbours[row["ToTaxiNode"]].add(row["FromTaxiNode"])
     degree = {k: len(v - {k}) for k, v in neighbours.items()}
+
+    def is_flight_master(node):
+        """The three filters that decide what a node IS, not where it is.
+
+        The zone-assignment filters below drop nodes for reasons that have
+        nothing to do with being a flight master -- no zone box contains it, a
+        name that contradicts the geometry. Those nodes still connect the taxi
+        network, so the components have to be computed over this set rather
+        than over the survivors of the whole chain.
+        """
+        if degree.get(node["ID"], 0) < MIN_NEIGHBOURS:
+            return False
+        if INTERNAL_NAME.search(node["Name_lang"]):
+            return False
+        try:
+            flags = int(node["Flags"])
+        except (KeyError, ValueError):
+            flags = 0
+        return not (flags & FLAG_INTERNAL) and bool(flags & FLAG_FACTIONS)
+
+    # Keep masters that fail zone assignment: they can still be intermediate
+    # hops. Internal/scripted nodes never connect the player taxi network.
+    masters = {node["ID"] for node in nodes if is_flight_master(node)}
+    network_of = flight_networks(nodes, paths, masters)
 
     uimap = {r["ID"]: r for r in uimaps}
     boxes = collections.defaultdict(list)
@@ -242,6 +315,7 @@ def build(csv_dir):
             "degree": degree.get(node["ID"], 0),
             "id": int(node["ID"]),
             "factions": flags & FLAG_FACTIONS,
+            "network": network_of.get(node["ID"]),
         })
 
     # Rule 3 needs to know which zones are represented at all, so it runs after
@@ -399,12 +473,14 @@ HEADER = '''-- FlightPoints.lua
 -- check could not see it, because a swapped and mirrored unit square is still
 -- the unit square.
 --
--- worldX/worldY are what edge weights are computed from: the distance is
--- exact, and only the speed it is divided by is an estimate. continentID is
--- the world map from TaxiNodes, NOT a uiMapID. It is necessary for two zones
--- to be connected by flight but not sufficient -- world map 530 holds Outland
--- AND the Burning Crusade starting zones, which are not one taxi network, so
--- PathCalculator requires the addon's own continent to agree as well.
+-- `network` maps each served faction to its strongly connected component in
+-- TaxiPath, restricted to that faction's flight masters. Equal IDs prove
+-- reachability in BOTH directions; one-way-only links are conservatively omitted.
+-- worldX/worldY determine the straight-line distance used to estimate cost.
+-- `continentID` is the world map from TaxiNodes, NOT a uiMapID. Networks can
+-- cross world maps, e.g. Dornogal / The Ringing Deeps. The addon's continent
+-- filter remains a pricing safeguard: straight-line estimates across separate
+-- landmasses would be misleading even if the taxi graph connected them.
 local ADDON_NAME, QR = ...
 
 QR.FlightPoints = {'''
@@ -419,9 +495,11 @@ def emit(final, out_path):
             lines.append(f"    -- world map {current}")
         def render(e):
             node = e["name"].replace("\\", "\\\\").replace('"', '\\"')
+            network = ", ".join(f"{faction} = {component}"
+                                for faction, component in sorted(e["network"].items()))
             return (f'x = {e["x"]:.4f}, y = {e["y"]:.4f}, '
                     f'worldX = {e["wx"]:.1f}, worldY = {e["wy"]:.1f}, '
-                    f'node = "{node}"')
+                    f'node = "{node}", network = {{ {network} }}')
         alt = entry.get("alt")
         tail = ""
         if alt:

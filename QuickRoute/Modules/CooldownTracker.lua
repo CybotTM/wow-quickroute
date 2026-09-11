@@ -169,11 +169,14 @@ local function IsUsableNumber(value)
     return value == value and value > -math.huge and value < math.huge
 end
 
-local function SpellCooldownResult(ready, remaining, start, duration)
+local function SpellCooldownResult(ready, remaining, start, duration, isPersonal)
     spellCooldownResult.ready = ready
     spellCooldownResult.remaining = remaining
     spellCooldownResult.start = start
     spellCooldownResult.duration = duration
+    -- Only the modern ignoreGCD query proves that a short spell duration is
+    -- personal. Numeric fallback metadata can still describe global recovery.
+    spellCooldownResult.isPersonal = isPersonal or false
     return spellCooldownResult
 end
 
@@ -208,17 +211,17 @@ function CooldownTracker:GetSpellCooldown(spellID)
         if ok and not (issecretvalue and issecretvalue(object)) then
             -- A successful query with no active personal duration is ready,
             -- even if the general cooldown table currently describes the GCD.
-            if object == nil then return SpellCooldownResult(true, 0, 0, 0) end
+            if object == nil then return SpellCooldownResult(true, 0, 0, 0, true) end
             if IsUsableNumber(object) then
                 local remaining = math.max(0, object)
-                return SpellCooldownResult(remaining == 0, remaining, 0, 0)
+                return SpellCooldownResult(remaining == 0, remaining, 0, 0, true)
             end
             local remaining = ReadDurationNumber(object, "GetRemainingDuration")
             if remaining then
                 local start = ReadDurationNumber(object, "GetStartTime") or 0
                 local duration = ReadDurationNumber(object, "GetTotalDuration") or 0
                 remaining = math.max(0, remaining)
-                return SpellCooldownResult(remaining == 0, remaining, start, duration)
+                return SpellCooldownResult(remaining == 0, remaining, start, duration, true)
             end
         end
     end
@@ -347,6 +350,7 @@ function CooldownTracker:GetCooldown(id, sourceType)
         remaining = result.remaining,
         start = result.start,
         duration = result.duration,
+        isPersonal = result.isPersonal,
     }
     memo[key] = entry
     return entry

@@ -5,6 +5,7 @@ local function withRefresh(fn)
     local saved = {pool=qtb.pool, active=qtb.activeButtons, cache=qtb.questCache,
         initialized=qtb.initialized, enabled=qtb.enabled, update=qtb.updateFrame,
         generation=qtb._refreshGeneration, cooldownState=qtb.cooldownState,
+        cooldownExpiry=qtb._nextCooldownExpiry,
         movement=qtb.movementFrame, elapsed=qtb._movementElapsed, running=qtb._refreshRunning,
         lastPosition=qtb._lastRefreshPosition, lastGraph=qtb._lastRefreshGraph,
         pendingRefresh=qtb._pendingRefreshAt,
@@ -28,7 +29,9 @@ local function withRefresh(fn)
     qtb.movementFrame=CreateFrame("Frame")
     qtb.movementFrame:Hide()
     qtb._movementElapsed=0
+    qtb.cooldownState={}
     qtb._pendingRefreshAt=nil
+    qtb._nextCooldownExpiry=nil
     qtb.flightChoices={}
     _G.IsFlying=function()return false end
     for index=1,qtb:GetPoolSize() do
@@ -91,6 +94,7 @@ local function withRefresh(fn)
     qtb.pool,qtb.activeButtons,qtb.questCache = saved.pool,saved.active,saved.cache
     qtb.initialized,qtb.enabled,qtb.updateFrame = saved.initialized,saved.enabled,saved.update
     qtb._refreshGeneration,qtb.cooldownState = saved.generation,saved.cooldownState
+    qtb._nextCooldownExpiry=saved.cooldownExpiry
     qtb.movementFrame,qtb._movementElapsed,qtb._refreshRunning=saved.movement,saved.elapsed,saved.running
     qtb._lastRefreshPosition,qtb._lastRefreshGraph=saved.lastPosition,saved.lastGraph
     qtb._pendingRefreshAt=saved.pendingRefresh
@@ -111,6 +115,215 @@ local function refreshOne(qtb, state)
     local callback = table.remove(state.pending, 1)
     if callback then callback() end
 end
+
+local function useCloakCooldown(qtb, state, seconds, duration)
+    state.watched = {10001}
+    local expires = GetTime() + (seconds or 5)
+    QR.PlayerInventory.GetAllTeleports = function()
+        return {
+            [50977]={sourceType="spell",data={name="Death Gate"}},
+            [65360]={sourceType="item",data={name="Cloak of Coordination"}},
+        }
+    end
+    QR.CooldownTracker.GetCooldown = function(_, id)
+        local remaining = id == 65360 and math.max(0, expires - GetTime()) or 0
+        return {ready=remaining == 0, remaining=remaining, duration=id == 65360 and duration or 0}
+    end
+    QR.PathCalculator.CalculatePath = function()
+        state.calls = state.calls + 1
+        local ready = GetTime() >= expires
+        return {steps={{type="teleport",teleportID=ready and 65360 or 50977,
+            sourceType=ready and "item" or "spell"}}}
+    end
+    refreshOne(qtb, state)
+end
+
+T:run("Quest button cooldowns: a cloak becoming ready refreshes a stationary player's route", function(t)
+    withRefresh(function(qtb, state)
+        useCloakCooldown(qtb, state)
+        t:assertEqual(50977, qtb.activeButtons[10001].teleportID, "Alternative is shown while the cloak is cooling down")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 6
+        qtb:OnMovementUpdate(1)
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertEqual(65360, qtb.activeButtons[10001].teleportID, "The ready cloak replaces the old route without an event or movement")
+        t:assertEqual(2, state.calls, "The expiry causes exactly one new route")
+        qtb:OnMovementUpdate(1)
+        t:assertEqual(0, #state.pending, "An expired cooldown does not cause repeated refreshes")
+    end)
+end)
+
+T:run("Quest button cooldowns: an event near personal expiry does not misclassify it as GCD", function(t)
+    withRefresh(function(qtb, state)
+        useCloakCooldown(qtb, state)
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 4
+        qtb.eventFrame:GetScript("OnEvent")(qtb.eventFrame, "SPELL_UPDATE_COOLDOWN")
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertEqual(1, state.calls, "One second left on a known personal cooldown does not prematurely replan")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 2
+        qtb:OnMovementUpdate(1)
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertEqual(65360, qtb.activeButtons[10001].teleportID, "The real expiry remains observable after the near-expiry event")
+    end)
+end)
+
+T:run("Quest button cooldowns: a long cooldown first observed in its last second still expires", function(t)
+    withRefresh(function(qtb, state)
+        useCloakCooldown(qtb, state, 1, 3600)
+        t:assertEqual(50977, qtb.activeButtons[10001].teleportID, "A cloak in its last second is not usable yet")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 2
+        qtb:OnMovementUpdate(1)
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertEqual(65360, qtb.activeButtons[10001].teleportID, "The total personal duration distinguishes the last second from GCD")
+    end)
+end)
+
+T:run("Quest button cooldowns: short personal spell cooldowns are not mistaken for global recovery", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        local expires = GetTime() + 1
+        QR.CooldownTracker.GetCooldown = function()
+            local remaining = math.max(0, expires - GetTime())
+            return {ready=remaining == 0, remaining=remaining, duration=1, isPersonal=true}
+        end
+        refreshOne(qtb, state)
+        t:assertNil(qtb.activeButtons[10001], "A real spell cooldown cannot offer a ready button")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 2
+        qtb:OnMovementUpdate(1)
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertNotNil(qtb.activeButtons[10001], "The personal spell expiry replaces its cached unavailable result")
+    end)
+end)
+
+T:run("Quest button cooldowns: combat defers expiry until the next permitted refresh", function(t)
+    withRefresh(function(qtb, state)
+        useCloakCooldown(qtb, state)
+        MockWoW.config.inCombatLockdown = true
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 6
+        local writes = state.writes
+        qtb:OnMovementUpdate(1)
+        t:assertEqual(writes, state.writes, "Cooldown expiry causes no protected writes in combat")
+        MockWoW.config.inCombatLockdown = false
+        refreshOne(qtb, state)
+        t:assertEqual(65360, qtb.activeButtons[10001].teleportID, "The combat-exit refresh discards the older alternative")
+    end)
+end)
+
+T:run("Quest button cooldowns: changed bag cooldowns retire unusable shortcuts", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        refreshOne(qtb, state)
+        t:assertTrue(qtb.eventFrame._events.BAG_UPDATE_COOLDOWN, "Quest buttons subscribe to actual item cooldown events")
+        local event = qtb.eventFrame:GetScript("OnEvent")
+        event(qtb.eventFrame, "BAG_UPDATE_COOLDOWN")
+        t:assertEqual(0, #state.pending, "An unrelated bag cooldown does not schedule routes")
+        state.cooldownReady = false
+        event(qtb.eventFrame, "BAG_UPDATE_COOLDOWN")
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertNil(qtb.activeButtons[10001], "A newly active item cooldown clears the unavailable shortcut")
+    end)
+end)
+
+T:run("Quest button scan batching: queued quests share one context that the next refresh releases", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001, 10002}
+        local contexts = {}
+        QR.WaypointIntegration.GetQuestWaypoint = function(_, id, _, context)
+            contexts[#contexts + 1] = context
+            return {mapID=84,x=.5,y=.5,title=tostring(id)}
+        end
+        qtb:RefreshButtons()
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertNotNil(contexts[1], "The first queued quest receives a map scan context")
+        t:assertEqual(contexts[1], contexts[2], "Successive frames share the same native map answers")
+        qtb:RefreshButtons()
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertTrue(contexts[1] ~= contexts[3], "The next refresh starts with fresh map answers")
+        t:assertEqual(contexts[3], contexts[4], "The new refresh shares its own context")
+    end)
+end)
+
+T:run("Quest button graph freshness: a bind change between frames repairs earlier real routes once", function(t)
+    local realCalculator, changes = QR.PathCalculator, {}
+    local function replace(owner, key, value)
+        changes[#changes + 1] = {owner, key, owner[key]}
+        owner[key] = value
+    end
+    local ok, err = pcall(function()
+        withRefresh(function(qtb, state)
+            state.watched = {10001, 10002}
+            replace(_G, "UnitGUID", function() return "Player-Integrated-Bind" end)
+            replace(_G, "GetBindLocation", function() return "Observed Inn" end)
+            replace(_G, "UnitFactionGroup", function() return "Alliance" end)
+            replace(_G, "UnitLevel", function() return 90 end)
+            replace(_G, "C_TaxiMap", {})
+            replace(QR.PlayerInfo, "GetFaction", function() return "Alliance" end)
+            replace(QR.PlayerInfo, "GetClass", function() return "MAGE" end)
+            replace(QR.TravelTime, "CanFly", function() return false end)
+            replace(QR.db, "considerCooldowns", true)
+            replace(QR.db, "maxCooldownHours", 24)
+            replace(QR.db, "hearthstoneBinds", { ["Player-Integrated-Bind"] = {
+                mapID=84,x=.6,y=.7,bindName="Observed Inn",source="HEARTHSTONE_ARRIVAL",
+            } })
+            replace(QR.Hearthstone, "pendingArrival", nil)
+            C_Map.GetBestMapForUnit = function() return 627 end
+            C_Map.GetPlayerMapPosition = function() return {GetXY=function() return .5,.5 end} end
+            QR.PlayerInventory.GetAllTeleports = function()
+                return {
+                    [6948]={sourceType="item",data=QR.TeleportItemsData[6948]},
+                    [65360]={sourceType="item",data=QR.TeleportItemsData[65360]},
+                }
+            end
+            QR.WaypointIntegration.GetQuestWaypoint = function()
+                return {mapID=84,x=.6,y=.7,title="Destination beside the old inn"}
+            end
+            local calculator, calls = {graphDirty=true}, 0
+            for key, value in pairs(realCalculator) do
+                if type(value) == "function" then calculator[key] = value end
+            end
+            calculator.CalculatePath = function(self, ...)
+                calls = calls + 1
+                return realCalculator.CalculatePath(self, ...)
+            end
+            QR.PathCalculator = calculator
+            qtb:RefreshButtons()
+            local generation = qtb._refreshGeneration
+            if state.pending[1] then table.remove(state.pending, 1)() end
+            t:assertEqual(6948, qtb.activeButtons[10001] and qtb.activeButtons[10001].teleportID,
+                "The first real route initially selects the old observed hearth")
+            t:assertTrue(QR.Hearthstone:RecordBind(), "The actual bind observer changes the destination and dirties the graph")
+            while state.pending[1] do table.remove(state.pending, 1)() end
+            for _, id in ipairs(state.watched) do
+                t:assertEqual(65360, qtb.activeButtons[id] and qtb.activeButtons[id].teleportID,
+                    "Quest " .. id .. " uses the guild cloak after the hearth location changes")
+            end
+            t:assertEqual(generation + 1, qtb._refreshGeneration, "One changed graph causes exactly one replacement batch")
+            t:assertEqual(3, calls, "The initial dirty build and repair do not restart every quest")
+            qtb:OnMovementUpdate(1)
+            t:assertEqual(0, #state.pending, "The settled graph schedules no repeated repair")
+        end)
+    end)
+    for index = #changes, 1, -1 do
+        local change = changes[index]
+        change[1][change[2]] = change[3]
+    end
+    if not ok then error(err) end
+end)
+
+T:run("Quest button destinations: POI updates refresh a stationary quest's changed objective", function(t)
+    withRefresh(function(qtb, state)
+        state.watched = {10001}
+        local destinationX = .5
+        QR.WaypointIntegration.GetQuestWaypoint = function()
+            return {mapID=84,x=destinationX,y=.5,title="Moving objective"}
+        end
+        refreshOne(qtb, state)
+        destinationX = .8
+        t:assertTrue(qtb.eventFrame._events.QUEST_POI_UPDATE, "Quest buttons subscribe to streamed objective changes")
+        qtb.eventFrame:GetScript("OnEvent")(qtb.eventFrame, "QUEST_POI_UPDATE")
+        while state.pending[1] do table.remove(state.pending, 1)() end
+        t:assertEqual(2, state.calls, "Changed POI coordinates recalculate the destination without player movement")
+    end)
+end)
 
 T:run("Quest button recovery: a brief missing player position keeps the icon but clears its action", function(t)
     withRefresh(function(qtb, state)

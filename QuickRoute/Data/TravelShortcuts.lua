@@ -3100,7 +3100,7 @@ for key, supplement in pairs(QR.TeleportDestinationData) do
     if not data.destination then data.destination = supplement.name end
     if #supplement.destinations == 1 and not supplement.isRandom then
         for _, field in ipairs({"mapID", "x", "y", "requirements"}) do data[field] = supplement.destinations[1][field] end
-        data.isDynamic = false
+        data.isDynamic = data.requiresDestinationResolution or false
     end
     data.isRandom = supplement.isRandom or nil
     target[id] = data

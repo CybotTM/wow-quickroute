@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+- Learn an existing hearthstone binding from its successful observed arrival. Unknown landing points now have a tooltip explaining how to make them available to routing.
+- Derive faction-specific flight networks from directed client taxi paths, including connected Khaz Algar zones on different world maps. Flight durations remain estimates.
+- Record both ends of observed zone crossings, with validated saved data and global memory limits. Observations remain candidates rather than automatically trusted portals.
+
+### Fixed
+- Stop routing Death Gate to an assumed Eastern Plaguelands landing; use confirmed Legion class-hall state and exclude unresolved return or quest-diversion destinations.
+- Reconsider quest recommendations when personal cooldowns expire while standing still, after combat, and when a binding changes between queued quest updates.
+- Share map-wide quest lookups within a refresh without hiding newly available objectives. The controlled cold-refresh workload uses 96% fewer map reads and allocates about 59% less temporary Lua memory.
+- Count loading-screen duration once for teleport and portal estimates, and preserve loading-free floor transitions.
+- Connect the outdoor Draenor garrisons with their host zones. Keep return flights dependent on the player's discovered flight points.
+
 ## [1.18.5] - 2026-09-09
 
 ### Fixed

@@ -120,3 +120,62 @@ T:run("Quest scan: per-call results do not hide new POIs on a later cache-bypass
         t:assertEqual(2, calls[103], "The objective map is fetched once per uncached request")
     end)
 end)
+
+T:run("Quest scan: one refresh shares map fetches while resolving every quest independently", function(t)
+    withQuestScan(function(calls, pois)
+        local batch, children = {}, 0
+        C_Map.GetMapChildrenInfo = function()
+            children = children + 1
+            return { { mapID = 104 } }
+        end
+        pois[103] = { { questID = QUEST_ID + 1, x = .25, y = .35 } }
+        local first = QR.WaypointIntegration:GetQuestWaypoint(QUEST_ID, true, batch)
+        local second = QR.WaypointIntegration:GetQuestWaypoint(QUEST_ID + 1, true, batch)
+        t:assertEqual(84, first and first.mapID, "Unresolved first quest retains its transit fallback")
+        t:assertEqual(103, second and second.mapID, "The second quest still searches previously fetched maps")
+        t:assertEqual(.25, second and second.x, "The second quest uses its own objective coordinates")
+        for _, mapID in ipairs({ 84, 101, 102, 103, 104 }) do
+            t:assertEqual(1, calls[mapID], "Shared refresh fetches map " .. mapID .. " once")
+        end
+        t:assertEqual(1, children, "One refresh discovers descendant maps once")
+    end)
+end)
+
+T:run("Quest scan: invalidation between queued quests observes newly streamed objectives", function(t)
+    withQuestScan(function(calls, pois)
+        local batch = {}
+        QR.WaypointIntegration:GetQuestWaypoint(QUEST_ID, true, batch)
+        pois[103] = { { questID = QUEST_ID + 1, x = .45, y = .55 } }
+        QR.WaypointIntegration:ClearQuestCoordCache()
+        local second = QR.WaypointIntegration:GetQuestWaypoint(QUEST_ID + 1, true, batch)
+        t:assertEqual(103, second and second.mapID, "Quest invalidation discards the earlier batch's empty map answer")
+        t:assertEqual(.45, second and second.x, "Streamed objective has current coordinates")
+        t:assertEqual(2, calls[103], "A quest event forces a fresh native map query")
+    end)
+end)
+
+T:run("Quest scan: a new refresh retries empty maps without a quest event", function(t)
+    withQuestScan(function(calls, pois)
+        QR.WaypointIntegration:GetQuestWaypoint(QUEST_ID, true, {})
+        pois[103] = { { questID = QUEST_ID + 1, x = .45, y = .55 } }
+        local second = QR.WaypointIntegration:GetQuestWaypoint(QUEST_ID + 1, true, {})
+        t:assertEqual(103, second and second.mapID, "An independent refresh does not reuse missing POIs")
+        t:assertEqual(2, calls[103], "New refresh refetches the previously empty map")
+    end)
+end)
+
+T:run("Quest scan: a quest update can reveal a target only through a later map projection", function(t)
+    withQuestScan(function()
+        C_QuestLog.GetNextWaypointText = function() return nil end
+        C_QuestLog.GetNextWaypoint = function() return nil end
+        local first = QR.WaypointIntegration:GetQuestWaypoint(QUEST_ID, true, {})
+        t:assertNil(first, "The quest initially has neither a direct waypoint nor map POIs")
+        C_QuestLog.GetNextWaypointForMap = function(_, mapID)
+            if mapID == 103 then return .65, .75 end
+        end
+        QR.WaypointIntegration:ClearQuestCoordCache()
+        local second = QR.WaypointIntegration:GetQuestWaypoint(QUEST_ID, true, {})
+        t:assertEqual(103, second and second.mapID, "A quest event immediately discovers its sole available coordinate source")
+        t:assertEqual(.65, second and second.x, "The projection retains the actual objective coordinates")
+    end)
+end)
