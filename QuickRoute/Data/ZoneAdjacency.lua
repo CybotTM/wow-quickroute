@@ -192,6 +192,8 @@ QR.Continents = {
             634,  -- Stormheim
             641,  -- Val'sharah
             646,  -- Broken Shore
+            647,  -- Acherus: The Ebon Hold (Legion class-hall floor)
+            648,  -- Acherus: The Ebon Hold (Legion class-hall floor)
             650,  -- Highmountain
             680,  -- Suramar
             790,  -- Eye of Azshara

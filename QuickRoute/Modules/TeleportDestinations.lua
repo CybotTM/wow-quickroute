@@ -51,6 +51,30 @@ local function Dirty()
     if QR.PathCalculator then QR.PathCalculator.graphDirty = true end
 end
 
+local function Read(fn, ...)
+    if type(fn) ~= "function" then return end
+    local ok, value = pcall(fn, ...)
+    if ok and Public(value) then return value end
+end
+
+-- Blizzard's class-hall UI uses HasGarrison(Type_7_0_Garrison) to distinguish
+-- an unlocked Legion hall. A missing hall is NOT evidence of the old EPL
+-- landing: the artifact introduction also diverts Death Gate to Icecrown.
+-- Inside Acherus the same spell instead returns to an unreported origin.
+function Destinations:CanRouteDeathGate()
+    if not QR.PlayerInfo or QR.PlayerInfo:GetClass() ~= "DEATHKNIGHT" then return false end
+    local kind = Enum and Enum.GarrisonType and Enum.GarrisonType.Type_7_0_Garrison
+    if not Number(kind) or Read(C_Garrison and C_Garrison.HasGarrison, kind) ~= true then return false end
+    if Read(C_QuestLog and C_QuestLog.IsOnQuest, 38990) ~= false then return false end
+    local mapID = Read(C_Map and C_Map.GetBestMapForUnit, "player")
+    return Number(mapID) and mapID > 0 and mapID ~= 647 and mapID ~= 648
+end
+
+function Destinations:RefreshDeathGateState()
+    local usable = self:CanRouteDeathGate()
+    if self.deathGateUsable ~= usable then self.deathGateUsable = usable; Dirty() end
+end
+
 --- Record the actual Make Camp position, scoped to this character. A failed
 -- position read clears the former camp instead of routing to an obsolete camp.
 function Destinations:RecordCamp()
@@ -132,6 +156,7 @@ function Destinations:GetDestinations(id, entry)
     if not Number(id) or id <= 0 or id ~= math.floor(id) or type(entry) ~= "table" then return {} end
     local data = entry.data or entry
     if type(data) ~= "table" then return {} end
+    if id == 50977 and not self:CanRouteDeathGate() then return {} end
     if id == 1233637 then return self:GetHousingDestinations(data) end
     if id == 312372 then
         local guid = PlayerGUID()
@@ -180,6 +205,8 @@ function Destinations:Initialize()
     local frame = CreateFrame("Frame")
     frame:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     frame:RegisterEvent("PLAYER_ENTERING_WORLD")
+    for _, event in ipairs({ "QUEST_ACCEPTED", "QUEST_TURNED_IN", "QUEST_REMOVED",
+        "GARRISON_UPDATE", "ZONE_CHANGED_NEW_AREA" }) do frame:RegisterEvent(event) end
     if C_Housing then
         frame:RegisterEvent("PLAYER_HOUSE_LIST_UPDATED")
         frame:RegisterEvent("HOUSE_PLOT_ENTERED")
@@ -189,13 +216,18 @@ function Destinations:Initialize()
             if Public(unit) and unit == "player" and Number(spellID) and spellID == 312370 then
                 self:RecordCamp()
             end
+        elseif event == "QUEST_ACCEPTED" or event == "QUEST_TURNED_IN" or event == "QUEST_REMOVED"
+            or event == "GARRISON_UPDATE" or event == "ZONE_CHANGED_NEW_AREA" then
+            self:RefreshDeathGateState()
         elseif event == "PLAYER_HOUSE_LIST_UPDATED" then
             self:SetHouses(unit)
         else
+            if event == "PLAYER_ENTERING_WORLD" then self:RefreshDeathGateState() end
             self:RecordHousingPlots()
             if C_Housing and C_Housing.GetPlayerOwnedHouses then pcall(C_Housing.GetPlayerOwnedHouses) end
         end
     end)
     self.frame = frame
+    self.deathGateUsable = self:CanRouteDeathGate()
     if C_Housing and C_Housing.GetPlayerOwnedHouses then pcall(C_Housing.GetPlayerOwnedHouses) end
 end
