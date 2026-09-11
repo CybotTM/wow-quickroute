@@ -382,8 +382,8 @@ function PathCalculator:AddConditionalConnections()
     for _, edge in ipairs(transitions.edges) do
         local from, to = "Travel:" .. edge.from, "Travel:" .. edge.to
         local seconds = edge.cost or (edge.method == "phaseswitch" and 10
-            or edge.method == "flight" and 120 or QR.TravelTime:GetPortalTime())
-        if edge.method == "portal" and not edge.noLoadingScreen then seconds = seconds + (QR.db and QR.db.loadingScreenTime or 0) end
+            or edge.method == "flight" and 120
+            or edge.noLoadingScreen and 0.001 or QR.TravelTime:GetPortalTime())
         if edge.method == "flight" and edge.distanceYards then
             seconds = QR.TravelTime.FLIGHT_OVERHEAD + edge.distanceYards / QR.TravelTime.FLIGHT_SPEED
         end
@@ -531,9 +531,6 @@ function PathCalculator:AddPortalConnections()
 
             -- Add portal edge with travel time as weight
             local travelTime = QR.TravelTime:GetPortalTime()
-            -- Add loading screen time cost
-            local loadingTime = QR.db and QR.db.loadingScreenTime or 0
-            travelTime = travelTime + loadingTime
             if not QR.TravelRequirements or not QR.TravelRequirements:HasReplacement(hubData.mapID, portal.mapID, "portal") then
                 self.graph:AddEdge(hubName, destName, travelTime, "portal", { portalData = portal })
             end
@@ -644,9 +641,6 @@ function PathCalculator:AddPlayerTeleportEdges()
                     -- Calculate effective travel time (with optional cooldown wait)
                     local includeCooldown = QR.db and QR.db.considerCooldowns
                     local travelTime = QR.TravelTime:GetEffectiveTime(teleportID, data, includeCooldown, teleport.sourceType)
-                    -- Add loading screen time cost for teleports
-                    local loadingTime = QR.db and QR.db.loadingScreenTime or 0
-                    travelTime = travelTime + loadingTime
 
                     self.graph:AddEdgeOption(PLAYER_NODE, destName, travelTime, "teleport", {
                         teleportID = teleportID,
@@ -674,14 +668,13 @@ function PathCalculator:RefreshTeleportEdgeWeights()
     local outgoing = self.graph and self.graph.edges[PLAYER_NODE]
     if not outgoing then return end
     local includeCooldown = QR.db and QR.db.considerCooldowns
-    local loadingTime = QR.db and QR.db.loadingScreenTime or 0
     for target, edge in pairs(outgoing) do
         local options = {}
         for _, option in ipairs(edge.alternatives or { edge }) do
             local data = option.data
             if option.edgeType == "teleport" and data and data.teleportID and data.teleportData then
                 local seconds = QR.TravelTime:GetEffectiveTime(
-                    data.teleportID, data.teleportData, includeCooldown, data.sourceType) + loadingTime
+                    data.teleportID, data.teleportData, includeCooldown, data.sourceType)
                 if IsFiniteNumber(seconds) then
                     options[#options + 1] = {
                         weight = math_max(0.001, seconds), edgeType = "teleport", data = data,
@@ -1295,7 +1288,6 @@ function PathCalculator:AddDungeonTeleportEdges()
         if destName then
             local includeCooldown = QR.db and QR.db.considerCooldowns
             local travelTime = QR.TravelTime:GetEffectiveTime(teleportID, data, includeCooldown, teleport.sourceType)
-            travelTime = travelTime + (QR.db and QR.db.loadingScreenTime or 0)
 
             self.graph:AddEdgeOption(PLAYER_NODE, destName, travelTime, "teleport", {
                 teleportID = teleportID,

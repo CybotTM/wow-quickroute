@@ -972,6 +972,8 @@ end)
 
 T:run("Portal time uses TravelTime module constants", function(t)
     resetState()
+    local savedLoadingScreenTime = QR.db and QR.db.loadingScreenTime
+    if QR.db then QR.db.loadingScreenTime = nil end
     -- Verify portal time matches the expected constant
     local portalTime = QR.TravelTime:GetPortalTime()
     t:assertEqual(5, portalTime, "Portal loading time is 5 seconds")
@@ -979,6 +981,8 @@ T:run("Portal time uses TravelTime module constants", function(t)
     -- Verify transport times
     local boatTime = QR.TravelTime:GetTransportTime("boat")
     t:assertEqual(180, boatTime, "Boat travel time is 180 seconds")
+
+    if QR.db then QR.db.loadingScreenTime = savedLoadingScreenTime end
 
     local tramTime = QR.TravelTime:GetTransportTime("tram")
     t:assertEqual(60, tramTime, "Tram travel time is 60 seconds")

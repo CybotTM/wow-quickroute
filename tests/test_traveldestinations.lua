@@ -45,6 +45,8 @@ T:run("Travel catalogue: random and placeholder wormholes cannot claim exact lan
 end)
 
 T:run("Travel catalogue: modern items and spell cast times are available", function(t)
+    local oldLoading = QR.db.loadingScreenTime
+    QR.db.loadingScreenTime = nil
     for _, id in ipairs({ 253629, 252607, 279550, 211788 }) do
         t:assertNotNil(QR.TeleportItemsData[id], "new travel item " .. id .. " is catalogued")
         t:assertGreaterThan(#QR.TeleportDestinations:GetDestinations(id, QR.TeleportItemsData[id]), 0,
@@ -53,6 +55,7 @@ T:run("Travel catalogue: modern items and spell cast times are available", funct
     t:assertEqual(10, QR.MageTeleports.Alliance[3561].castTime, "Stormwind teleport has a ten-second cast")
     t:assertEqual(13, QR.TravelTime:GetTeleportTime({ type = "spell", class = "MAGE", castTime = 10 }),
         "route estimate includes cast time and loading")
+    QR.db.loadingScreenTime = oldLoading
 end)
 
 T:run("Travel destinations: Make Camp clears obsolete and other-character coordinates", function(t)
@@ -186,10 +189,13 @@ T:run("Travel inventory: unknown toy usability fails closed and profession chang
 end)
 
 T:run("Travel time: current client cast time overrides the static travel catalogue", function(t)
+    local oldLoading = QR.db.loadingScreenTime
+    QR.db.loadingScreenTime = 5
     local oldItemSpell, oldSpellInfo = C_Item.GetItemSpell, C_Spell.GetSpellInfo
     C_Item.GetItemSpell = function() return "Generator activation", 999901 end
     C_Spell.GetSpellInfo = function() return { castTime = 7000 } end
     t:assertEqual(12, QR.TravelTime:GetEffectiveTime(48933, { type = "toy", castTime = 5 }, false, "toy"),
         "seven-second live item activation plus five-second loading overrides a stale five-second cast")
     C_Item.GetItemSpell, C_Spell.GetSpellInfo = oldItemSpell, oldSpellInfo
+    QR.db.loadingScreenTime = oldLoading
 end)

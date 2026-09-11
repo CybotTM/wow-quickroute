@@ -17,6 +17,13 @@ local function Number(value)
         and value >= 0 and value < math.huge
 end
 
+-- This setting is the estimated duration of one loading screen, replacing the
+-- type default. It is not a surcharge on top of another loading estimate.
+local function LoadingTime(default)
+    local configured = QR.db and QR.db.loadingScreenTime
+    return Number(configured) and configured or default
+end
+
 local function BooleanCall(fn, ...)
     if not fn then return false end
     local ok, result = pcall(fn, ...)
@@ -186,13 +193,12 @@ end
 
 -- Flight master speed, yards per second.
 --
--- An estimate, like every other constant in this file -- LOADING_TIMES.boat and
--- SPEEDS.mounted_flying are the same kind of number. What is NOT estimated is
--- the distance it divides: flight point positions come from the client's own
--- TaxiNodes table, so the geometry is exact and only the scalar is guessed.
+-- This is a heuristic applied to horizontal TaxiNodes coordinates, not actual
+-- flight-path length. It omits altitude, detours and intermediate stops; sharing
+-- an addon continent also does not prove two world maps share a coordinate origin.
 --
 -- To recalibrate: take a flight whose endpoints are both in QR.FlightPoints,
--- time it, and divide the world distance between them by the seconds.
+-- time it, subtract boarding/landing overhead, then compare against the model.
 TravelTime.FLIGHT_SPEED = 30
 
 -- Time on the ground per flight: talking to the flight master, the takeoff and
@@ -319,20 +325,21 @@ function TravelTime:GetTeleportTime(teleportData, teleportID, sourceType)
             end
         end
     end
-    return castTime + loadTime
+    return castTime + LoadingTime(loadTime)
 end
 
 --- Get portal travel time (loading time only)
 -- @return number Portal loading time in seconds
 function TravelTime:GetPortalTime()
-    return self.LOADING_TIMES.portal
+    return LoadingTime(self.LOADING_TIMES.portal)
 end
 
 --- Get transport travel time based on type
 -- @param transportType string "boat", "tram", "zeppelin", or "portal"
 -- @return number Travel time in seconds
 function TravelTime:GetTransportTime(transportType)
-    return self.LOADING_TIMES[transportType] or self.LOADING_TIMES.portal
+    if transportType == "portal" then return self:GetPortalTime() end
+    return self.LOADING_TIMES[transportType] or self:GetPortalTime()
 end
 
 --- Get effective total travel time for a teleport
