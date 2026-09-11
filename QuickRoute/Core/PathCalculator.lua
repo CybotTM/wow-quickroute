@@ -1511,9 +1511,36 @@ local function WorldMapMixesContinents(continentID)
     return mixedWorldMaps[continentID] or false
 end
 
+--- Both directions must exist through masters available to this faction.
+-- World maps alone cannot establish this: Outland and the Burning Crusade
+-- starting zones share one map, while Dornogal / Gundargaz span two.
+local function SameTaxiNetwork(a, b)
+    local na, nb = a.point.network, b.point.network
+    -- A regenerated FlightPoints always carries the field. An older one does
+    -- not, and answering "different network" for a missing field would delete
+    -- every flight edge in the graph, so the absence falls back to the world
+    -- map, which is what decided this before the field existed.
+    if type(na) ~= "table" or type(nb) ~= "table" then
+        return a.point.continentID == b.point.continentID
+    end
+    local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    return na[faction] ~= nil and na[faction] == nb[faction]
+end
+
 local function SameFlightNetwork(a, b)
-    if a.point.continentID ~= b.point.continentID then
+    if not SameTaxiNetwork(a, b) then
         return false
+    end
+    -- Connectivity does not justify pricing a cross-continent journey as a
+    -- straight line. Neutral subregions such as Mechagon remain compatible
+    -- with their own world map; a cross-world pair needs the same named landmass.
+    local pa = QR.GetContinentForZone and QR.GetContinentForZone(a.mapID)
+    local pb = QR.GetContinentForZone and QR.GetContinentForZone(b.mapID)
+    if pa and pb and not (IsNeutral(pa) or IsNeutral(pb)) and pa ~= pb then
+        return false
+    end
+    if a.point.continentID ~= b.point.continentID then
+        return pa ~= nil and pa == pb and not IsNeutral(pa)
     end
     if not WorldMapMixesContinents(a.point.continentID) then
         return true
@@ -1556,15 +1583,15 @@ function PathCalculator:WriteFlightEdge(from, to, seconds, data)
 end
 
 --- Connect the zones the player can fly between.
--- Two flight zones are connected when they share both a world map and the
--- addon's own continent: from any flight master the game auto-routes multi-hop
--- to every point you have discovered on that map, so the per-path topology adds
--- nothing at this granularity.
+-- A faction-specific strongly connected TaxiPath component proves travel in
+-- both directions. One-way-only connections are conservatively omitted, since
+-- this layer writes paired flights. Geography remains a cost-model constraint.
 --
--- The weight is the real distance between the two flight points divided by
--- FLIGHT_SPEED, plus a fixed overhead for talking to the flight master and the
--- takeoff and landing. The distance is exact -- it comes from the client's
--- TaxiNodes positions -- and only the speed is an estimate.
+-- Cost is a heuristic horizontal coordinate distance divided by FLIGHT_SPEED,
+-- plus boarding/landing overhead. TaxiNodes positions are sourced, but this
+-- does not measure the flight spline, height changes, intermediate stops, or
+-- shared coordinate origins across world maps. Network reachability is proven
+-- separately; the displayed time remains an estimate requiring client timing.
 function PathCalculator:AddFlightEdges()
     if not QR.FlightPoints then
         return
