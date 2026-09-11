@@ -81,6 +81,7 @@ end
 -- invalidate themselves.
 local INVALIDATING_EVENTS = {
     SPELL_UPDATE_COOLDOWN = true,
+    BAG_UPDATE_COOLDOWN = true,
 }
 
 -- A small stable bucket avoids sub-pixel movement invalidating all quest
@@ -185,12 +186,13 @@ end
 -- A teleport on the same continent is not necessarily faster than walking,
 -- and a teleport later in the route must not skip its preceding travel.
 --- Where this quest currently points. Resolved through WaypointIntegration's
--- own 30-second coordinate cache, so asking on every read is cheap.
-local function ResolveQuestWaypoint(questID)
+-- coordinate cache. A quest event makes that cache cold; map-wide fallback
+-- answers are then shared across the current refresh's queued quests.
+local function ResolveQuestWaypoint(questID, scanBatch)
     if not QR.WaypointIntegration then return nil end
     local button = QTB.activeButtons[questID]
     local retry = button and button._pendingSince ~= nil
-    return QR.WaypointIntegration:GetQuestWaypoint(questID, retry)
+    return QR.WaypointIntegration:GetQuestWaypoint(questID, retry, scanBatch)
 end
 
 local function FindBestTeleportForQuest(questID, waypoint)
@@ -223,7 +225,7 @@ end
 -- @return number|nil teleportID
 -- @return string|nil sourceType
 -- @return table|nil data from TeleportItemsData
-local function GetCachedTeleportForQuest(questID)
+local function GetCachedTeleportForQuest(questID, scanBatch)
     local now = GetTime()
     local mapID, px, py = GetPlayerPosition()
     if not mapID then QTB.questCache[questID] = nil; return nil, nil, nil, true end
@@ -239,7 +241,7 @@ local function GetCachedTeleportForQuest(questID)
     -- along its path, so x and y drift while the destination stays put, and
     -- comparing them would recompute a route that cannot have changed. Which
     -- zone the player is being sent to is what decides the first step.
-    local waypoint = ResolveQuestWaypoint(questID)
+    local waypoint = ResolveQuestWaypoint(questID, scanBatch)
     local destination = DestinationBucket(waypoint)
 
     -- A destination the client cannot state right now is not a quest that
@@ -345,6 +347,7 @@ local function UpdateCooldownState()
     if not (ct and ct.SuspendBatch) then EndCooldownBatch() end
     local previous = QTB.cooldownState or {}
     local current, changed = {}, false
+    local now, nextExpiry = GetTime(), nil
     local teleports = QR.PlayerInventory and QR.PlayerInventory:GetAllTeleports() or {}
     for id, entry in pairs(teleports) do
         local cooldown = QR.CooldownTracker and QR.CooldownTracker:GetCooldown(id, entry.sourceType)
@@ -361,14 +364,30 @@ local function UpdateCooldownState()
         -- CooldownTracker deliberately does not make this inference when it
         -- reports a cooldown, because a short real cooldown is a real cooldown.
         -- That is the reporting question; this is the planning one.
-        local remaining = cooldown and cooldown.remaining or 0
-        current[id] = (cooldown and cooldown.ready) or remaining <= GLOBAL_COOLDOWN or false
+        local remaining = cooldown and cooldown.remaining
+        local knownRemaining = not (issecretvalue and issecretvalue(remaining))
+            and type(remaining) == "number" and remaining > 0 and remaining < math_huge
+        -- A known personal cooldown stays unavailable through its final 1.5s.
+        -- Its total duration identifies one first observed in that window;
+        -- modern spell answers explicitly exclude GCD in CooldownTracker. Otherwise the
+        -- expiry disappears and a standing player keeps a slower alternative.
+        local duration = cooldown and cooldown.duration
+        local personalDuration = not (issecretvalue and issecretvalue(duration))
+            and type(duration) == "number" and duration > GLOBAL_COOLDOWN and duration < math_huge
+        local shortCooldown = knownRemaining and remaining <= GLOBAL_COOLDOWN
+            and not (cooldown and cooldown.isPersonal) and not personalDuration and previous[id] ~= false
+        current[id] = (cooldown and cooldown.ready == true) or shortCooldown or false
+        if not current[id] and knownRemaining then
+            local deadline = now + remaining
+            if not nextExpiry or deadline < nextExpiry then nextExpiry = deadline end
+        end
         if current[id] ~= previous[id] then changed = true end
     end
     for id in pairs(previous) do
         if current[id] == nil then changed = true end
     end
     QTB.cooldownState = current
+    QTB._nextCooldownExpiry = nextExpiry
     -- A readiness that moved invalidates the cache and re-routes, so the memo
     -- of the batch that was running describes a world that no longer holds:
     -- drop it. Nothing moved means the memo is still the same answer it was.
@@ -547,6 +566,7 @@ function QTB:ReleaseAllButtons()
     wipe(self.questCache)
     self._lastRefreshGraph, self._lastRefreshPosition = nil, nil
     self._pendingRefreshAt = nil
+    self._nextCooldownExpiry = nil
     if self.flightChoices then wipe(self.flightChoices) end
     if self.movementFrame then self.movementFrame:Hide() end
     if InCombatLockdown() then return end
@@ -635,7 +655,8 @@ function QTB:RefreshButtons()
         return
     end
 
-    UpdateCooldownState()
+    -- Combat may have deferred the event that made a faster option ready.
+    if UpdateCooldownState() then wipe(self.questCache) end
 
     local trackedQuests = GetTrackedQuestIDs()
     local watched = {}
@@ -665,6 +686,8 @@ function QTB:RefreshButtons()
 
     local generation = self._refreshGeneration
     local index, activeCount, retained = 1, 0, {}
+    local scanBatch = {}
+    local hasBatchGraph = false
     self._pendingRefreshAt = nil
     self._refreshRunning = true
     -- Every route in this batch prices every teleport against its cooldown, and
@@ -676,18 +699,36 @@ function QTB:RefreshButtons()
     local function IsCurrent()
         return generation == QTB._refreshGeneration and QTB.initialized and QTB.enabled and not InCombatLockdown()
     end
+    local function GraphChanged()
+        local calculator = QR.PathCalculator
+        return hasBatchGraph and (not calculator or calculator.graphDirty or calculator.graph ~= QTB._lastRefreshGraph)
+    end
     local function RefreshOne()
         if not IsCurrent() then EndCooldownBatch(generation); return end
         local questID = trackedQuests[index]
         if not questID or activeCount >= POOL_SIZE then EndCooldownBatch(generation); return end
+        -- A bind/phase update can arrive between queued quests. Earlier buttons
+        -- then describe the old graph even if a later route rebuilds it. Start
+        -- one replacement batch; keeping the first successful graph as the
+        -- baseline avoids restarting for the normal initial dirty build.
+        if GraphChanged() then QTB:RefreshButtons(); return end
         -- A route calculation can take several milliseconds. Never calculate
         -- every watched quest in the same quest-log/event frame.
-        local ok, teleportID, sourceType, data, incomplete, direct = pcall(GetCachedTeleportForQuest, questID)
+        local ok, teleportID, sourceType, data, incomplete, direct = pcall(GetCachedTeleportForQuest, questID, scanBatch)
         if not IsCurrent() then EndCooldownBatch(generation); return end
         if not ok then
             QR:Debug("Quest button route unavailable: " .. tostring(teleportID))
             teleportID = nil
             incomplete = true
+        end
+        -- A calculation itself may discover a faction change and rebuild.
+        if GraphChanged() then QTB:RefreshButtons(); return end
+        local calculator = QR.PathCalculator
+        if not incomplete and calculator and calculator.graph and not calculator.graphDirty then
+            -- Reuse the movement observer's reference rather than retaining a
+            -- graph inside callbacks after cancellation or pool release.
+            QTB._lastRefreshGraph = calculator.graph
+            hasBatchGraph = true
         end
         local previous = QTB.flightChoices[questID]
         if flying and direct and (previous or QTB.activeButtons[questID]) then
@@ -762,7 +803,6 @@ function QTB:RefreshButtons()
             if not next(QTB.activeButtons) and QTB.updateFrame then QTB.updateFrame:Hide() end
             QTB._refreshRunning = false
             EndCooldownBatch(generation)
-            QTB._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph
         end
     end
     C_Timer.After(0, RefreshOne)
@@ -774,6 +814,11 @@ function QTB:OnMovementUpdate(elapsed)
     if self._movementElapsed < MOVEMENT_CHECK_INTERVAL then return end
     self._movementElapsed = 0
     if not self.initialized or not self.enabled or InCombatLockdown() or self._refreshRunning then return end
+    if self._nextCooldownExpiry and GetTime() >= self._nextCooldownExpiry and UpdateCooldownState() then
+        self:InvalidateCache()
+        self:RefreshButtons()
+        return
+    end
     PruneQuestCache()
     local position = GetPositionBucket()
     local calculator = QR.PathCalculator
@@ -973,11 +1018,13 @@ function QTB:RegisterEvents()
 
     self.eventFrame = CreateFrame("Frame")
     self.eventFrame:RegisterEvent("QUEST_LOG_UPDATE")
+    self.eventFrame:RegisterEvent("QUEST_POI_UPDATE")
     self.eventFrame:RegisterEvent("QUEST_WATCH_LIST_CHANGED")
     self.eventFrame:RegisterEvent("SUPER_TRACKING_CHANGED")
     self.eventFrame:RegisterEvent("ZONE_CHANGED_NEW_AREA")
     self.eventFrame:RegisterEvent("SPELLS_CHANGED")
     self.eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    self.eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
     self.eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
 
     self.eventFrame:SetScript("OnEvent", function(frame, event, ...)
@@ -995,7 +1042,8 @@ function QTB:RegisterEvents()
             return
         end
         if not QTB.enabled then QTB:InvalidateCache(); return end
-        if event == "SPELL_UPDATE_COOLDOWN" and not UpdateCooldownState() then return end
+        if (event == "SPELL_UPDATE_COOLDOWN" or event == "BAG_UPDATE_COOLDOWN")
+            and not UpdateCooldownState() then return end
 
         -- Only a confirmed cooldown change empties the cache; see
         -- INVALIDATING_EVENTS above for why nothing else has to.

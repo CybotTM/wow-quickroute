@@ -99,6 +99,19 @@ measure("25-moving",25,function(index)Mock.config.playerX=0.35+index*0.002;retur
 measure("25-moving-repeat",25,function(index)Mock.config.playerX=0.45+index*0.002;return QR.PathCalculator:CalculatePath(84,0.55+index*0.003,0.65)end)
 measure("25-different-map",25,function(index)return QR.PathCalculator:CalculatePath(2339,0.4+index*0.001,0.5)end)
 measure("25-hypothetical",25,function(index)return QR.PathCalculator:CalculatePathFrom(84,0.4,0.5,2339,0.4+index*0.001,0.5,{excludeCooldowns=true})end)
+-- MultiRoute reuses one private graph for its matrix. The diagnostic above
+-- deliberately measures the one-shot API and is not the tour workload.
+do
+    local before = retained()
+    local context = assert(QR.PathCalculator:CreateRouteContext({excludeCooldowns=true}))
+    log("tour-context-created",before)
+    measure("25-tour-context",25,function(index)
+        return context:CalculatePathFrom(84,0.4,0.5,2339,0.4+index*0.001,0.5,{excludeCooldowns=true})
+    end)
+    measure("25-tour-context-repeat",25,function(index)
+        return context:CalculatePathFrom(84,0.4,0.5,2339,0.4+index*0.001,0.5,{excludeCooldowns=true})
+    end)
+end
 for batch=1,3 do
     measure("100-settled-"..batch,100,function(index)return QR.PathCalculator:CalculatePath(84,0.55+(index%25)*0.003,0.65)end)
 end
