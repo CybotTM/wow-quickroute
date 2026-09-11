@@ -995,6 +995,7 @@ QR.ZoneAdjacencies = {
     ---------------------------------------------------------------------------
     [525] = {  -- Frostfire Ridge
         {zone = 543, travelTime = 90},   -- Gorgrond
+        {zone = 590, travelTime = 60},   -- Frostwall garrison entrance (estimate)
     },
     [543] = {  -- Gorgrond
         {zone = 525, travelTime = 90},   -- Frostfire Ridge
@@ -1011,6 +1012,7 @@ QR.ZoneAdjacencies = {
     },
     [539] = {  -- Shadowmoon Valley (Draenor)
         {zone = 535, travelTime = 60},   -- Talador
+        {zone = 582, travelTime = 60},   -- Lunarfall garrison entrance (estimate)
     },
     [542] = {  -- Spires of Arak
         {zone = 535, travelTime = 60},   -- Talador
@@ -1022,6 +1024,16 @@ QR.ZoneAdjacencies = {
     [534] = {  -- Tanaan Jungle
         {zone = 543, travelTime = 90},   -- Gorgrond
         {zone = 535, travelTime = 90},   -- Talador
+    },
+    -- Outdoor garrisons have an ordinary entrance into their host zone. The
+    -- UiMap parent IDs are 582 -> 539 and 590 -> 525 in build 12.1.0.69587;
+    -- https://wago.tools/db2/UiMap/csv?build=12.1.0.69587
+    -- These are estimated local travel costs, not level-3 garrison portals.
+    [582] = {  -- Lunarfall
+        {zone = 539, travelTime = 60},
+    },
+    [590] = {  -- Frostwall
+        {zone = 525, travelTime = 60},
     },
 
     ---------------------------------------------------------------------------
