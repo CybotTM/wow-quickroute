@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.19.0] - 2026-09-11
+
 ### Added
 - Learn an existing hearthstone binding from its successful observed arrival. Unknown landing points now have a tooltip explaining how to make them available to routing.
 - Derive faction-specific flight networks from directed client taxi paths, including connected Khaz Algar zones on different world maps. Flight durations remain estimates.
@@ -422,7 +424,8 @@
 - CI pipeline (luacheck + tests)
 - CurseForge + Wago automated publishing
 
-[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.5...HEAD
+[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.19.0...HEAD
+[1.19.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.5...v1.19.0
 [1.18.5]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.4...v1.18.5
 [1.18.4]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.3...v1.18.4
 [1.18.3]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.2...v1.18.3
