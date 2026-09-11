@@ -21,7 +21,7 @@ work, merging verified QuickRoute changes and installing the resulting addon.
 | Portal observations (#83) | Valid departure/arrival pairs, bounded storage, corrupt-data and combat handling | Verified, including global 6,000-origin and 6,000-endpoint budgets |
 | Claimed stranded zones / Oribos returns (#21, #40) | Real full-graph routes, verified transport data; no invented return portals | Verified with discovery-dependent fixtures |
 | Review rounds | Functional/source review, independent adversarial review, integrated verification | Complete; findings repaired and rechecked |
-| Delivery | Exact reviewed commits, green CI, scoped merges, verified installation and explicit remaining live limits | Local gates passed; GitHub PR and release gates follow |
+| Delivery | Exact reviewed commits, green CI, scoped merges, verified installation and explicit remaining live limits | Implementation merged through #84 after green CI; version and signed-tag release use separate gates |
 
 ## Risks considered before integration
 
@@ -177,3 +177,18 @@ inventory layout, not the popup's final appearance. No simulator PR was merged.
 Direct game control was unavailable:
 the Windows/WSL tool bridge rejected its sandbox working-directory URI before
 executing any game action. No in-game FPS or live gameplay acceptance is claimed.
+
+### Merge and release handoff
+
+[PR #84](https://github.com/CybotTM/wow-quickroute/pull/84) merged the reviewed
+tree as `da9eea77bdd2c120c0f56b7601360d54ad669004` after all four
+[CI jobs](https://github.com/CybotTM/wow-quickroute/actions/runs/34550747150)
+passed. Both #82 and #83 are recorded as merged through that history. Issues
+#21, #33, #40, #66, #71 and #72 are closed against the evidence above. The source
+tree after integrating the original PR histories is byte-for-byte identical to
+the reviewed `53355ef` tree; the merges did not restore their superseded bugs.
+
+Version 1.19.0 is prepared separately. Publication requires the signed tag to
+match the TOC on main, the release workflow to repeat tests/lint/generator gates,
+and the artifact to retain source notices. Installation verifies every ZIP file
+against the tagged addon tree and preserves the previous installed directory.
