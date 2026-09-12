@@ -33,6 +33,7 @@ Data\DungeonTeleports.lua
 Data\TravelShortcuts.lua
 Data\FlightPoints.lua
 Data\ServicePOIs.lua
+Data\HearthstoneLocations.lua
 Data\DestinationCatalog.lua
 
 # Core
