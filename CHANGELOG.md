@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+- Resolve known hearthstone inns from their localized bind name without requiring a first use. Use a compact, sourced inn catalogue, retain observed character bindings as the preferred destination, and exclude ambiguous names such as legacy and Midnight Morgenluft.
+- Explain automatically inferred inn positions in hearthstone tooltips. Catalogue coordinates are approximate; successful observed arrivals refine them.
+
 ## [1.19.0] - 2026-09-11
 
 ### Added
