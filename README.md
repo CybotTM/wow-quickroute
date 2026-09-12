@@ -38,7 +38,7 @@ Routes depend on recorded connections, character access and estimated travel tim
 - **Zone Phases:** Route through seven Zidormi regions with explicit phase changes and visible controls for unknown states
 - **Travel Choices:** Discovered Mole Machine stops, selectable engineering destinations, faction garrisons, and observed camp/house locations
 - **Access Checks:** Known quest, level, class, faction, reputation and other requirements gate sourced travel connections
-- **Observed Hearth Binding:** Bind at an inn after installing to include that character's verified hearth destination
+- **Automatic Hearth Destination:** Recognize known inns from the client's localized bind name, even before the first use. Observed bindings take precedence over catalogue approximations; ambiguous names remain unresolved.
 - **Acquisition Help:** Click a missing teleport item for its ATT details, or open QuickRoute's source help with requirements and a route when a source position is known
 
 ## Screenshots
@@ -125,7 +125,7 @@ In the Teleports tab, **left-click a missing item** to open its source details i
 
 Trips support up to 20 stops and persist per character. Up to ten stops use an exact shortest-order solver for the estimated reusable-route matrix; larger lists use a bounded optimization heuristic. The matrix excludes personal teleports and uses phase/access state available during comparison. Each executable leg is recalculated from your actual position and available teleports. Confirm a reached stop to continue. Random landings are not presented as exact teleport destinations.
 
-A missing route means the addon lacks a usable recorded connection or required state; it does not prove the destination is inaccessible in the game. Bind at an inn after installing to record a hearth landing. Housing destinations require owned-house identity and an observed neighborhood plot position. Phase assumptions never change your character’s actual phase or mark an unperformed Zidormi conversation complete.
+A missing route means the addon lacks a usable recorded connection or required state; it does not prove the destination is inaccessible in the game. Known, unambiguous hearth inns are resolved automatically from their localized name. For unknown or ambiguous inns, use the hearthstone once or bind at an inn to record that character's destination. Catalogue coordinates approximate the inn, not the precise landing; [coverage and sources](docs/data/hearthstone-locations.md) describe the limits. Housing destinations require owned-house identity and an observed neighborhood plot position. Phase assumptions never change your character’s actual phase or mark an unperformed Zidormi conversation complete.
 
 ## Dependencies
 

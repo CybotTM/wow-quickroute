@@ -1,7 +1,6 @@
--- Remember observed hearthstone bindings per character, without guessing from
--- the current zone or sharing a different character's inn.
--- GetBindLocation exposes only a name. An existing remote bind needs one
--- observed successful hearth arrival before its coordinates can be routed.
+-- Prefer observed character bindings; resolve existing bindings against known
+-- inns when their localized name identifies exactly one catalogue location.
+-- Unknown or ambiguous names still require an observed bind or hearth arrival.
 local ADDON_NAME, QR = ...
 local pairs, type, pcall = pairs, type, pcall
 local math_abs = math.abs
@@ -66,15 +65,63 @@ local function StorePoint(guid, name, point, source)
     return true
 end
 
+--- Localize the small inn catalogue once, including collision-only entries.
+-- Never publish a partial index: an unavailable second name could make an
+-- ambiguous binding look unique. Failed builds retry on entering the world.
+function Hearthstone:BuildInnIndex()
+    local index, complete = {}, true
+    -- API hooks may reenter GetDestination while names are being localized.
+    -- Publish only the completed index, never a temporarily unique candidate.
+    self.innIndex = {}
+    if type(QR.HearthstoneLocations) ~= "table" or not (C_Map and C_Map.GetAreaInfo) then
+        self.innIndexIncomplete = true
+        return
+    end
+    for _, inn in pairs(QR.HearthstoneLocations) do
+        if type(inn) ~= "table" or not Number(inn.areaID) or inn.areaID <= 0
+            or inn.areaID % 1 ~= 0 then
+            complete = false
+        else
+            local ok, name = pcall(C_Map.GetAreaInfo, inn.areaID)
+            if not ok or not Public(name) or type(name) ~= "string" or name == "" then
+                complete = false
+            else
+                local mapID, x, y = QR.PathCalculator:ResolveMapPosition(inn.mapID, inn.x, inn.y)
+                local previous = index[name]
+                if inn.ambiguous or not mapID or previous == false then
+                    index[name] = false
+                elseif previous and (previous.mapID ~= mapID or previous.x ~= x or previous.y ~= y) then
+                    index[name] = false
+                else
+                    index[name] = { mapID = mapID, x = x, y = y }
+                end
+            end
+        end
+    end
+    self.innIndexIncomplete = not complete
+    if complete then
+        self.innIndex = index
+        -- A tooltip can discover an inn after the planner built its graph.
+        -- Repricing old edges alone would not add the new hearth destination.
+        QR.PathCalculator.graphDirty = true
+    end
+end
+
 function Hearthstone:GetDestination()
     local guid, name = PlayerGUID(), BindName()
-    local binds = QR.db and QR.db.hearthstoneBinds
-    local point = guid and type(binds) == "table" and binds[guid]
-    if type(point) ~= "table" or (point.source ~= "HEARTHSTONE_BOUND" and point.source ~= "HEARTHSTONE_ARRIVAL")
-        or not name or point.bindName ~= name then return nil end
-    local mapID, x, y = QR.PathCalculator:ResolveMapPosition(point.mapID, point.x, point.y)
-    if not mapID then return nil end
-    return { mapID = mapID, x = x, y = y, bindName = name }
+    if not guid or not name then return nil end
+    local binds = type(QR.db) == "table" and QR.db.hearthstoneBinds
+    local point = type(binds) == "table" and binds[guid]
+    if type(point) == "table" and point.bindName == name
+        and (point.source == "HEARTHSTONE_BOUND" or point.source == "HEARTHSTONE_ARRIVAL") then
+        local mapID, x, y = QR.PathCalculator:ResolveMapPosition(point.mapID, point.x, point.y)
+        if mapID then return { mapID = mapID, x = x, y = y, bindName = name } end
+    end
+    if not self.innIndex then self:BuildInnIndex() end
+    point = self.innIndex[name]
+    if not point then return nil end
+    return { mapID = point.mapID, x = point.x, y = point.y, bindName = name,
+        source = "INN_DATABASE", isApproximate = true }
 end
 
 --- Called only for HEARTHSTONE_BOUND. Binding happens near the innkeeper, so
@@ -148,6 +195,10 @@ function Hearthstone:ResolveHearthSpell(itemID)
 end
 
 function Hearthstone:OnEvent(event, unit, castGUID, spellID)
+    if event == "PLAYER_ENTERING_WORLD" and self.innIndexIncomplete then
+        self.innIndex, self.innIndexIncomplete = nil, nil
+        QR.PathCalculator.graphDirty = true
+    end
     if event == "HEARTHSTONE_BOUND" then self:RecordBind(); return end
     if event == "GET_ITEM_INFO_RECEIVED" then
         if Number(unit) and self.hearthItems[unit] then self:ResolveHearthSpell(unit) end
@@ -203,6 +254,7 @@ function Hearthstone:ResolveTeleport(data)
     resolved.nodeKey = "Hearthstone:" .. point.mapID .. ":" .. point.x .. ":" .. point.y
     resolved.isDynamic = false
     resolved.isBoundHearth = true
+    resolved.hearthstoneSource, resolved.isApproximate = point.source, point.isApproximate
     return resolved
 end
 
