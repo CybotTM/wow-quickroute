@@ -866,6 +866,8 @@ local function AddDestinationHint(entry)
         local destination = QR.Hearthstone:GetDestination()
         if not destination then
             hint = L["HEARTH_DESTINATION_HINT"]
+        elseif destination.isDefault then
+            hint = L["HEARTH_DESTINATION_DEFAULT_HINT"]
         elseif destination.source == "INN_DATABASE" then
             hint = L["HEARTH_DESTINATION_CATALOG_HINT"]
         end

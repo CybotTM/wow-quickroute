@@ -11,9 +11,14 @@ retail build 12.1.0.69587, exposed by Wago Tools:
 https://wago.tools/db2/AreaTable?build=12.1.0.69587
 https://wago.tools/db2/UiMap?build=12.1.0.69587
 
+Modern Morgenluft default: Sylmara Dawnpetal, NPC 242949, map 2395,
+46.2 / 46.0 from the current NPC mapper data (checked 2026-09-12):
+https://www.wowhead.com/npc=242949/sylmara-dawnpetal
+Both old and new bind-name aliases default to this approximate modern point.
+
 Per-location source lines, selection rules and withheld ambiguous names:
 https://github.com/CybotTM/wow-quickroute/blob/main/docs/data/hearthstone-locations.md
 
 Only normalized location facts are included. No guide prose or implementation
-is copied. The catalogue is incomplete and deliberately rejects ambiguous
-names. Observed character bindings and arrivals take precedence.
+is copied. The catalogue is incomplete; ambiguous names without an explicit
+default remain unresolved. Observed character bindings and arrivals take precedence.

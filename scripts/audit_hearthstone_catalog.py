@@ -8,6 +8,7 @@ Add --fixture /path/to/hearthstone_area_names.lua to regenerate the EN/DE test f
 import argparse
 import csv
 import hashlib
+import json
 import re
 import tarfile
 from collections import defaultdict
@@ -36,11 +37,11 @@ def main():
     catalog_path = args.root / "QuickRoute/Data/HearthstoneLocations.lua"
     source = catalog_path.read_text()
     records = {}
-    pattern = re.compile(r"^    \{ areaID = (\d+), (ambiguous = true|mapID = (\d+), x = ([\d.]+), y = ([\d.]+)) \},", re.M)
+    pattern = re.compile(r"^    \{ areaID = (\d+), (ambiguous = true|mapID = (\d+), x = ([\d.]+), y = ([\d.]+))(, isDefault = true)? \},", re.M)
     for match in pattern.finditer(source):
         area = int(match[1])
         assert area not in records, ("duplicate areaID", area)
-        record = {"areaID": area, "ambiguous": match[2] == "ambiguous = true"}
+        record = {"areaID": area, "ambiguous": match[2] == "ambiguous = true", "isDefault": bool(match[6])}
         if not record["ambiguous"]:
             record.update(mapID=int(match[3]), x=float(match[4]), y=float(match[5]))
             assert record["mapID"] > 0 and 0 <= record["x"] <= 1 and 0 <= record["y"] <= 1
@@ -48,9 +49,21 @@ def main():
     assert len(records) == 119, ("reviewed snapshot record count", len(records))
     maps = {int(row["ID"]) for row in rows(args.sources / "UiMap.csv")}
     locations = [record for record in records.values() if not record["ambiguous"]]
-    assert len(locations) == 58
-    assert len({record["mapID"] for record in locations}) == 43
+    assert len(locations) == 60
+    assert len({(record["mapID"], record["x"], record["y"]) for record in locations}) == 59
+    assert len({record["mapID"] for record in locations}) == 44
     assert all(record["mapID"] in maps for record in locations)
+    default_areas = {3462, 15995}
+    assert {area for area, record in records.items() if record["isDefault"]} == default_areas
+    npc_path = args.sources / "wowhead-sylmara-242949.html"
+    npc_html = npc_path.read_text(encoding="utf-8")
+    mapper_match = re.search(r"\bg_mapperData\s*=\s*", npc_html)
+    assert mapper_match, "Missing Sylmara NPC mapper data"
+    mapper, _ = json.JSONDecoder().raw_decode(npc_html[mapper_match.end():])
+    points = mapper["15968"]
+    assert len(points) == 1 and points[0]["uiMapId"] == 2395
+    assert len(points[0]["coords"]) == 1 and len(points[0]["coords"][0]) == 2
+    default_point = (2395, *(round(value / 100, 4) for value in points[0]["coords"][0]))
 
     guides = []
     with tarfile.open(args.sources / "WoW-Pro-Guides-f7c84c7.tar.gz") as archive:
@@ -100,16 +113,22 @@ def main():
             name = names[record["areaID"]]
             aliases = by_name[name] - {record["areaID"]}
             assert aliases <= records.keys(), (locale, record["areaID"], "missing collision blocker", aliases - records.keys())
-            if aliases:
+            if record["isDefault"]:
+                assert aliases <= default_areas, (locale, "unexpected collision with modern default", aliases)
+                assert index[name] is not None, (locale, "modern default missing", name)
+            elif aliases:
                 assert index[name] is None, (locale, "collision incorrectly routable", name)
         usable = sum(record is not None for record in index.values())
         print(f"{locale}\t{len(table)}\t{len(missing)}\t{usable}")
     en = snapshots["enUS"]
     for record in locations:
         key = (en[record["areaID"]], record["mapID"], record["x"], record["y"])
-        assert any(guide[:4] == key for guide in guides), ("unsourced or averaged coordinates", key)
+        if record["isDefault"]:
+            assert key[1:] == default_point, ("default differs from sourced NPC position", key)
+        else:
+            assert any(guide[:4] == key for guide in guides), ("unsourced or averaged coordinates", key)
     assert snapshots["deDE"][3462] == snapshots["deDE"][15995] == "Morgenluft"
-    assert records[3462]["ambiguous"] and records[15995]["ambiguous"]
+    assert not records[3462]["ambiguous"] and not records[15995]["ambiguous"]
     if args.fixture:
         content = [
             "-- Client AreaTable names, extracted without manual translation.",
@@ -131,6 +150,7 @@ def main():
         print(path.name + "\t" + hashlib.sha256(path.read_bytes()).hexdigest())
     guide_path = args.sources / "WoW-Pro-Guides-f7c84c7.tar.gz"
     print(guide_path.name + "\t" + hashlib.sha256(guide_path.read_bytes()).hexdigest())
+    print(npc_path.name + "\t" + hashlib.sha256(npc_path.read_bytes()).hexdigest())
 
 
 if __name__ == "__main__":
