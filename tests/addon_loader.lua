@@ -47,6 +47,7 @@ function AddonLoader:Load(MockWoW, options)
         "Data/FlightPoints.lua",
         "Data/ServicePOIs.lua",
         "Data/Provenance.lua",
+        "Data/HearthstoneLocations.lua",
         "Data/DestinationCatalog.lua",
         "Core/Graph.lua",
         "Core/TourPlanner.lua",

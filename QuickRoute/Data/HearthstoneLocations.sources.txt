@@ -1,0 +1,19 @@
+QuickRoute hearthstone inn catalogue
+
+Approximate map coordinates and binding-area identities, checked 2026-09-12.
+These factual locations are not exact, observed character landing positions.
+
+Inn interaction coordinates: explicit hearth-binding steps from WoW-Pro-Guides
+https://github.com/Ludovicus-Maior/WoW-Pro-Guides/tree/f7c84c7ef4bcc3af20ff33cb5a497dd639b45851
+
+Area identities, localized names and UI map identities: Blizzard client data,
+retail build 12.1.0.69587, exposed by Wago Tools:
+https://wago.tools/db2/AreaTable?build=12.1.0.69587
+https://wago.tools/db2/UiMap?build=12.1.0.69587
+
+Per-location source lines, selection rules and withheld ambiguous names:
+https://github.com/CybotTM/wow-quickroute/blob/main/docs/data/hearthstone-locations.md
+
+Only normalized location facts are included. No guide prose or implementation
+is copied. The catalogue is incomplete and deliberately rejects ambiguous
+names. Observed character bindings and arrivals take precedence.
