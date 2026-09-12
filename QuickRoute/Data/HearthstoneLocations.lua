@@ -2,6 +2,7 @@
 -- Sources and conservative exclusions: docs/data/hearthstone-locations.md.
 -- AreaTable/UiMap: retail 12.1.0.69587. Names are localized by C_Map.GetAreaInfo.
 -- Never infer uniqueness by faction, level, current zone, or quest progress.
+-- Explicit defaults use area IDs as localized name aliases for a modern point.
 local ADDON_NAME, QR = ...
 
 QR.HearthstoneLocations = {
@@ -26,7 +27,7 @@ QR.HearthstoneLocations = {
     { areaID = 2104, mapID = 56, x = 0.1066, y = 0.6102 }, -- Deepwater Tavern
     { areaID = 2255, mapID = 83, x = 0.5984, y = 0.5117 }, -- Everlook
     { areaID = 2268, ambiguous = true }, -- Light's Hope Chapel
-    { areaID = 3462, ambiguous = true }, -- Fairbreeze Village
+    { areaID = 3462, mapID = 2395, x = 0.4620, y = 0.4600, isDefault = true }, -- Fairbreeze name alias: modern default
     { areaID = 3538, mapID = 100, x = 0.5420, y = 0.6360 }, -- Honor Hold
     { areaID = 3552, mapID = 100, x = 0.2323, y = 0.3650 }, -- Temple of Telhamat
     { areaID = 3584, mapID = 106, x = 0.5584, y = 0.5980 }, -- Blood Watch
@@ -118,7 +119,7 @@ QR.HearthstoneLocations = {
     { areaID = 15149, ambiguous = true }, -- Mereldar
     { areaID = 15545, ambiguous = true }, -- Mereldar
     { areaID = 15733, ambiguous = true }, -- Refuge Pointe
-    { areaID = 15995, ambiguous = true }, -- Fairbreeze Village
+    { areaID = 15995, mapID = 2395, x = 0.4620, y = 0.4600, isDefault = true }, -- Fairbreeze Village: modern default
     { areaID = 16094, ambiguous = true }, -- Augurs' Terrace
     { areaID = 16179, ambiguous = true }, -- Augurs' Terrace
     { areaID = 16326, ambiguous = true }, -- Augurs' Terrace

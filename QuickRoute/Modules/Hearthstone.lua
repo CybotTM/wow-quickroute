@@ -1,6 +1,6 @@
 -- Prefer observed character bindings; resolve existing bindings against known
 -- inns when their localized name identifies exactly one catalogue location.
--- Unknown or ambiguous names still require an observed bind or hearth arrival.
+-- Explicit modern defaults can cover known aliases; observations always win.
 local ADDON_NAME, QR = ...
 local pairs, type, pcall = pairs, type, pcall
 local math_abs = math.abs
@@ -93,7 +93,8 @@ function Hearthstone:BuildInnIndex()
                 elseif previous and (previous.mapID ~= mapID or previous.x ~= x or previous.y ~= y) then
                     index[name] = false
                 else
-                    index[name] = { mapID = mapID, x = x, y = y }
+                    index[name] = { mapID = mapID, x = x, y = y,
+                        isDefault = inn.isDefault == true or (previous and previous.isDefault) or nil }
                 end
             end
         end
@@ -121,7 +122,7 @@ function Hearthstone:GetDestination()
     point = self.innIndex[name]
     if not point then return nil end
     return { mapID = point.mapID, x = point.x, y = point.y, bindName = name,
-        source = "INN_DATABASE", isApproximate = true }
+        source = "INN_DATABASE", isApproximate = true, isDefault = point.isDefault }
 end
 
 --- Called only for HEARTHSTONE_BOUND. Binding happens near the innkeeper, so
@@ -255,6 +256,7 @@ function Hearthstone:ResolveTeleport(data)
     resolved.isDynamic = false
     resolved.isBoundHearth = true
     resolved.hearthstoneSource, resolved.isApproximate = point.source, point.isApproximate
+    resolved.hearthstoneDefault = point.isDefault
     return resolved
 end
 

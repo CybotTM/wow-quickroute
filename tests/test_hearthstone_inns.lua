@@ -110,6 +110,21 @@ T:run("Hearthstone inns: duplicate references to the same point do not create am
     end)
 end)
 
+T:run("Hearthstone inns: explicit defaults retain their label across equivalent aliases", function(t)
+    isolated(function(replace)
+        QR.HearthstoneLocations[1].isDefault = true
+        QR.HearthstoneLocations[2] = { areaID = 900002, mapID = 37, x = 0.43, y = 0.65 }
+        replace(C_Map, "GetAreaInfo", function() return "Testgasthaus" end)
+        local point = QR.Hearthstone:GetDestination()
+        t:assertTrue(point and point.isDefault, "A same-point alias cannot remove the default explanation")
+        local teleport = QR.Hearthstone:ResolveTeleport(QR.TeleportItemsData[6948])
+        t:assertTrue(teleport.hearthstoneDefault, "Resolved route data retains the default marker")
+        QR.HearthstoneLocations[3] = { areaID = 900003, ambiguous = true }
+        QR.Hearthstone.innIndex = nil
+        t:assertNil(QR.Hearthstone:GetDestination(), "A default flag cannot override another conflicting area")
+    end)
+end)
+
 T:run("Hearthstone inns: an explicit ambiguous area blocks an otherwise unique match", function(t)
     isolated(function(replace)
         QR.HearthstoneLocations[2] = { areaID = 900002, ambiguous = true }
@@ -205,5 +220,12 @@ T:run("Hearthstone inns: a known inn tooltip describes the approximation instead
             "Real hover handler explains the automatically inferred approximate destination")
         t:assert(text:find(QR.L["HEARTH_DESTINATION_HINT"], 1, true) == nil,
             "Known inns do not tell the user that first use is required")
+        QR.HearthstoneLocations[1].isDefault = true
+        QR.Hearthstone.innIndex = nil
+        lines = {}
+        row:GetScript("OnEnter")(row)
+        text = table.concat(lines, "\n")
+        t:assert(text:find(QR.L["HEARTH_DESTINATION_DEFAULT_HINT"], 1, true) ~= nil,
+            "A configured current-zone default is explicitly explained in the real tooltip")
     end)
 end)
