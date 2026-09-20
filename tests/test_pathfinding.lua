@@ -2846,3 +2846,81 @@ end)
 -- above: removing the pricing test takes it from 0 cross-continent flight edges
 -- to 700. A second assertion here reddened under no mutation, so it is not
 -- repeated.
+
+-------------------------------------------------------------------------------
+-- Structured route failures
+--
+-- "Cannot reach" and "cannot currently establish a route" used to arrive as the
+-- same nil. Each case below is a different answer the player needs.
+-------------------------------------------------------------------------------
+
+T:run("Route failure: an unusable destination position is named as such", function(t)
+    resetState()
+    local route, failure = QR.PathCalculator:CalculatePath(nil, 0.5, 0.5)
+    t:assertNil(route, "no route without a destination map")
+    t:assertEqual("invalid_destination", failure.reason, "the reason names the destination, not the graph")
+    t:assertFalse(failure.retryable, "retrying cannot help a destination with no position")
+end)
+
+T:run("Route failure: an unavailable player position is temporary, not unreachable", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local saved = pc.UpdatePlayerLocation
+    pc.UpdatePlayerLocation = function() return false end
+    local route, failure = pc:CalculatePath(84, 0.5, 0.5)
+    pc.UpdatePlayerLocation = saved
+    t:assertNil(route, "no route while the position is unknown")
+    t:assertEqual("position_unavailable", failure.reason, "the reason names the missing position")
+    t:assertTrue(failure.retryable, "the same request can succeed once the position arrives")
+    t:assertNotNil(QR.PathCalculator:DescribeFailure(failure), "the reason has a display sentence")
+end)
+
+T:run("Route failure: an exhausted search budget is not a missing connection", function(t)
+    resetState()
+    local graph = QR.Graph:New()
+    graph:AddNode("A", {mapID = 84, x = 0.1, y = 0.1})
+    graph:AddNode("B", {mapID = 84, x = 0.9, y = 0.9})
+    graph:AddEdge("A", "B", 10, "walk", {})
+    local policy = {
+        initialState = {},
+        maxStates = 1,
+        Signature = function(_, state) return tostring(state.tag or "") end,
+        Advance = function(_, _, _, _, state) return { tag = tostring(state) } end,
+    }
+    local path, _, _, reason = graph:FindShortestPathWithState("A", "B", policy)
+    t:assertNil(path, "the budget stops the search")
+    t:assertEqual("search_limit", reason, "the graph reports the budget, not a missing link")
+end)
+
+T:run("Route failure: a disconnected destination is reported as no connection", function(t)
+    resetState()
+    local graph = QR.Graph:New()
+    graph:AddNode("A", {mapID = 84, x = 0.1, y = 0.1})
+    graph:AddNode("Island", {mapID = 85, x = 0.5, y = 0.5})
+    local path, _, _, reason = graph:FindShortestPath("A", "Island")
+    t:assertNil(path, "nothing links the two nodes")
+    t:assertEqual("disconnected", reason, "the graph says disconnected")
+    local missing, _, _, missingReason = graph:FindShortestPath("A", "Nowhere")
+    t:assertNil(missing, "an absent node yields no path")
+    t:assertEqual("unknown_node", missingReason, "an absent endpoint is distinguished from a missing link")
+end)
+
+T:run("Route failure: a locked requirement names the hop that refused", function(t)
+    resetState()
+    local graph = QR.Graph:New()
+    graph:AddNode("Player Location", {mapID = 84, x = 0.1, y = 0.1, nodeType = "player"})
+    graph:AddNode("Gate", {mapID = 84, x = 0.2, y = 0.2})
+    graph:AddNode("Remote", {mapID = 85, x = 0.5, y = 0.5})
+    graph:AddEdge("Player Location", "Gate", 5, "walk", {})
+    graph:AddEdge("Gate", "Remote", 5, "portal", {requirements = {quest = 424242}})
+    local savedQuest = C_QuestLog.IsQuestFlaggedCompleted
+    C_QuestLog.IsQuestFlaggedCompleted = function() return false end
+    local path, _, _, reason, blocked = QR.TravelRequirements:FindPath(graph, "Player Location", "Remote")
+    C_QuestLog.IsQuestFlaggedCompleted = savedQuest
+    t:assertNil(path, "the locked portal leaves no usable route")
+    t:assertEqual("blocked", reason, "a locked route is blocked, not disconnected")
+    t:assertNotNil(blocked, "the refused hop is reported")
+    t:assertEqual("Gate", blocked.from, "the refusal names where it starts")
+    t:assertEqual("Remote", blocked.to, "the refusal names where it leads")
+    t:assertEqual(424242, blocked.requirements and blocked.requirements.quest, "the unmet requirement travels with it")
+end)

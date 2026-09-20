@@ -290,8 +290,27 @@ function TR:FindPath(graph, start, goal)
         return staticAllowed(graph.nodes[from].requirements) and staticAllowed(graph.nodes[to].requirements)
             and staticAllowed(edge.data and edge.data.requirements)
     end
-    local optimisticPath, optimisticCost, optimisticEdges = graph:FindShortestPath(start, goal, withoutPhase)
-    if not optimisticPath then return nil end
+    local optimisticPath, optimisticCost, optimisticEdges, optimisticReason =
+        graph:FindShortestPath(start, goal, withoutPhase)
+    if not optimisticPath then
+        -- The filtered search found nothing. Whether that is "no connection" or
+        -- "locked" is the difference between a coverage gap and a prerequisite,
+        -- so the unrestricted graph is asked once, on the failure path only.
+        local rawPath, _, rawEdges = graph:FindShortestPath(start, goal)
+        if not rawPath then return nil, nil, nil, optimisticReason or "disconnected" end
+        for index, edge in ipairs(rawEdges) do
+            local from, to = rawPath[index], rawPath[index + 1]
+            if not withoutPhase(from, to, edge) then
+                return nil, nil, nil, "blocked", {
+                    from = from,
+                    to = to,
+                    requirements = (edge.data and edge.data.requirements)
+                        or graph.nodes[to].requirements or graph.nodes[from].requirements,
+                }
+            end
+        end
+        return nil, nil, nil, "blocked"
+    end
     local phaseMaps = {}
     local function collect(requirements)
         if type(requirements) ~= "table" then return end
@@ -372,10 +391,24 @@ function TR:FindPath(graph, start, goal)
         if allowed(graph.nodes[to], nextState) then return nextState end
     end
     local optimisticState = allowed(graph.nodes[start], initial) and initial or nil
-    if not optimisticState then return nil end
+    -- The starting node itself is refused, so no route from here can be walked.
+    if not optimisticState then return nil, nil, nil, "blocked_start" end
+    -- Where the unrestricted route is refused, the first refused hop is the
+    -- concrete unmet requirement and is reported with the failure.
+    local blocked
     for index, edge in ipairs(optimisticEdges) do
-        optimisticState = policy:Advance(optimisticPath[index], optimisticPath[index+1], edge, optimisticState)
-        if not optimisticState then break end
+        local advanced = policy:Advance(optimisticPath[index], optimisticPath[index+1], edge, optimisticState)
+        if not advanced then
+            blocked = {
+                from = optimisticPath[index],
+                to = optimisticPath[index + 1],
+                requirements = edge.data and edge.data.requirements
+                    or graph.nodes[optimisticPath[index + 1]].requirements,
+            }
+            optimisticState = nil
+            break
+        end
+        optimisticState = advanced
     end
     if optimisticState then return optimisticPath, optimisticCost, optimisticEdges end
 
@@ -390,7 +423,9 @@ function TR:FindPath(graph, start, goal)
     end
     initializePhases()
     checks = {} -- Initial state gained keys; discard checks made against its earlier shape.
-    return graph:FindShortestPathWithState(start, goal, policy)
+    local path, cost, edges, reason = graph:FindShortestPathWithState(start, goal, policy)
+    if path then return path, cost, edges end
+    return nil, nil, nil, reason or "blocked", blocked
 end
 
 function TR:Initialize()

@@ -742,15 +742,75 @@ end
 -- Path Calculation Methods
 -------------------------------------------------------------------------------
 
+-- Why a route calculation produced nothing. "Cannot reach" and "cannot
+-- currently establish a route" are different answers and need different
+-- responses from the player, so the caller is told which one it got.
+PathCalculator.FAILURE = {
+    INVALID_DESTINATION = "invalid_destination",
+    POSITION_UNAVAILABLE = "position_unavailable",
+    GRAPH_UNAVAILABLE = "graph_unavailable",
+    SEARCH_LIMIT = "search_limit",
+    BLOCKED = "blocked",
+    NO_CONNECTION = "no_connection",
+    INTERNAL_ERROR = "internal_error",
+}
+
+-- Reason codes the graph and the requirement layer produce, mapped onto the
+-- codes callers see.
+local SEARCH_FAILURE = {
+    unknown_node = PathCalculator.FAILURE.NO_CONNECTION,
+    disconnected = PathCalculator.FAILURE.NO_CONNECTION,
+    search_limit = PathCalculator.FAILURE.SEARCH_LIMIT,
+    blocked = PathCalculator.FAILURE.BLOCKED,
+    blocked_start = PathCalculator.FAILURE.BLOCKED,
+}
+
+local FAILURE_MESSAGE = {
+    invalid_destination = "ROUTE_FAIL_INVALID_DESTINATION",
+    position_unavailable = "ROUTE_FAIL_POSITION_UNAVAILABLE",
+    graph_unavailable = "ROUTE_FAIL_GRAPH_UNAVAILABLE",
+    search_limit = "ROUTE_FAIL_SEARCH_LIMIT",
+    blocked = "ROUTE_FAIL_BLOCKED",
+    no_connection = "ROUTE_FAIL_NO_CONNECTION",
+    internal_error = "ROUTE_FAIL_INTERNAL",
+}
+
+-- Whether trying the same request again can succeed without the player doing
+-- anything. A search budget is worth retrying; a missing connection is not.
+local FAILURE_RETRYABLE = {
+    position_unavailable = true,
+    graph_unavailable = true,
+    search_limit = true,
+}
+
+--- Describe a failure for display.
+-- @param failure table Second return value of CalculatePath
+-- @return string Localized sentence naming what happened
+function PathCalculator:DescribeFailure(failure)
+    local reason = type(failure) == "table" and failure.reason or failure
+    local key = FAILURE_MESSAGE[reason] or FAILURE_MESSAGE.internal_error
+    return QR.L[key]
+end
+
+local function Failure(reason, detail)
+    local failure = { reason = reason, retryable = FAILURE_RETRYABLE[reason] == true }
+    if type(detail) == "table" then
+        failure.blockedFrom, failure.blockedTo = detail.from, detail.to
+        failure.requirements = detail.requirements
+    end
+    return failure
+end
+
 --- Calculate optimal path to a destination
 -- Rebuilds graph, adds destination node, runs Dijkstra
 -- @param destMapID number The destination map ID
 -- @param destX number The destination X coordinate (0-1)
 -- @param destY number The destination Y coordinate (0-1)
--- @return table|nil {path, totalTime, edges, steps} or nil if no path found
+-- @return table|nil {path, totalTime, edges, steps}, or nil on failure
+-- @return table|nil On failure: {reason, retryable, blockedFrom, blockedTo, requirements}
 function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     destMapID, destX, destY = self:ResolveMapPosition(destMapID, destX, destY)
-    if not destMapID then return nil end
+    if not destMapID then return nil, Failure(self.FAILURE.INVALID_DESTINATION) end
     if type(destTitle) ~= "string" then destTitle = nil end
     -- Rebuild graph if needed. Faction is part of "needed": AddZoneNodes and
     -- AddFlightEdges both read it at build time, so a graph built before a
@@ -765,11 +825,12 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     end
     if self.graphDirty or not self.graph then
         self:BuildGraph()
-        if self.graphDirty or not self.graph then return nil end
+        if self.graphDirty or not self.graph then return nil, Failure(self.FAILURE.GRAPH_UNAVAILABLE) end
     end
 
-    -- Update player location node
-    if self:UpdatePlayerLocation() == false then return nil end
+    -- Update player location node. No position is a temporary state during
+    -- loading, not an unreachable destination.
+    if self:UpdatePlayerLocation() == false then return nil, Failure(self.FAILURE.POSITION_UNAVAILABLE) end
 
     -- Cooldowns move without marking the graph dirty, so re-price the player's
     -- teleport edges against live state before searching.
@@ -858,19 +919,22 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     end
 
     -- Run Dijkstra's algorithm
-    local path, totalTime, pathEdges
+    local path, totalTime, pathEdges, searchReason, blocked
     if QR.TravelRequirements then
-        path, totalTime, pathEdges = QR.TravelRequirements:FindPath(self.graph, PLAYER_NODE, destName)
+        path, totalTime, pathEdges, searchReason, blocked =
+            QR.TravelRequirements:FindPath(self.graph, PLAYER_NODE, destName)
     else
-        path, totalTime, pathEdges = self.graph:FindShortestPath(PLAYER_NODE, destName)
+        path, totalTime, pathEdges, searchReason = self.graph:FindShortestPath(PLAYER_NODE, destName)
     end
 
     if not path then
         -- Clean up destination node on failure
         self.graph:RemoveNode(destName)
-        QR:Debug("Dijkstra found no path")
-        QR:Log("WARN", string_format("No path found to map %d (%.2f, %.2f)", destMapID, destX, destY))
-        return nil
+        local reason = SEARCH_FAILURE[searchReason] or self.FAILURE.NO_CONNECTION
+        QR:Debug("Dijkstra found no path: " .. reason)
+        QR:Log("WARN", string_format("No path found to map %d (%.2f, %.2f): %s",
+            destMapID, destX, destY, reason))
+        return nil, Failure(reason, blocked)
     end
 
     QR:Log("INFO", string_format("Path found to map %d: %d nodes, %ds", destMapID, #path, totalTime or 0))
@@ -884,7 +948,7 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
 
     if not stepOk then
         QR:Error("BuildSteps error: " .. tostring(steps))
-        return nil
+        return nil, Failure(self.FAILURE.INTERNAL_ERROR)
     end
 
     -- Collapse consecutive walk/travel steps

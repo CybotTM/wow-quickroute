@@ -298,15 +298,19 @@ function QR.Graph:FindDistances(start)
     return dist
 end
 
+--- Dijkstra over locations.
+-- @return table|nil path, number|nil cost, table|nil edges, string|nil reason
+-- The fourth value names why no path was produced: "unknown_node" when an
+-- endpoint is not in the graph, "disconnected" when nothing links them.
 function QR.Graph:FindShortestPath(start, goal, filter)
     if not self.nodes[start] or not self.nodes[goal] then
-        return nil, nil, nil
+        return nil, nil, nil, "unknown_node"
     end
     local dist, prev, prevEdge = FindDistances(self, start, goal, filter)
 
     -- No path found
     if not prev[goal] and start ~= goal then
-        return nil, nil, nil
+        return nil, nil, nil, "disconnected"
     end
 
     -- Reconstruct path (build in reverse, then flip for O(n) instead of O(n²))
@@ -337,8 +341,11 @@ end
 
 --- Dijkstra over (location, travel state). A phase switch can make a previously
 -- visited portal usable; location alone is therefore not a sufficient key.
+-- @return table|nil path, number|nil cost, table|nil edges, string|nil reason
+-- The fourth value is "unknown_node", "search_limit" when the state budget is
+-- exhausted, or "blocked" when every route is refused by a requirement.
 function QR.Graph:FindShortestPathWithState(start, goal, policy)
-    if not self.nodes[start] or not self.nodes[goal] then return nil end
+    if not self.nodes[start] or not self.nodes[goal] then return nil, nil, nil, "unknown_node" end
     local function key(node, state)
         local name = tostring(node)
         return #name .. ":" .. name .. policy:Signature(state)
@@ -382,7 +389,7 @@ function QR.Graph:FindShortestPathWithState(start, goal, policy)
             end
         end
     end
-    if not finalKey then return nil end
+    if not finalKey then return nil, nil, nil, "blocked" end
     local reversePath, reverseEdges = {}, {}
     local current = finalKey
     while current do

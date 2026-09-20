@@ -642,17 +642,17 @@ function UI:RefreshRoute()
     end
 
     -- Now try to calculate path
-    local success, errOrResult = pcall(function()
+    local success, errOrResult, failure = pcall(function()
         -- For saved/locked destinations, calculate directly (bypass waypoint detection)
         if waypoint.source == "saved" or waypoint.source == "locked" then
-            local calcResult = QR.PathCalculator:CalculatePath(
+            local calcResult, calcFailure = QR.PathCalculator:CalculatePath(
                 waypoint.mapID, waypoint.x, waypoint.y, waypoint.title
             )
             if calcResult then
                 calcResult.waypoint = waypoint
                 calcResult.waypointSource = waypoint.source
             end
-            return calcResult
+            return calcResult, calcFailure
         end
         return QR.WaypointIntegration:CalculatePathToWaypoint()
     end)
@@ -682,10 +682,15 @@ function UI:RefreshRoute()
         QR:Log("INFO", string_format("Route found: %d steps, %ds total",
             result.steps and #result.steps or 0, result.totalTime or 0))
     else
-        -- Waypoint exists but no path found - give helpful feedback
-        self.frame.timeLabel:SetText(C.WARN_ORANGE .. L["NO_PATH_FOUND"] .. "\n" .. C.GRAY .. L["NO_ROUTE_HINT"] .. C.R)
+        -- Waypoint exists but no route was produced. Which of the reasons it was
+        -- decides what the player should do next, so it is named instead of one
+        -- sentence for every case.
+        local explanation = QR.PathCalculator:DescribeFailure(failure)
+        local hint = (failure and failure.retryable) and L["ROUTE_FAIL_RETRY_HINT"] or L["NO_ROUTE_HINT"]
+        self.frame.timeLabel:SetText(C.WARN_ORANGE .. explanation .. "\n" .. C.GRAY .. hint .. C.R)
         self:ClearRouteGuidance()
-        QR:Log("WARN", string_format("No route found to map %d", waypoint.mapID or 0))
+        QR:Log("WARN", string_format("No route found to map %d: %s", waypoint.mapID or 0,
+            failure and failure.reason or "unknown"))
     end
 
     self:ResetCalculatingState()
