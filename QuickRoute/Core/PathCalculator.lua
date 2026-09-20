@@ -1785,13 +1785,6 @@ function PathCalculator:BuildSteps(path, edges)
             action = "",
         }
 
-        -- A constrained approach -- a cave mouth, a bridge, a stair, a floor
-        -- change -- is carried on the edge or on the node it leads to. Step
-        -- collapsing must not summarise such a point away.
-        if edge.data and edge.data.mandatoryAnchor then
-            step.mandatoryAnchor = true
-        end
-
         -- Get source node mapID for route progress tracking
         local fromNodeData = self.graph and self.graph.nodes and self.graph.nodes[fromNode]
         if fromNodeData then
@@ -1975,15 +1968,20 @@ local function navigationAnchor(step)
         x = step.navX or step.destX,
         y = step.navY or step.destY,
         title = step.navTitle or step.to,
-        mandatory = step.mandatoryAnchor or false,
     }
 end
 
 -- Two consecutive segments may be summarised into one display row only when
--- they stay on one map and neither crosses a mandatory approach point.
+-- they stay on one map.
+--
+-- A constrained approach -- a cave mouth, a stair, a floor change -- should
+-- stop a merge too, and that is not shipped: no data source marks one. A field
+-- read here and set nowhere is a declaration nothing produces, so it was
+-- removed rather than left looking like protection. The map comparison is what
+-- does the work today; the anchor marking returns when there are surveyed
+-- approaches to drive it.
 local function mergeable(current, nextStep)
     if nextStep.type ~= "walk" and nextStep.type ~= "travel" then return false end
-    if current.mandatoryAnchor or nextStep.mandatoryAnchor then return false end
     -- Two steps with no map are two steps with no evidence of a crossing, and
     -- that is the shape the pure display fixtures use; a known map on one side
     -- and not the other is a difference and stops the merge.
@@ -1991,7 +1989,7 @@ local function mergeable(current, nextStep)
 end
 
 --- Summarise consecutive walk/travel steps into one display row.
--- Merging stops at a map change and at a mandatory anchor. The merged row
+-- Merging stops at a map change. The merged row
 -- carries `waypoints`, the ordered anchors of every segment it represents, so
 -- navigation can still execute them in order.
 -- @param steps table Array of step objects
@@ -2007,7 +2005,7 @@ function PathCalculator:CollapseConsecutiveSteps(steps)
         if step.type == "walk" or step.type == "travel" then
             -- Look ahead for consecutive walk/travel steps on the same map. A
             -- merge across maps hid the zone crossing, and a merge past a
-            -- mandatory anchor hid the only usable approach; both left the
+            -- map boundary hid the crossing itself; both left the
             -- player pointed straight at the final coordinate.
             local combinedTime = step.time
             local lastStep = step

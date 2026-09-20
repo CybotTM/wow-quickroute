@@ -468,7 +468,7 @@ QR.StandalonePortals = {
     -- =========================================================================
     {
         name = "Silvermoon City to Stormwind",
-        from = {mapID = 2393, x = 0.58, y = 0.19},    -- Silvermoon Portal Room
+        from = {mapID = 2393, x = 0.5028, y = 0.7486},  -- Silvermoon, shared district
         to = {mapID = 84, x = 0.49, y = 0.87},        -- Stormwind Portal Room
         travelTime = 30,
         faction = "Alliance",
@@ -477,7 +477,7 @@ QR.StandalonePortals = {
     },
     {
         name = "Silvermoon City to Orgrimmar",
-        from = {mapID = 2393, x = 0.58, y = 0.19},    -- Silvermoon Portal Room
+        from = {mapID = 2393, x = 0.5028, y = 0.7486},  -- Silvermoon, shared district
         to = {mapID = 85, x = 0.55, y = 0.38},        -- Orgrimmar Portal Room
         travelTime = 30,
         faction = "Horde",

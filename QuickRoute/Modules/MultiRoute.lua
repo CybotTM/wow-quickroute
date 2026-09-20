@@ -47,10 +47,20 @@ local function importLines(text)
     -- CR, LF and CRLF all end a line: a lone CR used to be kept inside the
     -- label and swallowed the waypoint behind it without a word.
     while position <= #text + 1 do
-        local breakAt, breakEnd = text:find("\r\n?", position)
-        local newline = text:find("\n", position, true)
-        if newline and (not breakAt or newline < breakAt) then breakAt, breakEnd = newline, newline end
+        -- One class scan, not two searches. "\r\n?" never matches in a paste
+        -- with no carriage return, so it rescanned to the end of the text once
+        -- per line: 47 ms for a 4096-line paste against 2.4 ms before, on the
+        -- main thread, on the Start button.
+        local breakAt = text:find("[\r\n]", position)
+        local breakEnd = breakAt
+        if breakAt and text:sub(breakAt, breakAt) == "\r" and text:sub(breakAt + 1, breakAt + 1) == "\n" then
+            breakEnd = breakAt + 1
+        end
         local raw = text:sub(position, (breakAt or #text + 1) - 1)
+        -- A newline ends the line it terminates; it does not start another one.
+        -- Counting the empty remainder after a trailing newline claimed a line
+        -- the player never wrote, and no warning could ever name it.
+        if breakAt == nil and raw == "" then break end
         physical = physical + 1
         if raw:find("%S") then
             local rest = raw

@@ -183,7 +183,7 @@ T:run("Travel movement: a remote flyable zone is priced with a flight profile", 
     MockWoW.config.currentMapID = 84
     QR.TravelTime:ClearMovementCache()
 
-    t:assertEqual("flyable", QR.TravelTime:RemoteFlightEligibility(87), "Ironforge sits on a flyable continent")
+    t:assertEqual("flyable", QR.TravelTime:RemoteFlightEligibility(37), "Elwynn Forest sits on a flyable continent")
     t:assertEqual("ground", QR.TravelTime:RemoteFlightEligibility(125), "Dalaran forbids flight inside it")
     t:assertEqual("unknown", QR.TravelTime:RemoteFlightEligibility(99999), "an unplaced map stays unknown")
 
@@ -191,20 +191,20 @@ T:run("Travel movement: a remote flyable zone is priced with a flight profile", 
     -- because it does not know. Asserting the helper with an explicit true
     -- passed while the graph still priced every remote leg as ground travel, so
     -- the assertion that decides this is the estimate the builder asks for.
-    t:assertEqual(17.5, QR.TravelTime:GetMovementSpeed(87, nil), "a remote flyable zone uses the flight profile")
-    local flying = QR.TravelTime:EstimateWalkingTime(0.1, 0.1, 0.9, 0.9, nil, 87)
-    local walking = QR.TravelTime:EstimateWalkingTime(0.1, 0.1, 0.9, 0.9, false, 87)
+    t:assertEqual(17.5, QR.TravelTime:GetMovementSpeed(37, nil), "a remote flyable zone uses the flight profile")
+    local flying = QR.TravelTime:EstimateWalkingTime(0.1, 0.1, 0.9, 0.9, nil, 37)
+    local walking = QR.TravelTime:EstimateWalkingTime(0.1, 0.1, 0.9, 0.9, false, 37)
     t:assertTrue(flying < walking,
         "the estimate the graph builds is faster on a flyable remote zone: " .. flying .. " vs " .. walking)
     t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(125, nil), "a remote no-flight hub keeps ground speed")
     t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(99999, nil), "an unknown remote map keeps the conservative estimate")
     t:assertEqual("ground", QR.TravelTime:RemoteFlightEligibility(1543), "The Maw is ground-only")
     t:assertEqual("ground", QR.TravelTime:RemoteFlightEligibility(885), "Antoran Wastes is ground-only")
-    t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(87, "ground"), "an explicit ground request is still ground")
+    t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(37, "ground"), "an explicit ground request is still ground")
 
     C_MountJournal.GetMountIDs = function() return {} end
     QR.TravelTime:ClearMovementCache()
-    t:assertEqual(7, QR.TravelTime:GetMovementSpeed(87, nil), "without a collected mount the zone profile grants nothing")
+    t:assertEqual(7, QR.TravelTime:GetMovementSpeed(37, nil), "without a collected mount the zone profile grants nothing")
 
     for _, key in ipairs({ "GetUnitSpeed", "IsFlying", "IsMounted", "IsIndoors" }) do _G[key] = saved[key] end
     C_MountJournal.GetMountIDs, C_MountJournal.GetMountInfoByID = oldIDs, oldInfo
@@ -275,7 +275,7 @@ T:run("Travel movement: the graph prices a remote flyable leg with the flight pr
         return edge and edge.weight
     end
 
-    local flyable = weightBetween(87)     -- Ironforge, a continent that permits flight
+    local flyable = weightBetween(37)     -- Elwynn Forest, an outdoor zone
     local grounded = weightBetween(1543)  -- The Maw, which does not
 
     -- The other builder, which the graph goes through for every map that
@@ -289,7 +289,7 @@ T:run("Travel movement: the graph prices a remote flyable leg with the flight pr
         local edge = pc.graph.edges["Same A"] and pc.graph.edges["Same A"]["Same B"]
         return edge and edge.weight
     end
-    local sameFlyable = sameMapWeight(87)
+    local sameFlyable = sameMapWeight(37)
     local sameGrounded = sameMapWeight(1543)
     pc.graph, pc.graphDirty = savedGraph, savedDirty
 

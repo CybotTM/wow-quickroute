@@ -151,18 +151,6 @@ T:run("CollapseSteps: a map change ends the merge and keeps the crossing visible
     t:assertEqual("Cave mouth", result[1].waypoints[2].title, "the intermediate anchor is retained in order")
 end)
 
-T:run("CollapseSteps: a mandatory anchor is never summarised away", function(t)
-    resetState()
-    local steps = {
-        { type = "walk", from = "A", to = "B", time = 20, navMapID = 84, navX = 0.5, navY = 0.5, navTitle = "B" },
-        { type = "walk", from = "B", to = "C", time = 10, navMapID = 84, navX = 0.6, navY = 0.4, navTitle = "Entrance", mandatoryAnchor = true },
-        { type = "walk", from = "C", to = "D", time = 30, navMapID = 84, navX = 0.7, navY = 0.3, navTitle = "D" },
-    }
-    local result = QR.PathCalculator:CollapseConsecutiveSteps(steps)
-    t:assertEqual(3, #result, "the mandatory entrance stays its own step on both sides")
-    t:assertEqual("Entrance", result[2].navTitle, "the entrance keeps its own navigation target")
-end)
-
 T:run("CollapseSteps: same-map runs still merge and carry their anchors", function(t)
     resetState()
     local steps = {
@@ -173,7 +161,8 @@ T:run("CollapseSteps: same-map runs still merge and carry their anchors", functi
     t:assertEqual(1, #result, "one map, one row")
     t:assertEqual(25, result[1].time, "combined time 10+15")
     t:assertEqual(2, #result[1].waypoints, "both anchors kept")
-    t:assertFalse(result[1].waypoints[1].mandatory, "an ordinary anchor is not marked mandatory")
+    t:assertEqual(0.1, result[1].waypoints[1].x, "the first anchor keeps its position")
+    t:assertEqual("C", result[1].waypoints[2].title, "and the second names where it leads")
 end)
 
 T:run("SelectStepAnchor: a merged row navigates to the anchor still ahead", function(t)

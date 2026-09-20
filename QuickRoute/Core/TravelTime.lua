@@ -111,6 +111,15 @@ TravelTime.CONTINENT_FLIGHT = {
 -- overstates it. That is why the answer is a planning profile and the live API
 -- is asked again on arrival, and why a zone found to be wrong belongs here
 -- rather than in a wider rule.
+--
+-- OPEN, and it needs a client to settle: the enclosed capital cities.
+-- Ironforge, Undercity, The Exodar and Darnassus are interiors, and this model
+-- prices them as flyable while the current-map path returns walking speed for
+-- the same place because IsIndoors is true. The two disagree about one map.
+-- Whether flight is possible inside each of them is a game fact this host
+-- cannot check, so they are not listed rather than listed on a guess. The tell
+-- in practice is a route into one of those cities whose estimate is far short
+-- of the walk it turns out to be.
 TravelTime.NO_FLIGHT_MAPS = {
     [111] = true,   -- Shattrath City
     [125] = true,   -- Dalaran (Northrend)

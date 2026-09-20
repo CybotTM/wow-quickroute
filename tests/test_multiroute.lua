@@ -358,3 +358,35 @@ T:run("MultiRoute: the suppressed count names only rows the preview withheld", f
     local text = QR.MultiRoute:FormatImportReport(report)
     t:assertNil(text:find("not shown", 1, true), "and the label does not claim otherwise")
 end)
+
+T:run("MultiRoute: a trailing newline does not add a line nobody wrote", function(t)
+    local _, err, report = QR.MultiRoute:ParseWaypoints("/way #84 50 60 A\nnote\n")
+    t:assertNil(err, "the paste is accepted")
+    t:assertEqual(2, report.total, "two pasted lines are two lines, got " .. report.total)
+    local _, _, without = QR.MultiRoute:ParseWaypoints("/way #84 50 60 A\nnote")
+    t:assertEqual(2, without.total, "with or without the terminator, got " .. without.total)
+    local _, _, blank = QR.MultiRoute:ParseWaypoints("/way #84 50 60 A\n\nnote\n")
+    t:assertEqual(3, blank.total, "an interior blank line still counts, got " .. blank.total)
+end)
+
+T:run("MultiRoute: a large line-feed paste is read in one scan", function(t)
+    -- The splitter used a "\r\n?" pattern that never matches in a paste with no
+    -- carriage return, so it rescanned to the end of the text once per line.
+    local clock = _G.debugprofilestop
+    if type(clock) ~= "function" then
+        t:assert(true, "no profiler in this environment; the shape is covered by the other assertions")
+        return
+    end
+    local lf = string.rep("x\n", 4000)
+    local crlf = string.rep("x\r\n", 2600)
+    local started = clock()
+    QR.MultiRoute:ParseWaypoints(lf)
+    local lfCost = clock() - started
+    started = clock()
+    QR.MultiRoute:ParseWaypoints(crlf)
+    local crlfCost = clock() - started
+    -- CRLF is the control: that shape always matched on the first character and
+    -- was never slow. A line-feed paste must not cost a multiple of it.
+    t:assertTrue(lfCost < crlfCost * 4 + 5,
+        "a line-feed paste costs about what a CRLF paste costs: " .. lfCost .. " vs " .. crlfCost)
+end)
