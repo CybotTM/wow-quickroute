@@ -164,6 +164,43 @@ T:run("Travel movement: actual capability and speed override area-only flying gu
     QR.TravelTime:ClearMovementCache()
 end)
 
+-- A remote leg used to be priced as ground travel whatever the zone allows,
+-- which misranks a portal or a vendor on a flyable map. The profile states what
+-- the ZONE allows; the collected mount states what the CHARACTER can use.
+T:run("Travel movement: a remote flyable zone is priced with a flight profile", function(t)
+    MockWoW:Reset()
+    local saved = {}
+    for _, key in ipairs({ "GetUnitSpeed", "IsFlying", "IsMounted", "IsIndoors" }) do saved[key] = _G[key] end
+    local oldIDs, oldInfo = C_MountJournal.GetMountIDs, C_MountJournal.GetMountInfoByID
+    C_MountJournal.GetMountIDs = function() return { 1 } end
+    -- usable is the fifth value, collected the eleventh, steady flight the
+    -- thirteenth, as MountCapabilities reads them.
+    C_MountJournal.GetMountInfoByID = function()
+        return nil, nil, nil, nil, true, nil, nil, nil, nil, nil, true, nil, true
+    end
+    _G.GetUnitSpeed = function() return 7, 7, 0, 0 end
+    _G.IsFlying, _G.IsMounted, _G.IsIndoors = function() return false end, function() return false end, function() return false end
+    MockWoW.config.currentMapID = 84
+    QR.TravelTime:ClearMovementCache()
+
+    t:assertEqual("flyable", QR.TravelTime:RemoteFlightEligibility(87), "Ironforge sits on a flyable continent")
+    t:assertEqual("ground", QR.TravelTime:RemoteFlightEligibility(125), "Dalaran forbids flight inside it")
+    t:assertEqual("unknown", QR.TravelTime:RemoteFlightEligibility(99999), "an unplaced map stays unknown")
+
+    t:assertEqual(17.5, QR.TravelTime:GetMovementSpeed(87, true), "a remote flyable zone uses the flight profile")
+    t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(125, true), "a remote no-flight hub keeps ground speed")
+    t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(99999, true), "an unknown remote map keeps the conservative estimate")
+    t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(87, "ground"), "an explicit ground request is still ground")
+
+    C_MountJournal.GetMountIDs = function() return {} end
+    QR.TravelTime:ClearMovementCache()
+    t:assertEqual(7, QR.TravelTime:GetMovementSpeed(87, true), "without a collected mount the zone profile grants nothing")
+
+    for _, key in ipairs({ "GetUnitSpeed", "IsFlying", "IsMounted", "IsIndoors" }) do _G[key] = saved[key] end
+    C_MountJournal.GetMountIDs, C_MountJournal.GetMountInfoByID = oldIDs, oldInfo
+    QR.TravelTime:ClearMovementCache()
+end)
+
 T:run("Travel inventory: unknown toy usability fails closed and profession changes invalidate cached access", function(t)
     MockWoW:Reset()
     local savedToys = Copy(QR.PlayerInventory.toys)

@@ -73,6 +73,56 @@ TravelTime.SPEEDS = {
     epic_flying = 28.7,  -- 310% bonus: base 7 * 4.1
 }
 
+-- Remote flight eligibility.
+--
+-- No client API reports whether a map other than the current one permits
+-- flight, so a route leg on another map had no evidence either way and was
+-- priced as ground travel. That is safe against inventing permission and it
+-- misprices verified flyable legs, which changes which portal or vendor wins.
+--
+-- The model is per continent, because that is the granularity the game itself
+-- uses for flight unlocks, plus the hubs that forbid flight inside them. It
+-- states what the ZONE allows. Whether the CHARACTER can use it is a separate
+-- check against their collected mounts, and arrival re-checks the live API.
+--
+-- "unknown" is a real answer: a map QuickRoute does not place on a continent
+-- keeps the conservative ground estimate.
+TravelTime.CONTINENT_FLIGHT = {
+    EASTERN_KINGDOMS = true,
+    KALIMDOR = true,
+    OUTLAND = true,
+    NORTHREND = true,
+    PANDARIA = true,
+    DRAENOR = true,
+    BROKEN_ISLES = true,
+    KUL_TIRAS = true,
+    ZANDALAR = true,
+    BFA_NEUTRAL = true,
+    SHADOWLANDS = true,
+    DRAGON_ISLES = true,
+    KHAZ_ALGAR = true,
+}
+
+-- Hub maps that permit no flight inside them whatever their continent allows.
+TravelTime.NO_FLIGHT_MAPS = {
+    [111] = true,   -- Shattrath City
+    [125] = true,   -- Dalaran (Northrend)
+    [627] = true,   -- Dalaran (Broken Isles)
+    [1670] = true,  -- Oribos
+}
+
+--- What the zone allows on a map, independent of the character.
+-- @param mapID number|nil
+-- @return string "flyable", "ground" or "unknown"
+function TravelTime:RemoteFlightEligibility(mapID)
+    if not Number(mapID) then return "unknown" end
+    if self.NO_FLIGHT_MAPS[mapID] then return "ground" end
+    local continent = QR.ZoneToContinent and QR.ZoneToContinent[mapID]
+    if not continent then return "unknown" end
+    if self.CONTINENT_FLIGHT[continent] then return "flyable" end
+    return "ground"
+end
+
 -- Blizzard's GetUnitSpeed reports current and maximum movement speeds;
 -- C_PlayerInfo.GetGlidingInfo reports actual skyriding forward speed. Never
 -- apply one zone's flight permission to a destination in another zone.
@@ -145,7 +195,19 @@ local function ComputeMovementSpeed(self, mapID, mode)
         local trainedSpeed = RidingKnown(33391) or RidingKnown(34090) or RidingKnown(34091) or RidingKnown(90265)
         ground = math_max(runSpeed, trainedSpeed and self.SPEEDS.mounted_ground or self.SPEEDS.apprentice_ground)
     end
-    if not here or mode == false or mode == "ground" then return ground end
+    if not here then
+        if mode == false or mode == "ground" then return ground end
+        -- A remote leg is priced from what that zone allows and what this
+        -- character owns, never from the permission of the zone they stand in.
+        -- A zone QuickRoute cannot place keeps the ground estimate.
+        if steadyFlightMount and self:RemoteFlightEligibility(mapID) == "flyable" then
+            local trainedSpeed = RidingKnown(90265) and self.SPEEDS.epic_flying
+                or (RidingKnown(34091) and self.SPEEDS.mounted_flying or self.SPEEDS.expert_flying)
+            return math_max(ground, trainedSpeed)
+        end
+        return ground
+    end
+    if mode == false or mode == "ground" then return ground end
 
     local flightAllowed = BooleanCall(_G.IsFlyableArea)
     local advancedAllowed = BooleanCall(_G.IsAdvancedFlyableArea)
