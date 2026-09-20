@@ -354,6 +354,10 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
+    -- Counted so an asynchronous search can tell "the graph I searched was
+    -- replaced underneath me" from "I rebuilt it myself on the way in".
+    self.graphBuild = (self.graphBuild or 0) + 1
+
     -- Only mark clean if all steps succeeded
     self.graphDirty = not buildSuccess
     -- Remembered so CalculatePath can notice a faction change. Recorded even
@@ -835,6 +839,11 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         self:BuildGraph()
         if self.graphDirty or not self.graph then return nil, Failure(self.FAILURE.GRAPH_UNAVAILABLE) end
     end
+    -- Recorded after any rebuild this calculation did itself, so the guard in
+    -- ResumeAsync only fires on a rebuild by somebody else. Capturing the graph
+    -- before the coroutine started made an ordinary search discard its own
+    -- correct result whenever it had to build the graph on the way in.
+    if self.asyncRunning then self.asyncRunning.graphBuild = self.graphBuild or 0 end
 
     -- Update player location node. No position is a temporary state during
     -- loading, not an unreachable destination.
@@ -987,11 +996,17 @@ end
 -- being unable to use a step today is not evidence about the character.
 -------------------------------------------------------------------------------
 
+-- Refusal key -> the destination it was made for. "For this journey" was a
+-- claim in a comment and nothing enforced it.
+--
+-- Clearing the set whenever the destination changed was the wrong enforcement:
+-- CalculatePath also runs for every candidate of a vendor comparison and for
+-- every tracked quest, so an ordinary background refresh wiped the player's
+-- refusals seconds after they made them. Stamping each refusal with its
+-- destination instead means a calculation for somewhere else simply does not
+-- see it, and coming back to the original destination does.
 local excludedEdges = {}
--- The destination the refusals were made for. "For this journey" was a claim in
--- a comment and nothing enforced it: a step refused on the way to one place
--- stayed refused for every later destination until the player reloaded.
-local excludedFor
+local currentJourney
 
 local function EdgeKey(from, to)
     return tostring(from) .. "\1" .. tostring(to)
@@ -1014,24 +1029,19 @@ end
 -- @param to string Node the step leads to
 function PathCalculator:ExcludeEdge(from, to)
     if from == nil or to == nil then return false end
-    excludedEdges[EdgeKey(from, to)] = true
+    -- `true` when no destination is known yet: a refusal that applies until it
+    -- is cleared is safer than one that silently applies to nothing.
+    excludedEdges[EdgeKey(from, to)] = currentJourney or true
     return true
 end
 
---- Note which destination the refusals belong to, and forget them when the
---- player goes somewhere else.
--- @return boolean True when refusals were dropped
+--- Say which destination is being routed to right now.
+-- Refusals made while it is current apply to it, and to nothing else.
+-- @return boolean True when the destination was accepted
 function PathCalculator:NoteJourneyDestination(mapID, x, y)
     if not IsMapID(mapID) then return false end
-    local current = string_format("%d:%.4f:%.4f", mapID, x or 0, y or 0)
-    if excludedFor == current then return false end
-    local had = next(excludedEdges) ~= nil
-    excludedFor = current
-    if had then
-        excludedEdges = {}
-        QR:Debug("Refused steps forgotten: a new destination was chosen")
-    end
-    return had
+    currentJourney = string_format("%d:%.4f:%.4f", mapID, x or 0, y or 0)
+    return true
 end
 
 --- Accept a previously refused connection again.
@@ -1044,12 +1054,15 @@ end
 --- Forget every refusal, for example when a new journey starts.
 function PathCalculator:ClearExcludedEdges()
     excludedEdges = {}
-    excludedFor = nil
+    currentJourney = nil
 end
 
 --- Whether this connection is refused for this journey.
 function PathCalculator:IsEdgeExcluded(from, to)
-    return excludedEdges[EdgeKey(from, to)] == true
+    local stamp = excludedEdges[EdgeKey(from, to)]
+    if stamp == nil then return false end
+    if stamp == true then return true end
+    return stamp == currentJourney
 end
 
 --- Every refused connection, for display.
@@ -1121,12 +1134,9 @@ function PathCalculator:StepAsync()
     local pending = self.asyncPending
     if not pending then return end
     self.asyncPending = nil
-    -- The graph object the search runs over is captured here. A synchronous
-    -- caller can rebuild the graph while this coroutine is suspended, and the
-    -- search would then finish over an orphaned object while BuildSteps reads
-    -- node data from the new one: steps with no coordinates rather than a
-    -- failure. Publishing is refused when the object is no longer current.
-    pending.graph = self.graph
+    -- Baseline. CalculatePath raises it again if it rebuilds the graph itself,
+    -- so only a rebuild by somebody else leaves the two apart.
+    pending.graphBuild = self.graphBuild or 0
     pending.thread = coroutine.create(function()
         return self:CalculatePath(pending.args[1], pending.args[2], pending.args[3], pending.args[4])
     end)
@@ -1158,7 +1168,7 @@ function PathCalculator:ResumeAsync()
         QR:Error("Asynchronous route calculation failed: " .. tostring(route))
         route, failure = nil, { reason = self.FAILURE.INTERNAL_ERROR, retryable = false }
     end
-    if route and running.graph and self.graph ~= running.graph then
+    if route and running.graphBuild and (self.graphBuild or 0) ~= running.graphBuild then
         QR:Debug("Asynchronous route discarded: the graph was rebuilt while it ran")
         route, failure = nil, { reason = self.FAILURE.GRAPH_UNAVAILABLE, retryable = true }
     end

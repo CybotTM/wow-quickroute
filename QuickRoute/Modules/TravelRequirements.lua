@@ -290,15 +290,11 @@ function TR:FindPath(graph, start, goal)
     -- a rejection of one connection, not a record of what the character has
     -- unlocked, and it lives only as long as the session.
     local excluded = QR.PathCalculator and QR.PathCalculator.IsEdgeExcluded
-    -- Remembered so a refusal is still named after the phase-aware search,
-    -- which knows only "blocked".
-    local refusedHop
+    -- Toggled for one probe on the failure path: see the blocked branch below.
+    local ignoreRefusals = false
     local function rejected(from, to)
-        if excluded and QR.PathCalculator:IsEdgeExcluded(from, to) then
-            refusedHop = refusedHop or { from = from, to = to }
-            return true
-        end
-        return false
+        if ignoreRefusals then return false end
+        return excluded and QR.PathCalculator:IsEdgeExcluded(from, to) or false
     end
     local function withoutPhase(from, to, edge)
         if rejected(from, to) then return false end
@@ -446,9 +442,32 @@ function TR:FindPath(graph, start, goal)
     if path then return path, cost, edges end
     -- The phase-aware search has no notion of a refusal, so it reports
     -- "blocked". Telling the player an unlock is missing for a step they
-    -- refused themselves is the wrong sentence, and the one they cannot act on.
-    if reason == "blocked" and refusedHop then
-        return nil, nil, nil, "step_rejected", refusedHop
+    -- refused themselves is the wrong sentence.
+    --
+    -- Which refusal, though, has to be one that lies on a route to the goal.
+    -- `rejected` fires for every edge the optimistic search relaxes, including
+    -- dead ends, so remembering the first one blamed a refusal that had nothing
+    -- to do with why the destination is unreachable. The unrestricted path is
+    -- walked instead, exactly as the earlier failure branch does.
+    if reason == "blocked" then
+        -- Whether the refusal is the reason is one question, and it is not
+        -- "was a refused edge seen": the search relaxes dead ends too, and a
+        -- route can be blocked by a missing unlock whatever the player refused.
+        -- The question is whether the same search succeeds with the refusals
+        -- lifted. Asked once, only here.
+        ignoreRefusals = true
+        checks = {}
+        local openPath, _, openEdges = graph:FindShortestPathWithState(start, goal, policy)
+        ignoreRefusals = false
+        if openPath then
+            for index in ipairs(openEdges or {}) do
+                local from, to = openPath[index], openPath[index + 1]
+                if QR.PathCalculator:IsEdgeExcluded(from, to) then
+                    return nil, nil, nil, "step_rejected", { from = from, to = to }
+                end
+            end
+            return nil, nil, nil, "step_rejected"
+        end
     end
     return nil, nil, nil, reason or "blocked", blocked
 end

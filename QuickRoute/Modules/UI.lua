@@ -1240,12 +1240,17 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     label1:ClearAllPoints()
     local textLeft = 8 + STEP_ICON_SIZE + 6  -- icon offset + icon size + gap
     -- When useButton is present, leave room for both buttons (use + nav)
-    -- Room for every control the row actually shows: nav, plus the secure Use
-    -- button where there is one, plus the reject button where there is one.
-    local reserved = 4
-    if stepFrame.rejectButton and stepFrame.rejectButton:IsShown() then reserved = reserved + STEP_ICON_SIZE + 5 end
-    if useButton then reserved = reserved + STEP_ICON_SIZE + 6 end
-    local textRightOffset = -reserved
+    -- The label's right edge is anchored to navButton's LEFT, so the offset is
+    -- the distance from there to the leftmost control the row shows. The reject
+    -- button sits at a fixed slot whether or not the Use slot is filled, so
+    -- reserving per shown control left it drawn over the step text on every row
+    -- without a Use button.
+    local textRightOffset = -4
+    if stepFrame.rejectButton and stepFrame.rejectButton:IsShown() then
+        textRightOffset = -(2 * STEP_ICON_SIZE + 8)
+    elseif useButton then
+        textRightOffset = -(STEP_ICON_SIZE + 2)
+    end
     label1:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", textLeft, -6)
     label1:SetPoint("RIGHT", navButton, "LEFT", textRightOffset, 0)
     label1:SetWordWrap(true)

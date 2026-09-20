@@ -3093,11 +3093,32 @@ T:run("Rejected step: a refusal belongs to the destination it was made for", fun
     QR.PathCalculator:NoteJourneyDestination(84, 0.5, 0.5)
     QR.PathCalculator:ExcludeEdge("Gate", "Goal")
     t:assertTrue(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "the refusal holds on the same journey")
-    t:assertFalse(QR.PathCalculator:NoteJourneyDestination(84, 0.5, 0.5), "the same destination changes nothing")
-    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "and the refusal survives it")
-    t:assertTrue(QR.PathCalculator:NoteJourneyDestination(85, 0.2, 0.2), "a new destination drops the refusals")
-    t:assertFalse(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "so the step is offered again")
+    QR.PathCalculator:NoteJourneyDestination(84, 0.5, 0.5)
+    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "and survives a refresh of the same destination")
+    QR.PathCalculator:NoteJourneyDestination(85, 0.2, 0.2)
+    t:assertFalse(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"),
+        "a calculation for somewhere else does not see it")
+    QR.PathCalculator:NoteJourneyDestination(84, 0.5, 0.5)
+    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"),
+        "and coming back to the original destination does")
     QR.PathCalculator:ClearExcludedEdges()
+end)
+
+T:run("Rejected step: a background calculation elsewhere does not drop the refusal", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    pc:ClearExcludedEdges()
+    pc:NoteJourneyDestination(84, 0.5, 0.5)
+    pc:ExcludeEdge("Gate", "Goal")
+    -- A vendor comparison prices every candidate through CalculatePath, and the
+    -- quest buttons route to every tracked quest. Wiping on a destination
+    -- change made an ordinary refresh forget the player's refusal.
+    pc:CalculatePath(85, 0.2, 0.2)
+    pc:CalculatePath(86, 0.3, 0.3)
+    pc:NoteJourneyDestination(84, 0.5, 0.5)
+    t:assertTrue(pc:IsEdgeExcluded("Gate", "Goal"),
+        "the refusal is still there when the player's own destination comes back")
+    pc:ClearExcludedEdges()
 end)
 
 T:run("Rejected step: the phase-aware search still names the refusal", function(t)
@@ -3180,10 +3201,94 @@ T:run("Cooperative search: a graph rebuilt mid-search discards the result instea
     pc:CalculatePathAsync(84, 0.5, 0.5, nil, function(r, f) route, failure = r, f end)
     -- A synchronous caller rebuilds the graph while the search is suspended.
     pc.graph = QR.Graph:New()
+    pc.graphBuild = (pc.graphBuild or 0) + 1
     while #queue > 0 do table.remove(queue, 1)() end
     pc.CalculatePath, C_Timer.After, pc.graph = savedCalc, savedAfter, savedGraph
     pc:CancelAsync()
     t:assertNil(route, "the result of a search over the replaced graph is not published")
     t:assertEqual("graph_unavailable", failure and failure.reason, "and the caller is told why")
     t:assertTrue(failure and failure.retryable, "retrying can work")
+end)
+
+T:run("Rejected step: a refusal on a dead end is not blamed for a blocked route", function(t)
+    resetState()
+    QR.PathCalculator:ClearExcludedEdges()
+    QR.PathCalculator:NoteJourneyDestination(85, 0.5, 0.5)
+    -- The only route to the goal runs through a phased node this character
+    -- cannot enter. A refusal made on a side branch that leads nowhere must not
+    -- be reported as the reason.
+    local graph = QR.Graph:New()
+    graph:AddNode("Player Location", {mapID = 84, x = 0.1, y = 0.1, nodeType = "player"})
+    graph:AddNode("Phased", {mapID = 84, x = 0.2, y = 0.2, mapArtID = 999999})
+    graph:AddNode("DeadEnd", {mapID = 84, x = 0.4, y = 0.4})
+    graph:AddNode("Goal", {mapID = 85, x = 0.5, y = 0.5})
+    graph:AddEdge("Player Location", "Phased", 1, "walk", {})
+    graph:AddEdge("Phased", "Goal", 1, "walk", {})
+    graph:AddEdge("Player Location", "DeadEnd", 1, "walk", {})
+    QR.PathCalculator:ExcludeEdge("Player Location", "DeadEnd")
+    local path, _, _, reason, detail = QR.TravelRequirements:FindPath(graph, "Player Location", "Goal")
+    t:assertNil(path, "no route is left")
+    t:assertEqual("blocked", reason,
+        "the missing unlock is the reason, not a refusal on a branch that leads nowhere")
+    t:assertEqual("Phased", detail and detail.to, "and the blocking hop is named")
+    QR.PathCalculator:ClearExcludedEdges()
+end)
+
+T:run("Cooperative search: a search that builds the graph itself still publishes", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local savedAfter = C_Timer.After
+    local queue = {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    -- An inventory change marks the graph dirty, so CalculatePath rebuilds on
+    -- the way in. Capturing the graph object before the coroutine started made
+    -- that ordinary case discard its own correct result.
+    pc.graphDirty = true
+    local route, failure
+    pc:CalculatePathAsync(84, 0.6, 0.6, nil, function(r, f) route, failure = r, f end)
+    while #queue > 0 do table.remove(queue, 1)() end
+    C_Timer.After = savedAfter
+    pc:CancelAsync()
+    t:assertNotNil(route, "the calculation published a route")
+    t:assertTrue((failure == nil) or failure.reason ~= "graph_unavailable",
+        "its own rebuild is not treated as interference, got "
+        .. tostring(failure and failure.reason))
+end)
+
+T:run("Rejected step: the absorbed transport row names the transport hop", function(t)
+    resetState()
+    -- The case the collapsing code's own comment calls the typical one: a
+    -- teleport followed by a walk to the same place. `to` then names the walk's
+    -- destination while `from` names the transport's origin, so the row's own
+    -- pair is not an edge.
+    local steps = {
+        { type = "teleport", from = "Player Location", to = "Stormwind City", time = 3,
+          destMapID = 84, destX = 0.5, destY = 0.5, navMapID = 84, navX = 0.5, navY = 0.5 },
+        { type = "walk", from = "Stormwind City", to = "Bank", time = 20,
+          destMapID = 84, destX = 0.5, destY = 0.5, navMapID = 84, navX = 0.5, navY = 0.5 },
+    }
+    local absorbed = QR.PathCalculator:AbsorbRedundantWalkSteps(steps)
+    t:assertEqual(1, #absorbed, "the walk is absorbed into the teleport")
+    t:assertEqual("Bank", absorbed[1].to, "the row's own `to` is the walk's destination")
+    local pairs_ = QR.PathCalculator:StepEdgePairs(absorbed[1])
+    t:assertEqual(1, #pairs_, "one hop to refuse")
+    t:assertEqual("Player Location", pairs_[1].from, "and it is the transport hop's origin")
+    t:assertEqual("Stormwind City", pairs_[1].to, "and the transport hop's destination")
+end)
+
+
+T:run("Rejected step: CalculatePath is what tells the refusal which destination it belongs to", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    pc:ClearExcludedEdges()
+    -- Not NoteJourneyDestination directly: the wiring into CalculatePath is the
+    -- part that makes a refusal belong to the route the player is looking at.
+    pc:CalculatePath(84, 0.55, 0.65)
+    pc:ExcludeEdge("Gate", "Goal")
+    t:assertTrue(pc:IsEdgeExcluded("Gate", "Goal"), "the refusal applies to the route in front of the player")
+    pc:CalculatePath(85, 0.25, 0.35)
+    t:assertFalse(pc:IsEdgeExcluded("Gate", "Goal"), "a calculation for somewhere else does not see it")
+    pc:CalculatePath(84, 0.55, 0.65)
+    t:assertTrue(pc:IsEdgeExcluded("Gate", "Goal"), "and it is back when that route is calculated again")
+    pc:ClearExcludedEdges()
 end)

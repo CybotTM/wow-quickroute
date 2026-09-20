@@ -1812,3 +1812,22 @@ T:run("UI: the auto-waypoint of a merged row uses the anchor still ahead", funct
     QR.WaypointIntegration.SetTomTomWaypoint, C_Timer.After = savedSet, savedAfter
     t:assertEqual("B", target, "the waypoint is the anchor the player has not reached, got " .. tostring(target))
 end)
+
+T:run("UI: the reject button does not cover the step text on a row without a Use button", function(t)
+    -- The reject button sits in a fixed slot whether or not the secure Use slot
+    -- is filled, so reserving room per shown control left it drawn over the
+    -- text on every walk, portal, boat and flight row.
+    QR.UI:Initialize()
+    local step = { type = "walk", from = "A", to = "B", time = 30, action = "Go to B",
+                   navMapID = 84, navX = 0.5, navY = 0.5, navTitle = "B" }
+    local stepFrame = QR.UI:CreateStepLabel(1, step, 0, "pending")
+    t:assertNotNil(stepFrame, "a step row was rendered")
+    t:assertNotNil(stepFrame.rejectButton, "the row has a reject button")
+    t:assertTrue(stepFrame.useButton == nil or not stepFrame.useButton:IsShown(),
+        "and no secure Use button, which is the case that broke")
+    local label = MockWoW:ComputeFrameBounds(stepFrame.label)
+    local reject = MockWoW:ComputeFrameBounds(stepFrame.rejectButton)
+    t:assertTrue(label.right <= reject.left,
+        "the label stops before the button: label.right " .. tostring(label.right)
+        .. " vs reject.left " .. tostring(reject.left))
+end)
