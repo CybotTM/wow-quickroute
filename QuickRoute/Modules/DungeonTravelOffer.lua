@@ -123,17 +123,28 @@ function Offer:Clear()
 end
 
 --- Whether the player is now inside the instance the offer was for.
+-- Being inside *some* instance is not arrival: a battleground, a scenario or an
+-- unrelated raid would otherwise drop the offer and end the detour.
 function Offer:InsideOfferedInstance()
     local pending = self.pending
     if not pending then return false end
-    local inInstance = Call(_G.IsInInstance)
-    return inInstance == true
+    if Call(_G.IsInInstance) ~= true then return false end
+    local instance = QR.DungeonData and QR.DungeonData:GetInstance(pending.journalInstanceID)
+    if not (instance and type(instance.name) == "string" and instance.name ~= "") then return false end
+    -- The journal record carries a name and no instance id, so the name is what
+    -- there is to compare. Both sides come from the client in the same locale.
+    -- A mismatch or a silent API keeps the offer: it is dropped when the group
+    -- ends or the player routes elsewhere, never by an unrelated loading
+    -- screen.
+    local ok, currentName = pcall(_G.GetInstanceInfo)
+    if not ok or type(currentName) ~= "string" then return false end
+    return currentName == instance.name
 end
 
 function Offer:Initialize()
     if self.frame then return end
     local frame = CreateFrame("Frame")
-    for _, event in ipairs({ "LFG_LIST_APPLICATION_STATUS_UPDATED", "PLAYER_ENTERING_WORLD" }) do
+    for _, event in ipairs({ "LFG_LIST_APPLICATION_STATUS_UPDATED", "PLAYER_ENTERING_WORLD", "GROUP_LEFT" }) do
         frame:RegisterEvent(event)
     end
     frame:SetScript("OnEvent", function(_, event, resultID, status)
@@ -142,6 +153,13 @@ function Offer:Initialize()
             -- there does not, because the player is not inside yet.
             if self:InsideOfferedInstance() then self:Clear() end
             return
+        end
+        if event == "GROUP_LEFT" or event == "LFG_LIST_APPLICATION_STATUS_UPDATED"
+            and (status == "declined" or status == "cancelled" or status == "timedout") then
+            -- Entering the instance was the only exit, so a player who left or
+            -- lost the group kept the detour for the rest of the session.
+            if self.pending then self:Clear() end
+            if event == "GROUP_LEFT" then return end
         end
         if status ~= "inviteaccepted" then return end
         local journalInstanceID = self:ResolveInstance(resultID)

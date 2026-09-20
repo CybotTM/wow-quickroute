@@ -144,3 +144,61 @@ T:run("RoutingAPI: a consumer can refuse a step the same way the player can", fu
     t:assertFalse(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "and can be taken back")
     QR.PathCalculator:ClearExcludedEdges()
 end)
+
+T:run("RoutingAPI: a superseded request is told, not left silent", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local first, second
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function(route, failure) first = failure and failure.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+            function(route, failure) second = failure and failure.reason or "route" end)
+        drain()
+        t:assertEqual("superseded", first, "the first consumer hears why it will get nothing")
+        t:assertEqual("route", second, "the current request still publishes")
+    end)
+end)
+
+T:run("RoutingAPI: a forged handle cannot cancel somebody else's calculation", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local delivered = 0
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function() delivered = delivered + 1 end)
+        for generation = 1, 20 do
+            t:assertFalse(QuickRouteAPI:Cancel({ generation = generation }),
+                "a table that this API did not issue is refused")
+        end
+        drain()
+        t:assertEqual(1, delivered, "the real request still published")
+        t:assertTrue(QuickRouteAPI:Cancel(handle), "the real handle is still accepted")
+    end)
+end)
+
+T:run("RoutingAPI: the callback never runs before the caller holds the handle", function(t)
+    withDriver(function(pc, drain)
+        -- A short route finishes inside the first budget, which used to publish
+        -- from inside CalculateRoute itself.
+        pc.CalculatePath = function() return { totalTime = 1, steps = {} } end
+        local handleAtCallback, sentinel = "unset", {}
+        local handle = sentinel
+        handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function() handleAtCallback = handle end)
+        t:assertEqual("unset", handleAtCallback, "nothing was published before CalculateRoute returned")
+        drain()
+        t:assertEqual(handle, handleAtCallback, "and the consumer holds its handle when the callback runs")
+        t:assertNotNil(handle, "a handle was returned")
+    end)
+end)
+
+T:run("RoutingAPI: a failure the consumer edits cannot reach the router", function(t)
+    withDriver(function(pc, drain)
+        local internal = { reason = "position_unavailable", retryable = true }
+        pc.CalculatePath = function() return nil, internal end
+        local got
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function(_, failure) got = failure end)
+        drain()
+        got.reason = "edited"
+        t:assertEqual("position_unavailable", internal.reason, "the router's own failure table is untouched")
+    end)
+end)

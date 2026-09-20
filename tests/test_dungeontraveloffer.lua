@@ -103,3 +103,22 @@ T:run("DungeonOffer: routing without an offer does nothing", function(t)
     QR.DungeonTravelOffer:Clear()
     t:assertFalse(QR.DungeonTravelOffer:Route(), "no offer, no request")
 end)
+
+T:run("DungeonOffer: an unrelated instance does not clear the offer", function(t)
+    withInstance(70005, { name = "Offered Halls", zoneMapID = 84, x = 0.4, y = 0.5 }, function()
+        local savedIn, savedInfo = _G.IsInInstance, _G.GetInstanceInfo
+        _G.IsInInstance = function() return true, "party" end
+        QR.DungeonTravelOffer:Present(70005)
+        _G.GetInstanceInfo = function() return "Some Other Raid" end
+        t:assertFalse(QR.DungeonTravelOffer:InsideOfferedInstance(),
+            "standing in a different instance is not arrival")
+        _G.GetInstanceInfo = function() return "Offered Halls" end
+        t:assertTrue(QR.DungeonTravelOffer:InsideOfferedInstance(),
+            "standing in the offered one is")
+        _G.GetInstanceInfo = function() return nil end
+        t:assertFalse(QR.DungeonTravelOffer:InsideOfferedInstance(),
+            "a silent client keeps the offer rather than dropping it")
+        _G.IsInInstance, _G.GetInstanceInfo = savedIn, savedInfo
+        QR.DungeonTravelOffer:Clear()
+    end)
+end)

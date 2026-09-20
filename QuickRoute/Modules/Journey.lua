@@ -49,7 +49,19 @@ function Journey:Claim(source, destination)
         QR:Debug("Journey: " .. source .. " refused, " .. tostring(self.current.source) .. " holds a locked journey")
         return false
     end
-    self.current = { source = source, destination = target, locked = false }
+    -- A detour is unlocked, so consulting the lock alone let a third source
+    -- claim straight through the lock of the journey the detour suspended. That
+    -- journey then sat on the stack with no way back and its owner could no
+    -- longer release it.
+    if self.current and self.current.detour and self.current.source ~= source then
+        QR:Debug("Journey: " .. source .. " refused, a detour by " .. tostring(self.current.source) .. " is in force")
+        return false
+    end
+    -- The detour's own owner may change where it goes, and it stays a detour:
+    -- dropping the flag here would strand the journey underneath it just as
+    -- surely. Retarget is the call that says this explicitly.
+    local detour = self.current and self.current.detour and self.current.source == source or nil
+    self.current = { source = source, destination = target, locked = false, detour = detour }
     return true
 end
 
@@ -99,7 +111,9 @@ end
 function Journey:Resume(source)
     if not self.current or self.current.source ~= source or not self.current.detour then return nil end
     self.current = table.remove(self.suspended)
-    return self.current
+    -- A copy, like Get returns. Handing back the live record let the caller
+    -- rewrite the owner and the lock without going through Claim.
+    return self:Get()
 end
 
 --- Give up the journey. Only its owner may.

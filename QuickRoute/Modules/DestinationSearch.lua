@@ -265,7 +265,11 @@ function DS:CollectResults(query)
         -- different problems and the player can only act on the first.
         status = {
             query = query or "",
-            localizedNames = (C_Map and C_Map.GetMapInfo) and true or false,
+            -- Counted while the results are built, not derived from whether the
+            -- API exists: on a live client the function is always there, so its
+            -- presence could never explain a thin result.
+            localizedNames = 0,
+            unnamedMaps = 0,
             dungeonCatalogue = (QR.DungeonData and QR.DungeonData.numTiers or 0) > 0,
         },
     }
@@ -332,7 +336,12 @@ function DS:CollectResults(query)
                     local mapInfo = C_Map.GetMapInfo(data.mapID)
                     if mapInfo and mapInfo.name then
                         displayName = mapInfo.name
+                        results.status.localizedNames = results.status.localizedNames + 1
+                    else
+                        results.status.unnamedMaps = results.status.unnamedMaps + 1
                     end
+                else
+                    results.status.unnamedMaps = results.status.unnamedMaps + 1
                 end
                 -- Get continent/region as tag (localized via C_Map.GetMapInfo)
                 local regionTag = ""
@@ -506,9 +515,15 @@ function DS:CollectResults(query)
         results.catalogMore = more
     end
 
+    -- Every countable row, not the groups they are nested in: services arrive
+    -- as one group per service type, so counting groups understated a service
+    -- query by the number of places it actually offers.
     local matched = #results.cities + #results.waypoints + #results.quests
-        + #results.services + #results.currencies + #results.catalog
+        + #results.currencies + #results.catalog
     for _, tier in ipairs(results.dungeons) do matched = matched + #tier.instances end
+    for _, group in ipairs(results.services) do
+        matched = matched + #(group.locations or group.entries or {})
+    end
     results.status.matched = matched
     return results
 end

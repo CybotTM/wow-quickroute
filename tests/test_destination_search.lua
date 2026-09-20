@@ -1107,28 +1107,41 @@ T:run("DestSearch: cities are ordered by relevance, not by name", function(t)
     resetState()
     MockWoW.config.playerFaction = "Alliance"
     QR.PlayerInfo:InvalidateCache()
-    local results = QR.DestinationSearch:CollectResults("dalaran")
-    t:assertGreaterThan(#results.cities, 1, "both Dalarans match")
-    for index = 2, #results.cities do
-        local previous = QR.DestinationSearch.MatchRank(results.cities[index - 1].name, "dalaran")
-        local current = QR.DestinationSearch.MatchRank(results.cities[index].name, "dalaran")
-        t:assert(previous <= current, "results are ordered by relevance at position " .. index)
+    -- Both Dalarans rank the same for "dalaran", so that query holds under any
+    -- order, including the plain alphabetical one this replaced. A query whose
+    -- matches rank differently is the one that can fail.
+    local results = QR.DestinationSearch:CollectResults("da")
+    t:assertGreaterThan(#results.cities, 1, "more than one city matches")
+    local ranks = {}
+    for index, city in ipairs(results.cities) do
+        ranks[index] = QR.DestinationSearch.MatchRank(city.name, "da")
     end
+    local mixed = false
+    for index = 2, #ranks do
+        if ranks[index] ~= ranks[1] then mixed = true end
+        t:assert(ranks[index - 1] <= ranks[index],
+            "position " .. index .. " is not less relevant than the one before it")
+    end
+    t:assertTrue(mixed, "the query really does produce more than one rank, so the order can fail")
 end)
 
 T:run("DestSearch: a thin result says which kind of thin it is", function(t)
     resetState()
     local results = QR.DestinationSearch:CollectResults("zzzzznothingmatchesthis")
     t:assertEqual(0, results.status.matched, "nothing matched")
-    t:assertTrue(results.status.localizedNames, "the client did supply localized names")
+    t:assertGreaterThan(results.status.localizedNames, 0,
+        "the client did resolve map names, got " .. results.status.localizedNames)
     t:assertEqual("zzzzznothingmatchesthis", results.status.query, "the query is reported back")
 
+    -- A client that has the function and returns nothing is the case the field
+    -- exists for, and the one that testing for the function could never see.
     local savedGetMapInfo = C_Map.GetMapInfo
-    C_Map.GetMapInfo = nil
-    local without = QR.DestinationSearch:CollectResults("dalaran")
+    C_Map.GetMapInfo = function() return nil end
+    local silent = QR.DestinationSearch:CollectResults("")
     C_Map.GetMapInfo = savedGetMapInfo
-    t:assertFalse(without.status.localizedNames,
-        "a client without map names is reported as a different problem from no match")
+    t:assertEqual(0, silent.status.localizedNames, "no name came back")
+    t:assertGreaterThan(silent.status.unnamedMaps, 0,
+        "and the maps that stayed unnamed are counted, got " .. silent.status.unnamedMaps)
 end)
 
 T:run("DestSearch: relevance overrides alphabetical order", function(t)
@@ -1142,4 +1155,17 @@ T:run("DestSearch: relevance overrides alphabetical order", function(t)
     t:assertEqual("Vale of Eternal Blossoms", list[1].name,
         "the name starting with the query is offered first, got " .. list[1].name)
     t:assertEqual("Ashenvale", list[2].name, "the incidental substring match follows")
+end)
+
+T:run("DestSearch: the match count counts places, not groups", function(t)
+    resetState()
+    local results = QR.DestinationSearch:CollectResults("")
+    local services = 0
+    for _, group in ipairs(results.services) do services = services + #group.locations end
+    t:assertGreaterThan(services, #results.services,
+        "there are more service places than service groups: " .. services .. " vs " .. #results.services)
+    local expected = #results.cities + #results.waypoints + #results.quests
+        + #results.currencies + #results.catalog + services
+    for _, tier in ipairs(results.dungeons) do expected = expected + #tier.instances end
+    t:assertEqual(expected, results.status.matched, "the count is every offered place")
 end)

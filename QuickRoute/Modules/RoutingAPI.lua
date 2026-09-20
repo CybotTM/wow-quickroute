@@ -15,6 +15,13 @@ local type, pairs, ipairs = type, pairs, ipairs
 local API = { VERSION = 1 }
 QR.RoutingAPI = API
 
+-- Handles this session issued, keyed by an opaque token. A handle is only
+-- honoured when it came from here: the generation is a small consecutive
+-- integer, so accepting any table carrying one let an addon cancel whatever
+-- calculation happened to be in flight by guessing.
+local issued = setmetatable({}, { __mode = "k" })
+local inFlight = {}
+
 -- Every result is a fresh deep copy. A consumer can hold it, read it and change
 -- its own copy; nothing it does reaches QuickRoute's state or another
 -- consumer's copy.
@@ -110,8 +117,25 @@ function API:CalculateRoute(request, callback)
     -- one, and arrival never completes either.
     local role = type(request.role) == "string" and request.role or QR.TargetIdentity.ROLE.REFERENCE
     local handle = { cancelled = false }
-    handle.generation = QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, function(route, failure)
+    issued[handle] = true
+
+    -- A second request supersedes the first inside PathCalculator, so the first
+    -- consumer would simply never hear again. Silence is not one of the two
+    -- answers this contract promises, so the superseded request is told.
+    local previous = inFlight[1]
+    if previous and not previous.cancelled then
+        previous.cancelled = true
+        if type(previous.callback) == "function" then
+            previous.callback(nil, { reason = "superseded", retryable = true })
+        end
+    end
+
+    handle.callback = callback
+    inFlight[1] = handle
+
+    local function publish(route, failure)
         if handle.cancelled then return end
+        inFlight[1] = nil
         if not route then
             callback(nil, Detached(failure or { reason = "no_connection" }))
             return
@@ -128,6 +152,17 @@ function API:CalculateRoute(request, callback)
             steps = PublicSteps(route.steps),
             assumptions = Assumptions(route.steps),
         }))
+    end
+
+    handle.generation = QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, function(route, failure)
+        -- A short route finishes inside the first budget, so without this the
+        -- callback could run before CalculateRoute returned and the consumer
+        -- would not yet hold the handle it is expected to cancel with.
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, function() publish(route, failure) end)
+        else
+            publish(route, failure)
+        end
     end)
     return handle
 end
@@ -136,8 +171,9 @@ end
 -- @param handle table The handle CalculateRoute returned
 -- @return boolean True when the handle was one this session issued
 function API:Cancel(handle)
-    if type(handle) ~= "table" or handle.generation == nil then return false end
+    if type(handle) ~= "table" or not issued[handle] then return false end
     handle.cancelled = true
+    if inFlight[1] == handle then inFlight[1] = nil end
     if QR.PathCalculator.asyncGeneration == handle.generation then
         QR.PathCalculator:CancelAsync()
     end

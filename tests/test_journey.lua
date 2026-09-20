@@ -102,3 +102,52 @@ T:run("Journey: a second dungeon offer replaces the first detour instead of stac
     dd.instances[70003], dd.instances[70004] = first, second
     QR.Journey:Clear()
 end)
+
+T:run("Journey: a lock survives a detour, and nothing is stranded", function(t)
+    QR.Journey:Clear()
+    QR.Journey:Claim(S.MANUAL, A)
+    QR.Journey:Lock(S.MANUAL)
+    QR.Journey:Detour(S.DUNGEON_OFFER, B)
+    -- The detour itself is unlocked, so consulting only the current entry let a
+    -- third source claim straight through the lock and strand the trip.
+    t:assertFalse(QR.Journey:Claim(S.QUEST, { mapID = 90, x = 0.1, y = 0.1 }),
+        "a third source cannot claim past a locked journey that a detour suspended")
+    t:assertEqual(S.DUNGEON_OFFER, QR.Journey:Get().source, "the detour still owns the destination")
+    t:assertEqual(1, #QR.Journey.suspended, "exactly one journey is suspended")
+    QR.Journey:Release(S.DUNGEON_OFFER)
+    t:assertEqual(S.MANUAL, QR.Journey:Get().source, "the player's trip comes back")
+    t:assertEqual(0, #QR.Journey.suspended, "and nothing is left on the stack")
+    QR.Journey:Clear()
+end)
+
+T:run("Journey: Resume hands back a copy, not the record", function(t)
+    QR.Journey:Clear()
+    QR.Journey:Claim(S.MANUAL, A)
+    QR.Journey:Lock(S.MANUAL)
+    QR.Journey:Detour(S.DUNGEON_OFFER, B)
+    local restored = QR.Journey:Resume(S.DUNGEON_OFFER)
+    restored.source = S.QUEST
+    restored.locked = false
+    restored.destination.mapID = 999
+    local held = QR.Journey:Get()
+    t:assertEqual(S.MANUAL, held.source, "the owner cannot be rewritten through the returned table")
+    t:assertTrue(held.locked, "nor the lock")
+    t:assertEqual(84, held.destination.mapID, "nor the destination")
+    QR.Journey:Clear()
+end)
+
+T:run("Journey: the detour's own owner claiming again does not strand the trip", function(t)
+    QR.Journey:Clear()
+    QR.Journey:Claim(S.MANUAL, A)
+    QR.Journey:Lock(S.MANUAL)
+    QR.Journey:Detour(S.DUNGEON_OFFER, B)
+    -- Claim, not Retarget. Dropping the detour flag here left the locked trip
+    -- on the stack with nothing able to pop it.
+    t:assertTrue(QR.Journey:Claim(S.DUNGEON_OFFER, { mapID = 86, x = 0.6, y = 0.6 }),
+        "the detour owner may move its own destination")
+    t:assertTrue(QR.Journey:Get().detour, "and it is still a detour")
+    QR.Journey:Release(S.DUNGEON_OFFER)
+    t:assertEqual(S.MANUAL, QR.Journey:Get().source, "so the player's trip comes back")
+    t:assertEqual(0, #QR.Journey.suspended, "with nothing left on the stack")
+    QR.Journey:Clear()
+end)
