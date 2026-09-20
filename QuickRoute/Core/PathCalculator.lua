@@ -751,6 +751,7 @@ PathCalculator.FAILURE = {
     GRAPH_UNAVAILABLE = "graph_unavailable",
     SEARCH_LIMIT = "search_limit",
     BLOCKED = "blocked",
+    STEP_REJECTED = "step_rejected",
     NO_CONNECTION = "no_connection",
     INTERNAL_ERROR = "internal_error",
 }
@@ -763,6 +764,7 @@ local SEARCH_FAILURE = {
     search_limit = PathCalculator.FAILURE.SEARCH_LIMIT,
     blocked = PathCalculator.FAILURE.BLOCKED,
     blocked_start = PathCalculator.FAILURE.BLOCKED,
+    step_rejected = PathCalculator.FAILURE.STEP_REJECTED,
 }
 
 local FAILURE_MESSAGE = {
@@ -771,6 +773,7 @@ local FAILURE_MESSAGE = {
     graph_unavailable = "ROUTE_FAIL_GRAPH_UNAVAILABLE",
     search_limit = "ROUTE_FAIL_SEARCH_LIMIT",
     blocked = "ROUTE_FAIL_BLOCKED",
+    step_rejected = "ROUTE_FAIL_STEP_REJECTED",
     no_connection = "ROUTE_FAIL_NO_CONNECTION",
     internal_error = "ROUTE_FAIL_INTERNAL",
 }
@@ -964,6 +967,62 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         edges = pathEdges,
         steps = steps,
     }
+end
+
+-------------------------------------------------------------------------------
+-- Rejected steps
+--
+-- A predicted portal can be absent, an NPC can be gone, a connection can be
+-- unusable for a reason QuickRoute has no way to check. The player says so once
+-- and the journey is replanned without that connection, keeping the
+-- destination.
+--
+-- A rejection is not unlock data. It applies to one direction of one
+-- connection, it lives only for this session, and nothing writes it to disk:
+-- being unable to use a step today is not evidence about the character.
+-------------------------------------------------------------------------------
+
+local excludedEdges = {}
+
+local function EdgeKey(from, to)
+    return tostring(from) .. "\1" .. tostring(to)
+end
+
+--- Refuse one connection, in one direction, for the rest of the session.
+-- @param from string Node the step starts at
+-- @param to string Node the step leads to
+function PathCalculator:ExcludeEdge(from, to)
+    if from == nil or to == nil then return false end
+    excludedEdges[EdgeKey(from, to)] = true
+    return true
+end
+
+--- Accept a previously refused connection again.
+function PathCalculator:IncludeEdge(from, to)
+    if from == nil or to == nil then return false end
+    excludedEdges[EdgeKey(from, to)] = nil
+    return true
+end
+
+--- Forget every refusal, for example when a new journey starts.
+function PathCalculator:ClearExcludedEdges()
+    excludedEdges = {}
+end
+
+--- Whether this connection is refused for this journey.
+function PathCalculator:IsEdgeExcluded(from, to)
+    return excludedEdges[EdgeKey(from, to)] == true
+end
+
+--- Every refused connection, for display.
+-- @return table Array of {from, to}
+function PathCalculator:GetExcludedEdges()
+    local list = {}
+    for key in pairs(excludedEdges) do
+        local from, to = key:match("^(.-)\1(.*)$")
+        list[#list + 1] = { from = from, to = to }
+    end
+    return list
 end
 
 -------------------------------------------------------------------------------

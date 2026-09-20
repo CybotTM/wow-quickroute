@@ -985,6 +985,53 @@ function UI:SetupStepNavButton(stepFrame, step)
     return navButton
 end
 
+--- Set up the "Cannot use" button for a step.
+-- The player refuses one connection, in one direction, for this session, and
+-- the route is recalculated to the same destination without it. Nothing about
+-- the character is recorded.
+-- @param stepFrame Frame The step container frame
+-- @param step table The step data
+-- @return Button|nil The button, or nil for a step with no connection to refuse
+function UI:SetupStepRejectButton(stepFrame, step)
+    local rejectButton = stepFrame.rejectButton
+    if step.from == nil or step.to == nil then
+        if rejectButton then rejectButton:Hide() end
+        return nil
+    end
+    if not rejectButton then
+        rejectButton = CreateFrame("Button", nil, stepFrame)
+        rejectButton:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
+        rejectButton.label = rejectButton:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        rejectButton.label:SetPoint("CENTER", rejectButton, "CENTER", 0, 0)
+        rejectButton.label:SetText("x")
+        rejectButton.highlightTexture = rejectButton:CreateTexture(nil, "HIGHLIGHT")
+        rejectButton.highlightTexture:SetAllPoints(rejectButton)
+        rejectButton.highlightTexture:SetColorTexture(1, 1, 1, 0.15)
+        stepFrame.rejectButton = rejectButton
+    end
+    rejectButton:ClearAllPoints()
+    rejectButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -(STEP_ICON_SIZE + 6), -10)
+    rejectButton.stepFrom, rejectButton.stepTo = step.from, step.to
+    rejectButton.stepLabel = step.navTitle or step.to
+    rejectButton:Show()
+
+    rejectButton:SetScript("OnClick", function(self)
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if not QR.PathCalculator:ExcludeEdge(self.stepFrom, self.stepTo) then return end
+        QR:Print(string_format(L["STEP_REJECT_DONE"], tostring(self.stepLabel)))
+        UI:RefreshRoute()
+    end)
+    rejectButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["STEP_REJECT"])
+        GameTooltip:AddLine(L["STEP_REJECT_TT"], 1, 1, 1, true)
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    rejectButton:SetScript("OnLeave", GameTooltip_Hide)
+    return rejectButton
+end
+
 --- Dim a teleport step whose Use button combat is blocking, and remember it so
 -- OnCombatEnd can undim it.
 -- @param stepFrame Frame The step container frame
@@ -1165,6 +1212,9 @@ function UI:CreateStepLabel(index, step, yOffset, status)
 
     -- Set up Nav button for waypoint navigation
     local navButton = self:SetupStepNavButton(stepFrame, step)
+
+    -- "Cannot use" refuses this connection for the session and replans
+    self:SetupStepRejectButton(stepFrame, step)
 
     -- Configure secure "Use" button for teleport steps
     local useButton = self:ConfigureStepUseButton(stepFrame, step)

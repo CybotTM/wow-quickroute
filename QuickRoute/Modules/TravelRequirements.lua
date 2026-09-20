@@ -286,7 +286,15 @@ function TR:FindPath(graph, start, goal)
         if staticChecks[requirements] == nil then staticChecks[requirements] = self:Check(requirements, nil, true) == true end
         return staticChecks[requirements]
     end
+    -- A step the player reported as unusable is refused for this journey. It is
+    -- a rejection of one connection, not a record of what the character has
+    -- unlocked, and it lives only as long as the session.
+    local excluded = QR.PathCalculator and QR.PathCalculator.IsEdgeExcluded
+    local function rejected(from, to)
+        return excluded and QR.PathCalculator:IsEdgeExcluded(from, to) or false
+    end
     local function withoutPhase(from, to, edge)
+        if rejected(from, to) then return false end
         return staticAllowed(graph.nodes[from].requirements) and staticAllowed(graph.nodes[to].requirements)
             and staticAllowed(edge.data and edge.data.requirements)
     end
@@ -300,6 +308,9 @@ function TR:FindPath(graph, start, goal)
         if not rawPath then return nil, nil, nil, optimisticReason or "disconnected" end
         for index, edge in ipairs(rawEdges) do
             local from, to = rawPath[index], rawPath[index + 1]
+            if rejected(from, to) then
+                return nil, nil, nil, "step_rejected", { from = from, to = to }
+            end
             if not withoutPhase(from, to, edge) then
                 return nil, nil, nil, "blocked", {
                     from = from,
@@ -375,6 +386,7 @@ function TR:FindPath(graph, start, goal)
         return true
     end
     function policy:Advance(from, to, edge, state)
+        if rejected(from, to) then return nil end
         if not allowed(graph.nodes[from], state) then return nil end
         local data = edge.data or {}
         if not check(data.requirements, state) then return nil end

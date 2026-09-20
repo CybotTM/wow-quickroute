@@ -2993,3 +2993,96 @@ T:run("Cooperative search: a superseded calculation cannot publish its result", 
     t:assertEqual(1, #published, "exactly one result is published")
     t:assertEqual("second", published[1], "the superseded request is dropped, the current one publishes")
 end)
+
+-------------------------------------------------------------------------------
+-- Rejected steps
+--
+-- A predicted portal can be absent and an NPC can be gone. The player says so
+-- once, keeps the destination, and gets another route.
+-------------------------------------------------------------------------------
+
+local function rejectionGraph()
+    local graph = QR.Graph:New()
+    graph:AddNode("Player Location", {mapID = 84, x = 0.1, y = 0.1, nodeType = "player"})
+    graph:AddNode("Portal", {mapID = 84, x = 0.2, y = 0.2})
+    graph:AddNode("Long way", {mapID = 84, x = 0.3, y = 0.3})
+    graph:AddNode("Goal", {mapID = 85, x = 0.5, y = 0.5})
+    graph:AddEdge("Player Location", "Portal", 1, "walk", {})
+    graph:AddEdge("Portal", "Goal", 1, "portal", {})
+    graph:AddEdge("Player Location", "Long way", 1, "walk", {})
+    graph:AddEdge("Long way", "Goal", 50, "flight", {})
+    return graph
+end
+
+T:run("Rejected step: the journey replans around the refused connection", function(t)
+    resetState()
+    QR.PathCalculator:ClearExcludedEdges()
+    local graph = rejectionGraph()
+    local path = QR.TravelRequirements:FindPath(graph, "Player Location", "Goal")
+    t:assertEqual("Portal", path[2], "the fast route goes through the portal")
+
+    QR.PathCalculator:ExcludeEdge("Portal", "Goal")
+    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("Portal", "Goal"), "the refusal is recorded")
+    t:assertFalse(QR.PathCalculator:IsEdgeExcluded("Goal", "Portal"), "only that direction is refused")
+    local replanned = QR.TravelRequirements:FindPath(graph, "Player Location", "Goal")
+    t:assertNotNil(replanned, "the destination is kept, not abandoned")
+    t:assertEqual("Long way", replanned[2], "the alternative is used instead")
+
+    QR.PathCalculator:IncludeEdge("Portal", "Goal")
+    local restored = QR.TravelRequirements:FindPath(graph, "Player Location", "Goal")
+    t:assertEqual("Portal", restored[2], "restoring the step routes through it again")
+    QR.PathCalculator:ClearExcludedEdges()
+end)
+
+T:run("Rejected step: refusing the only route says so instead of claiming no connection", function(t)
+    resetState()
+    QR.PathCalculator:ClearExcludedEdges()
+    local graph = QR.Graph:New()
+    graph:AddNode("Player Location", {mapID = 84, x = 0.1, y = 0.1, nodeType = "player"})
+    graph:AddNode("Goal", {mapID = 85, x = 0.5, y = 0.5})
+    graph:AddEdge("Player Location", "Goal", 1, "portal", {})
+    QR.PathCalculator:ExcludeEdge("Player Location", "Goal")
+    local path, _, _, reason, detail = QR.TravelRequirements:FindPath(graph, "Player Location", "Goal")
+    t:assertNil(path, "the refused step leaves no route")
+    t:assertEqual("step_rejected", reason, "the reason names the player's own refusal")
+    t:assertEqual("Goal", detail and detail.to, "the refused hop is named")
+    QR.PathCalculator:ClearExcludedEdges()
+end)
+
+T:run("Rejected step: refusals are session state, never character data", function(t)
+    QR.PathCalculator:ClearExcludedEdges()
+    QR.PathCalculator:ExcludeEdge("A", "B")
+    local listed = QR.PathCalculator:GetExcludedEdges()
+    t:assertEqual(1, #listed, "one refusal is listed")
+    t:assertEqual("A", listed[1].from, "the listing names where the step starts")
+    t:assertEqual("B", listed[1].to, "the listing names where it leads")
+    t:assertNil(QR.db and QR.db.excludedEdges, "nothing about the refusal is written to saved variables")
+    QR.PathCalculator:ClearExcludedEdges()
+    t:assertEqual(0, #QR.PathCalculator:GetExcludedEdges(), "clearing forgets every refusal")
+end)
+
+T:run("Rejected step: the phase-aware search refuses the step too", function(t)
+    resetState()
+    QR.PathCalculator:ClearExcludedEdges()
+    -- The cheap route runs through a node in a phase this character is not in,
+    -- so the unrestricted search proposes it and the phase-aware search has to
+    -- find the alternative. That is the search the refusal must also reach.
+    local graph = QR.Graph:New()
+    graph:AddNode("Player Location", {mapID = 84, x = 0.1, y = 0.1, nodeType = "player"})
+    graph:AddNode("Phased", {mapID = 84, x = 0.2, y = 0.2, mapArtID = 999999})
+    graph:AddNode("Open", {mapID = 84, x = 0.3, y = 0.3})
+    graph:AddNode("Goal", {mapID = 85, x = 0.5, y = 0.5})
+    graph:AddEdge("Player Location", "Phased", 1, "walk", {})
+    graph:AddEdge("Phased", "Goal", 1, "walk", {})
+    graph:AddEdge("Player Location", "Open", 1, "walk", {})
+    graph:AddEdge("Open", "Goal", 2, "walk", {})
+
+    local path = QR.TravelRequirements:FindPath(graph, "Player Location", "Goal")
+    t:assertNotNil(path, "the phase-aware search finds the open route")
+    t:assertEqual("Open", path[2], "it avoids the phased node")
+
+    QR.PathCalculator:ExcludeEdge("Open", "Goal")
+    local refused = QR.TravelRequirements:FindPath(graph, "Player Location", "Goal")
+    t:assertNil(refused, "the phase-aware search honours the refusal and finds nothing else")
+    QR.PathCalculator:ClearExcludedEdges()
+end)
