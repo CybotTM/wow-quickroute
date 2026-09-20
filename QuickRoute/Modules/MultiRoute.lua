@@ -42,26 +42,32 @@ end
 local function importLines(text)
     local lines, physical, position = {}, 0, 1
     -- The number in a warning has to be the line the player counts in their
-    -- paste. Empty lines are dropped and a semicolon split adds a fragment, so
-    -- the physical number is tracked separately from the position in the list.
+    -- paste, so the physical line is tracked separately from the position in
+    -- the list, which semicolon splits and dropped empty lines both shift.
+    -- CR, LF and CRLF all end a line: a lone CR used to be kept inside the
+    -- label and swallowed the waypoint behind it without a word.
     while position <= #text + 1 do
-        local breakAt = text:find("\n", position, true)
-        local raw = text:sub(position, (breakAt or #text + 1) - 1):gsub("\r$", "")
+        local breakAt, breakEnd = text:find("\r\n?", position)
+        local newline = text:find("\n", position, true)
+        if newline and (not breakAt or newline < breakAt) then breakAt, breakEnd = newline, newline end
+        local raw = text:sub(position, (breakAt or #text + 1) - 1)
         physical = physical + 1
         if raw:find("%S") then
             local rest = raw
             while true do
                 local head, tail = rest:match("^(.-);(%s*/way[%s#].*)$")
                 if not head then break end
-                lines[#lines + 1] = { text = head, line = physical }
+                -- A semicolon at the start of a line leaves an empty head. It
+                -- is not something the player wrote, so it gets no warning.
+                if head:find("%S") then lines[#lines + 1] = { text = head, line = physical } end
                 rest = tail
             end
             lines[#lines + 1] = { text = rest, line = physical }
         end
         if not breakAt then break end
-        position = breakAt + 1
+        position = breakEnd + 1
     end
-    return lines
+    return lines, physical
 end
 
 -- Read a coordinate pair. Community guides separate the pair with a comma, and
@@ -158,8 +164,12 @@ local MAX_REPORT_ENTRIES = 40
 -- player cannot act on "some line was wrong".
 local function addEntry(report, entry, always)
     report.suppressed = report.suppressed or 0
-    if #report.entries < MAX_REPORT_ENTRIES or always then
+    -- Only the rows the preview renders spend the budget. Counting accepted
+    -- rows against it let the label announce hidden problems that were in fact
+    -- successfully imported stops, and MAX_STOPS already bounds those.
+    if entry.status == "accepted" or always or report.shown < MAX_REPORT_ENTRIES then
         report.entries[#report.entries + 1] = entry
+        if entry.status ~= "accepted" then report.shown = report.shown + 1 end
     else
         report.suppressed = report.suppressed + 1
     end
@@ -171,11 +181,13 @@ end
 -- @return string|nil Failure message when no stop was accepted
 -- @return table Import report: `accepted` count and one `entries` row per line
 function MR:ParseWaypoints(text)
-    local report = { accepted = 0, entries = {} }
+    local report = { accepted = 0, entries = {}, shown = 0, suppressed = 0 }
     if type(text) ~= "string" or #text > 8192 then return nil, QR.L["MULTI_INVALID"], report end
     local stops = {}
-    local lines = importLines(text)
-    report.total = #lines
+    local lines, physicalLines = importLines(text)
+    -- The same unit as the warnings. Counting list entries made the summary say
+    -- "2 of 3" while a warning named line 4 of that same paste.
+    report.total = physicalLines
     for _, entry in ipairs(lines) do
         local line, number = entry.text, entry.line
         local body = line:match("^%s*/way%s+(.-)%s*$")

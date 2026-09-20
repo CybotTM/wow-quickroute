@@ -316,3 +316,45 @@ T:run("MultiRoute: a warning names the line the player counts", function(t)
     t:assertNotNil(skipped, "the prose line is reported")
     t:assertEqual(4, skipped.line, "the blank lines are counted, got line " .. tostring(skipped.line))
 end)
+
+T:run("MultiRoute: the summary and the warnings count the same lines", function(t)
+    local _, err, report = QR.MultiRoute:ParseWaypoints("/way #84 50 60 A\n\n\nthis is prose\n/way #84 10 20 B")
+    t:assertNil(err, "the paste is accepted")
+    t:assertEqual(5, report.total, "the summary counts physical lines, got " .. report.total)
+    local skipped
+    for _, entry in ipairs(report.entries) do
+        if entry.status == "skipped" then skipped = entry end
+    end
+    t:assertTrue(skipped.line <= report.total,
+        "a warning cannot name a line past the total: line " .. skipped.line .. " of " .. report.total)
+    local _, _, split = QR.MultiRoute:ParseWaypoints("/way #84 50 60 A; /way #84 10 20 B")
+    t:assertEqual(1, split.total, "one pasted line stays one line however it splits, got " .. split.total)
+end)
+
+T:run("MultiRoute: a leading semicolon produces no warning about a line nobody wrote", function(t)
+    local stops, err, report = QR.MultiRoute:ParseWaypoints(";/way #84 50 60 A")
+    t:assertNil(err, "the waypoint is imported")
+    t:assertEqual(1, #stops, "one stop")
+    t:assertFalse(QR.MultiRoute:ImportHasWarnings(report),
+        "nothing is reported for the empty fragment before the semicolon")
+end)
+
+T:run("MultiRoute: a carriage return ends a line too", function(t)
+    for _, paste in ipairs({ "/way #84 50 60 A\r/way #84 10 20 B", "/way #84 50 60 A\r\n/way #84 10 20 B" }) do
+        local stops, err = QR.MultiRoute:ParseWaypoints(paste)
+        t:assertNil(err, "the paste is accepted")
+        t:assertEqual(2, #stops, "both waypoints are read, got " .. #stops)
+        t:assertEqual("A", stops[1].title, "the first label does not swallow the second line")
+    end
+end)
+
+T:run("MultiRoute: the suppressed count names only rows the preview withheld", function(t)
+    local paste = string.rep("note\n", 30) .. string.rep("/way #84 50 60 A\n", 15)
+    local stops, err, report = QR.MultiRoute:ParseWaypoints(paste)
+    t:assertNil(err, "the waypoints are imported")
+    t:assertEqual(15, #stops, "all fifteen stops")
+    t:assertEqual(0, report.suppressed,
+        "thirty warnings fit in the budget, so nothing was withheld, got " .. report.suppressed)
+    local text = QR.MultiRoute:FormatImportReport(report)
+    t:assertNil(text:find("not shown", 1, true), "and the label does not claim otherwise")
+end)

@@ -277,7 +277,26 @@ T:run("Travel movement: the graph prices a remote flyable leg with the flight pr
 
     local flyable = weightBetween(87)     -- Ironforge, a continent that permits flight
     local grounded = weightBetween(1543)  -- The Maw, which does not
+
+    -- The other builder, which the graph goes through for every map that
+    -- already holds more than one node. Without this the fix could be reverted
+    -- there with the whole suite green.
+    local function sameMapWeight(mapID)
+        pc.graph = QR.Graph:New()
+        pc.graph:AddNode("Same A", { mapID = mapID, x = 0.10, y = 0.10 })
+        pc.graph:AddNode("Same B", { mapID = mapID, x = 0.90, y = 0.90 })
+        pc:ConnectSameMapNodes()
+        local edge = pc.graph.edges["Same A"] and pc.graph.edges["Same A"]["Same B"]
+        return edge and edge.weight
+    end
+    local sameFlyable = sameMapWeight(87)
+    local sameGrounded = sameMapWeight(1543)
     pc.graph, pc.graphDirty = savedGraph, savedDirty
+
+    t:assertNotNil(sameFlyable, "ConnectSameMapNodes wrote an edge for the flyable zone")
+    t:assertTrue(sameFlyable < sameGrounded,
+        "the same-map builder also uses the flight profile: "
+        .. tostring(sameFlyable) .. " vs " .. tostring(sameGrounded))
 
     t:assertNotNil(flyable, "the builder wrote an edge for the flyable zone")
     t:assertNotNil(grounded, "the builder wrote an edge for the ground-only zone")

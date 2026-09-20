@@ -421,7 +421,8 @@ end
 --- Connect all nodes that share the same mapID with walking edges
 -- This is crucial for connecting teleport destinations to nearby portal hubs
 function PathCalculator:ConnectSameMapNodes()
-    -- Only assume flying for the player's CURRENT map; remote maps use ground speed
+    -- Measured for the current map; unknown for any other one, so TravelTime
+    -- decides from what that zone allows and what the character owns.
     local playerMapID = QR.TravelTime:GetCurrentMapID()
     local playerCanFly = GetCachedIsFlyable(playerMapID)
 
