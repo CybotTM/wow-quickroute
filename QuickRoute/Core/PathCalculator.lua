@@ -966,6 +966,102 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     }
 end
 
+-------------------------------------------------------------------------------
+-- Cooperative route calculation
+--
+-- Scheduling one calculation per frame bounds how many searches start, not what
+-- one of them costs. A single expensive search still ran to completion inside
+-- one frame. The driver below runs a calculation inside a coroutine, spends a
+-- measured budget per frame and continues on the next.
+--
+-- Two guarantees matter as much as the budget. A superseded calculation cannot
+-- publish: its result is dropped unless its generation is still the current one.
+-- And a superseded calculation is still run to the end rather than abandoned,
+-- because CalculatePath adds a temporary destination node to the shared graph
+-- and removes it on the way out; dropping the coroutine would leave it behind.
+-------------------------------------------------------------------------------
+
+-- Milliseconds of route search per frame.
+PathCalculator.FRAME_BUDGET_MS = 6
+PathCalculator.asyncGeneration = 0
+
+local function ProfileClock()
+    local clock = _G.debugprofilestop
+    if type(clock) ~= "function" then return nil end
+    local ok, value = pcall(clock)
+    if not ok or type(value) ~= "number" then return nil end
+    return clock
+end
+
+--- Supersede any calculation in flight.
+-- The running search finishes so the graph is left clean, but its result is no
+-- longer published.
+-- @return number The new current generation
+function PathCalculator:CancelAsync()
+    self.asyncGeneration = (self.asyncGeneration or 0) + 1
+    self.asyncPending = nil
+    return self.asyncGeneration
+end
+
+--- Calculate a route across frames.
+-- @param callback function Receives (route, failure) when this request is still
+--   the current one
+-- @return number The generation of this request
+function PathCalculator:CalculatePathAsync(destMapID, destX, destY, destTitle, callback)
+    local generation = self:CancelAsync()
+    self.asyncPending = {
+        generation = generation,
+        args = { destMapID, destX, destY, destTitle },
+        callback = callback,
+    }
+    if not self.asyncRunning then self:StepAsync() end
+    return generation
+end
+
+--- Start the queued request, if any and if nothing is running.
+function PathCalculator:StepAsync()
+    if self.asyncRunning then return end
+    local pending = self.asyncPending
+    if not pending then return end
+    self.asyncPending = nil
+    pending.thread = coroutine.create(function()
+        return self:CalculatePath(pending.args[1], pending.args[2], pending.args[3], pending.args[4])
+    end)
+    self.asyncRunning = pending
+    self:ResumeAsync()
+end
+
+--- Spend one frame's budget on the running calculation.
+function PathCalculator:ResumeAsync()
+    local running = self.asyncRunning
+    if not running then return end
+    local clock = ProfileClock()
+    local deadline = clock and (clock() + (self.FRAME_BUDGET_MS or 6))
+    QR.Graph.SetYieldHook(clock and function() return clock() >= deadline end or nil)
+    local ok, route, failure = coroutine.resume(running.thread)
+    QR.Graph.SetYieldHook(nil)
+
+    if ok and coroutine.status(running.thread) ~= "dead" then
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, function() self:ResumeAsync() end)
+        else
+            self:ResumeAsync()
+        end
+        return
+    end
+
+    self.asyncRunning = nil
+    if not ok then
+        QR:Error("Asynchronous route calculation failed: " .. tostring(route))
+        route, failure = nil, { reason = self.FAILURE.INTERNAL_ERROR, retryable = false }
+    end
+    -- A superseded request never publishes, whatever it found.
+    if running.generation == self.asyncGeneration and type(running.callback) == "function" then
+        running.callback(route, failure)
+    end
+    self:StepAsync()
+end
+
 --- Create a reusable calculator with its own graph and position caches.
 -- Transport topology is copied once; current access/phase requirements are
 -- still evaluated on every query. Exclusions are fixed for this context.

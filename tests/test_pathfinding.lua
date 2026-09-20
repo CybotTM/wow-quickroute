@@ -2924,3 +2924,72 @@ T:run("Route failure: a locked requirement names the hop that refused", function
     t:assertEqual("Remote", blocked.to, "the refusal names where it leads")
     t:assertEqual(424242, blocked.requirements and blocked.requirements.quest, "the unmet requirement travels with it")
 end)
+
+-------------------------------------------------------------------------------
+-- Cooperative search
+--
+-- One calculation per frame bounds how many searches start, not what one costs.
+-------------------------------------------------------------------------------
+
+T:run("Cooperative search: expansion yields when the frame budget is spent", function(t)
+    local graph = QR.Graph:New()
+    for index = 1, 900 do
+        graph:AddNode("N" .. index, {mapID = 84, x = index / 1000, y = 0.5})
+        if index > 1 then graph:AddEdge("N" .. (index - 1), "N" .. index, 1, "walk", {}) end
+    end
+    local asked, yielded = 0, 0
+    QR.Graph.SetYieldHook(function() asked = asked + 1; return true end)
+    local thread = coroutine.create(function()
+        return graph:FindShortestPath("N1", "N900")
+    end)
+    local path
+    while true do
+        local ok, result = coroutine.resume(thread)
+        t:assertTrue(ok, "the cooperative search does not error")
+        if coroutine.status(thread) == "dead" then path = result break end
+        yielded = yielded + 1
+    end
+    QR.Graph.SetYieldHook(nil)
+    t:assertNotNil(path, "the search still produces the path")
+    t:assertEqual(900, #path, "the path is the same one the synchronous search finds")
+    t:assertGreaterThan(yielded, 0, "the search yielded during expansion, got " .. yielded)
+    t:assertGreaterThan(asked, 0, "the budget hook was consulted, got " .. asked)
+end)
+
+T:run("Cooperative search: the hook is ignored outside a coroutine", function(t)
+    local graph = QR.Graph:New()
+    graph:AddNode("A", {mapID = 84, x = 0.1, y = 0.1})
+    graph:AddNode("B", {mapID = 84, x = 0.2, y = 0.2})
+    graph:AddEdge("A", "B", 1, "walk", {})
+    QR.Graph.SetYieldHook(function() return true end)
+    local path = graph:FindShortestPath("A", "B")
+    QR.Graph.SetYieldHook(nil)
+    t:assertNotNil(path, "a synchronous search runs to completion with a hook installed")
+end)
+
+T:run("Cooperative search: a superseded calculation cannot publish its result", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local saved, after = pc.CalculatePath, C_Timer.After
+    local queue = {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    -- One route per call, so the two requests are distinguishable.
+    local answers = { "first", "second" }
+    local index = 0
+    pc.CalculatePath = function()
+        index = index + 1
+        coroutine.yield()
+        return { tag = answers[index] }
+    end
+    local published = {}
+    pc:CalculatePathAsync(84, 0.5, 0.5, nil, function(route) published[#published + 1] = route.tag end)
+    pc:CalculatePathAsync(85, 0.5, 0.5, nil, function(route) published[#published + 1] = route.tag end)
+    while #queue > 0 do
+        local callback = table.remove(queue, 1)
+        callback()
+    end
+    pc.CalculatePath, C_Timer.After = saved, after
+    pc:CancelAsync()
+    t:assertEqual(1, #published, "exactly one result is published")
+    t:assertEqual("second", published[1], "the superseded request is dropped, the current one publishes")
+end)
