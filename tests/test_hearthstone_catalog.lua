@@ -241,3 +241,24 @@ for _, mapID in ipairs({94, 2395}) do
         end)
     end)
 end
+
+-- The `ambiguous` flag and the missing coordinates say the same thing in
+-- today's catalogue, so removing the flag check from BuildInnIndex changes
+-- nothing the suite can see. It becomes load-bearing the moment a record
+-- documents where an ambiguous place is while staying unroutable. This test
+-- builds exactly that record and fails if the flag stops being honoured.
+T:run("Hearthstone catalog: an ambiguous record with coordinates is still not routable", function(t)
+    isolated("enUS", function(bindTo, _, replace)
+        local area = 14771
+        replace(QR.HearthstoneLocations, 1, nil)
+        replace(QR, "HearthstoneLocations", {
+            { areaID = area, ambiguous = true, mapID = 2395, x = 0.4, y = 0.4 },
+        })
+        QR.Hearthstone.innIndex, QR.Hearthstone.innIndexIncomplete = nil, nil
+        bindTo(areaNames.enUS[area])
+        local point = QR.Hearthstone:GetDestination()
+        t:assertNil(point, "an area marked ambiguous stays unroutable even when it carries a position")
+        t:assertFalse(QR.Hearthstone.innIndexIncomplete == true,
+            "the index is complete; the record is blocked on purpose rather than missing")
+    end)
+end)
