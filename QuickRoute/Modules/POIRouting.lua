@@ -46,6 +46,14 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
         end
     end
 
+    -- A destination the player chose by hand is theirs. Claiming it and locking
+    -- it means an alert or a guide step can ask for a detour but cannot quietly
+    -- replace where they were going.
+    if QR.Journey then
+        QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = mapID, x = x, y = y, title = zoneName })
+        QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
+    end
+
     QR:Debug(string_format(
         "POIRouting: routing to map %d (%s) at (%.4f, %.4f)",
         mapID, zoneName, x, y

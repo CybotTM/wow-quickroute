@@ -77,6 +77,11 @@ function Offer:Present(journalInstanceID)
         y = instance.y,
         title = instance.name,
     }
+    -- A dungeon group is an interruption, not a replacement: the trip the
+    -- player was on is suspended and comes back when the detour ends.
+    if QR.Journey then
+        QR.Journey:Detour(QR.Journey.SOURCE.DUNGEON_OFFER, self.pending)
+    end
     QR:Print(string.format(QR.L["DUNGEON_OFFER_READY"], tostring(instance.name)))
     return true
 end
@@ -102,8 +107,10 @@ function Offer:Route(callback)
 end
 
 --- Drop the offer. Entering the instance is the normal reason.
+-- Ending the detour restores whatever journey it interrupted.
 function Offer:Clear()
     self.pending = nil
+    if QR.Journey then QR.Journey:Release(QR.Journey.SOURCE.DUNGEON_OFFER) end
 end
 
 --- Whether the player is now inside the instance the offer was for.
