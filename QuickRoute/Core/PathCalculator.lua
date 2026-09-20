@@ -1944,11 +1944,17 @@ function PathCalculator:SelectStepAnchor(step)
     for index = 1, #anchors - 1 do
         local anchor = anchors[index]
         if anchor.mapID and anchor.x and anchor.y then
-            local mapID, x, y = self:GetPlayerPosition(anchor.mapID)
+            -- Both sides are resolved the same way before they are compared.
+            -- GetPlayerPosition returns the map after resolution, so comparing
+            -- it against an unresolved anchor map would never match on a map
+            -- that resolves to a child, and navigation would stick on the first
+            -- anchor for the whole journey.
+            local anchorMap, anchorX, anchorY = self:ResolveMapPosition(anchor.mapID, anchor.x, anchor.y)
+            local mapID, x, y = self:GetPlayerPosition(anchorMap or anchor.mapID)
             -- No position means no evidence the anchor is behind the player, so
             -- the ordered approach is kept rather than skipped.
-            if mapID ~= anchor.mapID then return anchor end
-            local dx, dy = x - anchor.x, y - anchor.y
+            if not anchorMap or mapID ~= anchorMap then return anchor end
+            local dx, dy = x - anchorX, y - anchorY
             if (dx * dx + dy * dy) > (ANCHOR_REACHED * ANCHOR_REACHED) then return anchor end
         end
     end

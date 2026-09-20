@@ -193,6 +193,29 @@ T:run("SelectStepAnchor: a merged row navigates to the anchor still ahead", func
     QR.PathCalculator.GetPlayerPosition = saved
 end)
 
+T:run("SelectStepAnchor: an anchor on a map that resolves to a child still counts as reached", function(t)
+    resetState()
+    -- The player position is reported on the resolved map. Comparing it against
+    -- an unresolved anchor map never matches, and navigation would stay on the
+    -- first anchor for the whole journey.
+    local steps = {
+        { type = "walk", from = "A", to = "B", time = 20, navMapID = 13, navX = 0.50, navY = 0.56, navTitle = "B" },
+        { type = "walk", from = "B", to = "C", time = 15, navMapID = 13, navX = 0.41, navY = 0.62, navTitle = "C" },
+    }
+    local merged = QR.PathCalculator:CollapseConsecutiveSteps(steps)[1]
+    local savedResolve = QR.PathCalculator.ResolveMapPosition
+    local savedPosition = QR.PathCalculator.GetPlayerPosition
+    QR.PathCalculator.ResolveMapPosition = function(_, mapID, x, y)
+        if mapID == 13 then return 84, x, y end
+        return mapID, x, y
+    end
+    QR.PathCalculator.GetPlayerPosition = function() return 84, 0.50, 0.56 end
+    local anchor = QR.PathCalculator:SelectStepAnchor(merged)
+    QR.PathCalculator.ResolveMapPosition = savedResolve
+    QR.PathCalculator.GetPlayerPosition = savedPosition
+    t:assertEqual("C", anchor.title, "standing on the first anchor moves navigation to the next one")
+end)
+
 T:run("SelectStepAnchor: a step without merged anchors keeps its own target", function(t)
     resetState()
     local step = { type = "portal", navMapID = 84, navX = 0.2, navY = 0.3, navTitle = "Portal room", to = "Stormwind City" }
