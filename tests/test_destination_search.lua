@@ -135,6 +135,40 @@ T:run("DestSearch: cities filtered by Horde faction", function(t)
     t:assertTrue(hasOrgrimmar, "Horde sees Orgrimmar")
 end)
 
+-- Midnight Silvermoon is a shared hub, so both factions must find it while the
+-- Horde-only capitals stay filtered. Asserting only the exclusion would also be
+-- satisfied by a city list that hides everything faction-specific.
+local function cityOnMap(results, mapID)
+    for _, city in ipairs(results.cities) do
+        if city.mapID == mapID then return city end
+    end
+    return nil
+end
+
+T:run("DestSearch: shared Silvermoon is offered to both factions", function(t)
+    resetState()
+    for _, faction in ipairs({ "Alliance", "Horde" }) do
+        MockWoW.config.playerFaction = faction
+        QR.PlayerInfo:InvalidateCache()
+        local results = QR.DestinationSearch:CollectResults("")
+        local silvermoon = cityOnMap(results, 2393)
+        t:assertNotNil(silvermoon, faction .. " finds the shared Silvermoon hub on map 2393")
+        t:assertEqual("both", silvermoon.faction, "the city entry is shared, not faction-locked")
+    end
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    local allianceResults = QR.DestinationSearch:CollectResults("")
+    t:assertNil(cityOnMap(allianceResults, 85), "Alliance still does not see Orgrimmar")
+    t:assertNil(cityOnMap(allianceResults, 1165), "Alliance still does not see Dazar'alor")
+end)
+
+T:run("DestSearch: Silvermoon uses the surveyed shared district, not the map 110 value", function(t)
+    local silvermoon = QR.CAPITAL_CITIES["Silvermoon City"]
+    t:assertEqual(2393, silvermoon.mapID, "Silvermoon is the revamped map")
+    t:assertTrue(math.abs(silvermoon.x - 0.5028) < 1e-9, "x is the surveyed shared district, got " .. silvermoon.x)
+    t:assertTrue(math.abs(silvermoon.y - 0.7486) < 1e-9, "y is the surveyed shared district, got " .. silvermoon.y)
+end)
+
 T:run("DestSearch: search filters cities by name", function(t)
     resetState()
     local DS = QR.DestinationSearch

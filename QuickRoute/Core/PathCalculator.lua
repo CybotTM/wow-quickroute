@@ -201,13 +201,19 @@ local CAPITAL_CITIES = {
     ["Orgrimmar"] = {mapID = 85, x = 0.4690, y = 0.3870, faction = "Horde"},
     ["Undercity"] = {mapID = 90, x = 0.6549, y = 0.4161, faction = "Horde"},
     ["Thunder Bluff"] = {mapID = 88, x = 0.2920, y = 0.2740, faction = "Horde"},
-    -- 2393 like Portals, ServicePOIs and the mage teleport. Leaving this at
-    -- 110 made the destination search offer a Silvermoon on a different map
-    -- than the one the portals land on, with two different routes for one city.
-    ["Silvermoon City"] = {mapID = 2393, x = 0.5850, y = 0.1920, faction = "Horde"},
     ["Dazar'alor"] = {mapID = 1165, x = 0.5020, y = 0.4080, faction = "Horde"},
 
     -- Neutral hubs
+    -- Midnight Silvermoon is a shared hub with a Horde-only enclave inside it,
+    -- so faction access belongs to the service, not to the whole map: the city
+    -- node is reachable by both factions and ServicePOIs.lua keeps the enclave
+    -- entries Horde-only. The coordinate is the shared district surveyed by
+    -- Tayder (2026-02-26), not the unverified map 110 value the portal records
+    -- still carry. Map 2393 like Portals, ServicePOIs and the mage teleport;
+    -- leaving this at 110 made the destination search offer a Silvermoon on a
+    -- different map than the one the portals land on.
+    -- https://news.blizzard.com/en-us/article/24243213/welcome-to-silvermoon-city
+    ["Silvermoon City"] = {mapID = 2393, x = 0.5028, y = 0.7486, faction = "both"},
     ["Dalaran (Northrend)"] = {mapID = 125, x = 0.4947, y = 0.4709, faction = "both"},
     ["Dalaran (Broken Isles)"] = {mapID = 627, x = 0.5044, y = 0.5313, faction = "both"},
     ["Shattrath City"] = {mapID = 111, x = 0.5410, y = 0.4120, faction = "both"},
