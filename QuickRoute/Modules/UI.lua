@@ -994,7 +994,7 @@ end
 -- @return Button|nil The button, or nil for a step with no connection to refuse
 function UI:SetupStepRejectButton(stepFrame, step)
     local rejectButton = stepFrame.rejectButton
-    if step.from == nil or step.to == nil then
+    if #QR.PathCalculator:StepEdgePairs(step) == 0 then
         if rejectButton then rejectButton:Hide() end
         return nil
     end
@@ -1010,14 +1010,22 @@ function UI:SetupStepRejectButton(stepFrame, step)
         stepFrame.rejectButton = rejectButton
     end
     rejectButton:ClearAllPoints()
-    rejectButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -(STEP_ICON_SIZE + 6), -10)
-    rejectButton.stepFrom, rejectButton.stepTo = step.from, step.to
+    -- Third slot. The secure Use overlay sits at -33 and is 28 wide, so
+    -- anything nearer than -67 shares pixels with it and the click lands on a
+    -- protected action instead of on this button.
+    rejectButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -(2 * STEP_ICON_SIZE + 11), -10)
+    -- A merged row spans several hops; refusing it refuses all of them.
+    rejectButton.edgePairs = QR.PathCalculator:StepEdgePairs(step)
     rejectButton.stepLabel = step.navTitle or step.to
     rejectButton:Show()
 
     rejectButton:SetScript("OnClick", function(self)
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-        if not QR.PathCalculator:ExcludeEdge(self.stepFrom, self.stepTo) then return end
+        local refused = 0
+        for _, pair in ipairs(self.edgePairs or {}) do
+            if QR.PathCalculator:ExcludeEdge(pair.from, pair.to) then refused = refused + 1 end
+        end
+        if refused == 0 then return end
         QR:Print(string_format(L["STEP_REJECT_DONE"], tostring(self.stepLabel)))
         UI:RefreshRoute()
     end)
@@ -1232,7 +1240,12 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     label1:ClearAllPoints()
     local textLeft = 8 + STEP_ICON_SIZE + 6  -- icon offset + icon size + gap
     -- When useButton is present, leave room for both buttons (use + nav)
-    local textRightOffset = useButton and (-(STEP_ICON_SIZE + 6)) or -4
+    -- Room for every control the row actually shows: nav, plus the secure Use
+    -- button where there is one, plus the reject button where there is one.
+    local reserved = 4
+    if stepFrame.rejectButton and stepFrame.rejectButton:IsShown() then reserved = reserved + STEP_ICON_SIZE + 5 end
+    if useButton then reserved = reserved + STEP_ICON_SIZE + 6 end
+    local textRightOffset = -reserved
     label1:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", textLeft, -6)
     label1:SetPoint("RIGHT", navButton, "LEFT", textRightOffset, 0)
     label1:SetWordWrap(true)

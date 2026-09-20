@@ -290,8 +290,15 @@ function TR:FindPath(graph, start, goal)
     -- a rejection of one connection, not a record of what the character has
     -- unlocked, and it lives only as long as the session.
     local excluded = QR.PathCalculator and QR.PathCalculator.IsEdgeExcluded
+    -- Remembered so a refusal is still named after the phase-aware search,
+    -- which knows only "blocked".
+    local refusedHop
     local function rejected(from, to)
-        return excluded and QR.PathCalculator:IsEdgeExcluded(from, to) or false
+        if excluded and QR.PathCalculator:IsEdgeExcluded(from, to) then
+            refusedHop = refusedHop or { from = from, to = to }
+            return true
+        end
+        return false
     end
     local function withoutPhase(from, to, edge)
         if rejected(from, to) then return false end
@@ -437,6 +444,12 @@ function TR:FindPath(graph, start, goal)
     checks = {} -- Initial state gained keys; discard checks made against its earlier shape.
     local path, cost, edges, reason = graph:FindShortestPathWithState(start, goal, policy)
     if path then return path, cost, edges end
+    -- The phase-aware search has no notion of a refusal, so it reports
+    -- "blocked". Telling the player an unlock is missing for a step they
+    -- refused themselves is the wrong sentence, and the one they cannot act on.
+    if reason == "blocked" and refusedHop then
+        return nil, nil, nil, "step_rejected", refusedHop
+    end
     return nil, nil, nil, reason or "blocked", blocked
 end
 

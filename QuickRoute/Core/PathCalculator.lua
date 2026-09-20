@@ -791,6 +791,10 @@ local FAILURE_RETRYABLE = {
 -- @return string Localized sentence naming what happened
 function PathCalculator:DescribeFailure(failure)
     local reason = type(failure) == "table" and failure.reason or failure
+    -- No failure table is not an internal error. A caller that produced no
+    -- route without saying why -- a waypoint that disappeared between the
+    -- lookup and the calculation -- gets the plain "no route" sentence.
+    if reason == nil then return QR.L["NO_PATH_FOUND"] end
     local key = FAILURE_MESSAGE[reason] or FAILURE_MESSAGE.internal_error
     return QR.L[key]
 end
@@ -814,6 +818,7 @@ end
 function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     destMapID, destX, destY = self:ResolveMapPosition(destMapID, destX, destY)
     if not destMapID then return nil, Failure(self.FAILURE.INVALID_DESTINATION) end
+    self:NoteJourneyDestination(destMapID, destX, destY)
     if type(destTitle) ~= "string" then destTitle = nil end
     -- Rebuild graph if needed. Faction is part of "needed": AddZoneNodes and
     -- AddFlightEdges both read it at build time, so a graph built before a
@@ -983,9 +988,25 @@ end
 -------------------------------------------------------------------------------
 
 local excludedEdges = {}
+-- The destination the refusals were made for. "For this journey" was a claim in
+-- a comment and nothing enforced it: a step refused on the way to one place
+-- stayed refused for every later destination until the player reloaded.
+local excludedFor
 
 local function EdgeKey(from, to)
     return tostring(from) .. "\1" .. tostring(to)
+end
+
+--- The graph hops one displayed row stands for.
+-- A merged or absorbed row's own from/to can span several hops, which is not a
+-- connection the router knows. Refusing a row means refusing these.
+-- @param step table A route step
+-- @return table Array of {from, to}
+function PathCalculator:StepEdgePairs(step)
+    if type(step) ~= "table" then return {} end
+    if type(step.edgePairs) == "table" and #step.edgePairs > 0 then return step.edgePairs end
+    if step.from == nil or step.to == nil then return {} end
+    return { { from = step.from, to = step.to } }
 end
 
 --- Refuse one connection, in one direction, for the rest of the session.
@@ -995,6 +1016,22 @@ function PathCalculator:ExcludeEdge(from, to)
     if from == nil or to == nil then return false end
     excludedEdges[EdgeKey(from, to)] = true
     return true
+end
+
+--- Note which destination the refusals belong to, and forget them when the
+--- player goes somewhere else.
+-- @return boolean True when refusals were dropped
+function PathCalculator:NoteJourneyDestination(mapID, x, y)
+    if not IsMapID(mapID) then return false end
+    local current = string_format("%d:%.4f:%.4f", mapID, x or 0, y or 0)
+    if excludedFor == current then return false end
+    local had = next(excludedEdges) ~= nil
+    excludedFor = current
+    if had then
+        excludedEdges = {}
+        QR:Debug("Refused steps forgotten: a new destination was chosen")
+    end
+    return had
 end
 
 --- Accept a previously refused connection again.
@@ -1007,6 +1044,7 @@ end
 --- Forget every refusal, for example when a new journey starts.
 function PathCalculator:ClearExcludedEdges()
     excludedEdges = {}
+    excludedFor = nil
 end
 
 --- Whether this connection is refused for this journey.
@@ -1083,6 +1121,12 @@ function PathCalculator:StepAsync()
     local pending = self.asyncPending
     if not pending then return end
     self.asyncPending = nil
+    -- The graph object the search runs over is captured here. A synchronous
+    -- caller can rebuild the graph while this coroutine is suspended, and the
+    -- search would then finish over an orphaned object while BuildSteps reads
+    -- node data from the new one: steps with no coordinates rather than a
+    -- failure. Publishing is refused when the object is no longer current.
+    pending.graph = self.graph
     pending.thread = coroutine.create(function()
         return self:CalculatePath(pending.args[1], pending.args[2], pending.args[3], pending.args[4])
     end)
@@ -1113,6 +1157,10 @@ function PathCalculator:ResumeAsync()
     if not ok then
         QR:Error("Asynchronous route calculation failed: " .. tostring(route))
         route, failure = nil, { reason = self.FAILURE.INTERNAL_ERROR, retryable = false }
+    end
+    if route and running.graph and self.graph ~= running.graph then
+        QR:Debug("Asynchronous route discarded: the graph was rebuilt while it ran")
+        route, failure = nil, { reason = self.FAILURE.GRAPH_UNAVAILABLE, retryable = true }
     end
     -- A superseded request never publishes, whatever it found.
     if running.generation == self.asyncGeneration and type(running.callback) == "function" then
@@ -2230,12 +2278,17 @@ function PathCalculator:CollapseConsecutiveSteps(steps)
             local lastStep = step
             local mergedCount = 0
             local waypoints = { navigationAnchor(step) }
+            -- The row's own from/to span several hops once it is merged, and
+            -- that pair is not an edge in the graph. Refusing the row has to
+            -- refuse the hops it stands for, so they travel with it.
+            local edgePairs = { { from = step.from, to = step.to } }
             while i + 1 <= #steps and mergeable(lastStep, steps[i + 1]) do
                 i = i + 1
                 combinedTime = combinedTime + steps[i].time
                 lastStep = steps[i]
                 mergedCount = mergedCount + 1
                 waypoints[#waypoints + 1] = navigationAnchor(lastStep)
+                edgePairs[#edgePairs + 1] = { from = lastStep.from, to = lastStep.to }
             end
             if mergedCount > 0 then
                 -- Create merged step using the final destination. The ordered
@@ -2248,6 +2301,7 @@ function PathCalculator:CollapseConsecutiveSteps(steps)
                 mergedStep.collapsed = true
                 mergedStep.collapsedCount = mergedCount + 1
                 mergedStep.waypoints = waypoints
+                mergedStep.edgePairs = edgePairs
                 table_insert(collapsed, mergedStep)
             else
                 table_insert(collapsed, step)
@@ -2290,6 +2344,10 @@ function PathCalculator:AbsorbRedundantWalkSteps(steps)
             merged.destY = nextStep.destY or step.destY
             merged.to = nextStep.to or step.to
             merged.localizedTo = nextStep.localizedTo or step.localizedTo
+            -- `to` now names the walk's destination while `from` still names
+            -- the transport's origin, so the row's own pair is not an edge.
+            -- Refusing this row means refusing the transport hop.
+            merged.edgePairs = { { from = step.from, to = step.to } }
             -- Keep the transport step's nav coords (portal entrance), not the walk destination
             merged.navX = step.navX or nextStep.navX or nextStep.destX
             merged.navY = step.navY or nextStep.navY or nextStep.destY

@@ -3086,3 +3086,104 @@ T:run("Rejected step: the phase-aware search refuses the step too", function(t)
     t:assertNil(refused, "the phase-aware search honours the refusal and finds nothing else")
     QR.PathCalculator:ClearExcludedEdges()
 end)
+
+T:run("Rejected step: a refusal belongs to the destination it was made for", function(t)
+    resetState()
+    QR.PathCalculator:ClearExcludedEdges()
+    QR.PathCalculator:NoteJourneyDestination(84, 0.5, 0.5)
+    QR.PathCalculator:ExcludeEdge("Gate", "Goal")
+    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "the refusal holds on the same journey")
+    t:assertFalse(QR.PathCalculator:NoteJourneyDestination(84, 0.5, 0.5), "the same destination changes nothing")
+    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "and the refusal survives it")
+    t:assertTrue(QR.PathCalculator:NoteJourneyDestination(85, 0.2, 0.2), "a new destination drops the refusals")
+    t:assertFalse(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "so the step is offered again")
+    QR.PathCalculator:ClearExcludedEdges()
+end)
+
+T:run("Rejected step: the phase-aware search still names the refusal", function(t)
+    resetState()
+    QR.PathCalculator:ClearExcludedEdges()
+    -- The cheap route runs through a phased node, so the phase-aware search is
+    -- the one that has to report; it knows only "blocked" on its own.
+    local graph = QR.Graph:New()
+    graph:AddNode("Player Location", {mapID = 84, x = 0.1, y = 0.1, nodeType = "player"})
+    graph:AddNode("Phased", {mapID = 84, x = 0.2, y = 0.2, mapArtID = 999999})
+    graph:AddNode("Open", {mapID = 84, x = 0.3, y = 0.3})
+    graph:AddNode("Goal", {mapID = 85, x = 0.5, y = 0.5})
+    graph:AddEdge("Player Location", "Phased", 1, "walk", {})
+    graph:AddEdge("Phased", "Goal", 1, "walk", {})
+    graph:AddEdge("Player Location", "Open", 1, "walk", {})
+    graph:AddEdge("Open", "Goal", 2, "walk", {})
+    QR.PathCalculator:ExcludeEdge("Open", "Goal")
+    local path, _, _, reason, detail = QR.TravelRequirements:FindPath(graph, "Player Location", "Goal")
+    t:assertNil(path, "no route is left")
+    t:assertEqual("step_rejected", reason, "the player's own refusal is named, not a missing unlock")
+    t:assertEqual("Goal", detail and detail.to, "and the refused hop travels with it")
+    QR.PathCalculator:ClearExcludedEdges()
+end)
+
+T:run("Route failure: no failure table is not an internal error", function(t)
+    t:assertEqual(QR.L["NO_PATH_FOUND"], QR.PathCalculator:DescribeFailure(nil),
+        "a bare nil result reads as no route, not as a broken addon")
+    t:assertEqual(QR.L["ROUTE_FAIL_INTERNAL"], QR.PathCalculator:DescribeFailure({ reason = "internal_error" }),
+        "an actual internal error still says so")
+end)
+
+T:run("Cooperative search: the yield hook is ignored outside a coroutine, over enough expansions to matter", function(t)
+    -- The previous version of this test had two nodes, so the expansion counter
+    -- never reached the interval and the coroutine guard was never evaluated.
+    local graph = QR.Graph:New()
+    for index = 1, 400 do
+        graph:AddNode("S" .. index, {mapID = 84, x = index / 1000, y = 0.5})
+        if index > 1 then graph:AddEdge("S" .. (index - 1), "S" .. index, 1, "walk", {}) end
+    end
+    QR.Graph.SetYieldHook(function() return true end)
+    local ok, path = pcall(function() return graph:FindShortestPath("S1", "S400") end)
+    QR.Graph.SetYieldHook(nil)
+    t:assertTrue(ok, "a main-thread search with a hook installed does not raise: " .. tostring(path))
+    t:assertEqual(400, path and #path, "and it still returns the whole path")
+end)
+
+T:run("Rejected step: refusing a merged row refuses the hops it stands for", function(t)
+    resetState()
+    QR.PathCalculator:ClearExcludedEdges()
+    -- A merged row's own from/to spans several hops, and that pair is not an
+    -- edge. Excluding it looked like it worked and changed nothing.
+    local steps = {
+        { type = "walk", from = "Player Location", to = "A", time = 10, navMapID = 84, navX = 0.1, navY = 0.1 },
+        { type = "walk", from = "A", to = "B", time = 10, navMapID = 84, navX = 0.2, navY = 0.2 },
+        { type = "walk", from = "B", to = "Goal", time = 10, navMapID = 84, navX = 0.3, navY = 0.3 },
+    }
+    local row = QR.PathCalculator:CollapseConsecutiveSteps(steps)[1]
+    t:assertEqual("Player Location", row.from, "the row starts at the first hop's origin")
+    t:assertEqual("Goal", row.to, "and ends at the last hop's destination")
+    local pairs_ = QR.PathCalculator:StepEdgePairs(row)
+    t:assertEqual(3, #pairs_, "the row names all three hops, got " .. #pairs_)
+    for _, pair in ipairs(pairs_) do QR.PathCalculator:ExcludeEdge(pair.from, pair.to) end
+    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("A", "B"), "the middle hop is refused")
+    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("B", "Goal"), "and so is the last one")
+    QR.PathCalculator:ClearExcludedEdges()
+end)
+
+T:run("Cooperative search: a graph rebuilt mid-search discards the result instead of publishing it", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local savedCalc, savedAfter, savedGraph = pc.CalculatePath, C_Timer.After, pc.graph
+    local queue = {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    pc.graph = QR.Graph:New()
+    pc.CalculatePath = function()
+        coroutine.yield()
+        return { totalTime = 5, steps = {} }
+    end
+    local route, failure
+    pc:CalculatePathAsync(84, 0.5, 0.5, nil, function(r, f) route, failure = r, f end)
+    -- A synchronous caller rebuilds the graph while the search is suspended.
+    pc.graph = QR.Graph:New()
+    while #queue > 0 do table.remove(queue, 1)() end
+    pc.CalculatePath, C_Timer.After, pc.graph = savedCalc, savedAfter, savedGraph
+    pc:CancelAsync()
+    t:assertNil(route, "the result of a search over the replaced graph is not published")
+    t:assertEqual("graph_unavailable", failure and failure.reason, "and the caller is told why")
+    t:assertTrue(failure and failure.retryable, "retrying can work")
+end)
