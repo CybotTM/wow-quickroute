@@ -14,6 +14,16 @@ A World of Warcraft addon that estimates fast travel routes to map points, quest
 
 Routes depend on recorded connections, character access and estimated travel times. QuickRoute includes an attributed retail destination catalogue and phase/unlock checks. Terrain, dynamic NPCs and unreported game state can still limit a route. See the [review and coverage report](docs/REVIEW-2026-09-05.md) for verified behavior and coverage limits.
 
+## What it does for you
+
+- Get to a map pin, a quest objective, a dungeon entrance or a vendor, in steps this character can take.
+- Paste a section of a community guide and run it as a trip.
+- Find a destination by name when you do not know where it is.
+- Refuse a step you cannot use and keep the destination.
+- Be told which kind of problem stopped a route, rather than one message for every case.
+
+The distribution listing text lives in [docs/CURSEFORGE-LISTING.md](docs/CURSEFORGE-LISTING.md).
+
 ## Features
 
 - **Smart Pathfinding:** Uses Dijkstra's algorithm to find the lowest estimated travel time in the known graph
