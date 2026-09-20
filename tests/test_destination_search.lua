@@ -1107,22 +1107,26 @@ T:run("DestSearch: cities are ordered by relevance, not by name", function(t)
     resetState()
     MockWoW.config.playerFaction = "Alliance"
     QR.PlayerInfo:InvalidateCache()
-    -- Both Dalarans rank the same for "dalaran", so that query holds under any
-    -- order, including the plain alphabetical one this replaced. A query whose
-    -- matches rank differently is the one that can fail.
-    local results = QR.DestinationSearch:CollectResults("da")
-    t:assertGreaterThan(#results.cities, 1, "more than one city matches")
-    local ranks = {}
+    -- "or" is a query where alphabetical order is wrong: Oribos starts with it
+    -- and sorts last by name. A query whose matches all rank the same holds
+    -- under either comparator and pins nothing.
+    local results = QR.DestinationSearch:CollectResults("or")
+    t:assertGreaterThan(#results.cities, 1, "several cities match")
+    local names, ranks = {}, {}
     for index, city in ipairs(results.cities) do
-        ranks[index] = QR.DestinationSearch.MatchRank(city.name, "da")
+        names[index] = city.name
+        ranks[index] = QR.DestinationSearch.MatchRank(city.name, "or")
     end
-    local mixed = false
     for index = 2, #ranks do
-        if ranks[index] ~= ranks[1] then mixed = true end
         t:assert(ranks[index - 1] <= ranks[index],
-            "position " .. index .. " is not less relevant than the one before it")
+            "position " .. index .. " is not less relevant than the one before: " .. table.concat(names, ", "))
     end
-    t:assertTrue(mixed, "the query really does produce more than one rank, so the order can fail")
+    local alphabetical = true
+    for index = 2, #names do
+        if names[index - 1] > names[index] then alphabetical = false end
+    end
+    t:assertFalse(alphabetical,
+        "the order is not merely alphabetical, which this query would also satisfy: " .. table.concat(names, ", "))
 end)
 
 T:run("DestSearch: a thin result says which kind of thin it is", function(t)

@@ -67,11 +67,12 @@ end
 
 --- Record an offer and tell the player it is available.
 -- @param journalInstanceID number
-function Offer:Present(journalInstanceID)
+function Offer:Present(journalInstanceID, resultID)
     local instance = QR.DungeonData and QR.DungeonData:GetInstance(journalInstanceID)
     if not (instance and instance.zoneMapID and instance.x and instance.y) then return false end
     self.pending = {
         journalInstanceID = journalInstanceID,
+        resultID = resultID,
         mapID = instance.zoneMapID,
         x = instance.x,
         y = instance.y,
@@ -96,30 +97,46 @@ function Offer:Present(journalInstanceID)
 end
 
 --- Calculate the route to the pending offer.
--- Goes through the public routing contract, which is the same contract another
--- addon would use, and which never sets a waypoint by itself.
+-- Calculation only: nothing here sets a waypoint or starts travel.
+--
+-- This goes through the internal calculator rather than through
+-- QuickRouteAPI. The contract deliberately exports only the fields a foreign
+-- consumer needs, and QuickRoute's own route panel reads more than that -- the
+-- teleport identity a step's Use button is built from. Routing the addon's own
+-- display through its own public contract produced a step list the panel could
+-- not turn into a usable button.
 -- @param callback function|nil Receives (result, failure)
 function Offer:Route(callback)
     local pending = self.pending
     if not pending then return false end
-    QR.RoutingAPI:CalculateRoute({
-        mapID = pending.mapID, x = pending.x, y = pending.y, title = pending.title,
-    }, function(result, failure)
-        if not result then
-            QR:Print(QR.PathCalculator:DescribeFailure(failure))
-        elseif QR.UI and QR.UI.UpdateRoute then
-            QR.UI:UpdateRoute(result)
-        end
-        if type(callback) == "function" then callback(result, failure) end
-    end)
+    QR.PathCalculator:CalculatePathAsync(pending.mapID, pending.x, pending.y, pending.title,
+        function(result, failure)
+            if not result then
+                QR:Print(QR.PathCalculator:DescribeFailure(failure))
+            elseif QR.UI and QR.UI.UpdateRoute then
+                QR.UI:UpdateRoute(result)
+            end
+            if type(callback) == "function" then callback(result, failure) end
+        end)
     return true
 end
 
 --- Drop the offer. Entering the instance is the normal reason.
 -- Ending the detour restores whatever journey it interrupted.
 function Offer:Clear()
+    -- Release first. Dropping `pending` regardless left the detour in force
+    -- with every remaining clear path gated on `pending`, so nothing could ever
+    -- end it.
+    if QR.Journey then
+        local held = QR.Journey:Get()
+        if held and held.source ~= QR.Journey.SOURCE.DUNGEON_OFFER then
+            QR:Debug("DungeonTravelOffer: another source holds the journey, offer kept")
+            return false
+        end
+        QR.Journey:Release(QR.Journey.SOURCE.DUNGEON_OFFER)
+    end
     self.pending = nil
-    if QR.Journey then QR.Journey:Release(QR.Journey.SOURCE.DUNGEON_OFFER) end
+    return true
 end
 
 --- Whether the player is now inside the instance the offer was for.
@@ -154,16 +171,22 @@ function Offer:Initialize()
             if self:InsideOfferedInstance() then self:Clear() end
             return
         end
-        if event == "GROUP_LEFT" or event == "LFG_LIST_APPLICATION_STATUS_UPDATED"
-            and (status == "declined" or status == "cancelled" or status == "timedout") then
+        if event == "GROUP_LEFT" then
             -- Entering the instance was the only exit, so a player who left or
             -- lost the group kept the detour for the rest of the session.
             if self.pending then self:Clear() end
-            if event == "GROUP_LEFT" then return end
+            return
+        end
+        if status == "declined" or status == "cancelled" or status == "timedout" then
+            -- Only for the application this offer came from. A player who
+            -- applied to several groups otherwise lost the offer for the group
+            -- that took them as soon as an unrelated application expired.
+            if self.pending and self.pending.resultID == resultID then self:Clear() end
+            return
         end
         if status ~= "inviteaccepted" then return end
         local journalInstanceID = self:ResolveInstance(resultID)
-        if journalInstanceID then self:Present(journalInstanceID) end
+        if journalInstanceID then self:Present(journalInstanceID, resultID) end
     end)
     self.frame = frame
 end

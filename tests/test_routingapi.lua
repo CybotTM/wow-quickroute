@@ -202,3 +202,38 @@ T:run("RoutingAPI: a failure the consumer edits cannot reach the router", functi
         t:assertEqual("position_unavailable", internal.reason, "the router's own failure table is untouched")
     end)
 end)
+
+T:run("RoutingAPI: a retry issued from the superseded callback is not lost", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local log = {}
+        local function consumerA(route, failure)
+            if failure and failure.reason == "superseded" then
+                log[#log + 1] = "a:superseded"
+                QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function(r, f)
+                    log[#log + 1] = "retry:" .. (f and f.reason or "route")
+                end)
+            else
+                log[#log + 1] = "a:route"
+            end
+        end
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, consumerA)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 }, function(r, f)
+            log[#log + 1] = "b:" .. (f and f.reason or "route")
+        end)
+        drain()
+        -- Every consumer hears exactly one answer: A that it was superseded, the
+        -- retry it then issued, and B.
+        local heard = {}
+        for _, entry in ipairs(log) do heard[entry:match("^[^:]+")] = true end
+        t:assertTrue(heard["retry"], "the retry hears an answer, got: " .. table.concat(log, ", "))
+        t:assertTrue(heard["a"], "and so does the consumer that was superseded")
+        t:assertTrue(heard["b"], "and so does the one that superseded it")
+    end)
+end)
+
+T:run("RoutingAPI: superseded reads as its own sentence, not as an internal error", function(t)
+    local text = QR.PathCalculator:DescribeFailure({ reason = "superseded" })
+    t:assertEqual(QR.L["ROUTE_FAIL_SUPERSEDED"], text, "the player is told what happened")
+    t:assertNotNil(text ~= QR.L["ROUTE_FAIL_INTERNAL"] or nil, "and not that the addon is broken")
+end)

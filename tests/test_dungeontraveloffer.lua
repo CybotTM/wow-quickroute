@@ -71,7 +71,7 @@ T:run("DungeonOffer: a missing LFG API is survived without error", function(t)
     _G.C_LFGList = saved
 end)
 
-T:run("DungeonOffer: routing goes through the public contract and sets no waypoint", function(t)
+T:run("DungeonOffer: routing shows the route and sets no waypoint", function(t)
     withInstance(70001, INSTANCE, function()
         local pc = QR.PathCalculator
         local savedCalc, savedAfter = pc.CalculatePath, C_Timer.After
@@ -92,8 +92,12 @@ T:run("DungeonOffer: routing goes through the public contract and sets no waypoi
         QR.WaypointIntegration.SetTomTomWaypoint = savedSet
         QR.UI.UpdateRoute = savedUpdate
         QR.DungeonTravelOffer:Clear()
-        t:assertNotNil(got, "the route arrives through the routing contract")
-        t:assertEqual(1, got.apiVersion, "it is the public contract, not internal state")
+            t:assertNotNil(got, "the route arrives")
+        -- The route panel builds a step's Use button from the teleport identity,
+        -- which the public contract deliberately does not export. Routing the
+        -- addon's own display through its own contract produced a step list the
+        -- panel could not turn into a usable button.
+        t:assertNotNil(got.steps, "the panel receives the steps it renders")
         t:assertEqual(0, touched, "offering travel set no waypoint")
         t:assertEqual(1, updated, "the route is shown rather than acted on")
     end)
@@ -120,5 +124,74 @@ T:run("DungeonOffer: an unrelated instance does not clear the offer", function(t
             "a silent client keeps the offer rather than dropping it")
         _G.IsInInstance, _G.GetInstanceInfo = savedIn, savedInfo
         QR.DungeonTravelOffer:Clear()
+    end)
+end)
+
+T:run("DungeonOffer: the route the panel receives can still build a Use button", function(t)
+    withInstance(70006, { name = "Use Halls", zoneMapID = 84, x = 0.4, y = 0.5 }, function()
+        local pc = QR.PathCalculator
+        local savedCalc, savedAfter, savedUpdate = pc.CalculatePath, C_Timer.After, QR.UI.UpdateRoute
+        local queue, received = {}, nil
+        C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+        QR.UI.UpdateRoute = function(_, result) received = result end
+        pc.CalculatePath = function()
+            return { totalTime = 10, steps = { {
+                type = "teleport", from = "A", to = "B", time = 10, action = "Teleport to B",
+                teleportID = 6948, sourceType = "item", teleportData = { name = "Hearthstone" },
+                navMapID = 84, navX = 0.5, navY = 0.5,
+            } } }
+        end
+        QR.DungeonTravelOffer:Present(70006, 1)
+        QR.DungeonTravelOffer:Route()
+        while #queue > 0 do table.remove(queue, 1)() end
+        pc.CalculatePath, C_Timer.After, QR.UI.UpdateRoute = savedCalc, savedAfter, savedUpdate
+        QR.DungeonTravelOffer:Clear()
+        t:assertNotNil(received, "the panel received a route")
+        local step = received.steps[1]
+        t:assertEqual(6948, step.teleportID, "the teleport identity survives to the panel")
+        t:assertEqual("item", step.sourceType, "and so does where it comes from")
+        t:assertNotNil(step.teleportData, "and the data the button is built from")
+    end)
+end)
+
+T:run("DungeonOffer: another application's outcome leaves this offer alone", function(t)
+    withInstance(70007, { name = "Kept Halls", zoneMapID = 84, x = 0.4, y = 0.5 }, function()
+        QR.DungeonTravelOffer:Present(70007, 4242)
+        local handler = QR.DungeonTravelOffer.frame:GetScript("OnEvent")
+        handler(QR.DungeonTravelOffer.frame, "LFG_LIST_APPLICATION_STATUS_UPDATED", 9999, "timedout")
+        t:assertNotNil(QR.DungeonTravelOffer.pending, "an unrelated application expiring keeps the offer")
+        handler(QR.DungeonTravelOffer.frame, "LFG_LIST_APPLICATION_STATUS_UPDATED", 4242, "cancelled")
+        t:assertNil(QR.DungeonTravelOffer.pending, "its own application being cancelled clears it")
+    end)
+end)
+
+T:run("DungeonOffer: leaving the group ends the offer and gives the trip back", function(t)
+    withInstance(70008, { name = "Left Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        QR.Journey:Clear()
+        QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = 84, x = 0.1, y = 0.2, title = "Chosen" })
+        QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
+        QR.DungeonTravelOffer:Present(70008, 7)
+        local handler = QR.DungeonTravelOffer.frame:GetScript("OnEvent")
+        handler(QR.DungeonTravelOffer.frame, "GROUP_LEFT")
+        t:assertNil(QR.DungeonTravelOffer.pending, "leaving the group drops the offer")
+        t:assertEqual(QR.Journey.SOURCE.MANUAL, QR.Journey:Get().source, "and the player's trip comes back")
+        QR.Journey:Clear()
+    end)
+end)
+
+T:run("DungeonOffer: an offer is kept while another source holds the journey", function(t)
+    withInstance(70009, { name = "Held Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        QR.Journey:Clear()
+        QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = 84, x = 0.1, y = 0.2 })
+        QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
+        QR.DungeonTravelOffer:Present(70009, 8)
+        -- Somebody else detours over the offer. Dropping `pending` here left the
+        -- detour in force with nothing able to end it.
+        QR.Journey:Detour("rare_alert", { mapID = 90, x = 0.5, y = 0.5 })
+        t:assertFalse(QR.DungeonTravelOffer:Clear(), "the offer is not cleared while somebody else owns the journey")
+        t:assertNotNil(QR.DungeonTravelOffer.pending, "so it is still there to clear later")
+        QR.Journey:Release("rare_alert")
+        t:assertTrue(QR.DungeonTravelOffer:Clear(), "and it clears once the journey is its own again")
+        QR.Journey:Clear()
     end)
 end)

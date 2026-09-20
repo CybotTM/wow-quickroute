@@ -122,16 +122,24 @@ function API:CalculateRoute(request, callback)
     -- A second request supersedes the first inside PathCalculator, so the first
     -- consumer would simply never hear again. Silence is not one of the two
     -- answers this contract promises, so the superseded request is told.
+    handle.callback = callback
     local previous = inFlight[1]
+    inFlight[1] = handle
     if previous and not previous.cancelled then
         previous.cancelled = true
-        if type(previous.callback) == "function" then
-            previous.callback(nil, { reason = "superseded", retryable = true })
+        -- Deferred, like every other publish. Telling the superseded consumer
+        -- inside this call let a retry it issues from that callback interleave
+        -- with the registration happening here, and one of the two requests
+        -- then heard nothing at all. Every consumer hears exactly one answer.
+        local notify = previous.callback
+        if type(notify) == "function" then
+            if C_Timer and C_Timer.After then
+                C_Timer.After(0, function() notify(nil, { reason = "superseded", retryable = true }) end)
+            else
+                notify(nil, { reason = "superseded", retryable = true })
+            end
         end
     end
-
-    handle.callback = callback
-    inFlight[1] = handle
 
     local function publish(route, failure)
         if handle.cancelled then return end

@@ -757,6 +757,7 @@ PathCalculator.FAILURE = {
     SEARCH_LIMIT = "search_limit",
     BLOCKED = "blocked",
     STEP_REJECTED = "step_rejected",
+    SUPERSEDED = "superseded",
     NO_CONNECTION = "no_connection",
     INTERNAL_ERROR = "internal_error",
 }
@@ -779,6 +780,7 @@ local FAILURE_MESSAGE = {
     search_limit = "ROUTE_FAIL_SEARCH_LIMIT",
     blocked = "ROUTE_FAIL_BLOCKED",
     step_rejected = "ROUTE_FAIL_STEP_REJECTED",
+    superseded = "ROUTE_FAIL_SUPERSEDED",
     no_connection = "ROUTE_FAIL_NO_CONNECTION",
     internal_error = "ROUTE_FAIL_INTERNAL",
 }
@@ -786,6 +788,7 @@ local FAILURE_MESSAGE = {
 -- Whether trying the same request again can succeed without the player doing
 -- anything. A search budget is worth retrying; a missing connection is not.
 local FAILURE_RETRYABLE = {
+    superseded = true,
     position_unavailable = true,
     graph_unavailable = true,
     search_limit = true,
