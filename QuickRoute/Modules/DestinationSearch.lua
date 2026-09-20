@@ -209,9 +209,43 @@ function DS:StartATTSearch(query, catalogResults)
     C_Timer.After(0, step)
 end
 
+-- How well a name answers a query. A lower rank is a better answer, so an exact
+-- name and a name that starts with the query come before a name that merely
+-- contains it somewhere. Sorting alphabetically alone put "Temple of the
+-- Jade Serpent" above "Jade Forest" for the query "jade".
+local RANK_EXACT, RANK_PREFIX, RANK_WORD, RANK_SUBSTRING, RANK_NONE = 1, 2, 3, 4, 5
+
+local function MatchRank(name, queryLower)
+    if queryLower == "" then return RANK_EXACT end
+    if type(name) ~= "string" then return RANK_NONE end
+    local lower = string_lower(name)
+    if lower == queryLower then return RANK_EXACT end
+    if string_find(lower, queryLower, 1, true) == 1 then return RANK_PREFIX end
+    -- A query that starts a later word is still a name the player typed on
+    -- purpose: "serpent" for "Temple of the Jade Serpent".
+    if string_find(lower, " " .. queryLower, 1, true) then return RANK_WORD end
+    if string_find(lower, queryLower, 1, true) then return RANK_SUBSTRING end
+    return RANK_NONE
+end
+
+DS.MatchRank = MatchRank
+
+
+-- Order by how well the name answers the query, then alphabetically so the
+-- order is stable between keystrokes.
+local function ByRelevance(queryLower)
+    return function(a, b)
+        local rankA, rankB = MatchRank(a.name, queryLower), MatchRank(b.name, queryLower)
+        if rankA ~= rankB then return rankA < rankB end
+        return a.name < b.name
+    end
+end
+
+DS.ByRelevance = function(_, queryLower) return ByRelevance(queryLower) end
+
 --- Collect all destination results, optionally filtered by search query
 -- @param query string Search text (empty = all results)
--- @return table { waypoints = {}, quests = {}, cities = {}, dungeons = {}, services = {} }
+-- @return table { waypoints = {}, quests = {}, cities = {}, dungeons = {}, services = {}, status = {} }
 function DS:CollectResults(query)
     L = QR.L
     local queryLower = string_lower(query or "")
@@ -225,6 +259,15 @@ function DS:CollectResults(query)
         services = {},
         currencies = {},
         catalog = {},
+        -- Why a search came back thin. An empty list can mean the query matched
+        -- nothing, or that the catalogue the query was run against is not
+        -- loaded, or that the client gave no localized names to match. They are
+        -- different problems and the player can only act on the first.
+        status = {
+            query = query or "",
+            localizedNames = (C_Map and C_Map.GetMapInfo) and true or false,
+            dungeonCatalogue = (QR.DungeonData and QR.DungeonData.numTiers or 0) > 0,
+        },
     }
 
     -- 1. Active Waypoints
@@ -330,7 +373,7 @@ function DS:CollectResults(query)
                 end
             end
         end
-        table_sort(cityList, function(a, b) return a.name < b.name end)
+        table_sort(cityList, ByRelevance(queryLower))
         results.cities = cityList
     end
 
@@ -359,9 +402,12 @@ function DS:CollectResults(query)
                 end
             end
 
+            local byRelevance = ByRelevance(queryLower)
             table_sort(matchingInstances, function(a, b)
+                local rankA, rankB = MatchRank(a.name, queryLower), MatchRank(b.name, queryLower)
+                if rankA ~= rankB then return rankA < rankB end
                 if a.isRaid ~= b.isRaid then return not a.isRaid end
-                return a.name < b.name
+                return byRelevance(a, b)
             end)
 
             if #matchingInstances > 0 or not isSearching then
@@ -383,7 +429,7 @@ function DS:CollectResults(query)
             end
         end
         if #other > 0 then
-            table_sort(other, function(a, b) return a.name < b.name end)
+            table_sort(other, ByRelevance(queryLower))
             table_insert(results.dungeons, { tierName = L["DUNGEON_OTHER"], tierIndex = 0, instances = other })
         end
     end
@@ -416,7 +462,7 @@ function DS:CollectResults(query)
                             serviceReference = loc,
                         })
                     end
-                    table_sort(locs, function(a, b) return a.name < b.name end)
+                    table_sort(locs, ByRelevance(queryLower))
                     table_insert(results.services, {
                         serviceType = serviceType,
                         serviceName = serviceName,
@@ -455,6 +501,10 @@ function DS:CollectResults(query)
         results.catalogMore = more
     end
 
+    local matched = #results.cities + #results.waypoints + #results.quests
+        + #results.services + #results.currencies + #results.catalog
+    for _, tier in ipairs(results.dungeons) do matched = matched + #tier.instances end
+    results.status.matched = matched
     return results
 end
 

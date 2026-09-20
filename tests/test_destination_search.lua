@@ -1084,3 +1084,62 @@ T:run("DestSearch: an engineer service row is rechecked if profession access cha
     t:assertEqual(1,refreshed,"Unavailable service refreshes the picker")
     QR.PlayerInfo.HasEngineering, QR.POIRouting, ds.RefreshDropdown = savedEngineering, savedPOI, savedRefresh
 end)
+
+-------------------------------------------------------------------------------
+-- Relevance
+--
+-- Alphabetical order alone answers "jade" with "Temple of the Jade Serpent"
+-- before "Jade Forest". What the player typed decides the order.
+-------------------------------------------------------------------------------
+
+T:run("DestSearch: an exact name outranks a prefix, a word start and a substring", function(t)
+    local rank = QR.DestinationSearch.MatchRank
+    t:assertGreaterThan(rank("Jade Forest", "jade"), rank("Jade", "jade"),
+        "the exact name wins")
+    t:assertGreaterThan(rank("Temple of the Jade Serpent", "jade"), rank("Jade Forest", "jade"),
+        "a name starting with the query beats one containing it later")
+    t:assertGreaterThan(rank("Majadel", "jade"), rank("Temple of the Jade Serpent", "jade"),
+        "a word start beats a match inside a word")
+    t:assertEqual(rank("Nothing here", "jade"), 5, "no match ranks last")
+end)
+
+T:run("DestSearch: cities are ordered by relevance, not by name", function(t)
+    resetState()
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    local results = QR.DestinationSearch:CollectResults("dalaran")
+    t:assertGreaterThan(#results.cities, 1, "both Dalarans match")
+    for index = 2, #results.cities do
+        local previous = QR.DestinationSearch.MatchRank(results.cities[index - 1].name, "dalaran")
+        local current = QR.DestinationSearch.MatchRank(results.cities[index].name, "dalaran")
+        t:assert(previous <= current, "results are ordered by relevance at position " .. index)
+    end
+end)
+
+T:run("DestSearch: a thin result says which kind of thin it is", function(t)
+    resetState()
+    local results = QR.DestinationSearch:CollectResults("zzzzznothingmatchesthis")
+    t:assertEqual(0, results.status.matched, "nothing matched")
+    t:assertTrue(results.status.localizedNames, "the client did supply localized names")
+    t:assertEqual("zzzzznothingmatchesthis", results.status.query, "the query is reported back")
+
+    local savedGetMapInfo = C_Map.GetMapInfo
+    C_Map.GetMapInfo = nil
+    local without = QR.DestinationSearch:CollectResults("dalaran")
+    C_Map.GetMapInfo = savedGetMapInfo
+    t:assertFalse(without.status.localizedNames,
+        "a client without map names is reported as a different problem from no match")
+end)
+
+T:run("DestSearch: relevance overrides alphabetical order", function(t)
+    -- Alphabetically "Ashenvale" comes first; for the query "vale" the name
+    -- that starts with it is the one the player meant.
+    local list = {
+        { name = "Ashenvale" },
+        { name = "Vale of Eternal Blossoms" },
+    }
+    table.sort(list, QR.DestinationSearch:ByRelevance("vale"))
+    t:assertEqual("Vale of Eternal Blossoms", list[1].name,
+        "the name starting with the query is offered first, got " .. list[1].name)
+    t:assertEqual("Ashenvale", list[2].name, "the incidental substring match follows")
+end)
