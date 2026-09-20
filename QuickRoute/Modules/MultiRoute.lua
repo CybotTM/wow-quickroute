@@ -29,23 +29,191 @@ local function title(stop)
     return gsub(tostring(stop.title or format("%d: %.1f, %.1f", stop.mapID, stop.x*100, stop.y*100)):sub(1, 160), "|", "||")
 end
 
-function MR:ParseWaypoints(text)
-    if type(text) ~= "string" or #text > 8192 then return nil, QR.L["MULTI_INVALID"] end
-    local stops = {}
-    for line in text:gmatch("[^\r\n;]+") do
-        if line:find("%S") then
-            local mapID, x, y, label = line:match("^%s*/way%s+#?(%d+)%s+([%d%.]+)%s+([%d%.]+)%s*(.-)%s*$")
-            local stop = { mapID = tonumber(mapID), x = tonumber(x), y = tonumber(y), title = label }
-            if stop.x then stop.x = stop.x / 100 end
-            if stop.y then stop.y = stop.y / 100 end
-            if not validStop(stop) then return nil, QR.L["MULTI_INVALID"] end
-            if stop.title == "" then stop.title = nil end
-            stops[#stops + 1] = stop
-            if #stops > self.MAX_STOPS then return nil, QR.L["MULTI_LIMIT"] end
+-- Split a pasted block into logical lines. A semicolon separates two waypoints
+-- only when another /way command follows it, so a label that contains one
+-- ("Cave; upper floor") survives instead of invalidating the import.
+local function importLines(text)
+    local lines = {}
+    for raw in text:gmatch("[^\r\n]+") do
+        local rest = raw
+        while true do
+            local head, tail = rest:match("^(.-);(%s*/way.*)$")
+            if not head then break end
+            lines[#lines + 1] = head
+            rest = tail
+        end
+        lines[#lines + 1] = rest
+    end
+    return lines
+end
+
+-- Read a coordinate pair. Community guides separate the pair with a comma, and
+-- some locales write the decimal point as one, so the two-comma form is tried
+-- first: "50,57 56,62" is one pair, never four numbers.
+local function coordinatePair(rest)
+    local x, y, label = rest:match("^(%d+,%d+)%s+(%d+,%d+)%s*(.-)%s*$")
+    if x then return tonumber((gsub(x, ",", "."))), tonumber((gsub(y, ",", "."))), label end
+    x, y, label = rest:match("^(%d+%.?%d*)%s*,%s*(%d+%.?%d*)%s*(.-)%s*$")
+    if x then return tonumber(x), tonumber(y), label end
+    x, y, label = rest:match("^(%d+%.?%d*)%s+(%d+%.?%d*)%s*(.-)%s*$")
+    if x then return tonumber(x), tonumber(y), label end
+    return nil
+end
+
+-- Localized zone names for the maps QuickRoute already models. Built once per
+-- session from the client, so a pasted zone name resolves only to a map the
+-- router knows; anything else is reported rather than guessed.
+local zoneNameIndex
+local function zoneNamesByLowerName()
+    if zoneNameIndex then return zoneNameIndex end
+    zoneNameIndex = {}
+    if not (C_Map and C_Map.GetMapInfo) then return zoneNameIndex end
+    local seen = {}
+    local function add(mapID)
+        if type(mapID) ~= "number" or seen[mapID] then return end
+        seen[mapID] = true
+        local ok, info = pcall(C_Map.GetMapInfo, mapID)
+        if not (ok and type(info) == "table" and type(info.name) == "string") then return end
+        local key = info.name:lower()
+        local bucket = zoneNameIndex[key]
+        if not bucket then
+            zoneNameIndex[key] = { mapID }
+        elseif bucket[1] ~= mapID then
+            bucket[#bucket + 1] = mapID
         end
     end
-    if #stops == 0 then return nil, QR.L["MULTI_INVALID"] end
-    return stops
+    for mapID in pairs(QR.ZoneAdjacencies or {}) do add(mapID) end
+    for _, city in pairs(QR.CAPITAL_CITIES or {}) do add(city.mapID) end
+    return zoneNameIndex
+end
+
+function MR:ResetZoneNameIndex()
+    zoneNameIndex = nil
+end
+
+-- Resolve the map token of one /way line. Returns mapID, or nil plus a reason
+-- key the import preview turns into a line-specific warning.
+local function resolveMap(token)
+    if token == nil then
+        local current = QR.TravelTime and QR.TravelTime.GetCurrentMapID
+            and QR.TravelTime:GetCurrentMapID()
+        if not finite(current) then return nil, "NO_POSITION" end
+        return current
+    end
+    if type(token) == "number" then return token end
+    local matches = zoneNamesByLowerName()[token:lower()]
+    if not matches then return nil, "UNKNOWN_MAP" end
+    if #matches > 1 then return nil, "AMBIGUOUS_MAP" end
+    return matches[1]
+end
+
+-- Split one /way body into a map token and a coordinate pair. The documented
+-- three-number form keeps priority, so "/way 84 1 100 First" still reads 84 as
+-- the map and never as a coordinate.
+local function parseWayBody(body)
+    local mapText, rest = body:match("^#(%d+)%s+(.+)$")
+    if mapText then
+        local x, y, label = coordinatePair(rest)
+        if x then return tonumber(mapText), x, y, label end
+        return nil, nil, nil, nil, "BAD_COORDS"
+    end
+    mapText, rest = body:match("^(%d+)%s+(.+)$")
+    if mapText then
+        local x, y, label = coordinatePair(rest)
+        if x then return tonumber(mapText), x, y, label end
+    end
+    local x, y, label = coordinatePair(body)
+    if x then return nil, x, y, label end
+    local name, remainder = body:match("^(.-)%s+(%d.*)$")
+    if name and name ~= "" then
+        local nx, ny, nlabel = coordinatePair(remainder)
+        if nx then return name, nx, ny, nlabel end
+    end
+    return nil, nil, nil, nil, "BAD_COORDS"
+end
+
+--- Parse pasted waypoint text into trip stops.
+-- @param text string Pasted block, at most 8192 characters
+-- @return table|nil Accepted stops, or nil when none could be read
+-- @return string|nil Failure message when no stop was accepted
+-- @return table Import report: `accepted` count and one `entries` row per line
+function MR:ParseWaypoints(text)
+    local report = { accepted = 0, entries = {} }
+    if type(text) ~= "string" or #text > 8192 then return nil, QR.L["MULTI_INVALID"], report end
+    local stops = {}
+    local lines = importLines(text)
+    for index, line in ipairs(lines) do
+        if line:find("%S") then
+            local body = line:match("^%s*/way%s+(.-)%s*$")
+            if not body then
+                -- A heading, a note or prose between waypoints. Skipped with a
+                -- warning rather than invalidating the whole paste.
+                report.entries[#report.entries + 1] =
+                    { line = index, text = line, status = "skipped", reason = "NOT_A_WAYPOINT" }
+            else
+                local mapToken, x, y, label, failure = parseWayBody(body)
+                local mapID, mapFailure
+                if not failure then mapID, mapFailure = resolveMap(mapToken) end
+                failure = failure or mapFailure
+                if failure then
+                    -- A /way line that cannot be read is an error, not a note:
+                    -- the import stops so no silent gap reaches the trip.
+                    report.entries[#report.entries + 1] =
+                        { line = index, text = line, status = "invalid", reason = failure, token = mapToken }
+                    return nil, QR.L["MULTI_INVALID"], report
+                end
+                local stop = { mapID = mapID, x = x / 100, y = y / 100, title = label }
+                if not validStop(stop) then
+                    report.entries[#report.entries + 1] =
+                        { line = index, text = line, status = "invalid", reason = "BAD_COORDS" }
+                    return nil, QR.L["MULTI_INVALID"], report
+                end
+                if stop.title == "" then stop.title = nil end
+                stops[#stops + 1] = stop
+                report.accepted = report.accepted + 1
+                report.entries[#report.entries + 1] =
+                    { line = index, text = line, status = "accepted", stop = stop }
+                if #stops > self.MAX_STOPS then return nil, QR.L["MULTI_LIMIT"], report end
+            end
+        end
+    end
+    if #stops == 0 then return nil, QR.L["MULTI_INVALID"], report end
+    return stops, nil, report
+end
+
+--- Report whether any input line was skipped or rejected.
+-- @param report table Third return value of ParseWaypoints
+-- @return boolean True when at least one line needs the player's attention
+function MR:ImportHasWarnings(report)
+    if type(report) ~= "table" or type(report.entries) ~= "table" then return false end
+    for _, entry in ipairs(report.entries) do
+        if entry.status ~= "accepted" then return true end
+    end
+    return false
+end
+
+--- Render an import report as the status text shown beside the paste box.
+-- @param report table Third return value of ParseWaypoints
+-- @return string|nil Summary plus one line per skipped or rejected input line
+function MR:FormatImportReport(report)
+    if type(report) ~= "table" or type(report.entries) ~= "table" then return nil end
+    local total = #report.entries
+    if total == 0 then return nil end
+    local parts = { format(QR.L["MULTI_IMPORT_SUMMARY"], report.accepted or 0, total) }
+    for _, entry in ipairs(report.entries) do
+        if entry.status == "skipped" then
+            parts[#parts + 1] = format(QR.L["MULTI_IMPORT_SKIPPED"], entry.line, entry.text:sub(1, 60))
+        elseif entry.status == "invalid" then
+            local key = "MULTI_IMPORT_" .. tostring(entry.reason)
+            if entry.reason == "UNKNOWN_MAP" or entry.reason == "AMBIGUOUS_MAP" then
+                parts[#parts + 1] = format(QR.L[key], entry.line, tostring(entry.token))
+            else
+                parts[#parts + 1] = format(QR.L[key], entry.line)
+            end
+        end
+    end
+    if #parts == 1 then return parts[1] end
+    return concat(parts, "\n")
 end
 
 function MR:CollectTomTomWaypoints()
@@ -417,12 +585,19 @@ function MR:Show()
             end)
             return btn
         end
-        local function start(stops, err)
+        local function start(stops, err, report)
+            local preview = self:FormatImportReport(report)
             if stops then
                 edit:ClearFocus()
                 self:Start(stops, mode:GetChecked())
+                -- Warnings survive the successful start: a skipped heading is
+                -- still something the player has to be able to see.
+                if preview and self:ImportHasWarnings(report) then
+                    self.message = preview
+                    self:UpdateStatus()
+                end
             else
-                self.message = err
+                self.message = preview and (err .. "\n" .. preview) or err
                 self:UpdateStatus()
             end
         end

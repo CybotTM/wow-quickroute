@@ -10,13 +10,66 @@ T:run("MultiRoute: paste accepts percent coordinates, labels and both map syntax
 end)
 
 T:run("MultiRoute: invalid or excessive lists fail atomically", function(t)
-    for _, text in ipairs({"/way 84 -1 50", "/way 84 50 101", "/run dangerous()", "/way 84 20 30\ninvalid", string.rep("x", 8193)}) do
+    for _, text in ipairs({"/way 84 -1 50", "/way 84 50 101", "/run dangerous()", "/way 84 20 30\n/way nowhere", string.rep("x", 8193)}) do
         local stops, err = QR.MultiRoute:ParseWaypoints(text)
         t:assertNil(stops, "invalid input yields no partial list")
         t:assertNotNil(err, "invalid input explains failure")
     end
     local stops = QR.MultiRoute:ParseWaypoints(string.rep("/way 84 50 50\n", 21))
     t:assertNil(stops, "21 destinations exceed bounded work")
+end)
+
+-- The pasted section of a community profession guide. This exact shape is what
+-- the parser rejected before: comma-separated pairs under a heading, with a
+-- note between the waypoints and a semicolon inside one label.
+local GUIDE_PASTE = table.concat({
+    "Midnight profession treasures - Eversong",
+    "/way #2393 50.57, 56.62 Ore vein",
+    "Next one is inside the cave, upper floor",
+    "/way #2393 41.20, 62.80 Cave; upper floor",
+}, "\n")
+
+T:run("MultiRoute: community guide paste imports with per-line warnings", function(t)
+    local stops, err, report = QR.MultiRoute:ParseWaypoints(GUIDE_PASTE)
+    t:assertNil(err, "guide paste is accepted")
+    t:assertEqual(2, #stops, "both comma-separated waypoints imported")
+    t:assertEqual(2393, stops[1].mapID, "map ID read from the hash form")
+    t:assertTrue(math.abs(stops[1].x - 0.5057) < 1e-9, "comma-separated x is 50.57 percent, got " .. stops[1].x)
+    t:assertTrue(math.abs(stops[1].y - 0.5662) < 1e-9, "comma-separated y is 56.62 percent, got " .. stops[1].y)
+    t:assertEqual("Cave; upper floor", stops[2].title, "semicolon inside a label is kept")
+    t:assertEqual(2, report.accepted, "report counts the accepted lines")
+    t:assertEqual(4, #report.entries, "report holds one row per input line")
+    t:assertTrue(QR.MultiRoute:ImportHasWarnings(report), "the two prose lines are reported")
+    local text = QR.MultiRoute:FormatImportReport(report)
+    t:assertNotNil(text:find("Midnight profession treasures", 1, true), "skipped heading named in the preview")
+end)
+
+T:run("MultiRoute: decimal commas are one pair, not four numbers", function(t)
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 50,57 56,62 Vein")
+    t:assertNil(err, "decimal-comma coordinates are accepted")
+    t:assertEqual(1, #stops, "one stop from one line")
+    t:assertTrue(math.abs(stops[1].x - 0.5057) < 1e-9, "50,57 reads as 50.57 percent, got " .. stops[1].x)
+    t:assertTrue(math.abs(stops[1].y - 0.5662) < 1e-9, "56,62 reads as 56.62 percent, got " .. stops[1].y)
+    t:assertEqual("Vein", stops[1].title, "label after a decimal-comma pair survives")
+end)
+
+T:run("MultiRoute: zone name resolves, unknown and ambiguous names are reported", function(t)
+    QR.MultiRoute:ResetZoneNameIndex()
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way Stormwind City 49.65 87.25 Bank")
+    t:assertNil(err, "a known zone name is accepted")
+    t:assertEqual(84, stops[1].mapID, "Stormwind City resolves to map 84")
+    local none, noneErr, report = QR.MultiRoute:ParseWaypoints("/way Nowhereland 10 20")
+    t:assertNil(none, "an unknown zone name yields no stops")
+    t:assertNotNil(noneErr, "an unknown zone name explains the failure")
+    t:assertEqual("UNKNOWN_MAP", report.entries[1].reason, "reason names the unresolved map token")
+    QR.MultiRoute:ResetZoneNameIndex()
+end)
+
+T:run("MultiRoute: a pair without a map uses the current map", function(t)
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way 49.65 87.25 Bank")
+    t:assertNil(err, "the TomTom current-map form is accepted")
+    t:assertEqual(1, #stops, "one stop from the current-map form")
+    t:assertEqual(QR.TravelTime:GetCurrentMapID(), stops[1].mapID, "stop lands on the current map")
 end)
 
 T:run("MultiRoute: imports all active TomTom maps excluding addon navigation pins", function(t)
