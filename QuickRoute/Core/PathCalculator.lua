@@ -213,7 +213,8 @@ local CAPITAL_CITIES = {
     -- leaving this at 110 made the destination search offer a Silvermoon on a
     -- different map than the one the portals land on.
     -- https://news.blizzard.com/en-us/article/24243213/welcome-to-silvermoon-city
-    ["Silvermoon City"] = {mapID = 2393, x = 0.5028, y = 0.7486, faction = "both"},
+    ["Silvermoon City"] = {mapID = 2393, x = 0.5028, y = 0.7486, faction = "both",
+        provenance = "surveyed"},
     ["Dalaran (Northrend)"] = {mapID = 125, x = 0.4947, y = 0.4709, faction = "both"},
     ["Dalaran (Broken Isles)"] = {mapID = 627, x = 0.5044, y = 0.5313, faction = "both"},
     ["Shattrath City"] = {mapID = 111, x = 0.5410, y = 0.4120, faction = "both"},
