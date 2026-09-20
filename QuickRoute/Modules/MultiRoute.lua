@@ -24,6 +24,13 @@ local function validStop(stop)
         and (stop.title == nil or (type(stop.title) == "string" and #stop.title <= 160))
 end
 
+-- Pasted text is literal display data. A FontString renders |c, |H and |T, so
+-- an unescaped paste puts a live item link or a colour code into the status
+-- label; title() escapes for the same reason.
+local function display(text)
+    return (gsub(tostring(text), "|", "||"))
+end
+
 local function title(stop)
     -- Imported text is literal display data, never executable commands or links.
     return gsub(tostring(stop.title or format("%d: %.1f, %.1f", stop.mapID, stop.x*100, stop.y*100)):sub(1, 160), "|", "||")
@@ -33,16 +40,26 @@ end
 -- only when another /way command follows it, so a label that contains one
 -- ("Cave; upper floor") survives instead of invalidating the import.
 local function importLines(text)
-    local lines = {}
-    for raw in text:gmatch("[^\r\n]+") do
-        local rest = raw
-        while true do
-            local head, tail = rest:match("^(.-);(%s*/way.*)$")
-            if not head then break end
-            lines[#lines + 1] = head
-            rest = tail
+    local lines, physical, position = {}, 0, 1
+    -- The number in a warning has to be the line the player counts in their
+    -- paste. Empty lines are dropped and a semicolon split adds a fragment, so
+    -- the physical number is tracked separately from the position in the list.
+    while position <= #text + 1 do
+        local breakAt = text:find("\n", position, true)
+        local raw = text:sub(position, (breakAt or #text + 1) - 1):gsub("\r$", "")
+        physical = physical + 1
+        if raw:find("%S") then
+            local rest = raw
+            while true do
+                local head, tail = rest:match("^(.-);(%s*/way[%s#].*)$")
+                if not head then break end
+                lines[#lines + 1] = { text = head, line = physical }
+                rest = tail
+            end
+            lines[#lines + 1] = { text = rest, line = physical }
         end
-        lines[#lines + 1] = rest
+        if not breakAt then break end
+        position = breakAt + 1
     end
     return lines
 end
@@ -132,6 +149,22 @@ local function parseWayBody(body)
     return nil, nil, nil, nil, "BAD_COORDS"
 end
 
+-- The preview is shown in one status label, so the number of rows it can hold
+-- is bounded. A paste of four thousand notes is within the input-size limit and
+-- would otherwise build a status string of nearly two hundred kilobytes.
+local MAX_REPORT_ENTRIES = 40
+
+-- A rejection always gets a row: it is the reason the import stopped, and the
+-- player cannot act on "some line was wrong".
+local function addEntry(report, entry, always)
+    report.suppressed = report.suppressed or 0
+    if #report.entries < MAX_REPORT_ENTRIES or always then
+        report.entries[#report.entries + 1] = entry
+    else
+        report.suppressed = report.suppressed + 1
+    end
+end
+
 --- Parse pasted waypoint text into trip stops.
 -- @param text string Pasted block, at most 8192 characters
 -- @return table|nil Accepted stops, or nil when none could be read
@@ -142,39 +175,36 @@ function MR:ParseWaypoints(text)
     if type(text) ~= "string" or #text > 8192 then return nil, QR.L["MULTI_INVALID"], report end
     local stops = {}
     local lines = importLines(text)
-    for index, line in ipairs(lines) do
-        if line:find("%S") then
-            local body = line:match("^%s*/way%s+(.-)%s*$")
-            if not body then
-                -- A heading, a note or prose between waypoints. Skipped with a
-                -- warning rather than invalidating the whole paste.
-                report.entries[#report.entries + 1] =
-                    { line = index, text = line, status = "skipped", reason = "NOT_A_WAYPOINT" }
-            else
-                local mapToken, x, y, label, failure = parseWayBody(body)
-                local mapID, mapFailure
-                if not failure then mapID, mapFailure = resolveMap(mapToken) end
-                failure = failure or mapFailure
-                if failure then
-                    -- A /way line that cannot be read is an error, not a note:
-                    -- the import stops so no silent gap reaches the trip.
-                    report.entries[#report.entries + 1] =
-                        { line = index, text = line, status = "invalid", reason = failure, token = mapToken }
-                    return nil, QR.L["MULTI_INVALID"], report
-                end
-                local stop = { mapID = mapID, x = x / 100, y = y / 100, title = label }
-                if not validStop(stop) then
-                    report.entries[#report.entries + 1] =
-                        { line = index, text = line, status = "invalid", reason = "BAD_COORDS" }
-                    return nil, QR.L["MULTI_INVALID"], report
-                end
-                if stop.title == "" then stop.title = nil end
-                stops[#stops + 1] = stop
-                report.accepted = report.accepted + 1
-                report.entries[#report.entries + 1] =
-                    { line = index, text = line, status = "accepted", stop = stop }
-                if #stops > self.MAX_STOPS then return nil, QR.L["MULTI_LIMIT"], report end
+    report.total = #lines
+    for _, entry in ipairs(lines) do
+        local line, number = entry.text, entry.line
+        local body = line:match("^%s*/way%s+(.-)%s*$")
+        if not body then
+            -- A heading, a note or prose between waypoints. Skipped with a
+            -- warning rather than invalidating the whole paste.
+            addEntry(report, { line = number, text = line, status = "skipped", reason = "NOT_A_WAYPOINT" })
+        else
+            local mapToken, x, y, label, failure = parseWayBody(body)
+            local mapID, mapFailure
+            if not failure then mapID, mapFailure = resolveMap(mapToken) end
+            failure = failure or mapFailure
+            if failure then
+                -- A /way line that cannot be read is an error, not a note:
+                -- the import stops so no silent gap reaches the trip.
+                addEntry(report, { line = number, text = line, status = "invalid",
+                    reason = failure, token = mapToken }, true)
+                return nil, QR.L["MULTI_INVALID"], report
             end
+            local stop = { mapID = mapID, x = x / 100, y = y / 100, title = label }
+            if not validStop(stop) then
+                addEntry(report, { line = number, text = line, status = "invalid", reason = "BAD_COORDS" }, true)
+                return nil, QR.L["MULTI_INVALID"], report
+            end
+            if stop.title == "" then stop.title = nil end
+            stops[#stops + 1] = stop
+            report.accepted = report.accepted + 1
+            addEntry(report, { line = number, text = line, status = "accepted", stop = stop })
+            if #stops > self.MAX_STOPS then return nil, QR.L["MULTI_LIMIT"], report end
         end
     end
     if #stops == 0 then return nil, QR.L["MULTI_INVALID"], report end
@@ -199,18 +229,21 @@ function MR:FormatImportReport(report)
     if type(report) ~= "table" or type(report.entries) ~= "table" then return nil end
     local total = #report.entries
     if total == 0 then return nil end
-    local parts = { format(QR.L["MULTI_IMPORT_SUMMARY"], report.accepted or 0, total) }
+    local parts = { format(QR.L["MULTI_IMPORT_SUMMARY"], report.accepted or 0, report.total or total) }
     for _, entry in ipairs(report.entries) do
         if entry.status == "skipped" then
-            parts[#parts + 1] = format(QR.L["MULTI_IMPORT_SKIPPED"], entry.line, entry.text:sub(1, 60))
+            parts[#parts + 1] = format(QR.L["MULTI_IMPORT_SKIPPED"], entry.line, display(entry.text:sub(1, 60)))
         elseif entry.status == "invalid" then
             local key = "MULTI_IMPORT_" .. tostring(entry.reason)
             if entry.reason == "UNKNOWN_MAP" or entry.reason == "AMBIGUOUS_MAP" then
-                parts[#parts + 1] = format(QR.L[key], entry.line, tostring(entry.token))
+                parts[#parts + 1] = format(QR.L[key], entry.line, display(tostring(entry.token)))
             else
                 parts[#parts + 1] = format(QR.L[key], entry.line)
             end
         end
+    end
+    if (report.suppressed or 0) > 0 then
+        parts[#parts + 1] = format(QR.L["MULTI_IMPORT_MORE"], report.suppressed)
     end
     if #parts == 1 then return parts[1] end
     return concat(parts, "\n")

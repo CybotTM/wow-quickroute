@@ -440,8 +440,12 @@ function PathCalculator:ConnectSameMapNodes()
     local connectionsAdded = 0
     for mapID, nodes in pairs(nodesByMap) do
         if #nodes > 1 then
-            -- Only use flying speed for player's current map
-            local canFly = (mapID == playerMapID) and playerCanFly or false
+            -- The current map's flight permission is measured. A remote map is
+            -- not: passing false there said "this zone is ground-only", which
+            -- is a claim, and it kept TravelTime's own zone model from ever
+            -- being consulted. Nil says the caller does not know.
+            local canFly
+            if mapID == playerMapID then canFly = playerCanFly or false end
 
             -- Connect each pair of nodes on this map
             for i = 1, #nodes do
@@ -1132,9 +1136,11 @@ end
 -- @param x number The X coordinate (0-1)
 -- @param y number The Y coordinate (0-1)
 function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
-    -- Only assume flying for the player's current map; remote maps use ground speed
+    -- Measured for the current map; unknown for any other one, so TravelTime
+    -- decides from what that zone allows and what the character owns.
     local playerMapID = QR.TravelTime:GetCurrentMapID()
-    local canFly = (mapID == playerMapID) and GetCachedIsFlyable(playerMapID) or false
+    local canFly
+    if mapID == playerMapID then canFly = GetCachedIsFlyable(playerMapID) or false end
 
     -- First pass: connect to nodes on the same map
     for otherName, otherData in pairs(self.graph.nodes) do

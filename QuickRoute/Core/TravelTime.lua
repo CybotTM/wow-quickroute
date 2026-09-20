@@ -103,12 +103,25 @@ TravelTime.CONTINENT_FLIGHT = {
     KHAZ_ALGAR = true,
 }
 
--- Hub maps that permit no flight inside them whatever their continent allows.
+-- Maps that permit no flight whatever their continent allows: the walking hubs,
+-- and the zones that were designed without flight and never received it.
+--
+-- This list is the known exceptions, not a complete one. A continent is a
+-- coarse unit and a zone that is missing here is priced as flyable, which
+-- overstates it. That is why the answer is a planning profile and the live API
+-- is asked again on arrival, and why a zone found to be wrong belongs here
+-- rather than in a wider rule.
 TravelTime.NO_FLIGHT_MAPS = {
     [111] = true,   -- Shattrath City
     [125] = true,   -- Dalaran (Northrend)
     [627] = true,   -- Dalaran (Broken Isles)
     [1670] = true,  -- Oribos
+    [504] = true,   -- Isle of Thunder
+    [554] = true,   -- Timeless Isle
+    [830] = true,   -- Krokuun
+    [882] = true,   -- Eredath
+    [885] = true,   -- Antoran Wastes
+    [1543] = true,  -- The Maw
 }
 
 --- What the zone allows on a map, independent of the character.

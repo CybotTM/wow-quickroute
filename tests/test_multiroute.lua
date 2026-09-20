@@ -270,3 +270,49 @@ T:run("MultiRoute: repeated movement stops bounded selection without publishing 
     C_Map.GetBestMapForUnit, C_Map.GetPlayerMapPosition, QR.db = saved.map, saved.position, saved.db
     if not ok then error(err) end
 end)
+
+T:run("MultiRoute: pasted text cannot put a live link or colour code in the status label", function(t)
+    local paste = "|cFFFF0000|Hitem:6948|h[Hearthstone]|h|r\n/way #84 50 60 X"
+    local stops, err, report = QR.MultiRoute:ParseWaypoints(paste)
+    t:assertNil(err, "the waypoint line is still imported")
+    t:assertEqual(1, #stops, "one stop from the paste")
+    local text = QR.MultiRoute:FormatImportReport(report)
+    t:assertNil(text:find("|c", 1, true) and not text:find("||c", 1, true) or nil,
+        "no unescaped colour code reaches the label")
+    t:assertNotNil(text:find("||Hitem", 1, true), "the link escape is doubled, got: " .. text)
+    local _, _, tokenReport = QR.MultiRoute:ParseWaypoints("/way |cFF00FF00Nowhere|r 50 60")
+    local tokenText = QR.MultiRoute:FormatImportReport(tokenReport)
+    t:assertNotNil(tokenText:find("||cFF00FF00", 1, true), "an unresolved map token is escaped too")
+end)
+
+T:run("MultiRoute: the preview is bounded however long the paste is", function(t)
+    local paste = string.rep("just a note\n", 400) .. "/way #84 50 60 X"
+    local stops, err, report = QR.MultiRoute:ParseWaypoints(paste)
+    t:assertNil(err, "the one waypoint is still imported")
+    t:assertEqual(1, #stops, "one stop")
+    t:assertEqual(401, report.total, "the report counts every input line")
+    t:assertTrue(#report.entries <= 41, "the rows are capped, got " .. #report.entries)
+    local text = QR.MultiRoute:FormatImportReport(report)
+    t:assertTrue(#text < 4000, "the status text stays readable, got " .. #text .. " bytes")
+    t:assertNotNil(text:find("not shown", 1, true), "the suppressed rows are counted in the text")
+end)
+
+T:run("MultiRoute: a semicolon only splits before a real /way command", function(t)
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way #84 50 60 Cave; /wayside inn")
+    t:assertNil(err, "the line is accepted")
+    t:assertEqual(1, #stops, "one stop, not a split")
+    t:assertEqual("Cave; /wayside inn", stops[1].title, "the label keeps the whole text, got " .. tostring(stops[1].title))
+end)
+
+T:run("MultiRoute: a warning names the line the player counts", function(t)
+    local paste = "/way #84 50 60 A\n\n\nthis is prose\n/way #84 10 20 B"
+    local stops, err, report = QR.MultiRoute:ParseWaypoints(paste)
+    t:assertNil(err, "the two waypoints are imported")
+    t:assertEqual(2, #stops, "two stops")
+    local skipped
+    for _, entry in ipairs(report.entries) do
+        if entry.status == "skipped" then skipped = entry end
+    end
+    t:assertNotNil(skipped, "the prose line is reported")
+    t:assertEqual(4, skipped.line, "the blank lines are counted, got line " .. tostring(skipped.line))
+end)
