@@ -80,6 +80,19 @@ function Journey:Detour(source, destination)
     return true
 end
 
+--- Change where the current journey goes, keeping who owns it and whether it
+--- is a detour.
+-- A second interruption from the same source replaces the first rather than
+-- stacking on it: two detours would need two Resume calls to give the player
+-- their own trip back, and the first would restore the earlier interruption.
+-- @return boolean Whether the destination was changed
+function Journey:Retarget(source, destination)
+    local target = Destination(destination)
+    if not self.current or self.current.source ~= source or not target then return false end
+    self.current.destination = target
+    return true
+end
+
 --- End a detour and restore what it interrupted.
 -- @return table|nil The restored journey, or nil when there was nothing to
 --   restore

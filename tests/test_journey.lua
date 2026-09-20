@@ -83,3 +83,22 @@ T:run("Journey: a dungeon offer detours rather than replacing the trip", functio
     dd.instances[70002] = saved
     QR.Journey:Clear()
 end)
+
+T:run("Journey: a second dungeon offer replaces the first detour instead of stacking", function(t)
+    QR.Journey:Clear()
+    QR.Journey:Claim(S.MANUAL, A)
+    QR.Journey:Lock(S.MANUAL)
+    local dd = QR.DungeonData
+    local first, second = dd.instances[70003], dd.instances[70004]
+    dd.instances[70003] = { name = "First Halls", zoneMapID = 85, x = 0.5, y = 0.5 }
+    dd.instances[70004] = { name = "Second Halls", zoneMapID = 86, x = 0.6, y = 0.6 }
+    QR.DungeonTravelOffer:Present(70003)
+    QR.DungeonTravelOffer:Present(70004)
+    t:assertEqual(86, QR.Journey:Get().destination.mapID, "the newer offer is the one in force")
+    t:assertTrue(QR.Journey:Get().detour, "it is still a detour")
+    QR.DungeonTravelOffer:Clear()
+    t:assertEqual(S.MANUAL, QR.Journey:Get().source, "one clear gives the player's own trip back")
+    t:assertEqual(84, QR.Journey:Get().destination.mapID, "with the destination they chose")
+    dd.instances[70003], dd.instances[70004] = first, second
+    QR.Journey:Clear()
+end)

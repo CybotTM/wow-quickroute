@@ -79,8 +79,17 @@ function Offer:Present(journalInstanceID)
     }
     -- A dungeon group is an interruption, not a replacement: the trip the
     -- player was on is suspended and comes back when the detour ends.
+    --
+    -- A second offer replaces the first rather than stacking on it. Two
+    -- detours would need two clears to give the player's own trip back, and
+    -- the first clear would restore the earlier offer instead.
     if QR.Journey then
-        QR.Journey:Detour(QR.Journey.SOURCE.DUNGEON_OFFER, self.pending)
+        local held = QR.Journey:Get()
+        if held and held.detour and held.source == QR.Journey.SOURCE.DUNGEON_OFFER then
+            QR.Journey:Retarget(QR.Journey.SOURCE.DUNGEON_OFFER, self.pending)
+        else
+            QR.Journey:Detour(QR.Journey.SOURCE.DUNGEON_OFFER, self.pending)
+        end
     end
     QR:Print(string.format(QR.L["DUNGEON_OFFER_READY"], tostring(instance.name)))
     return true
