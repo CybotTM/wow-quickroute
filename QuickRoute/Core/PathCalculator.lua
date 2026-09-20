@@ -900,6 +900,20 @@ end
 --- Create a reusable calculator with its own graph and position caches.
 -- Transport topology is copied once; current access/phase requirements are
 -- still evaluated on every query. Exclusions are fixed for this context.
+-- A tour matrix is built once and reused for every leg, so an ability that can
+-- only be spent once must not appear in it. Cooldown is what decides that, not
+-- the edge type: a mage teleport has no cooldown and is available for every leg
+-- of the trip, while a hearthstone is gone after the first.
+--
+-- The classification is conservative. Only a teleport whose catalogue record
+-- states a cooldown of zero counts as reusable; a missing or unknown cooldown
+-- keeps the edge out, which is the behaviour every teleport had before.
+local function ReusableTeleportEdge(edge)
+    if edge.edgeType ~= "teleport" then return true end
+    local data = edge.data and edge.data.teleportData
+    return type(data) == "table" and data.cooldown == 0
+end
+
 function PathCalculator:CreateRouteContext(options)
     -- Only methods may fall through. A nil cache/index on the private object
     -- must never expose mutable state from the live PathCalculator singleton.
@@ -925,7 +939,7 @@ function PathCalculator:CreateRouteContext(options)
                 for to, selected in pairs(outgoing) do
                     local retained = {}
                     for _, edge in ipairs(selected.alternatives or { selected }) do
-                        if edge.edgeType ~= "teleport" then retained[#retained+1] = edge end
+                        if ReusableTeleportEdge(edge) then retained[#retained+1] = edge end
                     end
                     graph:SetEdgeOptions(from, to, retained)
                 end
@@ -952,7 +966,7 @@ function PathCalculator:CreateRouteContext(options)
             for to, selected in pairs(outgoing) do
                 local alternatives = {}
                 for _, edge in ipairs(selected.alternatives or { selected }) do
-                    if not (excludeCooldowns and edge.edgeType == "teleport") then
+                    if not excludeCooldowns or ReusableTeleportEdge(edge) then
                         alternatives[#alternatives+1] = edge
                     end
                 end
