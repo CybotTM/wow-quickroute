@@ -1764,6 +1764,13 @@ function PathCalculator:BuildSteps(path, edges)
             action = "",
         }
 
+        -- A constrained approach -- a cave mouth, a bridge, a stair, a floor
+        -- change -- is carried on the edge or on the node it leads to. Step
+        -- collapsing must not summarise such a point away.
+        if edge.data and edge.data.mandatoryAnchor then
+            step.mandatoryAnchor = true
+        end
+
         -- Get source node mapID for route progress tracking
         local fromNodeData = self.graph and self.graph.nodes and self.graph.nodes[fromNode]
         if fromNodeData then
@@ -1901,6 +1908,67 @@ end
 -- Merges "Walk to A" + "Walk to B" into "Walk to B" with combined time
 -- @param steps table Array of step objects from BuildSteps
 -- @return table Collapsed steps array
+-- How close the player must be to count as having reached an intermediate
+-- anchor, in normalized map units. 0.02 is about 2 percent of a zone.
+local ANCHOR_REACHED = 0.02
+
+--- Pick the anchor a step should navigate to right now.
+-- A merged row can stand for several segments. Navigation executes them in
+-- order: the first anchor the player has not reached yet, and the final
+-- destination once the intermediate ones are behind them.
+-- @param step table A route step, possibly carrying `waypoints`
+-- @return table Anchor with mapID, x, y and title
+function PathCalculator:SelectStepAnchor(step)
+    local final = {
+        mapID = step.navMapID or step.destMapID,
+        x = step.navX or step.destX,
+        y = step.navY or step.destY,
+        title = step.navTitle or step.to,
+    }
+    local anchors = step.waypoints
+    if type(anchors) ~= "table" or #anchors < 2 then return final end
+    for index = 1, #anchors - 1 do
+        local anchor = anchors[index]
+        if anchor.mapID and anchor.x and anchor.y then
+            local mapID, x, y = self:GetPlayerPosition(anchor.mapID)
+            -- No position means no evidence the anchor is behind the player, so
+            -- the ordered approach is kept rather than skipped.
+            if mapID ~= anchor.mapID then return anchor end
+            local dx, dy = x - anchor.x, y - anchor.y
+            if (dx * dx + dy * dy) > (ANCHOR_REACHED * ANCHOR_REACHED) then return anchor end
+        end
+    end
+    return final
+end
+
+-- One step's navigation anchor: where the player is sent for that segment.
+local function navigationAnchor(step)
+    return {
+        mapID = step.navMapID or step.destMapID,
+        x = step.navX or step.destX,
+        y = step.navY or step.destY,
+        title = step.navTitle or step.to,
+        mandatory = step.mandatoryAnchor or false,
+    }
+end
+
+-- Two consecutive segments may be summarised into one display row only when
+-- they stay on one map and neither crosses a mandatory approach point.
+local function mergeable(current, nextStep)
+    if nextStep.type ~= "walk" and nextStep.type ~= "travel" then return false end
+    if current.mandatoryAnchor or nextStep.mandatoryAnchor then return false end
+    -- Two steps with no map are two steps with no evidence of a crossing, and
+    -- that is the shape the pure display fixtures use; a known map on one side
+    -- and not the other is a difference and stops the merge.
+    return (current.navMapID or current.destMapID) == (nextStep.navMapID or nextStep.destMapID)
+end
+
+--- Summarise consecutive walk/travel steps into one display row.
+-- Merging stops at a map change and at a mandatory anchor. The merged row
+-- carries `waypoints`, the ordered anchors of every segment it represents, so
+-- navigation can still execute them in order.
+-- @param steps table Array of step objects
+-- @return table Steps with same-map walk/travel runs merged
 function PathCalculator:CollapseConsecutiveSteps(steps)
     if not steps or #steps <= 1 then return steps end
 
@@ -1910,24 +1978,32 @@ function PathCalculator:CollapseConsecutiveSteps(steps)
         local step = steps[i]
         -- Check if this is a walk/travel step that can be merged
         if step.type == "walk" or step.type == "travel" then
-            -- Look ahead for consecutive walk/travel steps
+            -- Look ahead for consecutive walk/travel steps on the same map. A
+            -- merge across maps hid the zone crossing, and a merge past a
+            -- mandatory anchor hid the only usable approach; both left the
+            -- player pointed straight at the final coordinate.
             local combinedTime = step.time
             local lastStep = step
             local mergedCount = 0
-            while i + 1 <= #steps and (steps[i + 1].type == "walk" or steps[i + 1].type == "travel") do
+            local waypoints = { navigationAnchor(step) }
+            while i + 1 <= #steps and mergeable(lastStep, steps[i + 1]) do
                 i = i + 1
                 combinedTime = combinedTime + steps[i].time
                 lastStep = steps[i]
                 mergedCount = mergedCount + 1
+                waypoints[#waypoints + 1] = navigationAnchor(lastStep)
             end
             if mergedCount > 0 then
-                -- Create merged step using the final destination
+                -- Create merged step using the final destination. The ordered
+                -- anchors of the merged segments stay executable on the step:
+                -- the display row is a summary, the geometry is not.
                 local mergedStep = {}
                 for k, v in pairs(lastStep) do mergedStep[k] = v end
                 mergedStep.time = combinedTime
                 mergedStep.from = step.from
                 mergedStep.collapsed = true
                 mergedStep.collapsedCount = mergedCount + 1
+                mergedStep.waypoints = waypoints
                 table_insert(collapsed, mergedStep)
             else
                 table_insert(collapsed, step)

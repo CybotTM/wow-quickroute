@@ -777,10 +777,13 @@ function UI:UpdateRoute(result)
     if QR.db and QR.db.autoWaypoint and result.steps and #result.steps > 0 then
         local stepIdx = self:GetCurrentStepIndex(result.steps)
         local activeStep = result.steps[stepIdx] or result.steps[1]
-        local navMapID = activeStep.navMapID or activeStep.destMapID
-        local navX = activeStep.navX or activeStep.destX
-        local navY = activeStep.navY or activeStep.destY
-        local navTitle = activeStep.navTitle or activeStep.to or "Next step"
+        -- A collapsed row can stand for several segments. Navigate to the
+        -- anchor the player has not reached yet, not straight to the last one.
+        local anchor = QR.PathCalculator:SelectStepAnchor(activeStep)
+        local navMapID = anchor.mapID
+        local navX = anchor.x
+        local navY = anchor.y
+        local navTitle = anchor.title or "Next step"
         if navMapID and navX and navY then
             local generation = self.routeGeneration
             C_Timer.After(0, function()
@@ -920,10 +923,11 @@ function UI:SetupStepNavButton(stepFrame, step)
     end
     navButton:ClearAllPoints()
     navButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -3, -10)
-    navButton.stepTo = step.navTitle or step.to  -- Store navigation title
-    navButton.destMapID = step.navMapID or step.destMapID  -- Store nav coordinates (from node for portals)
-    navButton.destX = step.navX or step.destX
-    navButton.destY = step.navY or step.destY
+    local anchor = QR.PathCalculator:SelectStepAnchor(step)
+    navButton.stepTo = anchor.title  -- Store navigation title
+    navButton.destMapID = anchor.mapID  -- Nav coordinates (from node for portals, next anchor for merged rows)
+    navButton.destX = anchor.x
+    navButton.destY = anchor.y
     navButton:Show()
 
     navButton:SetScript("OnClick", function(self)

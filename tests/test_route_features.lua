@@ -132,6 +132,75 @@ T:run("CollapseSteps: travel + walk merged (mixed walk/travel types)", function(
     t:assertTrue(result[1].collapsed, "Marked collapsed")
 end)
 
+-- A cave approach: three walk segments, the middle one the cave mouth, the last
+-- one inside on a different map. Merging them left the player pointed at the
+-- final coordinate with no way to reach it.
+T:run("CollapseSteps: a map change ends the merge and keeps the crossing visible", function(t)
+    resetState()
+    local steps = {
+        { type = "walk", from = "A", to = "B", time = 20, navMapID = 2393, navX = 0.50, navY = 0.56, navTitle = "B" },
+        { type = "walk", from = "B", to = "C", time = 15, navMapID = 2393, navX = 0.41, navY = 0.62, navTitle = "Cave mouth" },
+        { type = "walk", from = "C", to = "D", time = 25, navMapID = 2395, navX = 0.30, navY = 0.44, navTitle = "D" },
+    }
+    local result = QR.PathCalculator:CollapseConsecutiveSteps(steps)
+    t:assertEqual(2, #result, "the two segments on map 2393 merge, the crossing to 2395 does not")
+    t:assertEqual(35, result[1].time, "merged time is 20+15")
+    t:assertEqual(2393, result[1].navMapID, "first row stays on map 2393")
+    t:assertEqual(2395, result[2].navMapID, "the crossing keeps its own row")
+    t:assertEqual(2, #result[1].waypoints, "both anchors of the merged run stay executable")
+    t:assertEqual("Cave mouth", result[1].waypoints[2].title, "the intermediate anchor is retained in order")
+end)
+
+T:run("CollapseSteps: a mandatory anchor is never summarised away", function(t)
+    resetState()
+    local steps = {
+        { type = "walk", from = "A", to = "B", time = 20, navMapID = 84, navX = 0.5, navY = 0.5, navTitle = "B" },
+        { type = "walk", from = "B", to = "C", time = 10, navMapID = 84, navX = 0.6, navY = 0.4, navTitle = "Entrance", mandatoryAnchor = true },
+        { type = "walk", from = "C", to = "D", time = 30, navMapID = 84, navX = 0.7, navY = 0.3, navTitle = "D" },
+    }
+    local result = QR.PathCalculator:CollapseConsecutiveSteps(steps)
+    t:assertEqual(3, #result, "the mandatory entrance stays its own step on both sides")
+    t:assertEqual("Entrance", result[2].navTitle, "the entrance keeps its own navigation target")
+end)
+
+T:run("CollapseSteps: same-map runs still merge and carry their anchors", function(t)
+    resetState()
+    local steps = {
+        { type = "walk", from = "A", to = "B", time = 10, navMapID = 84, navX = 0.1, navY = 0.2, navTitle = "B" },
+        { type = "travel", from = "B", to = "C", time = 15, navMapID = 84, navX = 0.3, navY = 0.4, navTitle = "C" },
+    }
+    local result = QR.PathCalculator:CollapseConsecutiveSteps(steps)
+    t:assertEqual(1, #result, "one map, one row")
+    t:assertEqual(25, result[1].time, "combined time 10+15")
+    t:assertEqual(2, #result[1].waypoints, "both anchors kept")
+    t:assertFalse(result[1].waypoints[1].mandatory, "an ordinary anchor is not marked mandatory")
+end)
+
+T:run("SelectStepAnchor: a merged row navigates to the anchor still ahead", function(t)
+    resetState()
+    local steps = {
+        { type = "walk", from = "A", to = "B", time = 20, navMapID = 2393, navX = 0.50, navY = 0.56, navTitle = "B" },
+        { type = "walk", from = "B", to = "C", time = 15, navMapID = 2393, navX = 0.41, navY = 0.62, navTitle = "Cave mouth" },
+    }
+    local merged = QR.PathCalculator:CollapseConsecutiveSteps(steps)[1]
+    local saved = QR.PathCalculator.GetPlayerPosition
+    QR.PathCalculator.GetPlayerPosition = function() return 84, 0.1, 0.1 end
+    local anchor = QR.PathCalculator:SelectStepAnchor(merged)
+    t:assertEqual("B", anchor.title, "off the map, navigation starts at the first anchor")
+    QR.PathCalculator.GetPlayerPosition = function() return 2393, 0.50, 0.56 end
+    anchor = QR.PathCalculator:SelectStepAnchor(merged)
+    t:assertEqual("Cave mouth", anchor.title, "standing on the first anchor, navigation moves to the next")
+    QR.PathCalculator.GetPlayerPosition = saved
+end)
+
+T:run("SelectStepAnchor: a step without merged anchors keeps its own target", function(t)
+    resetState()
+    local step = { type = "portal", navMapID = 84, navX = 0.2, navY = 0.3, navTitle = "Portal room", to = "Stormwind City" }
+    local anchor = QR.PathCalculator:SelectStepAnchor(step)
+    t:assertEqual(84, anchor.mapID, "map unchanged")
+    t:assertEqual("Portal room", anchor.title, "title unchanged")
+end)
+
 T:run("CollapseSteps: non-walk types not collapsed (portal + portal)", function(t)
     resetState()
     local steps = {
