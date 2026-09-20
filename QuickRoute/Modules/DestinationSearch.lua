@@ -307,6 +307,9 @@ function DS:CollectResults(query)
                 table_insert(results.quests, {
                     name = title,
                     questID = quest.questID,
+                    -- A quest that is no longer in the log is a known location,
+                    -- not something this character can work on.
+                    role = QR.TargetIdentity:QuestRole(quest.questID),
                     mapID = quest.mapID,
                     x = quest.x,
                     y = quest.y,
@@ -364,6 +367,7 @@ function DS:CollectResults(query)
                     or string_find(string_lower(regionTag), queryLower, 1, true) then
                     table_insert(cityList, {
                         name = displayName,
+                        role = QR.TargetIdentity.ROLE.HUB,
                         mapID = data.mapID,
                         x = data.x,
                         y = data.y,
@@ -393,6 +397,7 @@ function DS:CollectResults(query)
                     if not isSearching or string_find(string_lower(inst.name), queryLower, 1, true) then
                         table_insert(matchingInstances, {
                             name = inst.name,
+                            role = QR.TargetIdentity.ROLE.ENTRANCE,
                             isRaid = inst.isRaid,
                             zoneMapID = inst.zoneMapID,
                             x = inst.x,
@@ -424,7 +429,7 @@ function DS:CollectResults(query)
         for instanceID, inst in pairs(DD.instances) do
             if not listed[instanceID] and inst.name and inst.zoneMapID and inst.x and inst.y
                 and (not isSearching or string_find(string_lower(inst.name), queryLower, 1, true)) then
-                table_insert(other, { name = inst.name, isRaid = inst.isRaid,
+                table_insert(other, { name = inst.name, role = QR.TargetIdentity.ROLE.ENTRANCE, isRaid = inst.isRaid,
                     zoneMapID = inst.zoneMapID, x = inst.x, y = inst.y })
             end
         end

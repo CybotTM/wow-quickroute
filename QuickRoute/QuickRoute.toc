@@ -69,6 +69,7 @@ Modules\EncounterJournalButton.lua
 Modules\SettingsHeader.xml
 Modules\SettingsHeader.lua
 Modules\SettingsPanel.lua
+Modules\TargetIdentity.lua
 Modules\Journey.lua
 Modules\RoutingAPI.lua
 Modules\DungeonTravelOffer.lua

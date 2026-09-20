@@ -105,6 +105,10 @@ function API:CalculateRoute(request, callback)
         return nil, { reason = "invalid_request" }
     end
     local title = type(request.title) == "string" and request.title or nil
+    -- What the target is, not only where. A consumer that asks for a quest
+    -- location has to be able to tell an active objective from a catalogued
+    -- one, and arrival never completes either.
+    local role = type(request.role) == "string" and request.role or QR.TargetIdentity.ROLE.REFERENCE
     local handle = { cancelled = false }
     handle.generation = QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, function(route, failure)
         if handle.cancelled then return end
@@ -114,7 +118,12 @@ function API:CalculateRoute(request, callback)
         end
         callback(Detached({
             apiVersion = API.VERSION,
-            target = { mapID = mapID, x = x, y = y, title = title },
+            target = {
+                mapID = mapID, x = x, y = y, title = title,
+                role = role,
+                roleLabel = QR.TargetIdentity:Describe(role),
+                arrivalCompletes = QR.TargetIdentity:ArrivalCompletes(),
+            },
             totalTime = route.totalTime,
             steps = PublicSteps(route.steps),
             assumptions = Assumptions(route.steps),
