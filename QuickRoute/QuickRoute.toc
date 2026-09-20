@@ -69,6 +69,8 @@ Modules\EncounterJournalButton.lua
 Modules\SettingsHeader.xml
 Modules\SettingsHeader.lua
 Modules\SettingsPanel.lua
+Modules\RoutingAPI.lua
+Modules\DungeonTravelOffer.lua
 Modules\ZoneSurvey.lua
 Modules\Diagnostics.lua
 
