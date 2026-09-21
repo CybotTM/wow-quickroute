@@ -2183,6 +2183,22 @@ function PathCalculator:BuildSteps(path, edges)
                 if teleportData.y then
                     step.destY = teleportData.y
                 end
+                -- Where the landing point is a catalogue guess rather than
+                -- something this character was observed doing, say so on the
+                -- step. `teleportData` never leaves the addon, so a consumer
+                -- of the public contract cannot otherwise tell a guessed
+                -- landing from a known one.
+                if teleportData.isApproximate then
+                    step.destApproximate = true
+                end
+                -- Stronger than approximate, and a different kind of claim:
+                -- the MAP was chosen for this record rather than known. An
+                -- approximate coordinate on the right map and a chosen map are
+                -- both guesses, and a consumer deciding whether to route on
+                -- one needs to tell them apart. The addon's own tooltip does.
+                if teleportData.hearthstoneDefault then
+                    step.destDefault = true
+                end
             else
                 step.action = string_format(L["STEP_TELEPORT_TO"], localizedToNode)
             end

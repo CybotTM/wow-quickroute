@@ -862,9 +862,15 @@ local function AddDestinationHint(entry)
     if not entry or not entry.data or (entry.status ~= STATUS.READY
         and entry.status ~= STATUS.ON_CD and entry.status ~= STATUS.OWNED) then return end
     local hint
-    if entry.data.isDynamic and entry.data.destination == "Bound Location"
-        and QR.Hearthstone and not QR.Hearthstone:GetDestination() then
-        hint = L["HEARTH_DESTINATION_HINT"]
+    if entry.data.isDynamic and entry.data.destination == "Bound Location" and QR.Hearthstone then
+        local destination = QR.Hearthstone:GetDestination()
+        if not destination then
+            hint = L["HEARTH_DESTINATION_HINT"]
+        elseif destination.isDefault then
+            hint = L["HEARTH_DESTINATION_DEFAULT_HINT"]
+        elseif destination.source == "INN_DATABASE" then
+            hint = L["HEARTH_DESTINATION_CATALOG_HINT"]
+        end
     elseif entry.id == 50977 and QR.TeleportDestinations
         and not QR.TeleportDestinations:CanRouteDeathGate() then
         hint = L["DEATH_GATE_DESTINATION_HINT"]

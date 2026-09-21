@@ -45,6 +45,7 @@ local STEP_FIELDS = {
     "navMapID", "navX", "navY", "navTitle",
     "destMapID", "destX", "destY",
     "collapsed", "collapsedCount", "mandatoryAnchor",
+    "destApproximate", "destDefault",
 }
 
 local function PublicSteps(steps)
@@ -72,6 +73,10 @@ end
 -- and that a flight time is a horizontal-distance heuristic.
 local function Assumptions(steps)
     local maps, unknown, flight = {}, {}, false
+    -- A hearthstone bound to an inn this character has not been observed using
+    -- lands where a catalogue says that inn is. The step carries the flag; this
+    -- lifts it to where a consumer comparing two backends will see it.
+    local approximate = {}
     for _, step in ipairs(steps or {}) do
         local mapID = step.navMapID or step.destMapID
         if mapID and not maps[mapID] then
@@ -82,10 +87,15 @@ local function Assumptions(steps)
             end
         end
         if step.type == "flight" then flight = true end
+        if step.destApproximate then
+            approximate[#approximate + 1] = { from = step.from, to = step.to,
+                mapID = step.destMapID, defaulted = step.destDefault or nil }
+        end
     end
     return {
         movementUnknownMaps = unknown,
         taxiTimeIsHeuristic = flight,
+        approximateLandings = approximate,
         loadingScreenSeconds = QR.db and QR.db.loadingScreenTime or nil,
     }
 end
