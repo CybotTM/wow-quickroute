@@ -1085,12 +1085,14 @@ end
 
 --- Whether this connection is refused for this journey.
 --- Whether this connection is refused for the journey being calculated.
--- @param destination table|nil {mapID, x, y}; the current one when omitted
-function PathCalculator:IsEdgeExcluded(from, to, destination)
+-- The journey is the one the calculation is for, not a parameter: every caller
+-- is inside a search, and a search that is parked between frames carries its
+-- own journey through ResumeAsync.
+function PathCalculator:IsEdgeExcluded(from, to)
     local stamp = excludedEdges[EdgeKey(from, to)]
     if stamp == nil then return false end
     if stamp == true then return true end
-    return stamp == (ResolvedJourneyKey(self, destination) or currentJourney)
+    return stamp == currentJourney
 end
 
 --- Whether any connection is refused at all.
@@ -1173,6 +1175,11 @@ function PathCalculator:StepAsync()
     -- Baseline. CalculatePath raises it again if it rebuilds the graph itself,
     -- so only a rebuild by somebody else leaves the two apart.
     pending.graphBuild = self.graphBuild or 0
+    -- The journey the search belongs to travels with the request. A search
+    -- parked between frames used to read whatever destination a synchronous
+    -- CalculatePath had set in the meantime, so its refusal checks silently
+    -- answered for somebody else's route and the refused hop came back.
+    pending.journey = currentJourney
     pending.thread = coroutine.create(function()
         return self:CalculatePath(pending.args[1], pending.args[2], pending.args[3], pending.args[4])
     end)
@@ -1187,7 +1194,13 @@ function PathCalculator:ResumeAsync()
     local clock = ProfileClock()
     local deadline = clock and (clock() + (self.FRAME_BUDGET_MS or 6))
     QR.Graph.SetYieldHook(clock and function() return clock() >= deadline end or nil)
+    -- Restored for the slice, and put back afterwards so a synchronous caller
+    -- that resumes this driver keeps its own journey.
+    local outerJourney = currentJourney
+    currentJourney = running.journey or currentJourney
     local ok, route, failure = coroutine.resume(running.thread)
+    running.journey = currentJourney
+    currentJourney = outerJourney
     QR.Graph.SetYieldHook(nil)
 
     if ok and coroutine.status(running.thread) ~= "dead" then

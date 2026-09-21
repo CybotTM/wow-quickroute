@@ -3403,7 +3403,7 @@ T:run("Rejected step: restoring refusals does not change the destination", funct
     pc:NoteJourneyDestination(84, 0.5, 0.5)
     pc:ExcludeEdge("Gate", "Goal")
     QR.db = { destinationLocked = true, lastDestination = { mapID = 84, x = 0.5, y = 0.5 } }
-    QR.UI.lastRefreshClickTime = 0
+    QR.UI.lastRefreshClickTime, QR.UI.lastRestoreClickTime = 0, 0
     QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
     t:assertEqual(0, #pc:GetExcludedEdges(), "the refusals are taken back")
     t:assertTrue(QR.db.destinationLocked, "and the player keeps the destination they chose")
@@ -3411,10 +3411,64 @@ T:run("Rejected step: restoring refusals does not change the destination", funct
     -- Right after a left-click. The one-second throttle is for repeated
     -- refreshes and swallowed the right-click the tooltip advertises.
     pc:ExcludeEdge("Gate", "Goal")
-    QR.UI.lastRefreshClickTime = GetTime()
+    QR.UI.lastRefreshClickTime, QR.UI.lastRestoreClickTime = GetTime(), 0
     QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
     t:assertEqual(0, #pc:GetExcludedEdges(), "and a refresh a moment earlier does not swallow it")
 
+    -- Its own throttle, though: without one, ten clicks ran ten full route
+    -- calculations.
+    local refreshes = 0
+    QR.UI.RefreshRoute = function() refreshes = refreshes + 1 end
+    QR.UI.lastRestoreClickTime = 0
+    for _ = 1, 10 do
+        QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
+    end
+    t:assertEqual(1, refreshes, "ten right-clicks in a second recalculate once, got " .. refreshes)
+
     QR.UI.RefreshRoute = savedRefresh
     QR.db = savedDB
+end)
+
+T:run("Cooperative search: a parked search keeps its own journey's refusals", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    pc:ClearExcludedEdges()
+    local savedAfter, savedBudget = C_Timer.After, pc.FRAME_BUDGET_MS
+    local queue = {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    -- A budget of zero parks the search at its first opportunity. The previous
+    -- round concluded this state was unreachable by measuring against a mock
+    -- profiler that advances one millisecond per call; that described the
+    -- instrument, not the router.
+    pc.FRAME_BUDGET_MS = 0
+    local seen
+    pc:CalculatePathAsync(85, 0.5, 0.5, nil, function() end)
+    local parked = pc.asyncRunning and coroutine.status(pc.asyncRunning.thread) == "suspended"
+    if parked then
+        -- A refusal for the parked journey, and a synchronous calculation for
+        -- somewhere else in between. The parked search must still see its own.
+        pc:ExcludeEdge("Gate", "Goal", { mapID = 85, x = 0.5, y = 0.5 })
+        pc:CalculatePath(84, 0.2, 0.2)
+        local outer = pc:IsEdgeExcluded("Gate", "Goal")
+        local inner
+        local running = pc.asyncRunning
+        local saved = running.journey
+        -- Read the way the search reads it: through ResumeAsync's restoration.
+        QR.Graph.SetYieldHook(nil)
+        local probe = coroutine.create(function() inner = pc:IsEdgeExcluded("Gate", "Goal") end)
+        local outerJourney = running.journey
+        pc:NoteJourneyDestination(85, 0.5, 0.5)
+        coroutine.resume(probe)
+        running.journey = saved
+        seen = { outer = outer, inner = inner, restored = outerJourney ~= nil }
+    end
+    while #queue > 0 do table.remove(queue, 1)() end
+    C_Timer.After, pc.FRAME_BUDGET_MS = savedAfter, savedBudget
+    pc:CancelAsync()
+    pc:ClearExcludedEdges()
+    t:assertTrue(parked, "a zero budget parks the search between frames")
+    if not seen then return end
+    t:assertFalse(seen.outer, "a calculation for somewhere else does not see the parked journey's refusal")
+    t:assertTrue(seen.inner, "and the parked journey still does")
+    t:assertTrue(seen.restored, "the request carries its own journey")
 end)

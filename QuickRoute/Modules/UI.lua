@@ -30,6 +30,7 @@ QR.UI = {
     spellInfoAccessOrder = {},
     -- Throttle tracking
     lastRefreshClickTime = 0,
+    lastRestoreClickTime = 0,
     -- State tracking
     isCalculating = false,
     _pendingPOIRoute = nil,  -- Pre-computed route from POI routing (consumed by RefreshRoute)
@@ -363,14 +364,19 @@ function UI:CreateContent(parentFrame)
         -- path also unlocked the destination, so a player undoing a refusal
         -- lost the place they had chosen; and the throttle below, meant for
         -- repeated refreshes, swallowed the right-click the tooltip advertises.
+        local now = GetTime()
         if button == "RightButton" then
+            -- Its own throttle. Moving the shared one below this branch stopped
+            -- it swallowing the right-click and left the right-click with no
+            -- rate limit at all: ten clicks ran ten full route calculations.
+            if now - (UI.lastRestoreClickTime or 0) < 1 then return end
+            UI.lastRestoreClickTime = now
             local refused = #QR.PathCalculator:GetExcludedEdges()
             QR.PathCalculator:ClearExcludedEdges()
             if refused > 0 then QR:Print(string_format(L["STEP_REJECT_CLEARED"], refused)) end
             UI:RefreshRoute()
             return
         end
-        local now = GetTime()
         if now - UI.lastRefreshClickTime < 1 then return end
         UI.lastRefreshClickTime = now
         -- Clear locked destination so Refresh uses the active waypoint
