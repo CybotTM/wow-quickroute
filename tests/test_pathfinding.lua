@@ -3325,7 +3325,10 @@ T:run("Rejected step: refusals can be taken back", function(t)
     pc:ExcludeEdge("Other", "Goal")
     t:assertEqual(2, #pc:GetExcludedEdges(), "two refusals are recorded")
     QR.UI:Initialize()
-    QR.UI.lastRefreshClickTime = 0
+    -- Both throttles, because the right-click path has its own since the
+    -- restore was separated from the refresh. Resetting only the refresh one
+    -- makes this test pass or fail by what ran before it.
+    QR.UI.lastRefreshClickTime, QR.UI.lastRestoreClickTime = 0, 0
     local savedRefresh = QR.UI.RefreshRoute
     QR.UI.RefreshRoute = function() end
     QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
@@ -3425,6 +3428,14 @@ T:run("Rejected step: restoring refusals does not change the destination", funct
     end
     t:assertEqual(1, refreshes, "ten right-clicks in a second recalculate once, got " .. refreshes)
 
+    -- And the throttle lets go. Without this the same assertions hold for a
+    -- button that never works a second time.
+    local savedTime = MockWoW.config.baseTime
+    MockWoW.config.baseTime = savedTime + 2
+    QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
+    MockWoW.config.baseTime = savedTime
+    t:assertEqual(2, refreshes, "a click two seconds later recalculates again, got " .. refreshes)
+
     QR.UI.RefreshRoute = savedRefresh
     QR.db = savedDB
 end)
@@ -3441,34 +3452,42 @@ T:run("Cooperative search: a parked search keeps its own journey's refusals", fu
     -- profiler that advances one millisecond per call; that described the
     -- instrument, not the router.
     pc.FRAME_BUDGET_MS = 0
-    local seen
     pc:CalculatePathAsync(85, 0.5, 0.5, nil, function() end)
     local parked = pc.asyncRunning and coroutine.status(pc.asyncRunning.thread) == "suspended"
-    if parked then
-        -- A refusal for the parked journey, and a synchronous calculation for
-        -- somewhere else in between. The parked search must still see its own.
-        pc:ExcludeEdge("Gate", "Goal", { mapID = 85, x = 0.5, y = 0.5 })
-        pc:CalculatePath(84, 0.2, 0.2)
-        local outer = pc:IsEdgeExcluded("Gate", "Goal")
-        local inner
-        local running = pc.asyncRunning
-        local saved = running.journey
-        -- Read the way the search reads it: through ResumeAsync's restoration.
-        QR.Graph.SetYieldHook(nil)
-        local probe = coroutine.create(function() inner = pc:IsEdgeExcluded("Gate", "Goal") end)
-        local outerJourney = running.journey
-        pc:NoteJourneyDestination(85, 0.5, 0.5)
-        coroutine.resume(probe)
-        running.journey = saved
-        seen = { outer = outer, inner = inner, restored = outerJourney ~= nil }
+    t:assertTrue(parked, "a zero budget parks the search between frames")
+    if not parked then
+        C_Timer.After, pc.FRAME_BUDGET_MS = savedAfter, savedBudget
+        pc:CancelAsync()
+        return
     end
+
+    pc:ExcludeEdge("Gate", "Goal", { mapID = 85, x = 0.5, y = 0.5 })
+    -- A synchronous calculation for somewhere else, between two frames of the
+    -- parked search.
+    pc:CalculatePath(84, 0.2, 0.2)
+    local outerBefore = pc:IsEdgeExcluded("Gate", "Goal")
+
+    -- Sampled from inside the coroutine, during a slice, which is the only
+    -- place the restoration can be observed. Reading it from a coroutine of the
+    -- test's own would have been true whatever the driver does.
+    local insideSlice
+    local savedHook = QR.Graph.SetYieldHook
+    QR.Graph.SetYieldHook = function(hook)
+        savedHook(hook and function()
+            if insideSlice == nil then insideSlice = pc:IsEdgeExcluded("Gate", "Goal") end
+            return hook()
+        end or nil)
+    end
+    if #queue > 0 then table.remove(queue, 1)() end
+    QR.Graph.SetYieldHook = savedHook
+    local outerAfter = pc:IsEdgeExcluded("Gate", "Goal")
+
     while #queue > 0 do table.remove(queue, 1)() end
     C_Timer.After, pc.FRAME_BUDGET_MS = savedAfter, savedBudget
     pc:CancelAsync()
     pc:ClearExcludedEdges()
-    t:assertTrue(parked, "a zero budget parks the search between frames")
-    if not seen then return end
-    t:assertFalse(seen.outer, "a calculation for somewhere else does not see the parked journey's refusal")
-    t:assertTrue(seen.inner, "and the parked journey still does")
-    t:assertTrue(seen.restored, "the request carries its own journey")
+
+    t:assertFalse(outerBefore, "a calculation for somewhere else does not see the parked journey's refusal")
+    t:assertTrue(insideSlice, "the parked search sees its own refusal during its slice")
+    t:assertFalse(outerAfter, "and the slice does not leave its journey with the synchronous caller")
 end)
