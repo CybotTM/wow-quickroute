@@ -341,6 +341,34 @@ T:run("Route context: reuses its private graph while checking live quest access"
     end)
 end)
 
+-- The tour matrix is built once and reused for every leg, so an ability that can
+-- be spent only once must stay out of it. A mage teleport has no cooldown and is
+-- available for every leg; excluding it by edge type made the visit order worse
+-- than the trip the character can actually execute.
+T:run("Route context: a cooldown-free teleport stays in the reusable matrix", function(t)
+    isolated(function(set)
+        local pc, graph = QR.PathCalculator, QR.Graph:New()
+        graph:AddNode("Player Location", {mapID=84, x=.1, y=.1, nodeType="player"})
+        graph:AddNode("Free", {mapID=85, x=.5, y=.5})
+        graph:AddNode("Spent", {mapID=86, x=.5, y=.5})
+        graph:AddNode("Unknown", {mapID=87, x=.5, y=.5})
+        graph:AddEdge("Player Location", "Free", .001, "teleport",
+            {teleportID=1, teleportData={mapID=85, type="spell", cooldown=0}})
+        graph:AddEdge("Player Location", "Spent", .001, "teleport",
+            {teleportID=2, teleportData={mapID=86, type="item", cooldown=1800}})
+        graph:AddEdge("Player Location", "Unknown", .001, "teleport",
+            {teleportID=3, teleportData={mapID=87, type="item"}})
+        set(pc, "graph", graph); set(pc, "graphDirty", false); set(pc, "graphFaction", nil)
+        local context = pc:CreateRouteContext({excludeCooldowns=true})
+        t:assertNotNil(context, "reusable route context is created")
+        local edges = context.graph.edges["Player Location"]
+        t:assertNotNil(edges["Free"] and edges["Free"].edgeType, "a cooldown-free teleport stays in the matrix")
+        t:assertNil(edges["Spent"] and edges["Spent"].edgeType, "a teleport with a cooldown is excluded")
+        t:assertNil(edges["Unknown"] and edges["Unknown"].edgeType, "an unknown cooldown is excluded, not assumed free")
+        t:assertEqual("teleport", graph.edges["Player Location"]["Spent"].edgeType, "the parent graph is unchanged")
+    end)
+end)
+
 T:run("Route context: failed connections leave no temporary nodes or dangling edges", function(t)
     isolated(function(set)
         local pc,graph=QR.PathCalculator,QR.Graph:New()

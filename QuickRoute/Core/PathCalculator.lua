@@ -201,13 +201,19 @@ local CAPITAL_CITIES = {
     ["Orgrimmar"] = {mapID = 85, x = 0.4690, y = 0.3870, faction = "Horde"},
     ["Undercity"] = {mapID = 90, x = 0.6549, y = 0.4161, faction = "Horde"},
     ["Thunder Bluff"] = {mapID = 88, x = 0.2920, y = 0.2740, faction = "Horde"},
-    -- 2393 like Portals, ServicePOIs and the mage teleport. Leaving this at
-    -- 110 made the destination search offer a Silvermoon on a different map
-    -- than the one the portals land on, with two different routes for one city.
-    ["Silvermoon City"] = {mapID = 2393, x = 0.5850, y = 0.1920, faction = "Horde"},
     ["Dazar'alor"] = {mapID = 1165, x = 0.5020, y = 0.4080, faction = "Horde"},
 
     -- Neutral hubs
+    -- Midnight Silvermoon is a shared hub with a Horde-only enclave inside it,
+    -- so faction access belongs to the service, not to the whole map: the city
+    -- node is reachable by both factions and ServicePOIs.lua keeps the enclave
+    -- entries Horde-only. The coordinate is the shared district surveyed by
+    -- Tayder (2026-02-26), not the unverified map 110 value the portal records
+    -- still carry. Map 2393 like Portals, ServicePOIs and the mage teleport;
+    -- leaving this at 110 made the destination search offer a Silvermoon on a
+    -- different map than the one the portals land on.
+    -- https://news.blizzard.com/en-us/article/24243213/welcome-to-silvermoon-city
+    ["Silvermoon City"] = {mapID = 2393, x = 0.5028, y = 0.7486, faction = "both"},
     ["Dalaran (Northrend)"] = {mapID = 125, x = 0.4947, y = 0.4709, faction = "both"},
     ["Dalaran (Broken Isles)"] = {mapID = 627, x = 0.5044, y = 0.5313, faction = "both"},
     ["Shattrath City"] = {mapID = 111, x = 0.5410, y = 0.4120, faction = "both"},
@@ -415,7 +421,8 @@ end
 --- Connect all nodes that share the same mapID with walking edges
 -- This is crucial for connecting teleport destinations to nearby portal hubs
 function PathCalculator:ConnectSameMapNodes()
-    -- Only assume flying for the player's CURRENT map; remote maps use ground speed
+    -- Measured for the current map; unknown for any other one, so TravelTime
+    -- decides from what that zone allows and what the character owns.
     local playerMapID = QR.TravelTime:GetCurrentMapID()
     local playerCanFly = GetCachedIsFlyable(playerMapID)
 
@@ -434,8 +441,12 @@ function PathCalculator:ConnectSameMapNodes()
     local connectionsAdded = 0
     for mapID, nodes in pairs(nodesByMap) do
         if #nodes > 1 then
-            -- Only use flying speed for player's current map
-            local canFly = (mapID == playerMapID) and playerCanFly or false
+            -- The current map's flight permission is measured. A remote map is
+            -- not: passing false there said "this zone is ground-only", which
+            -- is a claim, and it kept TravelTime's own zone model from ever
+            -- being consulted. Nil says the caller does not know.
+            local canFly
+            if mapID == playerMapID then canFly = playerCanFly or false end
 
             -- Connect each pair of nodes on this map
             for i = 1, #nodes do
@@ -894,6 +905,20 @@ end
 --- Create a reusable calculator with its own graph and position caches.
 -- Transport topology is copied once; current access/phase requirements are
 -- still evaluated on every query. Exclusions are fixed for this context.
+-- A tour matrix is built once and reused for every leg, so an ability that can
+-- only be spent once must not appear in it. Cooldown is what decides that, not
+-- the edge type: a mage teleport has no cooldown and is available for every leg
+-- of the trip, while a hearthstone is gone after the first.
+--
+-- The classification is conservative. Only a teleport whose catalogue record
+-- states a cooldown of zero counts as reusable; a missing or unknown cooldown
+-- keeps the edge out, which is the behaviour every teleport had before.
+local function ReusableTeleportEdge(edge)
+    if edge.edgeType ~= "teleport" then return true end
+    local data = edge.data and edge.data.teleportData
+    return type(data) == "table" and data.cooldown == 0
+end
+
 function PathCalculator:CreateRouteContext(options)
     -- Only methods may fall through. A nil cache/index on the private object
     -- must never expose mutable state from the live PathCalculator singleton.
@@ -919,7 +944,7 @@ function PathCalculator:CreateRouteContext(options)
                 for to, selected in pairs(outgoing) do
                     local retained = {}
                     for _, edge in ipairs(selected.alternatives or { selected }) do
-                        if edge.edgeType ~= "teleport" then retained[#retained+1] = edge end
+                        if ReusableTeleportEdge(edge) then retained[#retained+1] = edge end
                     end
                     graph:SetEdgeOptions(from, to, retained)
                 end
@@ -946,7 +971,7 @@ function PathCalculator:CreateRouteContext(options)
             for to, selected in pairs(outgoing) do
                 local alternatives = {}
                 for _, edge in ipairs(selected.alternatives or { selected }) do
-                    if not (excludeCooldowns and edge.edgeType == "teleport") then
+                    if not excludeCooldowns or ReusableTeleportEdge(edge) then
                         alternatives[#alternatives+1] = edge
                     end
                 end
@@ -1112,9 +1137,11 @@ end
 -- @param x number The X coordinate (0-1)
 -- @param y number The Y coordinate (0-1)
 function PathCalculator:ConnectNearbyNodes(nodeName, mapID, x, y)
-    -- Only assume flying for the player's current map; remote maps use ground speed
+    -- Measured for the current map; unknown for any other one, so TravelTime
+    -- decides from what that zone allows and what the character owns.
     local playerMapID = QR.TravelTime:GetCurrentMapID()
-    local canFly = (mapID == playerMapID) and GetCachedIsFlyable(playerMapID) or false
+    local canFly
+    if mapID == playerMapID then canFly = GetCachedIsFlyable(playerMapID) or false end
 
     -- First pass: connect to nodes on the same map
     for otherName, otherData in pairs(self.graph.nodes) do
@@ -1895,6 +1922,78 @@ end
 -- Merges "Walk to A" + "Walk to B" into "Walk to B" with combined time
 -- @param steps table Array of step objects from BuildSteps
 -- @return table Collapsed steps array
+-- How close the player must be to count as having reached an intermediate
+-- anchor, in normalized map units. 0.02 is about 2 percent of a zone.
+local ANCHOR_REACHED = 0.02
+
+--- Pick the anchor a step should navigate to right now.
+-- A merged row can stand for several segments. Navigation executes them in
+-- order: the first anchor the player has not reached yet, and the final
+-- destination once the intermediate ones are behind them.
+-- @param step table A route step, possibly carrying `waypoints`
+-- @return table Anchor with mapID, x, y and title
+function PathCalculator:SelectStepAnchor(step)
+    local final = {
+        mapID = step.navMapID or step.destMapID,
+        x = step.navX or step.destX,
+        y = step.navY or step.destY,
+        title = step.navTitle or step.to,
+    }
+    local anchors = step.waypoints
+    if type(anchors) ~= "table" or #anchors < 2 then return final end
+    for index = 1, #anchors - 1 do
+        local anchor = anchors[index]
+        if anchor.mapID and anchor.x and anchor.y then
+            -- Both sides are resolved the same way before they are compared.
+            -- GetPlayerPosition returns the map after resolution, so comparing
+            -- it against an unresolved anchor map would never match on a map
+            -- that resolves to a child, and navigation would stick on the first
+            -- anchor for the whole journey.
+            local anchorMap, anchorX, anchorY = self:ResolveMapPosition(anchor.mapID, anchor.x, anchor.y)
+            local mapID, x, y = self:GetPlayerPosition(anchorMap or anchor.mapID)
+            -- No position means no evidence the anchor is behind the player, so
+            -- the ordered approach is kept rather than skipped.
+            if not anchorMap or mapID ~= anchorMap then return anchor end
+            local dx, dy = x - anchorX, y - anchorY
+            if (dx * dx + dy * dy) > (ANCHOR_REACHED * ANCHOR_REACHED) then return anchor end
+        end
+    end
+    return final
+end
+
+-- One step's navigation anchor: where the player is sent for that segment.
+local function navigationAnchor(step)
+    return {
+        mapID = step.navMapID or step.destMapID,
+        x = step.navX or step.destX,
+        y = step.navY or step.destY,
+        title = step.navTitle or step.to,
+    }
+end
+
+-- Two consecutive segments may be summarised into one display row only when
+-- they stay on one map.
+--
+-- A constrained approach -- a cave mouth, a stair, a floor change -- should
+-- stop a merge too, and that is not shipped: no data source marks one. A field
+-- read here and set nowhere is a declaration nothing produces, so it was
+-- removed rather than left looking like protection. The map comparison is what
+-- does the work today; the anchor marking returns when there are surveyed
+-- approaches to drive it.
+local function mergeable(current, nextStep)
+    if nextStep.type ~= "walk" and nextStep.type ~= "travel" then return false end
+    -- Two steps with no map are two steps with no evidence of a crossing, and
+    -- that is the shape the pure display fixtures use; a known map on one side
+    -- and not the other is a difference and stops the merge.
+    return (current.navMapID or current.destMapID) == (nextStep.navMapID or nextStep.destMapID)
+end
+
+--- Summarise consecutive walk/travel steps into one display row.
+-- Merging stops at a map change. The merged row
+-- carries `waypoints`, the ordered anchors of every segment it represents, so
+-- navigation can still execute them in order.
+-- @param steps table Array of step objects
+-- @return table Steps with same-map walk/travel runs merged
 function PathCalculator:CollapseConsecutiveSteps(steps)
     if not steps or #steps <= 1 then return steps end
 
@@ -1904,24 +2003,32 @@ function PathCalculator:CollapseConsecutiveSteps(steps)
         local step = steps[i]
         -- Check if this is a walk/travel step that can be merged
         if step.type == "walk" or step.type == "travel" then
-            -- Look ahead for consecutive walk/travel steps
+            -- Look ahead for consecutive walk/travel steps on the same map. A
+            -- merge across maps hid the zone crossing, and a merge past a
+            -- map boundary hid the crossing itself; both left the
+            -- player pointed straight at the final coordinate.
             local combinedTime = step.time
             local lastStep = step
             local mergedCount = 0
-            while i + 1 <= #steps and (steps[i + 1].type == "walk" or steps[i + 1].type == "travel") do
+            local waypoints = { navigationAnchor(step) }
+            while i + 1 <= #steps and mergeable(lastStep, steps[i + 1]) do
                 i = i + 1
                 combinedTime = combinedTime + steps[i].time
                 lastStep = steps[i]
                 mergedCount = mergedCount + 1
+                waypoints[#waypoints + 1] = navigationAnchor(lastStep)
             end
             if mergedCount > 0 then
-                -- Create merged step using the final destination
+                -- Create merged step using the final destination. The ordered
+                -- anchors of the merged segments stay executable on the step:
+                -- the display row is a summary, the geometry is not.
                 local mergedStep = {}
                 for k, v in pairs(lastStep) do mergedStep[k] = v end
                 mergedStep.time = combinedTime
                 mergedStep.from = step.from
                 mergedStep.collapsed = true
                 mergedStep.collapsedCount = mergedCount + 1
+                mergedStep.waypoints = waypoints
                 table_insert(collapsed, mergedStep)
             else
                 table_insert(collapsed, step)

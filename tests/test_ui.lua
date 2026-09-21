@@ -1765,3 +1765,50 @@ T:run("RefreshRoute subtitles avoid duplicate zones in normal and precomputed ro
     ui._pendingPOIRoute, ui.isCalculating, ui.lastRefreshTime = saved.pending, saved.calculating, saved.refreshed
     if not ok then error(err) end
 end)
+
+T:run("UI: the Nav button of a merged row targets the anchor still ahead", function(t)
+    -- SelectStepAnchor was tested only by calling it directly. Both surfaces
+    -- where a merged row's ordering is visible to the player -- the Nav button
+    -- and the auto-waypoint -- could be reverted with the suite green.
+    QR.UI:Initialize()
+    local steps = {
+        { type = "walk", from = "A", to = "B", time = 20, navMapID = 2393, navX = 0.50, navY = 0.56, navTitle = "B" },
+        { type = "walk", from = "B", to = "C", time = 15, navMapID = 2393, navX = 0.41, navY = 0.62, navTitle = "Cave mouth" },
+    }
+    local merged = QR.PathCalculator:CollapseConsecutiveSteps(steps)[1]
+    local savedPosition = QR.PathCalculator.GetPlayerPosition
+    QR.PathCalculator.GetPlayerPosition = function() return 84, 0.1, 0.1 end
+    local stepFrame = QR.UI:CreateStepLabel(1, merged, 0, "pending")
+    QR.PathCalculator.GetPlayerPosition = savedPosition
+    t:assertNotNil(stepFrame.navButton, "the row has a Nav button")
+    t:assertEqual("B", stepFrame.navButton.stepTo,
+        "it points at the first anchor, not at the row's final destination")
+    t:assertEqual(0.50, stepFrame.navButton.destX, "with that anchor's position")
+end)
+
+T:run("UI: the auto-waypoint of a merged row uses the anchor still ahead", function(t)
+    QR.UI:Initialize()
+    local savedDB, savedPosition = QR.db, QR.PathCalculator.GetPlayerPosition
+    local savedSet = QR.WaypointIntegration.SetTomTomWaypoint
+    local savedAfter = C_Timer.After
+    QR.db = QR.db or {}
+    local previousAuto = QR.db.autoWaypoint
+    QR.db.autoWaypoint = true
+    QR.PathCalculator.GetPlayerPosition = function() return 84, 0.1, 0.1 end
+    local queue, target = {}, nil
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    QR.WaypointIntegration.SetTomTomWaypoint = function(_, mapID, x, y, title) target = title end
+    local steps = {
+        { type = "walk", from = "A", to = "B", time = 20, navMapID = 2393, navX = 0.50, navY = 0.56, navTitle = "B" },
+        { type = "walk", from = "B", to = "C", time = 15, navMapID = 2393, navX = 0.41, navY = 0.62, navTitle = "Cave mouth" },
+    }
+    local merged = QR.PathCalculator:CollapseConsecutiveSteps(steps)
+    if QR.MainFrame and QR.MainFrame.Show then QR.MainFrame:Show() end
+    QR.UI.frame:Show()
+    QR.UI:UpdateRoute({ totalTime = 35, steps = merged, waypoint = { mapID = 2393, x = 0.41, y = 0.62 } })
+    while #queue > 0 do table.remove(queue, 1)() end
+    QR.db.autoWaypoint = previousAuto
+    QR.db, QR.PathCalculator.GetPlayerPosition = savedDB, savedPosition
+    QR.WaypointIntegration.SetTomTomWaypoint, C_Timer.After = savedSet, savedAfter
+    t:assertEqual("B", target, "the waypoint is the anchor the player has not reached, got " .. tostring(target))
+end)

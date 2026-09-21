@@ -1038,8 +1038,10 @@ QR.TeleportItemsData = {
         name = "Personal Key to the Arcantina",
         destination = "Silvermoon City (Arcantina)",
         mapID = 2393,  -- Silvermoon City (revamped, Midnight)
-        x = 0.5850,
-        y = 0.1920,
+        -- Landing unsurveyed; uses the capital node's surveyed position so the
+        -- arrival does not cost a walk across the city that may not exist.
+        x = 0.5028,
+        y = 0.7486,
         cooldown = 90,  -- 1.5 minutes
         type = QR.TeleportTypes.TOY,
         faction = "both",

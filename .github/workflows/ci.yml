@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # Every pull request, not only the ones targeting main. A stacked pull
+  # request whose base is another feature branch used to get no checks at
+  # all, so the series was reviewed with nothing gating it.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read

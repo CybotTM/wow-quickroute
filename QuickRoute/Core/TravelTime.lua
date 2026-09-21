@@ -73,6 +73,78 @@ TravelTime.SPEEDS = {
     epic_flying = 28.7,  -- 310% bonus: base 7 * 4.1
 }
 
+-- Remote flight eligibility.
+--
+-- No client API reports whether a map other than the current one permits
+-- flight, so a route leg on another map had no evidence either way and was
+-- priced as ground travel. That is safe against inventing permission and it
+-- misprices verified flyable legs, which changes which portal or vendor wins.
+--
+-- The model is per continent, because that is the granularity the game itself
+-- uses for flight unlocks, plus the hubs that forbid flight inside them. It
+-- states what the ZONE allows. Whether the CHARACTER can use it is a separate
+-- check against their collected mounts, and arrival re-checks the live API.
+--
+-- "unknown" is a real answer: a map QuickRoute does not place on a continent
+-- keeps the conservative ground estimate.
+TravelTime.CONTINENT_FLIGHT = {
+    EASTERN_KINGDOMS = true,
+    KALIMDOR = true,
+    OUTLAND = true,
+    NORTHREND = true,
+    PANDARIA = true,
+    DRAENOR = true,
+    BROKEN_ISLES = true,
+    KUL_TIRAS = true,
+    ZANDALAR = true,
+    BFA_NEUTRAL = true,
+    SHADOWLANDS = true,
+    DRAGON_ISLES = true,
+    KHAZ_ALGAR = true,
+}
+
+-- Maps that permit no flight whatever their continent allows: the walking hubs,
+-- and the zones that were designed without flight and never received it.
+--
+-- This list is the known exceptions, not a complete one. A continent is a
+-- coarse unit and a zone that is missing here is priced as flyable, which
+-- overstates it. That is why the answer is a planning profile and the live API
+-- is asked again on arrival, and why a zone found to be wrong belongs here
+-- rather than in a wider rule.
+--
+-- OPEN, and it needs a client to settle: the enclosed capital cities.
+-- Ironforge, Undercity, The Exodar and Darnassus are interiors, and this model
+-- prices them as flyable while the current-map path returns walking speed for
+-- the same place because IsIndoors is true. The two disagree about one map.
+-- Whether flight is possible inside each of them is a game fact this host
+-- cannot check, so they are not listed rather than listed on a guess. The tell
+-- in practice is a route into one of those cities whose estimate is far short
+-- of the walk it turns out to be.
+TravelTime.NO_FLIGHT_MAPS = {
+    [111] = true,   -- Shattrath City
+    [125] = true,   -- Dalaran (Northrend)
+    [627] = true,   -- Dalaran (Broken Isles)
+    [1670] = true,  -- Oribos
+    [504] = true,   -- Isle of Thunder
+    [554] = true,   -- Timeless Isle
+    [830] = true,   -- Krokuun
+    [882] = true,   -- Eredath
+    [885] = true,   -- Antoran Wastes
+    [1543] = true,  -- The Maw
+}
+
+--- What the zone allows on a map, independent of the character.
+-- @param mapID number|nil
+-- @return string "flyable", "ground" or "unknown"
+function TravelTime:RemoteFlightEligibility(mapID)
+    if not Number(mapID) then return "unknown" end
+    if self.NO_FLIGHT_MAPS[mapID] then return "ground" end
+    local continent = QR.ZoneToContinent and QR.ZoneToContinent[mapID]
+    if not continent then return "unknown" end
+    if self.CONTINENT_FLIGHT[continent] then return "flyable" end
+    return "ground"
+end
+
 -- Blizzard's GetUnitSpeed reports current and maximum movement speeds;
 -- C_PlayerInfo.GetGlidingInfo reports actual skyriding forward speed. Never
 -- apply one zone's flight permission to a destination in another zone.
@@ -145,7 +217,19 @@ local function ComputeMovementSpeed(self, mapID, mode)
         local trainedSpeed = RidingKnown(33391) or RidingKnown(34090) or RidingKnown(34091) or RidingKnown(90265)
         ground = math_max(runSpeed, trainedSpeed and self.SPEEDS.mounted_ground or self.SPEEDS.apprentice_ground)
     end
-    if not here or mode == false or mode == "ground" then return ground end
+    if not here then
+        if mode == false or mode == "ground" then return ground end
+        -- A remote leg is priced from what that zone allows and what this
+        -- character owns, never from the permission of the zone they stand in.
+        -- A zone QuickRoute cannot place keeps the ground estimate.
+        if steadyFlightMount and self:RemoteFlightEligibility(mapID) == "flyable" then
+            local trainedSpeed = RidingKnown(90265) and self.SPEEDS.epic_flying
+                or (RidingKnown(34091) and self.SPEEDS.mounted_flying or self.SPEEDS.expert_flying)
+            return math_max(ground, trainedSpeed)
+        end
+        return ground
+    end
+    if mode == false or mode == "ground" then return ground end
 
     local flightAllowed = BooleanCall(_G.IsFlyableArea)
     local advancedAllowed = BooleanCall(_G.IsAdvancedFlyableArea)

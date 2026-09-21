@@ -164,6 +164,53 @@ T:run("Travel movement: actual capability and speed override area-only flying gu
     QR.TravelTime:ClearMovementCache()
 end)
 
+-- A remote leg used to be priced as ground travel whatever the zone allows,
+-- which misranks a portal or a vendor on a flyable map. The profile states what
+-- the ZONE allows; the collected mount states what the CHARACTER can use.
+T:run("Travel movement: a remote flyable zone is priced with a flight profile", function(t)
+    MockWoW:Reset()
+    local saved = {}
+    for _, key in ipairs({ "GetUnitSpeed", "IsFlying", "IsMounted", "IsIndoors" }) do saved[key] = _G[key] end
+    local oldIDs, oldInfo = C_MountJournal.GetMountIDs, C_MountJournal.GetMountInfoByID
+    C_MountJournal.GetMountIDs = function() return { 1 } end
+    -- usable is the fifth value, collected the eleventh, steady flight the
+    -- thirteenth, as MountCapabilities reads them.
+    C_MountJournal.GetMountInfoByID = function()
+        return nil, nil, nil, nil, true, nil, nil, nil, nil, nil, true, nil, true
+    end
+    _G.GetUnitSpeed = function() return 7, 7, 0, 0 end
+    _G.IsFlying, _G.IsMounted, _G.IsIndoors = function() return false end, function() return false end, function() return false end
+    MockWoW.config.currentMapID = 84
+    QR.TravelTime:ClearMovementCache()
+
+    t:assertEqual("flyable", QR.TravelTime:RemoteFlightEligibility(37), "Elwynn Forest sits on a flyable continent")
+    t:assertEqual("ground", QR.TravelTime:RemoteFlightEligibility(125), "Dalaran forbids flight inside it")
+    t:assertEqual("unknown", QR.TravelTime:RemoteFlightEligibility(99999), "an unplaced map stays unknown")
+
+    -- The route builder never passes true for a remote map: it passes nothing,
+    -- because it does not know. Asserting the helper with an explicit true
+    -- passed while the graph still priced every remote leg as ground travel, so
+    -- the assertion that decides this is the estimate the builder asks for.
+    t:assertEqual(17.5, QR.TravelTime:GetMovementSpeed(37, nil), "a remote flyable zone uses the flight profile")
+    local flying = QR.TravelTime:EstimateWalkingTime(0.1, 0.1, 0.9, 0.9, nil, 37)
+    local walking = QR.TravelTime:EstimateWalkingTime(0.1, 0.1, 0.9, 0.9, false, 37)
+    t:assertTrue(flying < walking,
+        "the estimate the graph builds is faster on a flyable remote zone: " .. flying .. " vs " .. walking)
+    t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(125, nil), "a remote no-flight hub keeps ground speed")
+    t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(99999, nil), "an unknown remote map keeps the conservative estimate")
+    t:assertEqual("ground", QR.TravelTime:RemoteFlightEligibility(1543), "The Maw is ground-only")
+    t:assertEqual("ground", QR.TravelTime:RemoteFlightEligibility(885), "Antoran Wastes is ground-only")
+    t:assertEqual(11.2, QR.TravelTime:GetMovementSpeed(37, "ground"), "an explicit ground request is still ground")
+
+    C_MountJournal.GetMountIDs = function() return {} end
+    QR.TravelTime:ClearMovementCache()
+    t:assertEqual(7, QR.TravelTime:GetMovementSpeed(37, nil), "without a collected mount the zone profile grants nothing")
+
+    for _, key in ipairs({ "GetUnitSpeed", "IsFlying", "IsMounted", "IsIndoors" }) do _G[key] = saved[key] end
+    C_MountJournal.GetMountIDs, C_MountJournal.GetMountInfoByID = oldIDs, oldInfo
+    QR.TravelTime:ClearMovementCache()
+end)
+
 T:run("Travel inventory: unknown toy usability fails closed and profession changes invalidate cached access", function(t)
     MockWoW:Reset()
     local savedToys = Copy(QR.PlayerInventory.toys)
@@ -198,4 +245,65 @@ T:run("Travel time: current client cast time overrides the static travel catalog
         "seven-second live item activation plus five-second loading overrides a stale five-second cast")
     C_Item.GetItemSpell, C_Spell.GetSpellInfo = oldItemSpell, oldSpellInfo
     QR.db.loadingScreenTime = oldLoading
+end)
+
+-- The assertion that decides whether the remote-flight profile does anything:
+-- the weight the graph builder actually writes. Asserting GetMovementSpeed with
+-- an explicit "true" passed while every call site forced ground travel.
+T:run("Travel movement: the graph prices a remote flyable leg with the flight profile", function(t)
+    MockWoW:Reset()
+    local saved = {}
+    for _, key in ipairs({ "GetUnitSpeed", "IsFlying", "IsMounted", "IsIndoors" }) do saved[key] = _G[key] end
+    local oldIDs, oldInfo = C_MountJournal.GetMountIDs, C_MountJournal.GetMountInfoByID
+    C_MountJournal.GetMountIDs = function() return { 1 } end
+    C_MountJournal.GetMountInfoByID = function()
+        return nil, nil, nil, nil, true, nil, nil, nil, nil, nil, true, nil, true
+    end
+    _G.GetUnitSpeed = function() return 7, 7, 0, 0 end
+    _G.IsFlying, _G.IsMounted, _G.IsIndoors = function() return false end, function() return false end, function() return false end
+    MockWoW.config.currentMapID = 84
+    QR.TravelTime:ClearMovementCache()
+
+    local pc = QR.PathCalculator
+    local savedGraph, savedDirty = pc.graph, pc.graphDirty
+    local function weightBetween(mapID)
+        pc.graph = QR.Graph:New()
+        pc.graph:AddNode("Far A", { mapID = mapID, x = 0.10, y = 0.10 })
+        pc.graph:AddNode("Far B", { mapID = mapID, x = 0.90, y = 0.90 })
+        pc:ConnectNearbyNodes("Far A", mapID, 0.10, 0.10)
+        local edge = pc.graph.edges["Far A"] and pc.graph.edges["Far A"]["Far B"]
+        return edge and edge.weight
+    end
+
+    local flyable = weightBetween(37)     -- Elwynn Forest, an outdoor zone
+    local grounded = weightBetween(1543)  -- The Maw, which does not
+
+    -- The other builder, which the graph goes through for every map that
+    -- already holds more than one node. Without this the fix could be reverted
+    -- there with the whole suite green.
+    local function sameMapWeight(mapID)
+        pc.graph = QR.Graph:New()
+        pc.graph:AddNode("Same A", { mapID = mapID, x = 0.10, y = 0.10 })
+        pc.graph:AddNode("Same B", { mapID = mapID, x = 0.90, y = 0.90 })
+        pc:ConnectSameMapNodes()
+        local edge = pc.graph.edges["Same A"] and pc.graph.edges["Same A"]["Same B"]
+        return edge and edge.weight
+    end
+    local sameFlyable = sameMapWeight(37)
+    local sameGrounded = sameMapWeight(1543)
+    pc.graph, pc.graphDirty = savedGraph, savedDirty
+
+    t:assertNotNil(sameFlyable, "ConnectSameMapNodes wrote an edge for the flyable zone")
+    t:assertTrue(sameFlyable < sameGrounded,
+        "the same-map builder also uses the flight profile: "
+        .. tostring(sameFlyable) .. " vs " .. tostring(sameGrounded))
+
+    t:assertNotNil(flyable, "the builder wrote an edge for the flyable zone")
+    t:assertNotNil(grounded, "the builder wrote an edge for the ground-only zone")
+    t:assertTrue(flyable < grounded,
+        "the flyable remote leg is cheaper in the graph: " .. tostring(flyable) .. " vs " .. tostring(grounded))
+
+    for _, key in ipairs({ "GetUnitSpeed", "IsFlying", "IsMounted", "IsIndoors" }) do _G[key] = saved[key] end
+    C_MountJournal.GetMountIDs, C_MountJournal.GetMountInfoByID = oldIDs, oldInfo
+    QR.TravelTime:ClearMovementCache()
 end)
