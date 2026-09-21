@@ -10,6 +10,17 @@
 -- actually known. An unmarked record is not claimed to be surveyed: it is
 -- unmarked, which the coverage test in tests/test_provenance.lua counts and
 -- pins so the unmarked set cannot grow unnoticed.
+
+-- What that count covers, stated here because the number reads as if it
+-- covered everything: service points, capital cities and portal hubs. Five
+-- other files carry coordinates and are not counted -- DestinationCatalog,
+-- FlightPoints, DungeonEntrances, TravelShortcuts and HearthstoneLocations.
+-- The pin is therefore a statement about three sources, not about the
+-- catalogue as a whole, and a new data file joins the uncounted set silently.
+--
+-- HearthstoneLocations carries its own words for the same idea, `source =
+-- "INN_DATABASE"` and `isApproximate`, which are REFERENCE and ESTIMATED under
+-- another name. Nothing reconciles the two vocabularies today.
 local ADDON_NAME, QR = ...
 
 QR.Provenance = {

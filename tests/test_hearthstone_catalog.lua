@@ -250,7 +250,6 @@ end
 T:run("Hearthstone catalog: an ambiguous record with coordinates is still not routable", function(t)
     isolated("enUS", function(bindTo, _, replace)
         local area = 14771
-        replace(QR.HearthstoneLocations, 1, nil)
         replace(QR, "HearthstoneLocations", {
             { areaID = area, ambiguous = true, mapID = 2395, x = 0.4, y = 0.4 },
         })

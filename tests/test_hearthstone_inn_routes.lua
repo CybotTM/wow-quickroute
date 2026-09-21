@@ -124,6 +124,57 @@ T:run("Hearthstone inn routes: a warm graph updates from unknown to localized in
     end)
 end)
 
+T:run("Hearthstone inn routes: the public contract declares a guessed landing", function(t)
+    isolated(function(replace)
+        local calculator = setup(replace)
+        replace(C_Map, "GetAreaInfo", function(id)
+            if id == 910001 then return "Morgenluft" end
+        end)
+        local queue = {}
+        replace(C_Timer, "After", function(_, callback) queue[#queue + 1] = callback end)
+        QR.Hearthstone:OnEvent("PLAYER_ENTERING_WORLD", true, false)
+        t:assertTrue(QR.Hearthstone:GetDestination() ~= nil,
+            "the binding resolves from the catalogue, with nothing observed")
+        t:assertNil(next(QR.db.hearthstoneBinds), "and nothing was persisted as an observation")
+
+        -- Through the contract a foreign addon uses, not through the internal
+        -- calculator: `teleportData` deliberately never crosses that boundary,
+        -- so the marker has to travel as a field of its own.
+        local got
+        QuickRouteAPI:CalculateRoute({ mapID = 2437, x = 0.254, y = 0.84 },
+            function(route) got = route end)
+        while #queue > 0 and not got do table.remove(queue, 1)() end
+        while #queue > 0 do table.remove(queue, 1)() end
+        t:assertNotNil(got, "the contract answered with a route")
+
+        local guessed
+        for _, step in ipairs(got and got.steps or {}) do
+            if step.destApproximate then guessed = step end
+        end
+        t:assertNotNil(guessed,
+            "the consumer can see that the hearth lands where a catalogue says, not where this character was seen")
+        t:assertEqual(2395, guessed and guessed.destMapID,
+            "and the step still names the map it landed on, got " .. tostring(guessed and guessed.destMapID))
+
+        local declared = got and got.assumptions and got.assumptions.approximateLandings
+        t:assertEqual(1, declared and #declared or 0,
+            "the assumptions name one guessed landing, got " .. tostring(declared and #declared))
+        t:assertEqual(2395, declared and declared[1] and declared[1].mapID,
+            "on the map the catalogue supplied")
+        t:assertEqual(guessed and guessed.to, declared and declared[1] and declared[1].to,
+            "and name the step it belongs to")
+
+        -- Nothing else on the route is a guess, so the list is a statement
+        -- about this leg rather than about routes in general.
+        local approximateCount = 0
+        for _, step in ipairs(got and got.steps or {}) do
+            if step.destApproximate then approximateCount = approximateCount + 1 end
+        end
+        t:assertEqual(1, approximateCount,
+            "exactly one leg is marked, got " .. tostring(approximateCount))
+    end)
+end)
+
 T:run("Hearthstone inn routes: an ambiguous German binding cannot displace the known cloak route", function(t)
     isolated(function(replace)
         local calculator = setup(replace)
