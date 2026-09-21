@@ -353,18 +353,31 @@ function UI:CreateContent(parentFrame)
     local refreshButton = QR.CreateModernButton(frame, refreshWidth, BUTTON_HEIGHT)
     refreshButton:SetPoint("LEFT", searchBox, "RIGHT", BUTTON_PADDING, 0)
     ApplyButtonStyle(refreshButton, refreshText, "refresh")
-    refreshButton:SetScript("OnClick", function()
+    refreshButton:SetScript("OnClick", function(_, button)
         local now = GetTime()
         if now - UI.lastRefreshClickTime < 1 then return end
         UI.lastRefreshClickTime = now
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        -- A refusal had no way back at all: nothing in the addon called
+        -- ClearExcludedEdges, so one mis-click closed a connection for the rest
+        -- of the session. Right-clicking Refresh takes them all back.
+        if button == "RightButton" then
+            local refused = #QR.PathCalculator:GetExcludedEdges()
+            QR.PathCalculator:ClearExcludedEdges()
+            if refused > 0 then QR:Print(string_format(L["STEP_REJECT_CLEARED"], refused)) end
+        end
         -- Clear locked destination so Refresh uses the active waypoint
         if QR.db then QR.db.destinationLocked = false end
         UI:RefreshRoute()
     end)
+    refreshButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     refreshButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(L["TOOLTIP_REFRESH"])
+        local refused = #QR.PathCalculator:GetExcludedEdges()
+        if refused > 0 then
+            GameTooltip:AddLine(string_format(L["STEP_REJECT_RESTORE_TT"], refused), 1, 1, 1, true)
+        end
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
     end)
@@ -740,6 +753,10 @@ function UI:UpdateRoute(result)
     if not self.frame then
         return
     end
+    -- The destination the rows on screen belong to. A refusal made on one of
+    -- them has to be stamped with this, not with whatever a background
+    -- calculation happened to ask for last.
+    self.displayedResult = result
 
     -- Clear combat disabled buttons tracking to prevent duplicates on refresh
     wipe(self.combatDimmedSteps)
@@ -1016,6 +1033,11 @@ function UI:SetupStepRejectButton(stepFrame, step)
     rejectButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -(2 * STEP_ICON_SIZE + 11), -10)
     -- A merged row spans several hops; refusing it refuses all of them.
     rejectButton.edgePairs = QR.PathCalculator:StepEdgePairs(step)
+    -- The destination the row belongs to, taken from the route on screen. Read
+    -- from a global instead, it was whatever a background calculation set last.
+    local displayed = self.displayedResult and self.displayedResult.waypoint
+    rejectButton.destination = displayed
+        and { mapID = displayed.mapID, x = displayed.x, y = displayed.y } or nil
     rejectButton.stepLabel = step.navTitle or step.to
     rejectButton:Show()
 
@@ -1023,7 +1045,9 @@ function UI:SetupStepRejectButton(stepFrame, step)
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
         local refused = 0
         for _, pair in ipairs(self.edgePairs or {}) do
-            if QR.PathCalculator:ExcludeEdge(pair.from, pair.to) then refused = refused + 1 end
+            if QR.PathCalculator:ExcludeEdge(pair.from, pair.to, self.destination) then
+                refused = refused + 1
+            end
         end
         if refused == 0 then return end
         QR:Print(string_format(L["STEP_REJECT_DONE"], tostring(self.stepLabel)))

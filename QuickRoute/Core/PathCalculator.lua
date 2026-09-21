@@ -843,7 +843,12 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     -- ResumeAsync only fires on a rebuild by somebody else. Capturing the graph
     -- before the coroutine started made an ordinary search discard its own
     -- correct result whenever it had to build the graph on the way in.
-    if self.asyncRunning then self.asyncRunning.graphBuild = self.graphBuild or 0 end
+    -- Only the asynchronous coroutine itself may re-arm its own baseline. A
+    -- synchronous CalculatePath running while it is suspended would otherwise
+    -- re-arm it, and a rebuild by that caller would then go unnoticed.
+    if self.asyncRunning and coroutine.running() == self.asyncRunning.thread then
+        self.asyncRunning.graphBuild = self.graphBuild or 0
+    end
 
     -- Update player location node. No position is a temporary state during
     -- loading, not an unreachable destination.
@@ -1008,6 +1013,10 @@ end
 local excludedEdges = {}
 local currentJourney
 
+local function JourneyKey(mapID, x, y)
+    return string_format("%d:%.4f:%.4f", mapID, x or 0, y or 0)
+end
+
 local function EdgeKey(from, to)
     return tostring(from) .. "\1" .. tostring(to)
 end
@@ -1024,23 +1033,32 @@ function PathCalculator:StepEdgePairs(step)
     return { { from = step.from, to = step.to } }
 end
 
---- Refuse one connection, in one direction, for the rest of the session.
+--- Refuse one connection, in one direction, for one journey.
+-- The destination is a parameter, not a global. `currentJourney` is rewritten
+-- by every CalculatePath, including the background ones a quest button or a
+-- vendor comparison makes, so reading it here stamped the refusal with whatever
+-- happened to be calculated last rather than with the route on screen.
 -- @param from string Node the step starts at
 -- @param to string Node the step leads to
-function PathCalculator:ExcludeEdge(from, to)
+-- @param destination table|nil {mapID, x, y}; the current one when omitted
+function PathCalculator:ExcludeEdge(from, to, destination)
     if from == nil or to == nil then return false end
-    -- `true` when no destination is known yet: a refusal that applies until it
-    -- is cleared is safer than one that silently applies to nothing.
-    excludedEdges[EdgeKey(from, to)] = currentJourney or true
+    local key = currentJourney
+    if type(destination) == "table" and IsMapID(destination.mapID) then
+        key = JourneyKey(destination.mapID, destination.x, destination.y)
+    end
+    -- `true` when no destination is known at all: a refusal that applies until
+    -- it is cleared is safer than one that silently applies to nothing.
+    excludedEdges[EdgeKey(from, to)] = key or true
     return true
 end
 
 --- Say which destination is being routed to right now.
--- Refusals made while it is current apply to it, and to nothing else.
+-- Refusals made for it apply to it, and to nothing else.
 -- @return boolean True when the destination was accepted
 function PathCalculator:NoteJourneyDestination(mapID, x, y)
     if not IsMapID(mapID) then return false end
-    currentJourney = string_format("%d:%.4f:%.4f", mapID, x or 0, y or 0)
+    currentJourney = JourneyKey(mapID, x, y)
     return true
 end
 
@@ -1058,11 +1076,25 @@ function PathCalculator:ClearExcludedEdges()
 end
 
 --- Whether this connection is refused for this journey.
-function PathCalculator:IsEdgeExcluded(from, to)
+--- Whether this connection is refused for the journey being calculated.
+-- @param destination table|nil {mapID, x, y}; the current one when omitted
+function PathCalculator:IsEdgeExcluded(from, to, destination)
     local stamp = excludedEdges[EdgeKey(from, to)]
     if stamp == nil then return false end
     if stamp == true then return true end
-    return stamp == currentJourney
+    local key = currentJourney
+    if type(destination) == "table" and IsMapID(destination.mapID) then
+        key = JourneyKey(destination.mapID, destination.x, destination.y)
+    end
+    return stamp == key
+end
+
+--- Whether any connection is refused at all.
+-- The probes on the failure paths are skipped when nothing is refused: with an
+-- empty set the extra search is a bit-identical repeat of the one that just
+-- failed.
+function PathCalculator:HasExcludedEdges()
+    return next(excludedEdges) ~= nil
 end
 
 --- Every refused connection, for display.

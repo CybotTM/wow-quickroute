@@ -3104,22 +3104,6 @@ T:run("Rejected step: a refusal belongs to the destination it was made for", fun
     QR.PathCalculator:ClearExcludedEdges()
 end)
 
-T:run("Rejected step: a background calculation elsewhere does not drop the refusal", function(t)
-    resetState()
-    local pc = QR.PathCalculator
-    pc:ClearExcludedEdges()
-    pc:NoteJourneyDestination(84, 0.5, 0.5)
-    pc:ExcludeEdge("Gate", "Goal")
-    -- A vendor comparison prices every candidate through CalculatePath, and the
-    -- quest buttons route to every tracked quest. Wiping on a destination
-    -- change made an ordinary refresh forget the player's refusal.
-    pc:CalculatePath(85, 0.2, 0.2)
-    pc:CalculatePath(86, 0.3, 0.3)
-    pc:NoteJourneyDestination(84, 0.5, 0.5)
-    t:assertTrue(pc:IsEdgeExcluded("Gate", "Goal"),
-        "the refusal is still there when the player's own destination comes back")
-    pc:ClearExcludedEdges()
-end)
 
 T:run("Rejected step: the phase-aware search still names the refusal", function(t)
     resetState()
@@ -3291,4 +3275,61 @@ T:run("Rejected step: CalculatePath is what tells the refusal which destination 
     pc:CalculatePath(84, 0.55, 0.65)
     t:assertTrue(pc:IsEdgeExcluded("Gate", "Goal"), "and it is back when that route is calculated again")
     pc:ClearExcludedEdges()
+end)
+
+T:run("Rejected step: the refusal is stamped with the route on screen, not with the last calculation", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    pc:ClearExcludedEdges()
+    pc:CalculatePath(84, 0.55, 0.65)
+    -- A quest button or a vendor comparison calculates something else between
+    -- the route being drawn and the player clicking "Cannot use".
+    pc:CalculatePath(85, 0.25, 0.35)
+    pc:ExcludeEdge("Gate", "Goal", { mapID = 84, x = 0.55, y = 0.65 })
+    pc:CalculatePath(84, 0.55, 0.65)
+    t:assertTrue(pc:IsEdgeExcluded("Gate", "Goal"),
+        "the refusal holds for the destination the player was looking at")
+    pc:ClearExcludedEdges()
+end)
+
+T:run("Rejected step: a refusal that cannot help is not blamed on the optimistic path either", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    pc:ClearExcludedEdges()
+    pc:NoteJourneyDestination(85, 0.5, 0.5)
+    -- The only hop past the refusal is locked behind a quest this character has
+    -- not done, so lifting the refusal cannot produce a route.
+    local graph = QR.Graph:New()
+    graph:AddNode("Player Location", {mapID = 84, x = 0.1, y = 0.1, nodeType = "player"})
+    graph:AddNode("Gate", {mapID = 84, x = 0.2, y = 0.2})
+    graph:AddNode("Remote", {mapID = 85, x = 0.5, y = 0.5})
+    graph:AddEdge("Player Location", "Gate", 1, "walk", {})
+    graph:AddEdge("Gate", "Remote", 5, "portal", {requirements = {quest = 424242}})
+    local savedQuest = C_QuestLog.IsQuestFlaggedCompleted
+    C_QuestLog.IsQuestFlaggedCompleted = function() return false end
+    pc:ExcludeEdge("Player Location", "Gate")
+    local path, _, _, reason = QR.TravelRequirements:FindPath(graph, "Player Location", "Remote")
+    C_QuestLog.IsQuestFlaggedCompleted = savedQuest
+    t:assertNil(path, "no route either way")
+    t:assertEqual("blocked", reason,
+        "the missing unlock is the reason, not the refusal that changes nothing")
+    pc:ClearExcludedEdges()
+end)
+
+T:run("Rejected step: refusals can be taken back", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    pc:ClearExcludedEdges()
+    pc:NoteJourneyDestination(84, 0.5, 0.5)
+    pc:ExcludeEdge("Gate", "Goal")
+    pc:ExcludeEdge("Other", "Goal")
+    t:assertEqual(2, #pc:GetExcludedEdges(), "two refusals are recorded")
+    QR.UI:Initialize()
+    QR.UI.lastRefreshClickTime = 0
+    local savedRefresh = QR.UI.RefreshRoute
+    QR.UI.RefreshRoute = function() end
+    QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
+    QR.UI.RefreshRoute = savedRefresh
+    t:assertEqual(0, #pc:GetExcludedEdges(), "right-clicking Refresh takes them all back")
+    t:assertFalse(pc:IsEdgeExcluded("Gate", "Goal"), "so the step is offered again")
 end)

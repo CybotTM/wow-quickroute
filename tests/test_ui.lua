@@ -1827,7 +1827,14 @@ T:run("UI: the reject button does not cover the step text on a row without a Use
         "and no secure Use button, which is the case that broke")
     local label = MockWoW:ComputeFrameBounds(stepFrame.label)
     local reject = MockWoW:ComputeFrameBounds(stepFrame.rejectButton)
+    local nav = MockWoW:ComputeFrameBounds(stepFrame.navButton)
     t:assertTrue(label.right <= reject.left,
         "the label stops before the button: label.right " .. tostring(label.right)
         .. " vs reject.left " .. tostring(reject.left))
+    -- Slot three. The secure Use overlay occupies slot two, between the Nav
+    -- button and this one; a plain button placed there takes the click that
+    -- belongs to a protected action.
+    t:assertTrue(reject.right <= nav.left - (nav.right - nav.left),
+        "the reject button leaves the secure slot free: reject.right " .. tostring(reject.right)
+        .. " vs nav.left " .. tostring(nav.left))
 end)
