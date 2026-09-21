@@ -354,6 +354,10 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
+    -- Counted so an asynchronous search can tell "the graph I searched was
+    -- replaced underneath me" from "I rebuilt it myself on the way in".
+    self.graphBuild = (self.graphBuild or 0) + 1
+
     -- Only mark clean if all steps succeeded
     self.graphDirty = not buildSuccess
     -- Remembered so CalculatePath can notice a faction change. Recorded even
@@ -742,15 +746,83 @@ end
 -- Path Calculation Methods
 -------------------------------------------------------------------------------
 
+-- Why a route calculation produced nothing. "Cannot reach" and "cannot
+-- currently establish a route" are different answers and need different
+-- responses from the player, so the caller is told which one it got.
+PathCalculator.FAILURE = {
+    INVALID_DESTINATION = "invalid_destination",
+    POSITION_UNAVAILABLE = "position_unavailable",
+    GRAPH_UNAVAILABLE = "graph_unavailable",
+    SEARCH_LIMIT = "search_limit",
+    BLOCKED = "blocked",
+    STEP_REJECTED = "step_rejected",
+    NO_CONNECTION = "no_connection",
+    INTERNAL_ERROR = "internal_error",
+}
+
+-- Reason codes the graph and the requirement layer produce, mapped onto the
+-- codes callers see.
+local SEARCH_FAILURE = {
+    unknown_node = PathCalculator.FAILURE.NO_CONNECTION,
+    disconnected = PathCalculator.FAILURE.NO_CONNECTION,
+    search_limit = PathCalculator.FAILURE.SEARCH_LIMIT,
+    blocked = PathCalculator.FAILURE.BLOCKED,
+    blocked_start = PathCalculator.FAILURE.BLOCKED,
+    step_rejected = PathCalculator.FAILURE.STEP_REJECTED,
+}
+
+local FAILURE_MESSAGE = {
+    invalid_destination = "ROUTE_FAIL_INVALID_DESTINATION",
+    position_unavailable = "ROUTE_FAIL_POSITION_UNAVAILABLE",
+    graph_unavailable = "ROUTE_FAIL_GRAPH_UNAVAILABLE",
+    search_limit = "ROUTE_FAIL_SEARCH_LIMIT",
+    blocked = "ROUTE_FAIL_BLOCKED",
+    step_rejected = "ROUTE_FAIL_STEP_REJECTED",
+    no_connection = "ROUTE_FAIL_NO_CONNECTION",
+    internal_error = "ROUTE_FAIL_INTERNAL",
+}
+
+-- Whether trying the same request again can succeed without the player doing
+-- anything. A search budget is worth retrying; a missing connection is not.
+local FAILURE_RETRYABLE = {
+    position_unavailable = true,
+    graph_unavailable = true,
+    search_limit = true,
+}
+
+--- Describe a failure for display.
+-- @param failure table Second return value of CalculatePath
+-- @return string Localized sentence naming what happened
+function PathCalculator:DescribeFailure(failure)
+    local reason = type(failure) == "table" and failure.reason or failure
+    -- No failure table is not an internal error. A caller that produced no
+    -- route without saying why -- a waypoint that disappeared between the
+    -- lookup and the calculation -- gets the plain "no route" sentence.
+    if reason == nil then return QR.L["NO_PATH_FOUND"] end
+    local key = FAILURE_MESSAGE[reason] or FAILURE_MESSAGE.internal_error
+    return QR.L[key]
+end
+
+local function Failure(reason, detail)
+    local failure = { reason = reason, retryable = FAILURE_RETRYABLE[reason] == true }
+    if type(detail) == "table" then
+        failure.blockedFrom, failure.blockedTo = detail.from, detail.to
+        failure.requirements = detail.requirements
+    end
+    return failure
+end
+
 --- Calculate optimal path to a destination
 -- Rebuilds graph, adds destination node, runs Dijkstra
 -- @param destMapID number The destination map ID
 -- @param destX number The destination X coordinate (0-1)
 -- @param destY number The destination Y coordinate (0-1)
--- @return table|nil {path, totalTime, edges, steps} or nil if no path found
+-- @return table|nil {path, totalTime, edges, steps}, or nil on failure
+-- @return table|nil On failure: {reason, retryable, blockedFrom, blockedTo, requirements}
 function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     destMapID, destX, destY = self:ResolveMapPosition(destMapID, destX, destY)
-    if not destMapID then return nil end
+    if not destMapID then return nil, Failure(self.FAILURE.INVALID_DESTINATION) end
+    self:NoteJourneyDestination(destMapID, destX, destY)
     if type(destTitle) ~= "string" then destTitle = nil end
     -- Rebuild graph if needed. Faction is part of "needed": AddZoneNodes and
     -- AddFlightEdges both read it at build time, so a graph built before a
@@ -765,11 +837,22 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     end
     if self.graphDirty or not self.graph then
         self:BuildGraph()
-        if self.graphDirty or not self.graph then return nil end
+        if self.graphDirty or not self.graph then return nil, Failure(self.FAILURE.GRAPH_UNAVAILABLE) end
+    end
+    -- Recorded after any rebuild this calculation did itself, so the guard in
+    -- ResumeAsync only fires on a rebuild by somebody else. Capturing the graph
+    -- before the coroutine started made an ordinary search discard its own
+    -- correct result whenever it had to build the graph on the way in.
+    -- Only the asynchronous coroutine itself may re-arm its own baseline. A
+    -- synchronous CalculatePath running while it is suspended would otherwise
+    -- re-arm it, and a rebuild by that caller would then go unnoticed.
+    if self.asyncRunning and coroutine.running() == self.asyncRunning.thread then
+        self.asyncRunning.graphBuild = self.graphBuild or 0
     end
 
-    -- Update player location node
-    if self:UpdatePlayerLocation() == false then return nil end
+    -- Update player location node. No position is a temporary state during
+    -- loading, not an unreachable destination.
+    if self:UpdatePlayerLocation() == false then return nil, Failure(self.FAILURE.POSITION_UNAVAILABLE) end
 
     -- Cooldowns move without marking the graph dirty, so re-price the player's
     -- teleport edges against live state before searching.
@@ -858,19 +941,22 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
     end
 
     -- Run Dijkstra's algorithm
-    local path, totalTime, pathEdges
+    local path, totalTime, pathEdges, searchReason, blocked
     if QR.TravelRequirements then
-        path, totalTime, pathEdges = QR.TravelRequirements:FindPath(self.graph, PLAYER_NODE, destName)
+        path, totalTime, pathEdges, searchReason, blocked =
+            QR.TravelRequirements:FindPath(self.graph, PLAYER_NODE, destName)
     else
-        path, totalTime, pathEdges = self.graph:FindShortestPath(PLAYER_NODE, destName)
+        path, totalTime, pathEdges, searchReason = self.graph:FindShortestPath(PLAYER_NODE, destName)
     end
 
     if not path then
         -- Clean up destination node on failure
         self.graph:RemoveNode(destName)
-        QR:Debug("Dijkstra found no path")
-        QR:Log("WARN", string_format("No path found to map %d (%.2f, %.2f)", destMapID, destX, destY))
-        return nil
+        local reason = SEARCH_FAILURE[searchReason] or self.FAILURE.NO_CONNECTION
+        QR:Debug("Dijkstra found no path: " .. reason)
+        QR:Log("WARN", string_format("No path found to map %d (%.2f, %.2f): %s",
+            destMapID, destX, destY, reason))
+        return nil, Failure(reason, blocked)
     end
 
     QR:Log("INFO", string_format("Path found to map %d: %d nodes, %ds", destMapID, #path, totalTime or 0))
@@ -884,7 +970,7 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
 
     if not stepOk then
         QR:Error("BuildSteps error: " .. tostring(steps))
-        return nil
+        return nil, Failure(self.FAILURE.INTERNAL_ERROR)
     end
 
     -- Collapse consecutive walk/travel steps
@@ -900,6 +986,249 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         edges = pathEdges,
         steps = steps,
     }
+end
+
+-------------------------------------------------------------------------------
+-- Rejected steps
+--
+-- A predicted portal can be absent, an NPC can be gone, a connection can be
+-- unusable for a reason QuickRoute has no way to check. The player says so once
+-- and the journey is replanned without that connection, keeping the
+-- destination.
+--
+-- A rejection is not unlock data. It applies to one direction of one
+-- connection, it lives only for this session, and nothing writes it to disk:
+-- being unable to use a step today is not evidence about the character.
+-------------------------------------------------------------------------------
+
+-- Refusal key -> the destination it was made for. "For this journey" was a
+-- claim in a comment and nothing enforced it.
+--
+-- Clearing the set whenever the destination changed was the wrong enforcement:
+-- CalculatePath also runs for every candidate of a vendor comparison and for
+-- every tracked quest, so an ordinary background refresh wiped the player's
+-- refusals seconds after they made them. Stamping each refusal with its
+-- destination instead means a calculation for somewhere else simply does not
+-- see it, and coming back to the original destination does.
+local excludedEdges = {}
+local currentJourney
+
+local function JourneyKey(mapID, x, y)
+    return string_format("%d:%.4f:%.4f", mapID, x or 0, y or 0)
+end
+
+-- Both sides of the comparison must be resolved the same way. CalculatePath
+-- resolves before it stamps, while every producer of `result.waypoint` stores
+-- what the player pointed at -- a continent pin, a microzone -- so a refusal
+-- made on such a route was stamped with one key and read against another, and
+-- the refused step came straight back.
+local function ResolvedJourneyKey(self, destination)
+    if type(destination) ~= "table" or not IsMapID(destination.mapID) then return nil end
+    local mapID, x, y = self:ResolveMapPosition(destination.mapID, destination.x, destination.y)
+    if not mapID then return nil end
+    return JourneyKey(mapID, x, y)
+end
+
+local function EdgeKey(from, to)
+    return tostring(from) .. "\1" .. tostring(to)
+end
+
+--- The graph hops one displayed row stands for.
+-- A merged or absorbed row's own from/to can span several hops, which is not a
+-- connection the router knows. Refusing a row means refusing these.
+-- @param step table A route step
+-- @return table Array of {from, to}
+function PathCalculator:StepEdgePairs(step)
+    if type(step) ~= "table" then return {} end
+    if type(step.edgePairs) == "table" and #step.edgePairs > 0 then return step.edgePairs end
+    if step.from == nil or step.to == nil then return {} end
+    return { { from = step.from, to = step.to } }
+end
+
+--- Refuse one connection, in one direction, for one journey.
+-- The destination is a parameter, not a global. `currentJourney` is rewritten
+-- by every CalculatePath, including the background ones a quest button or a
+-- vendor comparison makes, so reading it here stamped the refusal with whatever
+-- happened to be calculated last rather than with the route on screen.
+-- @param from string Node the step starts at
+-- @param to string Node the step leads to
+-- @param destination table|nil {mapID, x, y}; the current one when omitted
+function PathCalculator:ExcludeEdge(from, to, destination)
+    if from == nil or to == nil then return false end
+    -- `true` when no destination is known at all: a refusal that applies until
+    -- it is cleared is safer than one that silently applies to nothing.
+    excludedEdges[EdgeKey(from, to)] = ResolvedJourneyKey(self, destination) or currentJourney or true
+    return true
+end
+
+--- Say which destination is being routed to right now.
+-- Refusals made for it apply to it, and to nothing else.
+-- @return boolean True when the destination was accepted
+function PathCalculator:NoteJourneyDestination(mapID, x, y)
+    if not IsMapID(mapID) then return false end
+    currentJourney = JourneyKey(mapID, x, y)
+    return true
+end
+
+--- Accept a previously refused connection again.
+function PathCalculator:IncludeEdge(from, to)
+    if from == nil or to == nil then return false end
+    excludedEdges[EdgeKey(from, to)] = nil
+    return true
+end
+
+--- Forget every refusal, for example when a new journey starts.
+function PathCalculator:ClearExcludedEdges()
+    excludedEdges = {}
+    currentJourney = nil
+end
+
+--- Whether this connection is refused for this journey.
+--- Whether this connection is refused for the journey being calculated.
+-- The journey is the one the calculation is for, not a parameter: every caller
+-- is inside a search, and a search that is parked between frames carries its
+-- own journey through ResumeAsync.
+function PathCalculator:IsEdgeExcluded(from, to)
+    local stamp = excludedEdges[EdgeKey(from, to)]
+    if stamp == nil then return false end
+    if stamp == true then return true end
+    return stamp == currentJourney
+end
+
+--- Whether any connection is refused at all.
+-- The probes on the failure paths are skipped when nothing is refused: with an
+-- empty set the extra search is a bit-identical repeat of the one that just
+-- failed.
+function PathCalculator:HasExcludedEdges()
+    return next(excludedEdges) ~= nil
+end
+
+--- Every refused connection, for display.
+-- @return table Array of {from, to}
+function PathCalculator:GetExcludedEdges()
+    local list = {}
+    for key in pairs(excludedEdges) do
+        local from, to = key:match("^(.-)\1(.*)$")
+        list[#list + 1] = { from = from, to = to }
+    end
+    return list
+end
+
+-------------------------------------------------------------------------------
+-- Cooperative route calculation
+--
+-- Scheduling one calculation per frame bounds how many searches start, not what
+-- one of them costs. A single expensive search still ran to completion inside
+-- one frame. The driver below runs a calculation inside a coroutine, spends a
+-- measured budget per frame and continues on the next.
+--
+-- Two guarantees matter as much as the budget. A superseded calculation cannot
+-- publish: its result is dropped unless its generation is still the current one.
+-- And a superseded calculation is still run to the end rather than abandoned,
+-- because CalculatePath adds a temporary destination node to the shared graph
+-- and removes it on the way out; dropping the coroutine would leave it behind.
+-------------------------------------------------------------------------------
+
+-- Milliseconds of route search per frame.
+PathCalculator.FRAME_BUDGET_MS = 6
+PathCalculator.asyncGeneration = 0
+
+local function ProfileClock()
+    local clock = _G.debugprofilestop
+    if type(clock) ~= "function" then return nil end
+    local ok, value = pcall(clock)
+    if not ok or type(value) ~= "number" then return nil end
+    return clock
+end
+
+--- Supersede any calculation in flight.
+-- The running search finishes so the graph is left clean, but its result is no
+-- longer published.
+-- @return number The new current generation
+function PathCalculator:CancelAsync()
+    self.asyncGeneration = (self.asyncGeneration or 0) + 1
+    self.asyncPending = nil
+    return self.asyncGeneration
+end
+
+--- Calculate a route across frames.
+-- @param callback function Receives (route, failure) when this request is still
+--   the current one
+-- @return number The generation of this request
+function PathCalculator:CalculatePathAsync(destMapID, destX, destY, destTitle, callback)
+    local generation = self:CancelAsync()
+    self.asyncPending = {
+        generation = generation,
+        args = { destMapID, destX, destY, destTitle },
+        callback = callback,
+    }
+    if not self.asyncRunning then self:StepAsync() end
+    return generation
+end
+
+--- Start the queued request, if any and if nothing is running.
+function PathCalculator:StepAsync()
+    if self.asyncRunning then return end
+    local pending = self.asyncPending
+    if not pending then return end
+    self.asyncPending = nil
+    -- Baseline. CalculatePath raises it again if it rebuilds the graph itself,
+    -- so only a rebuild by somebody else leaves the two apart.
+    pending.graphBuild = self.graphBuild or 0
+    pending.thread = coroutine.create(function()
+        return self:CalculatePath(pending.args[1], pending.args[2], pending.args[3], pending.args[4])
+    end)
+    self.asyncRunning = pending
+    self:ResumeAsync()
+end
+
+--- Spend one frame's budget on the running calculation.
+function PathCalculator:ResumeAsync()
+    local running = self.asyncRunning
+    if not running then return end
+    local clock = ProfileClock()
+    local deadline = clock and (clock() + (self.FRAME_BUDGET_MS or 6))
+    QR.Graph.SetYieldHook(clock and function() return clock() >= deadline end or nil)
+    -- The journey the search belongs to travels with the request: restored for
+    -- the slice, captured again after it, and the outer one put back so a
+    -- synchronous caller keeps its own. A search parked between frames used to
+    -- read whatever destination a synchronous CalculatePath had set in the
+    -- meantime, so its refusal checks answered for somebody else's route and
+    -- the refused hop came back.
+    --
+    -- Nothing seeds this before the first slice: CalculatePath notes the
+    -- destination before any yield is possible, so the capture below is what
+    -- carries it.
+    local outerJourney = currentJourney
+    currentJourney = running.journey or currentJourney
+    local ok, route, failure = coroutine.resume(running.thread)
+    running.journey = currentJourney
+    currentJourney = outerJourney
+    QR.Graph.SetYieldHook(nil)
+
+    if ok and coroutine.status(running.thread) ~= "dead" then
+        if C_Timer and C_Timer.After then
+            C_Timer.After(0, function() self:ResumeAsync() end)
+        else
+            self:ResumeAsync()
+        end
+        return
+    end
+
+    self.asyncRunning = nil
+    if not ok then
+        QR:Error("Asynchronous route calculation failed: " .. tostring(route))
+        route, failure = nil, { reason = self.FAILURE.INTERNAL_ERROR, retryable = false }
+    end
+    if route and running.graphBuild and (self.graphBuild or 0) ~= running.graphBuild then
+        QR:Debug("Asynchronous route discarded: the graph was rebuilt while it ran")
+        route, failure = nil, { reason = self.FAILURE.GRAPH_UNAVAILABLE, retryable = true }
+    end
+    -- A superseded request never publishes, whatever it found.
+    if running.generation == self.asyncGeneration and type(running.callback) == "function" then
+        running.callback(route, failure)
+    end
+    self:StepAsync()
 end
 
 --- Create a reusable calculator with its own graph and position caches.
@@ -2011,12 +2340,17 @@ function PathCalculator:CollapseConsecutiveSteps(steps)
             local lastStep = step
             local mergedCount = 0
             local waypoints = { navigationAnchor(step) }
+            -- The row's own from/to span several hops once it is merged, and
+            -- that pair is not an edge in the graph. Refusing the row has to
+            -- refuse the hops it stands for, so they travel with it.
+            local edgePairs = { { from = step.from, to = step.to } }
             while i + 1 <= #steps and mergeable(lastStep, steps[i + 1]) do
                 i = i + 1
                 combinedTime = combinedTime + steps[i].time
                 lastStep = steps[i]
                 mergedCount = mergedCount + 1
                 waypoints[#waypoints + 1] = navigationAnchor(lastStep)
+                edgePairs[#edgePairs + 1] = { from = lastStep.from, to = lastStep.to }
             end
             if mergedCount > 0 then
                 -- Create merged step using the final destination. The ordered
@@ -2029,6 +2363,7 @@ function PathCalculator:CollapseConsecutiveSteps(steps)
                 mergedStep.collapsed = true
                 mergedStep.collapsedCount = mergedCount + 1
                 mergedStep.waypoints = waypoints
+                mergedStep.edgePairs = edgePairs
                 table_insert(collapsed, mergedStep)
             else
                 table_insert(collapsed, step)
@@ -2071,6 +2406,10 @@ function PathCalculator:AbsorbRedundantWalkSteps(steps)
             merged.destY = nextStep.destY or step.destY
             merged.to = nextStep.to or step.to
             merged.localizedTo = nextStep.localizedTo or step.localizedTo
+            -- `to` now names the walk's destination while `from` still names
+            -- the transport's origin, so the row's own pair is not an edge.
+            -- Refusing this row means refusing the transport hop.
+            merged.edgePairs = { { from = step.from, to = step.to } }
             -- Keep the transport step's nav coords (portal entrance), not the walk destination
             merged.navX = step.navX or nextStep.navX or nextStep.destX
             merged.navY = step.navY or nextStep.navY or nextStep.destY

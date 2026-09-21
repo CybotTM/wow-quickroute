@@ -7,10 +7,41 @@ local pairs, ipairs, type = pairs, ipairs, type
 local math_floor, math_huge = math.floor, math.huge
 local table_insert = table.insert
 local string_format = string.format
+local coroutine_running, coroutine_yield = coroutine.running, coroutine.yield
+
+-- Cooperative search.
+--
+-- One route calculation per frame does not bound the cost of a frame: a single
+-- expensive search still ran to completion inside one. The search now offers to
+-- yield during expansion, so a driver running it inside a coroutine can spend a
+-- measured budget per frame and continue on the next one.
+--
+-- The hook is only consulted every YIELD_INTERVAL expansions, and only when the
+-- search is running inside a coroutine. Outside one the behaviour and the
+-- results are exactly as before.
+local YIELD_INTERVAL = 200
+
+-- Set by the asynchronous driver; returns true when the current frame's budget
+-- is spent. Nil during a synchronous search.
+local shouldYield = nil
+
+local function Cooperate(expansions)
+    if expansions % YIELD_INTERVAL ~= 0 then return end
+    if not shouldYield or not coroutine_running() then return end
+    if shouldYield() then coroutine_yield() end
+end
 
 -- Graph class
 QR.Graph = {}
 QR.Graph.__index = QR.Graph
+
+--- Install or clear the cooperative yield hook.
+-- @param hook function|nil Returns true when the current frame's budget is spent
+function QR.Graph.SetYieldHook(hook)
+    shouldYield = hook
+end
+
+QR.Graph.YIELD_INTERVAL = YIELD_INTERVAL
 
 -- Priority Queue (min-heap) for Dijkstra's algorithm
 -- Uses parallel arrays to avoid per-Push table allocation
@@ -247,12 +278,15 @@ local function FindDistances(graph, start, goal, filter)
     local pq = PriorityQueue()
     pq:Push(start, 0)
 
+    local expansions = 0
     while not pq:IsEmpty() do
         local current = pq:Pop()
 
         -- Skip if we've already processed this node with a better distance
         if not visited[current] then
             visited[current] = true
+            expansions = expansions + 1
+            Cooperate(expansions)
 
             -- Found the goal
             if current == goal then
@@ -298,15 +332,19 @@ function QR.Graph:FindDistances(start)
     return dist
 end
 
+--- Dijkstra over locations.
+-- @return table|nil path, number|nil cost, table|nil edges, string|nil reason
+-- The fourth value names why no path was produced: "unknown_node" when an
+-- endpoint is not in the graph, "disconnected" when nothing links them.
 function QR.Graph:FindShortestPath(start, goal, filter)
     if not self.nodes[start] or not self.nodes[goal] then
-        return nil, nil, nil
+        return nil, nil, nil, "unknown_node"
     end
     local dist, prev, prevEdge = FindDistances(self, start, goal, filter)
 
     -- No path found
     if not prev[goal] and start ~= goal then
-        return nil, nil, nil
+        return nil, nil, nil, "disconnected"
     end
 
     -- Reconstruct path (build in reverse, then flip for O(n) instead of O(n²))
@@ -337,8 +375,11 @@ end
 
 --- Dijkstra over (location, travel state). A phase switch can make a previously
 -- visited portal usable; location alone is therefore not a sufficient key.
+-- @return table|nil path, number|nil cost, table|nil edges, string|nil reason
+-- The fourth value is "unknown_node", "search_limit" when the state budget is
+-- exhausted, or "blocked" when every route is refused by a requirement.
 function QR.Graph:FindShortestPathWithState(start, goal, policy)
-    if not self.nodes[start] or not self.nodes[goal] then return nil end
+    if not self.nodes[start] or not self.nodes[goal] then return nil, nil, nil, "unknown_node" end
     local function key(node, state)
         local name = tostring(node)
         return #name .. ":" .. name .. policy:Signature(state)
@@ -349,10 +390,12 @@ function QR.Graph:FindShortestPathWithState(start, goal, policy)
     states[startKey] = { node = start, state = initial }
     local queue = PriorityQueue()
     queue:Push(startKey, 0)
-    local finalKey, count = nil, 1
+    local finalKey, count, expansions = nil, 1, 0
     while not queue:IsEmpty() do
         local currentKey, cost = queue:Pop()
         if distance[currentKey] == cost then
+            expansions = expansions + 1
+            Cooperate(expansions)
             local current = states[currentKey]
             if current.node == goal then finalKey = currentKey; break end
             for neighbor, selected in pairs(self:GetNeighbors(current.node)) do
@@ -382,7 +425,7 @@ function QR.Graph:FindShortestPathWithState(start, goal, policy)
             end
         end
     end
-    if not finalKey then return nil end
+    if not finalKey then return nil, nil, nil, "blocked" end
     local reversePath, reverseEdges = {}, {}
     local current = finalKey
     while current do

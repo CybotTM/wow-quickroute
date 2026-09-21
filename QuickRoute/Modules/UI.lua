@@ -30,6 +30,7 @@ QR.UI = {
     spellInfoAccessOrder = {},
     -- Throttle tracking
     lastRefreshClickTime = 0,
+    lastRestoreClickTime = 0,
     -- State tracking
     isCalculating = false,
     _pendingPOIRoute = nil,  -- Pre-computed route from POI routing (consumed by RefreshRoute)
@@ -353,18 +354,43 @@ function UI:CreateContent(parentFrame)
     local refreshButton = QR.CreateModernButton(frame, refreshWidth, BUTTON_HEIGHT)
     refreshButton:SetPoint("LEFT", searchBox, "RIGHT", BUTTON_PADDING, 0)
     ApplyButtonStyle(refreshButton, refreshText, "refresh")
-    refreshButton:SetScript("OnClick", function()
+    refreshButton:SetScript("OnClick", function(_, button)
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        -- A refusal had no way back at all: nothing in the addon called
+        -- ClearExcludedEdges, so one mis-click closed a connection for the rest
+        -- of the session. Right-clicking Refresh takes them all back.
+        --
+        -- It does that and nothing else. Falling through into the left-click
+        -- path also unlocked the destination, so a player undoing a refusal
+        -- lost the place they had chosen; and the throttle below, meant for
+        -- repeated refreshes, swallowed the right-click the tooltip advertises.
         local now = GetTime()
+        if button == "RightButton" then
+            -- Its own throttle. Moving the shared one below this branch stopped
+            -- it swallowing the right-click and left the right-click with no
+            -- rate limit at all: ten clicks ran ten full route calculations.
+            if now - (UI.lastRestoreClickTime or 0) < 1 then return end
+            UI.lastRestoreClickTime = now
+            local refused = #QR.PathCalculator:GetExcludedEdges()
+            QR.PathCalculator:ClearExcludedEdges()
+            if refused > 0 then QR:Print(string_format(L["STEP_REJECT_CLEARED"], refused)) end
+            UI:RefreshRoute()
+            return
+        end
         if now - UI.lastRefreshClickTime < 1 then return end
         UI.lastRefreshClickTime = now
-        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
         -- Clear locked destination so Refresh uses the active waypoint
         if QR.db then QR.db.destinationLocked = false end
         UI:RefreshRoute()
     end)
+    refreshButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     refreshButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
         GameTooltip:SetText(L["TOOLTIP_REFRESH"])
+        local refused = #QR.PathCalculator:GetExcludedEdges()
+        if refused > 0 then
+            GameTooltip:AddLine(string_format(L["STEP_REJECT_RESTORE_TT"], refused), 1, 1, 1, true)
+        end
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
     end)
@@ -642,17 +668,17 @@ function UI:RefreshRoute()
     end
 
     -- Now try to calculate path
-    local success, errOrResult = pcall(function()
+    local success, errOrResult, failure = pcall(function()
         -- For saved/locked destinations, calculate directly (bypass waypoint detection)
         if waypoint.source == "saved" or waypoint.source == "locked" then
-            local calcResult = QR.PathCalculator:CalculatePath(
+            local calcResult, calcFailure = QR.PathCalculator:CalculatePath(
                 waypoint.mapID, waypoint.x, waypoint.y, waypoint.title
             )
             if calcResult then
                 calcResult.waypoint = waypoint
                 calcResult.waypointSource = waypoint.source
             end
-            return calcResult
+            return calcResult, calcFailure
         end
         return QR.WaypointIntegration:CalculatePathToWaypoint()
     end)
@@ -682,10 +708,15 @@ function UI:RefreshRoute()
         QR:Log("INFO", string_format("Route found: %d steps, %ds total",
             result.steps and #result.steps or 0, result.totalTime or 0))
     else
-        -- Waypoint exists but no path found - give helpful feedback
-        self.frame.timeLabel:SetText(C.WARN_ORANGE .. L["NO_PATH_FOUND"] .. "\n" .. C.GRAY .. L["NO_ROUTE_HINT"] .. C.R)
+        -- Waypoint exists but no route was produced. Which of the reasons it was
+        -- decides what the player should do next, so it is named instead of one
+        -- sentence for every case.
+        local explanation = QR.PathCalculator:DescribeFailure(failure)
+        local hint = (failure and failure.retryable) and L["ROUTE_FAIL_RETRY_HINT"] or L["NO_ROUTE_HINT"]
+        self.frame.timeLabel:SetText(C.WARN_ORANGE .. explanation .. "\n" .. C.GRAY .. hint .. C.R)
         self:ClearRouteGuidance()
-        QR:Log("WARN", string_format("No route found to map %d", waypoint.mapID or 0))
+        QR:Log("WARN", string_format("No route found to map %d: %s", waypoint.mapID or 0,
+            failure and failure.reason or "unknown"))
     end
 
     self:ResetCalculatingState()
@@ -735,6 +766,10 @@ function UI:UpdateRoute(result)
     if not self.frame then
         return
     end
+    -- The destination the rows on screen belong to. A refusal made on one of
+    -- them has to be stamped with this, not with whatever a background
+    -- calculation happened to ask for last.
+    self.displayedResult = result
 
     -- Clear combat disabled buttons tracking to prevent duplicates on refresh
     wipe(self.combatDimmedSteps)
@@ -980,6 +1015,68 @@ function UI:SetupStepNavButton(stepFrame, step)
     return navButton
 end
 
+--- Set up the "Cannot use" button for a step.
+-- The player refuses one connection, in one direction, for this session, and
+-- the route is recalculated to the same destination without it. Nothing about
+-- the character is recorded.
+-- @param stepFrame Frame The step container frame
+-- @param step table The step data
+-- @return Button|nil The button, or nil for a step with no connection to refuse
+function UI:SetupStepRejectButton(stepFrame, step)
+    local rejectButton = stepFrame.rejectButton
+    if #QR.PathCalculator:StepEdgePairs(step) == 0 then
+        if rejectButton then rejectButton:Hide() end
+        return nil
+    end
+    if not rejectButton then
+        rejectButton = CreateFrame("Button", nil, stepFrame)
+        rejectButton:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
+        rejectButton.label = rejectButton:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+        rejectButton.label:SetPoint("CENTER", rejectButton, "CENTER", 0, 0)
+        rejectButton.label:SetText("x")
+        rejectButton.highlightTexture = rejectButton:CreateTexture(nil, "HIGHLIGHT")
+        rejectButton.highlightTexture:SetAllPoints(rejectButton)
+        rejectButton.highlightTexture:SetColorTexture(1, 1, 1, 0.15)
+        stepFrame.rejectButton = rejectButton
+    end
+    rejectButton:ClearAllPoints()
+    -- Third slot. The secure Use overlay sits at -33 and is 28 wide, so
+    -- anything nearer than -67 shares pixels with it and the click lands on a
+    -- protected action instead of on this button.
+    rejectButton:SetPoint("TOPRIGHT", stepFrame, "TOPRIGHT", -(2 * STEP_ICON_SIZE + 11), -10)
+    -- A merged row spans several hops; refusing it refuses all of them.
+    rejectButton.edgePairs = QR.PathCalculator:StepEdgePairs(step)
+    -- The destination the row belongs to, taken from the route on screen. Read
+    -- from a global instead, it was whatever a background calculation set last.
+    local displayed = self.displayedResult and self.displayedResult.waypoint
+    rejectButton.destination = displayed
+        and { mapID = displayed.mapID, x = displayed.x, y = displayed.y } or nil
+    rejectButton.stepLabel = step.navTitle or step.to
+    rejectButton:Show()
+
+    rejectButton:SetScript("OnClick", function(self)
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        local refused = 0
+        for _, pair in ipairs(self.edgePairs or {}) do
+            if QR.PathCalculator:ExcludeEdge(pair.from, pair.to, self.destination) then
+                refused = refused + 1
+            end
+        end
+        if refused == 0 then return end
+        QR:Print(string_format(L["STEP_REJECT_DONE"], tostring(self.stepLabel)))
+        UI:RefreshRoute()
+    end)
+    rejectButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["STEP_REJECT"])
+        GameTooltip:AddLine(L["STEP_REJECT_TT"], 1, 1, 1, true)
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    rejectButton:SetScript("OnLeave", GameTooltip_Hide)
+    return rejectButton
+end
+
 --- Dim a teleport step whose Use button combat is blocking, and remember it so
 -- OnCombatEnd can undim it.
 -- @param stepFrame Frame The step container frame
@@ -1161,6 +1258,9 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     -- Set up Nav button for waypoint navigation
     local navButton = self:SetupStepNavButton(stepFrame, step)
 
+    -- "Cannot use" refuses this connection for the session and replans
+    self:SetupStepRejectButton(stepFrame, step)
+
     -- Configure secure "Use" button for teleport steps
     local useButton = self:ConfigureStepUseButton(stepFrame, step)
 
@@ -1177,7 +1277,17 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     label1:ClearAllPoints()
     local textLeft = 8 + STEP_ICON_SIZE + 6  -- icon offset + icon size + gap
     -- When useButton is present, leave room for both buttons (use + nav)
-    local textRightOffset = useButton and (-(STEP_ICON_SIZE + 6)) or -4
+    -- The label's right edge is anchored to navButton's LEFT, so the offset is
+    -- the distance from there to the leftmost control the row shows. The reject
+    -- button sits at a fixed slot whether or not the Use slot is filled, so
+    -- reserving per shown control left it drawn over the step text on every row
+    -- without a Use button.
+    local textRightOffset = -4
+    if stepFrame.rejectButton and stepFrame.rejectButton:IsShown() then
+        textRightOffset = -(2 * STEP_ICON_SIZE + 8)
+    elseif useButton then
+        textRightOffset = -(STEP_ICON_SIZE + 2)
+    end
     label1:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", textLeft, -6)
     label1:SetPoint("RIGHT", navButton, "LEFT", textRightOffset, 0)
     label1:SetWordWrap(true)

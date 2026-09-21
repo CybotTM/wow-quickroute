@@ -286,12 +286,66 @@ function TR:FindPath(graph, start, goal)
         if staticChecks[requirements] == nil then staticChecks[requirements] = self:Check(requirements, nil, true) == true end
         return staticChecks[requirements]
     end
+    -- A step the player reported as unusable is refused for this journey. It is
+    -- a rejection of one connection, not a record of what the character has
+    -- unlocked, and it lives only as long as the session.
+    local excluded = QR.PathCalculator and QR.PathCalculator.IsEdgeExcluded
+    -- Toggled for the probes on the failure paths below.
+    local ignoreRefusals = false
+    local function rejected(from, to)
+        if ignoreRefusals then return false end
+        return excluded and QR.PathCalculator:IsEdgeExcluded(from, to) or false
+    end
+
+    -- Asked only on a failure path, and only when a refusal exists at all: would
+    -- this search succeed if the player took their refusals back? Anything less
+    -- blames a refusal for a route that a missing unlock closed.
+    local function anyRefusal()
+        return excluded and QR.PathCalculator.HasExcludedEdges
+            and QR.PathCalculator:HasExcludedEdges() or false
+    end
+    local function probe(run)
+        if not anyRefusal() then return nil end
+        ignoreRefusals = true
+        local a, b, c = run()
+        ignoreRefusals = false
+        return a, b, c
+    end
     local function withoutPhase(from, to, edge)
+        if rejected(from, to) then return false end
         return staticAllowed(graph.nodes[from].requirements) and staticAllowed(graph.nodes[to].requirements)
             and staticAllowed(edge.data and edge.data.requirements)
     end
-    local optimisticPath, optimisticCost, optimisticEdges = graph:FindShortestPath(start, goal, withoutPhase)
-    if not optimisticPath then return nil end
+    local optimisticPath, optimisticCost, optimisticEdges, optimisticReason =
+        graph:FindShortestPath(start, goal, withoutPhase)
+    if not optimisticPath then
+        -- The filtered search found nothing. Whether that is "no connection" or
+        -- "locked" is the difference between a coverage gap and a prerequisite,
+        -- so the unrestricted graph is asked once, on the failure path only.
+        local rawPath, _, rawEdges = graph:FindShortestPath(start, goal)
+        if not rawPath then return nil, nil, nil, optimisticReason or "disconnected" end
+        -- A refused hop on this path is the reason only if lifting the refusals
+        -- would produce a route at all. Blaming the first refused hop told a
+        -- player who lacks an unlock to take back a refusal that changes
+        -- nothing -- the same defect as in the phase-aware branch below.
+        for index, edge in ipairs(rawEdges) do
+            local from, to = rawPath[index], rawPath[index + 1]
+            if rejected(from, to) and probe(function()
+                    return graph:FindShortestPath(start, goal, withoutPhase)
+                end) then
+                return nil, nil, nil, "step_rejected", { from = from, to = to }
+            end
+            if not rejected(from, to) and not withoutPhase(from, to, edge) then
+                return nil, nil, nil, "blocked", {
+                    from = from,
+                    to = to,
+                    requirements = (edge.data and edge.data.requirements)
+                        or graph.nodes[to].requirements or graph.nodes[from].requirements,
+                }
+            end
+        end
+        return nil, nil, nil, "blocked"
+    end
     local phaseMaps = {}
     local function collect(requirements)
         if type(requirements) ~= "table" then return end
@@ -356,6 +410,7 @@ function TR:FindPath(graph, start, goal)
         return true
     end
     function policy:Advance(from, to, edge, state)
+        if rejected(from, to) then return nil end
         if not allowed(graph.nodes[from], state) then return nil end
         local data = edge.data or {}
         if not check(data.requirements, state) then return nil end
@@ -372,10 +427,24 @@ function TR:FindPath(graph, start, goal)
         if allowed(graph.nodes[to], nextState) then return nextState end
     end
     local optimisticState = allowed(graph.nodes[start], initial) and initial or nil
-    if not optimisticState then return nil end
+    -- The starting node itself is refused, so no route from here can be walked.
+    if not optimisticState then return nil, nil, nil, "blocked_start" end
+    -- Where the unrestricted route is refused, the first refused hop is the
+    -- concrete unmet requirement and is reported with the failure.
+    local blocked
     for index, edge in ipairs(optimisticEdges) do
-        optimisticState = policy:Advance(optimisticPath[index], optimisticPath[index+1], edge, optimisticState)
-        if not optimisticState then break end
+        local advanced = policy:Advance(optimisticPath[index], optimisticPath[index+1], edge, optimisticState)
+        if not advanced then
+            blocked = {
+                from = optimisticPath[index],
+                to = optimisticPath[index + 1],
+                requirements = edge.data and edge.data.requirements
+                    or graph.nodes[optimisticPath[index + 1]].requirements,
+            }
+            optimisticState = nil
+            break
+        end
+        optimisticState = advanced
     end
     if optimisticState then return optimisticPath, optimisticCost, optimisticEdges end
 
@@ -390,7 +459,33 @@ function TR:FindPath(graph, start, goal)
     end
     initializePhases()
     checks = {} -- Initial state gained keys; discard checks made against its earlier shape.
-    return graph:FindShortestPathWithState(start, goal, policy)
+    local path, cost, edges, reason = graph:FindShortestPathWithState(start, goal, policy)
+    if path then return path, cost, edges end
+    -- The phase-aware search has no notion of a refusal, so it reports
+    -- "blocked". Telling the player an unlock is missing for a step they
+    -- refused themselves is the wrong sentence.
+    --
+    -- Which refusal, though, has to be one that lies on a route to the goal.
+    -- `rejected` fires for every edge the optimistic search relaxes, including
+    -- dead ends, so remembering the first one blamed a refusal that had nothing
+    -- to do with why the destination is unreachable. The unrestricted path is
+    -- walked instead, exactly as the earlier failure branch does.
+    if reason == "blocked" then
+        checks = {}
+        local openPath, _, openEdges = probe(function()
+            return graph:FindShortestPathWithState(start, goal, policy)
+        end)
+        if openPath then
+            for index in ipairs(openEdges or {}) do
+                local from, to = openPath[index], openPath[index + 1]
+                if QR.PathCalculator:IsEdgeExcluded(from, to) then
+                    return nil, nil, nil, "step_rejected", { from = from, to = to }
+                end
+            end
+            return nil, nil, nil, "step_rejected"
+        end
+    end
+    return nil, nil, nil, reason or "blocked", blocked
 end
 
 function TR:Initialize()

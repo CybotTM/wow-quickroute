@@ -1138,8 +1138,10 @@ function WaypointIntegration:CalculatePathToWaypoint()
         QR:Log("WARN", "Player is inside instance, pathfinding may be limited")
     end
 
-    -- Calculate path using PathCalculator
-    local result = QR.PathCalculator:CalculatePath(
+    -- Calculate path using PathCalculator. The failure reason travels with the
+    -- empty result so the caller can tell "cannot reach" from "cannot
+    -- currently establish a route".
+    local result, failure = QR.PathCalculator:CalculatePath(
         waypoint.mapID,
         waypoint.x,
         waypoint.y,
@@ -1147,7 +1149,7 @@ function WaypointIntegration:CalculatePathToWaypoint()
     )
 
     if not result then
-        return nil
+        return nil, failure
     end
 
     -- Add waypoint info to result
