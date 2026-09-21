@@ -88,6 +88,12 @@ function Offer:Present(journalInstanceID, resultID)
         local held = QR.Journey:Get()
         if held and held.detour and held.source == QR.Journey.SOURCE.DUNGEON_OFFER then
             QR.Journey:Retarget(QR.Journey.SOURCE.DUNGEON_OFFER, self.pending)
+        elseif held and held.detour then
+            -- Somebody else's detour is in force. Stacking a second one under
+            -- it left an offer detour that nothing could reach: every clear
+            -- path is gated on `pending`, which the entry into the instance
+            -- had already cleared.
+            QR:Debug("DungeonTravelOffer: another detour is in force, no detour taken")
         else
             QR.Journey:Detour(QR.Journey.SOURCE.DUNGEON_OFFER, self.pending)
         end
@@ -201,9 +207,23 @@ function Offer:Initialize()
         QR.Journey:OnRelease(function()
             if not self.pending then return end
             local held = QR.Journey:Get()
-            if held == nil or held.source == QR.Journey.SOURCE.DUNGEON_OFFER then
+            -- The offer's own detour is gone: either it was released, or the
+            -- player took the journey over by choosing somewhere else. Either
+            -- way the offer no longer stands, and the pending record has to go
+            -- with it or nothing will ever clear it.
+            if held ~= nil and held.source == QR.Journey.SOURCE.DUNGEON_OFFER then
+                -- The offer's own detour is current again, so a clear that was
+                -- refused earlier can finish now.
                 if self.clearWhenFree then self:Clear() end
+                return
             end
+            -- The offer's detour is gone and somebody else owns the journey:
+            -- the player took it over by choosing somewhere else. The offer no
+            -- longer stands, and the pending record has to go with it or
+            -- nothing will ever clear it.
+            self.pending = nil
+            self.clearWhenFree = nil
+            if QR.UI and QR.UI.RefreshDungeonOffer then QR.UI:RefreshDungeonOffer() end
         end)
     end
 end

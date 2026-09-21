@@ -297,3 +297,18 @@ T:run("RoutingAPI: a cancelled request stays silent even when something supersed
         t:assertEqual(0, calls, "a withdrawn consumer hears nothing at all, got " .. calls)
     end)
 end)
+
+T:run("RoutingAPI: cancelling after a supersede still silences the consumer", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local calls = 0
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function() calls = calls + 1 end)
+        -- The supersede is queued first, the withdrawal comes after it. The
+        -- queued notice has to notice.
+        pc:CalculatePathAsync(85, 0.2, 0.2, nil, function() end)
+        t:assertTrue(QuickRouteAPI:Cancel(handle), "the handle is accepted")
+        drain()
+        t:assertEqual(0, calls, "a withdrawn consumer hears nothing, got " .. calls)
+    end)
+end)

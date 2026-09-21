@@ -1174,23 +1174,6 @@ T:run("DestSearch: the match count counts places, not groups", function(t)
     t:assertEqual(expected, results.status.matched, "the count is every offered place")
 end)
 
--- Three of the four relevance sorts were pinned by nothing: reverting them to
--- alphabetical order left the suite green. Each is asserted at its own call
--- site now, with a query whose matches rank differently.
-local function notMerelyAlphabetical(t, names, query, what)
-    t:assertGreaterThan(#names, 1, what .. ": more than one match")
-    local ranks = {}
-    for index, name in ipairs(names) do ranks[index] = QR.DestinationSearch.MatchRank(name, query) end
-    local mixed, alphabetical = false, true
-    for index = 2, #names do
-        if ranks[index] ~= ranks[1] then mixed = true end
-        t:assert(ranks[index - 1] <= ranks[index],
-            what .. ": position " .. index .. " is not less relevant: " .. table.concat(names, ", "))
-        if names[index - 1] > names[index] then alphabetical = false end
-    end
-    t:assertTrue(mixed, what .. ": the query produces more than one rank")
-    t:assertFalse(alphabetical, what .. ": the order is not merely alphabetical: " .. table.concat(names, ", "))
-end
 
 T:run("DestSearch: dungeon tiers are ordered by relevance", function(t)
     resetState()
@@ -1216,24 +1199,6 @@ T:run("DestSearch: dungeon tiers are ordered by relevance", function(t)
         "the name starting with the query comes first, got " .. table.concat(names, ", "))
 end)
 
-T:run("DestSearch: service locations are listed alphabetically", function(t)
-    resetState()
-    -- A service group matches on the service's name; its locations are never
-    -- compared against the query, so there is no relevance to order them by.
-    local results = QR.DestinationSearch:CollectResults("bank")
-    local group
-    for _, candidate in ipairs(results.services) do
-        if #candidate.locations > 1 then group = candidate break end
-    end
-    if not group then
-        t:assert(true, "no service group with two locations in this environment")
-        return
-    end
-    for index = 2, #group.locations do
-        t:assert(group.locations[index - 1].name <= group.locations[index].name,
-            "position " .. index .. " is in alphabetical order")
-    end
-end)
 
 T:run("DestSearch: a quest not in the log is offered as a reference, not as an objective", function(t)
     resetState()

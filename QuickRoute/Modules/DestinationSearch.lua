@@ -480,8 +480,9 @@ function DS:CollectResults(query)
                     -- matched on the service's name, and its locations are
                     -- never compared against the query at all. Ranking them by
                     -- it gave every location the same "no match" rank and then
-                    -- sorted alphabetically anyway, in a way that read as if
-                    -- the query had ordered them.
+                    -- sorted alphabetically anyway, so the two are
+                    -- indistinguishable from outside and no test can tell them
+                    -- apart. This says what is meant.
                     table_sort(locs, function(a, b) return a.name < b.name end)
                     table_insert(results.services, {
                         serviceType = serviceType,

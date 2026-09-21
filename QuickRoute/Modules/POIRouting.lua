@@ -50,15 +50,12 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
     -- it means an alert or a guide step can ask for a detour but cannot quietly
     -- replace where they were going.
     --
-    -- The refusal is honoured rather than recorded and ignored: a detour that
-    -- is in force owns the arrow, and routing over it here would have made the
-    -- ledger and the addon disagree about where the player is going.
+    -- TakeOver rather than Claim: a detour must not stand against the player
+    -- choosing somewhere else by hand. Refusing here made every routing entry
+    -- point -- the map click, the dungeon picker, the Encounter Journal button,
+    -- the vendor router -- dead for as long as a dungeon offer was pending.
     if QR.Journey then
-        if not QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = mapID, x = x, y = y, title = zoneName }) then
-            local held = QR.Journey:Get()
-            QR:Print(string_format(QR.L["JOURNEY_HELD_BY"], tostring(held and held.destination.title or "?")))
-            return
-        end
+        QR.Journey:TakeOver(QR.Journey.SOURCE.MANUAL, { mapID = mapID, x = x, y = y, title = zoneName })
         QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
     end
 

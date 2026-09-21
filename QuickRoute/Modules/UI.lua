@@ -452,8 +452,10 @@ function UI:CreateContent(parentFrame)
     -- The dungeon offer's only surface. Without it the addon printed "Open
     -- QuickRoute to route there" and then offered nothing to click, and
     -- DungeonTravelOffer:Route had no caller outside its own tests.
+    -- On the same row as the other actions. A third row below them fell past
+    -- the separator at -60 and was drawn over the time readout and the first
+    -- step. The width follows the text, which names the instance.
     local dungeonOfferButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["MULTI_ROUTE"]), BUTTON_HEIGHT)
-    dungeonOfferButton:SetPoint("TOPLEFT", multiRouteButton, "BOTTOMLEFT", 0, -6)
     dungeonOfferButton:Hide()
     dungeonOfferButton:SetScript("OnClick", function()
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
@@ -467,6 +469,11 @@ function UI:CreateContent(parentFrame)
     end)
     dungeonOfferButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.dungeonOfferButton = dungeonOfferButton
+    -- Anchored after currencyButton exists, at the end of that row.
+    frame.dungeonOfferAnchor = function()
+        dungeonOfferButton:ClearAllPoints()
+        dungeonOfferButton:SetPoint("LEFT", frame.currencyButton or multiRouteButton, "RIGHT", BUTTON_PADDING, 0)
+    end
 
     local currencyButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["CURRENCY_VENDORS"]), BUTTON_HEIGHT)
     currencyButton:SetPoint("LEFT", multiRouteButton, "RIGHT", BUTTON_PADDING, 0)
@@ -787,7 +794,10 @@ function UI:RefreshDungeonOffer()
     if not button then return end
     local pending = QR.DungeonTravelOffer and QR.DungeonTravelOffer.pending
     if not pending then button:Hide() return end
-    button:SetText(string_format(L["DUNGEON_OFFER_ROUTE"], tostring(pending.title)))
+    local text = string_format(L["DUNGEON_OFFER_ROUTE"], tostring(pending.title))
+    button:SetText(text)
+    button:SetWidth(CalculateButtonWidth(text))
+    if self.frame.dungeonOfferAnchor then self.frame.dungeonOfferAnchor() end
     button:Show()
 end
 

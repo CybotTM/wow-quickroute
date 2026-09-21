@@ -199,3 +199,71 @@ T:run("DungeonOffer: an offer is kept while another source holds the journey", f
         QR.Journey:Clear()
     end)
 end)
+
+T:run("DungeonOffer: the route panel shows and hides the offer button", function(t)
+    withInstance(70010, { name = "Button Halls", zoneMapID = 84, x = 0.4, y = 0.5 }, function()
+        QR.UI:Initialize()
+        QR.Journey:Clear()
+        QR.DungeonTravelOffer:Clear()
+        local button = QR.UI.frame.dungeonOfferButton
+        t:assertNotNil(button, "the panel has an offer button")
+        t:assertFalse(button:IsShown(), "hidden while no offer is pending")
+        QR.DungeonTravelOffer:Present(70010, 21)
+        t:assertTrue(button:IsShown(), "shown as soon as an offer is presented")
+        t:assertNotNil(button:GetText():find("Button Halls", 1, true),
+            "and it names the instance, got " .. tostring(button:GetText()))
+        QR.DungeonTravelOffer:Clear()
+        t:assertFalse(button:IsShown(), "hidden again once the offer is gone")
+        QR.Journey:Clear()
+    end)
+end)
+
+T:run("DungeonOffer: the offer button is what calls Route", function(t)
+    withInstance(70011, { name = "Click Halls", zoneMapID = 84, x = 0.4, y = 0.5 }, function()
+        QR.UI:Initialize()
+        QR.Journey:Clear()
+        local saved = QR.DungeonTravelOffer.Route
+        local called = 0
+        QR.DungeonTravelOffer.Route = function() called = called + 1 return true end
+        QR.DungeonTravelOffer:Present(70011, 22)
+        QR.UI.frame.dungeonOfferButton:GetScript("OnClick")(QR.UI.frame.dungeonOfferButton)
+        QR.DungeonTravelOffer.Route = saved
+        QR.DungeonTravelOffer:Clear()
+        QR.Journey:Clear()
+        t:assertEqual(1, called, "clicking the button routes to the offered instance")
+    end)
+end)
+
+T:run("DungeonOffer: a foreign detour is not stacked under", function(t)
+    withInstance(70012, { name = "Stack Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        QR.Journey:Clear()
+        QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = 84, x = 0.1, y = 0.2, title = "Chosen" })
+        QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
+        QR.Journey:Detour("rare_alert", { mapID = 90, x = 0.5, y = 0.5 })
+        QR.DungeonTravelOffer:Present(70012, 23)
+        t:assertEqual("rare_alert", QR.Journey:Get().source, "the other detour still owns the journey")
+        t:assertEqual(1, #QR.Journey.suspended,
+            "and no second detour was stacked under it, got " .. #QR.Journey.suspended)
+        QR.Journey:Release("rare_alert")
+        t:assertEqual(QR.Journey.SOURCE.MANUAL, QR.Journey:Get().source, "the player's trip comes back")
+        QR.DungeonTravelOffer:Clear()
+        QR.Journey:Clear()
+    end)
+end)
+
+T:run("DungeonOffer: a detour ended with Resume also releases the offer", function(t)
+    withInstance(70013, { name = "Resume Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        QR.Journey:Clear()
+        QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = 84, x = 0.1, y = 0.2 })
+        QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
+        QR.DungeonTravelOffer:Present(70013, 24)
+        QR.Journey:Detour("rare_alert", { mapID = 90, x = 0.5, y = 0.5 })
+        t:assertFalse(QR.DungeonTravelOffer:Clear(), "the clear is refused while the alert holds it")
+        -- Resume, not Release: it is the module's documented way to end a
+        -- detour, and it announced nothing, so the offer stayed for the session.
+        QR.Journey:Resume("rare_alert")
+        t:assertNil(QR.DungeonTravelOffer.pending,
+            "ending the detour with Resume clears the offer too")
+        QR.Journey:Clear()
+    end)
+end)

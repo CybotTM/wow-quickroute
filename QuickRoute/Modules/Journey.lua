@@ -65,6 +65,28 @@ function Journey:Claim(source, destination)
     return true
 end
 
+--- Take the journey for a deliberate action by the player.
+-- A detour protects the trip against something firing on its own. It must not
+-- stand against the player choosing a destination by hand: refusing that made
+-- every routing entry point in the addon dead for as long as an offer was
+-- pending, including the button for the very dungeon the offer was about.
+-- Choosing somewhere else IS ending the interruption, so the detours are
+-- dropped and the claim proceeds.
+-- @return boolean Whether this source now owns the journey
+function Journey:TakeOver(source, destination)
+    if type(source) ~= "string" or not Destination(destination) then return false end
+    while self.current and self.current.detour do
+        self.current = table.remove(self.suspended)
+        self:Announce()
+    end
+    if self.current and self.current.locked and self.current.source ~= source then
+        -- Not a detour: another source holds a locked journey. The player
+        -- taking over is still the player, so this replaces it.
+        self.current = nil
+    end
+    return self:Claim(source, destination)
+end
+
 --- Protect the current journey from being replaced by another source.
 function Journey:Lock(source)
     if not self.current or self.current.source ~= source then return false end
@@ -111,6 +133,9 @@ end
 function Journey:Resume(source)
     if not self.current or self.current.source ~= source or not self.current.detour then return nil end
     self.current = table.remove(self.suspended)
+    -- Announced like a release. Resume is the documented way to end a detour,
+    -- and a module whose own clear was refused has to hear about both.
+    self:Announce()
     -- A copy, like Get returns. Handing back the live record let the caller
     -- rewrite the owner and the lock without going through Claim.
     return self:Get()

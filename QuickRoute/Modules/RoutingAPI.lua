@@ -125,7 +125,7 @@ function API:CalculateRoute(request, callback)
     handle.callback = callback
 
     local function publish(route, failure)
-        if handle.cancelled then return end
+        if handle.cancelled or handle.withdrawn then return end
         inFlight[1] = nil
         if not route then
             callback(nil, Detached(failure or { reason = "no_connection" }))
@@ -175,11 +175,14 @@ function API:NotifySuperseded()
     inFlight[1] = nil
     local notify = previous.callback
     if type(notify) ~= "function" then return true end
-    if C_Timer and C_Timer.After then
-        C_Timer.After(0, function() notify(nil, { reason = "superseded", retryable = false }) end)
-    else
+    local function tell()
+        -- Re-checked at fire time, as publish does. A consumer that cancels
+        -- between the supersede and this tick was still called, which is the
+        -- one thing Cancel documents will not happen.
+        if previous.withdrawn then return end
         notify(nil, { reason = "superseded", retryable = false })
     end
+    if C_Timer and C_Timer.After then C_Timer.After(0, tell) else tell() end
     return true
 end
 
@@ -189,6 +192,9 @@ end
 function API:Cancel(handle)
     if type(handle) ~= "table" or not issued[handle] then return false end
     handle.cancelled = true
+    -- Distinct from `cancelled`, which supersession also sets: this says the
+    -- consumer withdrew, and nothing may call it again.
+    handle.withdrawn = true
     if inFlight[1] == handle then inFlight[1] = nil end
     if QR.PathCalculator.asyncGeneration == handle.generation then
         QR.PathCalculator:CancelAsync()

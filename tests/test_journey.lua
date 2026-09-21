@@ -152,7 +152,7 @@ T:run("Journey: the detour's own owner claiming again does not strand the trip",
     QR.Journey:Clear()
 end)
 
-T:run("Journey: routing by hand is refused while somebody else's detour is in force", function(t)
+T:run("Journey: routing by hand ends a detour instead of being refused by it", function(t)
     QR.Journey:Clear()
     QR.Journey:Claim(S.MANUAL, A)
     QR.Journey:Lock(S.MANUAL)
@@ -160,16 +160,14 @@ T:run("Journey: routing by hand is refused while somebody else's detour is in fo
     local savedDB = QR.db
     QR.db = QR.db or {}
     QR.db.lastDestination = nil
-    -- The ledger said the detour owns the arrow and POIRouting routed anyway,
-    -- so the record and the addon disagreed about where the player was going.
+    -- Refusing here made every routing entry point in the addon dead for as
+    -- long as an offer was pending. Choosing somewhere else by hand is the
+    -- player ending the interruption.
     QR.POIRouting:RouteToMapPosition(86, 0.55, 0.65)
-    t:assertEqual(S.DUNGEON_OFFER, QR.Journey:Get().source, "the detour still owns the journey")
-    t:assertNil(QR.db.lastDestination, "and no destination was written behind its back")
-    QR.Journey:Release(S.DUNGEON_OFFER)
-    QR.Journey:Release(S.MANUAL)
-    QR.POIRouting:RouteToMapPosition(86, 0.55, 0.65)
+    t:assertEqual(S.MANUAL, QR.Journey:Get().source, "the player owns the journey again")
     t:assertEqual(86, QR.db.lastDestination and QR.db.lastDestination.mapID,
-        "and routing works again once nothing holds the journey")
+        "and the destination they chose was written")
+    t:assertEqual(0, #QR.Journey.suspended, "nothing is left suspended under it")
     QR.db = savedDB
     QR.Journey:Clear()
 end)
