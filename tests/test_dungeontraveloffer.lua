@@ -375,6 +375,96 @@ T:run("DungeonOffer: retargeting reports no entry rather than guessing", functio
     end)
 end)
 
+T:run("DungeonOffer: a refused clear does not reach the next group's offer", function(t)
+    withInstance(70022, { name = "Left Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        withInstance(70023, { name = "Joined Halls", zoneMapID = 86, x = 0.6, y = 0.7 }, function()
+            QR.Journey:Clear()
+            QR.DungeonTravelOffer:Initialize()
+            QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = 84, x = 0.1, y = 0.2, title = "Chosen" })
+            QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
+            QR.DungeonTravelOffer:Present(70022, 41)
+            QR.Journey:Detour("rare_alert", { mapID = 90, x = 0.5, y = 0.5 })
+
+            -- The player leaves the first group while the alert holds the
+            -- journey. The clear cannot finish now, so it is remembered.
+            QR.DungeonTravelOffer.frame:GetScript("OnEvent")(QR.DungeonTravelOffer.frame, "GROUP_LEFT")
+            t:assertTrue(QR.DungeonTravelOffer.clearWhenFree,
+                "the clear for the group that was left is remembered")
+
+            -- A second group takes them, seconds later.
+            QR.DungeonTravelOffer:Present(70023, 42)
+            t:assertEqual("Joined Halls", QR.DungeonTravelOffer.pending.title,
+                "the new group's offer is the pending one")
+
+            -- The alert ends. The remembered clear belongs to the group the
+            -- player already left, not to this one.
+            QR.Journey:Release("rare_alert")
+            t:assertNotNil(QR.DungeonTravelOffer.pending,
+                "the new offer survives the foreign detour ending")
+            t:assertEqual(QR.Journey.SOURCE.DUNGEON_OFFER, QR.Journey:Get().source,
+                "and its detour is still in force, got " .. tostring(QR.Journey:Get().source))
+
+            QR.DungeonTravelOffer:Clear()
+            QR.Journey:Clear()
+        end)
+    end)
+end)
+
+T:run("DungeonOffer: a step refused on the offer's route is refused for the dungeon", function(t)
+    withInstance(70021, { name = "Refusal Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        local pc = QR.PathCalculator
+        local queue = {}
+        local savedAfter = C_Timer.After
+        C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+        pc:ClearExcludedEdges()
+        QR.Journey:Clear()
+        QR.UI:Initialize()
+
+        -- Whatever the router calculated last, before the offer's own search.
+        pc:CalculatePath(84, 0.1, 0.2)
+        QR.DungeonTravelOffer:Present(70021, 40)
+        local routed
+        QR.DungeonTravelOffer:Route(function(result) routed = result end)
+        while #queue > 0 and not routed do table.remove(queue, 1)() end
+        while #queue > 0 do table.remove(queue, 1)() end
+        C_Timer.After = savedAfter
+
+        if not (routed and routed.steps and routed.steps[1]) then
+            -- Assert what the branch was entered for, not something weaker: a
+            -- route that exists with no steps must not report a pass here.
+            t:assertNotNil(routed and routed.steps and routed.steps[1],
+                "the offer produced a route with a step to refuse")
+            QR.DungeonTravelOffer:Clear()
+            QR.Journey:Clear()
+            return
+        end
+
+        -- The row on screen, built by the panel from the route the offer
+        -- displayed. The button reads the destination off that route.
+        local stepFrame = QR.UI:CreateStepLabel(1, routed.steps[1], 0, "pending")
+        t:assertNotNil(stepFrame.rejectButton, "the row has a reject button")
+        stepFrame.rejectButton:GetScript("OnClick")(stepFrame.rejectButton)
+
+        local pair = pc:StepEdgePairs(routed.steps[1])[1]
+        t:assertNotNil(pair, "the row stands for at least one graph hop")
+
+        -- Routing to the dungeon again must see the refusal, and routing
+        -- anywhere else must not. A refusal stamped from the global instead of
+        -- from the displayed route lands on the journey that happened to be
+        -- current, which after an asynchronous search is the one from before it.
+        pc:CalculatePath(85, 0.4, 0.5)
+        t:assertTrue(pc:IsEdgeExcluded(pair.from, pair.to),
+            "the dungeon route sees the step the player refused on it")
+        pc:CalculatePath(84, 0.1, 0.2)
+        t:assertFalse(pc:IsEdgeExcluded(pair.from, pair.to),
+            "and the route that was current before the search does not")
+
+        pc:ClearExcludedEdges()
+        QR.DungeonTravelOffer:Clear()
+        QR.Journey:Clear()
+    end)
+end)
+
 T:run("DungeonOffer: the offer button does not sit on top of another control", function(t)
     withInstance(70016, { name = "Overlap Halls", zoneMapID = 84, x = 0.4, y = 0.5 }, function()
         QR.UI:Initialize()

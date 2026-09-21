@@ -70,6 +70,10 @@ end
 function Offer:Present(journalInstanceID, resultID)
     local instance = QR.DungeonData and QR.DungeonData:GetInstance(journalInstanceID)
     if not (instance and instance.zoneMapID and instance.x and instance.y) then return false end
+    -- A refused clear is a decision about the group the player has already
+    -- left. A newly accepted group supersedes it: the flag survived into the
+    -- new offer and destroyed it the moment the foreign detour above it ended.
+    self.clearWhenFree = nil
     self.pending = {
         journalInstanceID = journalInstanceID,
         resultID = resultID,
@@ -132,6 +136,15 @@ function Offer:Route(callback)
             if not result then
                 QR:Print(QR.PathCalculator:DescribeFailure(failure))
             elseif QR.UI and QR.UI.UpdateRoute then
+                -- The panel reads the route's own destination to decide what a
+                -- refused step is refused FOR. Every other producer stamps it;
+                -- this one did not, so the reject button fell back to whichever
+                -- journey was current -- after an asynchronous search, the one
+                -- from before it. The refusal then applied to that route and
+                -- the refused hop came straight back on this one.
+                result.waypoint = { mapID = pending.mapID, x = pending.x,
+                    y = pending.y, title = pending.title }
+                result.waypointSource = "dungeon_offer"
                 QR.UI:UpdateRoute(result)
             end
             if type(callback) == "function" then callback(result, failure) end
