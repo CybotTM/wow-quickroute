@@ -12,11 +12,13 @@
 -- pins so the unmarked set cannot grow unnoticed.
 
 -- What that count covers, stated here because the number reads as if it
--- covered everything: service points, capital cities and portal hubs. Five
--- other files carry coordinates and are not counted -- DestinationCatalog,
--- FlightPoints, DungeonEntrances, TravelShortcuts and HearthstoneLocations.
--- The pin is therefore a statement about three sources, not about the
--- catalogue as a whole, and a new data file joins the uncounted set silently.
+-- covered everything: service points, capital cities and portal hubs, and
+-- nothing else. The rule, rather than a list that goes stale: every other
+-- coordinate-bearing table is outside the pin. That includes TeleportItems,
+-- which supplies most of the landing coordinates a route actually publishes,
+-- and TravelTransitions, DestinationCatalog, FlightPoints, DungeonEntrances,
+-- TravelShortcuts and HearthstoneLocations. The pin is a statement about
+-- three sources, and a new data file joins the uncounted set silently.
 --
 -- HearthstoneLocations carries its own words for the same idea, `source =
 -- "INN_DATABASE"` and `isApproximate`, which are REFERENCE and ESTIMATED under

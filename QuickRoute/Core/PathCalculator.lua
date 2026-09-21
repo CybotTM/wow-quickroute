@@ -2191,6 +2191,14 @@ function PathCalculator:BuildSteps(path, edges)
                 if teleportData.isApproximate then
                     step.destApproximate = true
                 end
+                -- Stronger than approximate, and a different kind of claim:
+                -- the MAP was chosen for this record rather than known. An
+                -- approximate coordinate on the right map and a chosen map are
+                -- both guesses, and a consumer deciding whether to route on
+                -- one needs to tell them apart. The addon's own tooltip does.
+                if teleportData.hearthstoneDefault then
+                    step.destDefault = true
+                end
             else
                 step.action = string_format(L["STEP_TELEPORT_TO"], localizedToNode)
             end

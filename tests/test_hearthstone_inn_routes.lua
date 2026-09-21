@@ -161,8 +161,16 @@ T:run("Hearthstone inn routes: the public contract declares a guessed landing", 
             "the assumptions name one guessed landing, got " .. tostring(declared and #declared))
         t:assertEqual(2395, declared and declared[1] and declared[1].mapID,
             "on the map the catalogue supplied")
+        t:assertNotNil(declared and declared[1] and declared[1].to,
+            "the declared landing names a step")
         t:assertEqual(guessed and guessed.to, declared and declared[1] and declared[1].to,
-            "and name the step it belongs to")
+            "and it is the step that carries the marker")
+        -- An ordinary catalogue inn is a fuzzy coordinate on a known map. The
+        -- stronger claim, a chosen map, must not be made here.
+        t:assertNil(guessed and guessed.destDefault,
+            "an ordinary catalogue record does not claim its map was chosen")
+        t:assertNil(declared and declared[1] and declared[1].defaulted,
+            "and the summary says so too")
 
         -- Nothing else on the route is a guess, so the list is a statement
         -- about this leg rather than about routes in general.
@@ -172,6 +180,82 @@ T:run("Hearthstone inn routes: the public contract declares a guessed landing", 
         end
         t:assertEqual(1, approximateCount,
             "exactly one leg is marked, got " .. tostring(approximateCount))
+    end)
+end)
+
+T:run("Hearthstone inn routes: an observed landing is not declared a guess", function(t)
+    isolated(function(replace)
+        local calculator, position = setup(replace)
+        replace(C_Map, "GetAreaInfo", function(id)
+            if id == 910001 then return "Morgenluft" end
+        end)
+        local queue = {}
+        replace(C_Timer, "After", function(_, callback) queue[#queue + 1] = callback end)
+        QR.Hearthstone:OnEvent("PLAYER_ENTERING_WORLD", true, false)
+
+        -- Observe the bind, which is ground truth and replaces the guess.
+        position.mapID, position.x, position.y = 2437, 0.254, 0.84
+        QR.Hearthstone:OnEvent("HEARTHSTONE_BOUND")
+        position.mapID, position.x, position.y = 627, 0.5, 0.5
+        local point = QR.Hearthstone:GetDestination()
+        t:assertFalse(point and point.isApproximate == true,
+            "the observed binding is not approximate")
+
+        local got
+        QuickRouteAPI:CalculateRoute({ mapID = 2437, x = 0.254, y = 0.84 },
+            function(route) got = route end)
+        while #queue > 0 and not got do table.remove(queue, 1)() end
+        while #queue > 0 do table.remove(queue, 1)() end
+        t:assertNotNil(got, "the contract answered with a route")
+
+        -- The direction the marker's guard governs. Without it every teleport
+        -- landing -- an observed hearth, a cloak, a portal -- is published as
+        -- a guess, and a consumer is told the whole route is uncertain.
+        local marked = 0
+        for _, step in ipairs(got and got.steps or {}) do
+            if step.destApproximate then marked = marked + 1 end
+        end
+        t:assertEqual(0, marked,
+            "no leg of an observed route is marked as a guess, got " .. tostring(marked))
+        local declared = got and got.assumptions and got.assumptions.approximateLandings
+        t:assertEqual(0, declared and #declared or -1,
+            "and the summary declares none, got " .. tostring(declared and #declared))
+    end)
+end)
+
+T:run("Hearthstone inn routes: a chosen map is declared as more than a fuzzy coordinate", function(t)
+    isolated(function(replace)
+        local calculator = setup(replace)
+        -- Two records of the addon's catalogue point a legacy area at a modern
+        -- map by product decision. The map is chosen, not measured, which is a
+        -- different claim from an approximate coordinate.
+        replace(QR, "HearthstoneLocations", {
+            { areaID = 910001, mapID = 2395, x = 0.45, y = 0.5, isDefault = true },
+        })
+        replace(C_Map, "GetAreaInfo", function(id)
+            if id == 910001 then return "Morgenluft" end
+        end)
+        local queue = {}
+        replace(C_Timer, "After", function(_, callback) queue[#queue + 1] = callback end)
+        QR.Hearthstone:OnEvent("PLAYER_ENTERING_WORLD", true, false)
+
+        local got
+        QuickRouteAPI:CalculateRoute({ mapID = 2437, x = 0.254, y = 0.84 },
+            function(route) got = route end)
+        while #queue > 0 and not got do table.remove(queue, 1)() end
+        while #queue > 0 do table.remove(queue, 1)() end
+        t:assertNotNil(got, "the contract answered with a route")
+
+        local guessed
+        for _, step in ipairs(got and got.steps or {}) do
+            if step.destApproximate then guessed = step end
+        end
+        t:assertNotNil(guessed, "the landing is still declared approximate")
+        t:assertTrue(guessed and guessed.destDefault,
+            "and additionally that the map itself was chosen")
+        local declared = got and got.assumptions and got.assumptions.approximateLandings
+        t:assertTrue(declared and declared[1] and declared[1].defaulted,
+            "which the summary carries too")
     end)
 end)
 

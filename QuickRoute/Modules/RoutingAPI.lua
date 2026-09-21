@@ -45,7 +45,7 @@ local STEP_FIELDS = {
     "navMapID", "navX", "navY", "navTitle",
     "destMapID", "destX", "destY",
     "collapsed", "collapsedCount", "mandatoryAnchor",
-    "destApproximate",
+    "destApproximate", "destDefault",
 }
 
 local function PublicSteps(steps)
@@ -89,7 +89,7 @@ local function Assumptions(steps)
         if step.type == "flight" then flight = true end
         if step.destApproximate then
             approximate[#approximate + 1] = { from = step.from, to = step.to,
-                mapID = step.destMapID }
+                mapID = step.destMapID, defaulted = step.destDefault or nil }
         end
     end
     return {
