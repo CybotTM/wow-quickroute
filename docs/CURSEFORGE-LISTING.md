@@ -57,8 +57,9 @@ known, the route says so instead of guessing.
 ### When something does not work
 
 A step you cannot use gets a "Cannot use" button. QuickRoute keeps the
-destination, drops that connection for this session and looks for another way.
-Nothing about your character is recorded.
+destination, drops that connection for this route and looks for another way.
+Right-clicking Refresh takes your refusals back. Nothing about your character is
+recorded.
 
 A route that cannot be produced tells you which kind of problem it was: your
 position is not available yet, the route needs something you do not have, or

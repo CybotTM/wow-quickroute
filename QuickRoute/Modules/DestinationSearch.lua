@@ -476,7 +476,13 @@ function DS:CollectResults(query)
                             serviceReference = loc,
                         })
                     end
-                    table_sort(locs, ByRelevance(queryLower))
+                    -- Alphabetical, not by relevance: a service group is
+                    -- matched on the service's name, and its locations are
+                    -- never compared against the query at all. Ranking them by
+                    -- it gave every location the same "no match" rank and then
+                    -- sorted alphabetically anyway, in a way that read as if
+                    -- the query had ordered them.
+                    table_sort(locs, function(a, b) return a.name < b.name end)
                     table_insert(results.services, {
                         serviceType = serviceType,
                         serviceName = serviceName,

@@ -49,8 +49,16 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
     -- A destination the player chose by hand is theirs. Claiming it and locking
     -- it means an alert or a guide step can ask for a detour but cannot quietly
     -- replace where they were going.
+    --
+    -- The refusal is honoured rather than recorded and ignored: a detour that
+    -- is in force owns the arrow, and routing over it here would have made the
+    -- ledger and the addon disagree about where the player is going.
     if QR.Journey then
-        QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = mapID, x = x, y = y, title = zoneName })
+        if not QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = mapID, x = x, y = y, title = zoneName }) then
+            local held = QR.Journey:Get()
+            QR:Print(string_format(QR.L["JOURNEY_HELD_BY"], tostring(held and held.destination.title or "?")))
+            return
+        end
         QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
     end
 

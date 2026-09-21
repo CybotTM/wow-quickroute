@@ -190,8 +190,12 @@ T:run("DungeonOffer: an offer is kept while another source holds the journey", f
         QR.Journey:Detour("rare_alert", { mapID = 90, x = 0.5, y = 0.5 })
         t:assertFalse(QR.DungeonTravelOffer:Clear(), "the offer is not cleared while somebody else owns the journey")
         t:assertNotNil(QR.DungeonTravelOffer.pending, "so it is still there to clear later")
+        -- Every clear trigger is one-shot, so without a second chance the offer
+        -- and its detour stayed for the session. Releasing the other source has
+        -- to finish the job by itself.
         QR.Journey:Release("rare_alert")
-        t:assertTrue(QR.DungeonTravelOffer:Clear(), "and it clears once the journey is its own again")
+        t:assertNil(QR.DungeonTravelOffer.pending,
+            "releasing the other source clears the offer without another trigger")
         QR.Journey:Clear()
     end)
 end)

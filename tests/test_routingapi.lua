@@ -136,12 +136,20 @@ T:run("RoutingAPI: the result states what the estimate assumes", function(t)
     end)
 end)
 
-T:run("RoutingAPI: a consumer can refuse a step the same way the player can", function(t)
+T:run("RoutingAPI: a consumer refuses a step for one destination, not for all of them", function(t)
     QR.PathCalculator:ClearExcludedEdges()
-    t:assertTrue(QuickRouteAPI:RejectStep("Gate", "Goal"), "the refusal is accepted")
-    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "and reaches the router")
+    local target = { mapID = 84, x = 0.5, y = 0.5 }
+    t:assertFalse(QuickRouteAPI:RejectStep("Gate", "Goal"),
+        "a refusal without a destination is refused: it would close the connection everywhere")
+    t:assertTrue(QuickRouteAPI:RejectStep("Gate", "Goal", target), "with one it is accepted")
+    QR.PathCalculator:NoteJourneyDestination(84, 0.5, 0.5)
+    t:assertTrue(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "and reaches the router for that destination")
+    QR.PathCalculator:NoteJourneyDestination(1519, 0.1, 0.1)
+    t:assertFalse(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"),
+        "the player's own route somewhere else is unaffected")
     QuickRouteAPI:AcceptStep("Gate", "Goal")
-    t:assertFalse(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "and can be taken back")
+    QR.PathCalculator:NoteJourneyDestination(84, 0.5, 0.5)
+    t:assertFalse(QR.PathCalculator:IsEdgeExcluded("Gate", "Goal"), "and it can be taken back")
     QR.PathCalculator:ClearExcludedEdges()
 end)
 
@@ -236,4 +244,56 @@ T:run("RoutingAPI: superseded reads as its own sentence, not as an internal erro
     local text = QR.PathCalculator:DescribeFailure({ reason = "superseded" })
     t:assertEqual(QR.L["ROUTE_FAIL_SUPERSEDED"], text, "the player is told what happened")
     t:assertNotNil(text ~= QR.L["ROUTE_FAIL_INTERNAL"] or nil, "and not that the addon is broken")
+end)
+
+T:run("RoutingAPI: an internal calculation also tells the consumer it superseded", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local heard
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function(_, failure) heard = failure and failure.reason or "route" end)
+        -- QuickRoute's own dungeon offer, the route panel, POIRouting: all of
+        -- these take the calculator without going through the contract.
+        pc:CalculatePathAsync(85, 0.2, 0.2, nil, function() end)
+        drain()
+        t:assertEqual("superseded", heard,
+            "the consumer is told rather than left waiting for a callback that will never come")
+    end)
+end)
+
+T:run("RoutingAPI: two consumers that retry do not supersede each other forever", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local rounds = 0
+        local function retryer(mapID)
+            local again
+            again = function(_, failure)
+                if failure and failure.retryable then
+                    rounds = rounds + 1
+                    if rounds < 50 then
+                        QuickRouteAPI:CalculateRoute({ mapID = mapID, x = 0.5, y = 0.5 }, again)
+                    end
+                end
+            end
+            return again
+        end
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, retryer(84))
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 }, retryer(85))
+        drain()
+        t:assertEqual(0, rounds,
+            "supersession is not advertised as retryable, so neither consumer restarts the other, got " .. rounds)
+    end)
+end)
+
+T:run("RoutingAPI: a cancelled request stays silent even when something supersedes it", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local calls = 0
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function() calls = calls + 1 end)
+        QuickRouteAPI:Cancel(handle)
+        pc:CalculatePathAsync(85, 0.2, 0.2, nil, function() end)
+        drain()
+        t:assertEqual(0, calls, "a withdrawn consumer hears nothing at all, got " .. calls)
+    end)
 end)

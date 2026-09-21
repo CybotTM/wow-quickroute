@@ -30,8 +30,8 @@ Observed:               <what happened, in one or two sentences>
 Every step usable:      <yes|no, and which step was not>
 Arrived where intended: <yes|no>
 Wall clock:             <seconds, door to door>
-Frame time:             <median and worst frame during calculation, from
-                         /qrdiag or a frame-time addon>
+Frame time:             <median and worst frame during calculation, measured
+                         with a frame-time addon; QuickRoute does not report it>
 Result:                 <pass|fail|blocked>
 ```
 

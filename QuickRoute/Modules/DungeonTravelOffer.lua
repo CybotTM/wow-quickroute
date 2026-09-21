@@ -93,6 +93,7 @@ function Offer:Present(journalInstanceID, resultID)
         end
     end
     QR:Print(string.format(QR.L["DUNGEON_OFFER_READY"], tostring(instance.name)))
+    if QR.UI and QR.UI.RefreshDungeonOffer then QR.UI:RefreshDungeonOffer() end
     return true
 end
 
@@ -131,11 +132,15 @@ function Offer:Clear()
         local held = QR.Journey:Get()
         if held and held.source ~= QR.Journey.SOURCE.DUNGEON_OFFER then
             QR:Debug("DungeonTravelOffer: another source holds the journey, offer kept")
+            -- Remembered, so the release listener finishes the job.
+            self.clearWhenFree = true
             return false
         end
         QR.Journey:Release(QR.Journey.SOURCE.DUNGEON_OFFER)
     end
     self.pending = nil
+    self.clearWhenFree = nil
+    if QR.UI and QR.UI.RefreshDungeonOffer then QR.UI:RefreshDungeonOffer() end
     return true
 end
 
@@ -189,4 +194,16 @@ function Offer:Initialize()
         if journalInstanceID then self:Present(journalInstanceID, resultID) end
     end)
     self.frame = frame
+    -- A clear refused because another source held the journey had no second
+    -- chance: every trigger is one-shot, so the offer and its detour stayed for
+    -- the session. When the journey comes back, try again.
+    if QR.Journey and QR.Journey.OnRelease then
+        QR.Journey:OnRelease(function()
+            if not self.pending then return end
+            local held = QR.Journey:Get()
+            if held == nil or held.source == QR.Journey.SOURCE.DUNGEON_OFFER then
+                if self.clearWhenFree then self:Clear() end
+            end
+        end)
+    end
 end

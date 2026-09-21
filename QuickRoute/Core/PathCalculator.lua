@@ -1152,6 +1152,12 @@ end
 function PathCalculator:CancelAsync()
     self.asyncGeneration = (self.asyncGeneration or 0) + 1
     self.asyncPending = nil
+    -- A consumer of the public contract is waiting on whatever this supersedes,
+    -- and dropping its callback silently is the one answer the contract does
+    -- not allow. Internal callers reach this too, which is the point.
+    if QR.RoutingAPI and QR.RoutingAPI.NotifySuperseded then
+        QR.RoutingAPI:NotifySuperseded()
+    end
     return self.asyncGeneration
 end
 

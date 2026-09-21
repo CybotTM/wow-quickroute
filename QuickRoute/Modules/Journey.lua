@@ -117,14 +117,35 @@ function Journey:Resume(source)
 end
 
 --- Give up the journey. Only its owner may.
+-- Called when a journey is released, so a module whose own clear was refused
+-- because somebody else held the journey can try again.
+local releaseListeners = {}
+
+--- Register a function to run whenever a journey is released.
+function Journey:OnRelease(listener)
+    if type(listener) ~= "function" then return false end
+    releaseListeners[#releaseListeners + 1] = listener
+    return true
+end
+
 function Journey:Release(source)
     if not self.current or self.current.source ~= source then return false end
     if self.current.detour then
         self.current = table.remove(self.suspended)
+        self:Announce()
         return true
     end
     self.current = nil
+    self:Announce()
     return true
+end
+
+--- Tell the listeners the journey changed hands.
+function Journey:Announce()
+    for _, listener in ipairs(releaseListeners) do
+        local ok, err = pcall(listener)
+        if not ok then QR:Error("Journey listener failed: " .. tostring(err)) end
+    end
 end
 
 --- The destination in force, with who owns it.

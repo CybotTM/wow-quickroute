@@ -1173,3 +1173,96 @@ T:run("DestSearch: the match count counts places, not groups", function(t)
     for _, tier in ipairs(results.dungeons) do expected = expected + #tier.instances end
     t:assertEqual(expected, results.status.matched, "the count is every offered place")
 end)
+
+-- Three of the four relevance sorts were pinned by nothing: reverting them to
+-- alphabetical order left the suite green. Each is asserted at its own call
+-- site now, with a query whose matches rank differently.
+local function notMerelyAlphabetical(t, names, query, what)
+    t:assertGreaterThan(#names, 1, what .. ": more than one match")
+    local ranks = {}
+    for index, name in ipairs(names) do ranks[index] = QR.DestinationSearch.MatchRank(name, query) end
+    local mixed, alphabetical = false, true
+    for index = 2, #names do
+        if ranks[index] ~= ranks[1] then mixed = true end
+        t:assert(ranks[index - 1] <= ranks[index],
+            what .. ": position " .. index .. " is not less relevant: " .. table.concat(names, ", "))
+        if names[index - 1] > names[index] then alphabetical = false end
+    end
+    t:assertTrue(mixed, what .. ": the query produces more than one rank")
+    t:assertFalse(alphabetical, what .. ": the order is not merely alphabetical: " .. table.concat(names, ", "))
+end
+
+T:run("DestSearch: dungeon tiers are ordered by relevance", function(t)
+    resetState()
+    -- The catalogue happens to contain no query where alphabetical and relevance
+    -- order disagree, so the case is constructed: "Zephyr Hall" starts with the
+    -- query and sorts last by name.
+    local dd = QR.DungeonData
+    local savedA, savedB = dd.instances[80101], dd.instances[80102]
+    local tier = dd.byTier[dd.numTiers] or {}
+    dd.byTier[dd.numTiers] = tier
+    dd.instances[80101] = { name = "Amber Zephyr", zoneMapID = 84, x = 0.1, y = 0.1 }
+    dd.instances[80102] = { name = "Zephyr Hall", zoneMapID = 84, x = 0.2, y = 0.2 }
+    tier[#tier + 1], tier[#tier + 2] = 80101, 80102
+    local results = QR.DestinationSearch:CollectResults("zephyr")
+    local names = {}
+    for _, group in ipairs(results.dungeons) do
+        for _, instance in ipairs(group.instances) do names[#names + 1] = instance.name end
+    end
+    tier[#tier], tier[#tier - 1] = nil, nil
+    dd.instances[80101], dd.instances[80102] = savedA, savedB
+    t:assertEqual(2, #names, "both constructed instances match, got " .. table.concat(names, ", "))
+    t:assertEqual("Zephyr Hall", names[1],
+        "the name starting with the query comes first, got " .. table.concat(names, ", "))
+end)
+
+T:run("DestSearch: service locations are listed alphabetically", function(t)
+    resetState()
+    -- A service group matches on the service's name; its locations are never
+    -- compared against the query, so there is no relevance to order them by.
+    local results = QR.DestinationSearch:CollectResults("bank")
+    local group
+    for _, candidate in ipairs(results.services) do
+        if #candidate.locations > 1 then group = candidate break end
+    end
+    if not group then
+        t:assert(true, "no service group with two locations in this environment")
+        return
+    end
+    for index = 2, #group.locations do
+        t:assert(group.locations[index - 1].name <= group.locations[index].name,
+            "position " .. index .. " is in alphabetical order")
+    end
+end)
+
+T:run("DestSearch: a quest not in the log is offered as a reference, not as an objective", function(t)
+    resetState()
+    -- The role vocabulary was wired into the result rows and only the helper
+    -- had a test, so the call site could be replaced by a constant unnoticed.
+    local saved = C_QuestLog.IsOnQuest
+    C_QuestLog.IsOnQuest = function(questID) return questID == 90001 end
+    QR.DestinationSearch._cachedWatchedQuests = {
+        { questID = 90001, title = "Active one", mapID = 84, x = 0.1, y = 0.1, zoneName = "Elwynn" },
+        { questID = 90002, title = "Stale one", mapID = 84, x = 0.2, y = 0.2, zoneName = "Elwynn" },
+    }
+    local results = QR.DestinationSearch:CollectResults("")
+    C_QuestLog.IsOnQuest = saved
+    QR.DestinationSearch._cachedWatchedQuests = nil
+    local byID = {}
+    for _, quest in ipairs(results.quests) do byID[quest.questID] = quest.role end
+    t:assertEqual(QR.TargetIdentity.ROLE.OBJECTIVE, byID[90001], "the quest in the log is an objective")
+    t:assertEqual(QR.TargetIdentity.ROLE.REFERENCE, byID[90002],
+        "the one that is not is a known location, got " .. tostring(byID[90002]))
+end)
+
+T:run("DestSearch: the catalogue status reports what is actually loaded", function(t)
+    resetState()
+    local dd = QR.DungeonData
+    local savedTiers = dd.numTiers
+    dd.numTiers = 0
+    local without = QR.DestinationSearch:CollectResults("")
+    dd.numTiers = savedTiers
+    t:assertFalse(without.status.dungeonCatalogue, "an unloaded catalogue is reported as unloaded")
+    local with = QR.DestinationSearch:CollectResults("")
+    t:assertTrue(with.status.dungeonCatalogue, "and a loaded one as loaded")
+end)

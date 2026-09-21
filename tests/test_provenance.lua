@@ -60,19 +60,37 @@ T:run("Provenance: the shared Silvermoon position is marked as surveyed", functi
         "the city entry states that its coordinate was surveyed")
 end)
 
--- The coverage gate. This number is a measurement of today's tree, not a
--- target: it may fall as records are sourced and it must not rise. A rise means
+-- The coverage gate. These numbers are a measurement of today's tree, not
+-- targets: each may fall as records are sourced and none may rise. A rise means
 -- a coordinate was added without saying where it came from.
-local UNMARKED_SERVICE_POINTS = 33
+--
+-- Service points were the only file pinned, so an unsourced new city or portal
+-- landing was not caught. All three are counted now.
+local UNMARKED = { services = 33, cities = 15, portals = 60 }
 
-T:run("Provenance: the unmarked service points are counted and pinned", function(t)
-    local unmarked = 0
+local function countUnmarked()
+    local counts = { services = 0, cities = 0, portals = 0 }
     for _, points in pairs(QR.ServicePOIs or {}) do
         for _, point in ipairs(points) do
-            if point.provenance == nil then unmarked = unmarked + 1 end
+            if point.provenance == nil then counts.services = counts.services + 1 end
         end
     end
-    t:assertEqual(UNMARKED_SERVICE_POINTS, unmarked,
-        "service points without a stated origin, got " .. unmarked
-        .. ". Lower the pin when you source one; never raise it to make this pass.")
+    for _, city in pairs(QR.CAPITAL_CITIES or {}) do
+        if city.provenance == nil then counts.cities = counts.cities + 1 end
+    end
+    for _, hub in pairs(QR.PortalHubs or {}) do
+        for _, portal in ipairs(hub.portals or {}) do
+            if portal.provenance == nil then counts.portals = counts.portals + 1 end
+        end
+    end
+    return counts
+end
+
+T:run("Provenance: the unmarked coordinates are counted and pinned", function(t)
+    local counts = countUnmarked()
+    for what, pinned in pairs(UNMARKED) do
+        t:assertEqual(pinned, counts[what],
+            what .. " without a stated origin, got " .. counts[what]
+            .. ". Lower the pin when you source one; never raise it to make this pass.")
+    end
 end)

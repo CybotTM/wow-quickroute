@@ -123,23 +123,6 @@ function API:CalculateRoute(request, callback)
     -- consumer would simply never hear again. Silence is not one of the two
     -- answers this contract promises, so the superseded request is told.
     handle.callback = callback
-    local previous = inFlight[1]
-    inFlight[1] = handle
-    if previous and not previous.cancelled then
-        previous.cancelled = true
-        -- Deferred, like every other publish. Telling the superseded consumer
-        -- inside this call let a retry it issues from that callback interleave
-        -- with the registration happening here, and one of the two requests
-        -- then heard nothing at all. Every consumer hears exactly one answer.
-        local notify = previous.callback
-        if type(notify) == "function" then
-            if C_Timer and C_Timer.After then
-                C_Timer.After(0, function() notify(nil, { reason = "superseded", retryable = true }) end)
-            else
-                notify(nil, { reason = "superseded", retryable = true })
-            end
-        end
-    end
 
     local function publish(route, failure)
         if handle.cancelled then return end
@@ -162,6 +145,10 @@ function API:CalculateRoute(request, callback)
         }))
     end
 
+    -- Registered after the calculator is asked, not before. CalculatePathAsync
+    -- supersedes what was in flight and NotifySuperseded tells whoever that
+    -- was; with this handle already registered, it would have announced the new
+    -- request as superseded by itself.
     handle.generation = QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, function(route, failure)
         -- A short route finishes inside the first budget, so without this the
         -- callback could run before CalculateRoute returned and the consumer
@@ -172,7 +159,28 @@ function API:CalculateRoute(request, callback)
             publish(route, failure)
         end
     end)
+    inFlight[1] = handle
     return handle
+end
+
+--- Tell the consumer in flight that something else took the calculator.
+-- PathCalculator supersedes on every request, internal ones included, and the
+-- stale callback is then dropped without a word. A consumer that hears nothing
+-- cannot tell a slow route from a dead one, so the internal callers announce it
+-- here. Idempotent: a handle is notified once.
+function API:NotifySuperseded()
+    local previous = inFlight[1]
+    if not previous or previous.cancelled then return false end
+    previous.cancelled = true
+    inFlight[1] = nil
+    local notify = previous.callback
+    if type(notify) ~= "function" then return true end
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function() notify(nil, { reason = "superseded", retryable = false }) end)
+    else
+        notify(nil, { reason = "superseded", retryable = false })
+    end
+    return true
 end
 
 --- Withdraw a request. The callback is not called afterwards.
@@ -188,11 +196,14 @@ function API:Cancel(handle)
     return true
 end
 
---- Refuse one connection for this session, as the player's "Cannot use" does.
--- A consumer that learns a step is unusable can report it without QuickRoute
--- recording anything about the character.
-function API:RejectStep(from, to)
-    return QR.PathCalculator:ExcludeEdge(from, to)
+--- Refuse one connection for one destination, as the player's "Cannot use" does.
+-- The destination is required. Without it the refusal was stamped "applies
+-- everywhere" and closed the connection for the player's own routes too.
+-- @param destination table {mapID, x, y}
+-- @return boolean False when the destination is missing
+function API:RejectStep(from, to, destination)
+    if type(destination) ~= "table" or type(destination.mapID) ~= "number" then return false end
+    return QR.PathCalculator:ExcludeEdge(from, to, destination)
 end
 
 --- Take back a refusal.
