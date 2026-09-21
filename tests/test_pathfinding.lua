@@ -3333,3 +3333,88 @@ T:run("Rejected step: refusals can be taken back", function(t)
     t:assertEqual(0, #pc:GetExcludedEdges(), "right-clicking Refresh takes them all back")
     t:assertFalse(pc:IsEdgeExcluded("Gate", "Goal"), "so the step is offered again")
 end)
+
+T:run("Rejected step: a destination that resolves to another map is still matched", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    pc:ClearExcludedEdges()
+    -- A microzone pin resolves to its parent, and the route on screen carries
+    -- what the player pointed at. Stamping one and reading the other made the
+    -- refusal invisible to every later search. The transform is installed here
+    -- rather than hoped for, so the case is always exercised.
+    local savedInfo, savedVector = C_Map.GetMapInfo, _G.CreateVector2D
+    local savedWorld, savedPos = C_Map.GetWorldPosFromMapPos, C_Map.GetMapPosFromWorldPos
+    C_Map.GetMapInfo = function(mapID)
+        if mapID == 2576 then return { mapType = 5, parentMapID = 2413 } end
+        return { mapType = 3 }
+    end
+    _G.CreateVector2D = function(x, y) return { x = x, y = y } end
+    C_Map.GetWorldPosFromMapPos = function(mapID, pos)
+        if mapID == 2576 then return 1, { x = pos.x * 100, y = pos.y * 100 } end
+    end
+    C_Map.GetMapPosFromWorldPos = function(world, pos, requested)
+        if world == 1 and requested == 2413 then
+            return 2413, { GetXY = function() return pos.x / 200 + 0.2, pos.y / 200 + 0.2 end }
+        end
+    end
+    local resolvedMap = pc:ResolveMapPosition(2576, 0.64, 0.7)
+    pc:NoteJourneyDestination(pc:ResolveMapPosition(2576, 0.64, 0.7))
+    pc:ExcludeEdge("Gate", "Goal", { mapID = 2576, x = 0.64, y = 0.7 })
+    local held = pc:IsEdgeExcluded("Gate", "Goal")
+    C_Map.GetMapInfo, _G.CreateVector2D = savedInfo, savedVector
+    C_Map.GetWorldPosFromMapPos, C_Map.GetMapPosFromWorldPos = savedWorld, savedPos
+    t:assertEqual(2413, resolvedMap, "the pin really does resolve to another map")
+    t:assertTrue(held, "and the refusal made on the unresolved pin is found by the resolved search")
+    pc:ClearExcludedEdges()
+end)
+
+T:run("Cooperative search: only the searching coroutine re-arms its own baseline", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    -- Measured rather than assumed: a normal route completes inside the first
+    -- frame budget, so the suspended state cannot be produced end to end here.
+    -- The guard is pinned where it lives instead. A synchronous CalculatePath
+    -- reaches the same line the coroutine uses to record its baseline, and
+    -- re-arming it there hides a rebuild that the coroutine must notice.
+    pc:BuildGraph()
+    local baseline = pc.graphBuild or 0
+    local foreign = coroutine.create(function() end)
+    pc.asyncRunning = { graphBuild = baseline, thread = foreign, generation = pc.asyncGeneration }
+    pc.graphDirty = true
+    pc:CalculatePath(85, 0.2, 0.2)
+    local afterForeign = pc.asyncRunning.graphBuild
+    pc.asyncRunning = nil
+    t:assertEqual(baseline, afterForeign,
+        "a caller that is not the search leaves the baseline alone, got " .. tostring(afterForeign))
+    t:assertTrue((pc.graphBuild or 0) > baseline, "and its rebuild did raise the counter")
+end)
+
+T:run("Rejected step: restoring refusals does not change the destination", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    QR.UI:Initialize()
+    local savedDB, savedRefresh = QR.db, QR.UI.RefreshRoute
+    QR.UI.RefreshRoute = function() end
+
+    -- No recent left-click, so the throttle cannot mask what the right-click
+    -- does. Falling through into the left-click path unlocked the destination,
+    -- and the player undoing a refusal lost the place they had chosen.
+    pc:ClearExcludedEdges()
+    pc:NoteJourneyDestination(84, 0.5, 0.5)
+    pc:ExcludeEdge("Gate", "Goal")
+    QR.db = { destinationLocked = true, lastDestination = { mapID = 84, x = 0.5, y = 0.5 } }
+    QR.UI.lastRefreshClickTime = 0
+    QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
+    t:assertEqual(0, #pc:GetExcludedEdges(), "the refusals are taken back")
+    t:assertTrue(QR.db.destinationLocked, "and the player keeps the destination they chose")
+
+    -- Right after a left-click. The one-second throttle is for repeated
+    -- refreshes and swallowed the right-click the tooltip advertises.
+    pc:ExcludeEdge("Gate", "Goal")
+    QR.UI.lastRefreshClickTime = GetTime()
+    QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
+    t:assertEqual(0, #pc:GetExcludedEdges(), "and a refresh a moment earlier does not swallow it")
+
+    QR.UI.RefreshRoute = savedRefresh
+    QR.db = savedDB
+end)

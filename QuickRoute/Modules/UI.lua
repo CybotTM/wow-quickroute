@@ -354,18 +354,25 @@ function UI:CreateContent(parentFrame)
     refreshButton:SetPoint("LEFT", searchBox, "RIGHT", BUTTON_PADDING, 0)
     ApplyButtonStyle(refreshButton, refreshText, "refresh")
     refreshButton:SetScript("OnClick", function(_, button)
-        local now = GetTime()
-        if now - UI.lastRefreshClickTime < 1 then return end
-        UI.lastRefreshClickTime = now
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
         -- A refusal had no way back at all: nothing in the addon called
         -- ClearExcludedEdges, so one mis-click closed a connection for the rest
         -- of the session. Right-clicking Refresh takes them all back.
+        --
+        -- It does that and nothing else. Falling through into the left-click
+        -- path also unlocked the destination, so a player undoing a refusal
+        -- lost the place they had chosen; and the throttle below, meant for
+        -- repeated refreshes, swallowed the right-click the tooltip advertises.
         if button == "RightButton" then
             local refused = #QR.PathCalculator:GetExcludedEdges()
             QR.PathCalculator:ClearExcludedEdges()
             if refused > 0 then QR:Print(string_format(L["STEP_REJECT_CLEARED"], refused)) end
+            UI:RefreshRoute()
+            return
         end
+        local now = GetTime()
+        if now - UI.lastRefreshClickTime < 1 then return end
+        UI.lastRefreshClickTime = now
         -- Clear locked destination so Refresh uses the active waypoint
         if QR.db then QR.db.destinationLocked = false end
         UI:RefreshRoute()

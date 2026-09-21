@@ -1017,6 +1017,18 @@ local function JourneyKey(mapID, x, y)
     return string_format("%d:%.4f:%.4f", mapID, x or 0, y or 0)
 end
 
+-- Both sides of the comparison must be resolved the same way. CalculatePath
+-- resolves before it stamps, while every producer of `result.waypoint` stores
+-- what the player pointed at -- a continent pin, a microzone -- so a refusal
+-- made on such a route was stamped with one key and read against another, and
+-- the refused step came straight back.
+local function ResolvedJourneyKey(self, destination)
+    if type(destination) ~= "table" or not IsMapID(destination.mapID) then return nil end
+    local mapID, x, y = self:ResolveMapPosition(destination.mapID, destination.x, destination.y)
+    if not mapID then return nil end
+    return JourneyKey(mapID, x, y)
+end
+
 local function EdgeKey(from, to)
     return tostring(from) .. "\1" .. tostring(to)
 end
@@ -1043,13 +1055,9 @@ end
 -- @param destination table|nil {mapID, x, y}; the current one when omitted
 function PathCalculator:ExcludeEdge(from, to, destination)
     if from == nil or to == nil then return false end
-    local key = currentJourney
-    if type(destination) == "table" and IsMapID(destination.mapID) then
-        key = JourneyKey(destination.mapID, destination.x, destination.y)
-    end
     -- `true` when no destination is known at all: a refusal that applies until
     -- it is cleared is safer than one that silently applies to nothing.
-    excludedEdges[EdgeKey(from, to)] = key or true
+    excludedEdges[EdgeKey(from, to)] = ResolvedJourneyKey(self, destination) or currentJourney or true
     return true
 end
 
@@ -1082,11 +1090,7 @@ function PathCalculator:IsEdgeExcluded(from, to, destination)
     local stamp = excludedEdges[EdgeKey(from, to)]
     if stamp == nil then return false end
     if stamp == true then return true end
-    local key = currentJourney
-    if type(destination) == "table" and IsMapID(destination.mapID) then
-        key = JourneyKey(destination.mapID, destination.x, destination.y)
-    end
-    return stamp == key
+    return stamp == (ResolvedJourneyKey(self, destination) or currentJourney)
 end
 
 --- Whether any connection is refused at all.
