@@ -142,6 +142,8 @@ globals = {
 
     -- SavedVariables
     "QuickRouteDB",
+    -- The routing contract other addons consume; defined in Modules/RoutingAPI.lua
+    "QuickRouteAPI",
 
     -- TomTom (optional)
     "TomTom",

@@ -1084,3 +1084,150 @@ T:run("DestSearch: an engineer service row is rechecked if profession access cha
     t:assertEqual(1,refreshed,"Unavailable service refreshes the picker")
     QR.PlayerInfo.HasEngineering, QR.POIRouting, ds.RefreshDropdown = savedEngineering, savedPOI, savedRefresh
 end)
+
+-------------------------------------------------------------------------------
+-- Relevance
+--
+-- Alphabetical order alone answers "jade" with "Temple of the Jade Serpent"
+-- before "Jade Forest". What the player typed decides the order.
+-------------------------------------------------------------------------------
+
+T:run("DestSearch: an exact name outranks a prefix, a word start and a substring", function(t)
+    local rank = QR.DestinationSearch.MatchRank
+    t:assertGreaterThan(rank("Jade Forest", "jade"), rank("Jade", "jade"),
+        "the exact name wins")
+    t:assertGreaterThan(rank("Temple of the Jade Serpent", "jade"), rank("Jade Forest", "jade"),
+        "a name starting with the query beats one containing it later")
+    t:assertGreaterThan(rank("Majadel", "jade"), rank("Temple of the Jade Serpent", "jade"),
+        "a word start beats a match inside a word")
+    t:assertEqual(rank("Nothing here", "jade"), 5, "no match ranks last")
+end)
+
+T:run("DestSearch: cities are ordered by relevance, not by name", function(t)
+    resetState()
+    MockWoW.config.playerFaction = "Alliance"
+    QR.PlayerInfo:InvalidateCache()
+    -- "or" is a query where alphabetical order is wrong: Oribos starts with it
+    -- and sorts last by name. A query whose matches all rank the same holds
+    -- under either comparator and pins nothing.
+    local results = QR.DestinationSearch:CollectResults("or")
+    t:assertGreaterThan(#results.cities, 1, "several cities match")
+    local names, ranks = {}, {}
+    for index, city in ipairs(results.cities) do
+        names[index] = city.name
+        ranks[index] = QR.DestinationSearch.MatchRank(city.name, "or")
+    end
+    for index = 2, #ranks do
+        t:assert(ranks[index - 1] <= ranks[index],
+            "position " .. index .. " is not less relevant than the one before: " .. table.concat(names, ", "))
+    end
+    local alphabetical = true
+    for index = 2, #names do
+        if names[index - 1] > names[index] then alphabetical = false end
+    end
+    t:assertFalse(alphabetical,
+        "the order is not merely alphabetical, which this query would also satisfy: " .. table.concat(names, ", "))
+end)
+
+T:run("DestSearch: a thin result says which kind of thin it is", function(t)
+    resetState()
+    local results = QR.DestinationSearch:CollectResults("zzzzznothingmatchesthis")
+    t:assertEqual(0, results.status.matched, "nothing matched")
+    t:assertGreaterThan(results.status.localizedNames, 0,
+        "the client did resolve map names, got " .. results.status.localizedNames)
+    t:assertEqual("zzzzznothingmatchesthis", results.status.query, "the query is reported back")
+
+    -- A client that has the function and returns nothing is the case the field
+    -- exists for, and the one that testing for the function could never see.
+    local savedGetMapInfo = C_Map.GetMapInfo
+    C_Map.GetMapInfo = function() return nil end
+    local silent = QR.DestinationSearch:CollectResults("")
+    C_Map.GetMapInfo = savedGetMapInfo
+    t:assertEqual(0, silent.status.localizedNames, "no name came back")
+    t:assertGreaterThan(silent.status.unnamedMaps, 0,
+        "and the maps that stayed unnamed are counted, got " .. silent.status.unnamedMaps)
+end)
+
+T:run("DestSearch: relevance overrides alphabetical order", function(t)
+    -- Alphabetically "Ashenvale" comes first; for the query "vale" the name
+    -- that starts with it is the one the player meant.
+    local list = {
+        { name = "Ashenvale" },
+        { name = "Vale of Eternal Blossoms" },
+    }
+    table.sort(list, QR.DestinationSearch:ByRelevance("vale"))
+    t:assertEqual("Vale of Eternal Blossoms", list[1].name,
+        "the name starting with the query is offered first, got " .. list[1].name)
+    t:assertEqual("Ashenvale", list[2].name, "the incidental substring match follows")
+end)
+
+T:run("DestSearch: the match count counts places, not groups", function(t)
+    resetState()
+    local results = QR.DestinationSearch:CollectResults("")
+    local services = 0
+    for _, group in ipairs(results.services) do services = services + #group.locations end
+    t:assertGreaterThan(services, #results.services,
+        "there are more service places than service groups: " .. services .. " vs " .. #results.services)
+    local expected = #results.cities + #results.waypoints + #results.quests
+        + #results.currencies + #results.catalog + services
+    for _, tier in ipairs(results.dungeons) do expected = expected + #tier.instances end
+    t:assertEqual(expected, results.status.matched, "the count is every offered place")
+end)
+
+
+T:run("DestSearch: dungeon tiers are ordered by relevance", function(t)
+    resetState()
+    -- The catalogue happens to contain no query where alphabetical and relevance
+    -- order disagree, so the case is constructed: "Zephyr Hall" starts with the
+    -- query and sorts last by name.
+    local dd = QR.DungeonData
+    local savedA, savedB = dd.instances[80101], dd.instances[80102]
+    local tier = dd.byTier[dd.numTiers] or {}
+    dd.byTier[dd.numTiers] = tier
+    dd.instances[80101] = { name = "Amber Zephyr", zoneMapID = 84, x = 0.1, y = 0.1 }
+    dd.instances[80102] = { name = "Zephyr Hall", zoneMapID = 84, x = 0.2, y = 0.2 }
+    tier[#tier + 1], tier[#tier + 2] = 80101, 80102
+    local results = QR.DestinationSearch:CollectResults("zephyr")
+    local names = {}
+    for _, group in ipairs(results.dungeons) do
+        for _, instance in ipairs(group.instances) do names[#names + 1] = instance.name end
+    end
+    tier[#tier], tier[#tier - 1] = nil, nil
+    dd.instances[80101], dd.instances[80102] = savedA, savedB
+    t:assertEqual(2, #names, "both constructed instances match, got " .. table.concat(names, ", "))
+    t:assertEqual("Zephyr Hall", names[1],
+        "the name starting with the query comes first, got " .. table.concat(names, ", "))
+end)
+
+
+T:run("DestSearch: a quest not in the log is offered as a reference, not as an objective", function(t)
+    resetState()
+    -- The role vocabulary was wired into the result rows and only the helper
+    -- had a test, so the call site could be replaced by a constant unnoticed.
+    local saved = C_QuestLog.IsOnQuest
+    C_QuestLog.IsOnQuest = function(questID) return questID == 90001 end
+    QR.DestinationSearch._cachedWatchedQuests = {
+        { questID = 90001, title = "Active one", mapID = 84, x = 0.1, y = 0.1, zoneName = "Elwynn" },
+        { questID = 90002, title = "Stale one", mapID = 84, x = 0.2, y = 0.2, zoneName = "Elwynn" },
+    }
+    local results = QR.DestinationSearch:CollectResults("")
+    C_QuestLog.IsOnQuest = saved
+    QR.DestinationSearch._cachedWatchedQuests = nil
+    local byID = {}
+    for _, quest in ipairs(results.quests) do byID[quest.questID] = quest.role end
+    t:assertEqual(QR.TargetIdentity.ROLE.OBJECTIVE, byID[90001], "the quest in the log is an objective")
+    t:assertEqual(QR.TargetIdentity.ROLE.REFERENCE, byID[90002],
+        "the one that is not is a known location, got " .. tostring(byID[90002]))
+end)
+
+T:run("DestSearch: the catalogue status reports what is actually loaded", function(t)
+    resetState()
+    local dd = QR.DungeonData
+    local savedTiers = dd.numTiers
+    dd.numTiers = 0
+    local without = QR.DestinationSearch:CollectResults("")
+    dd.numTiers = savedTiers
+    t:assertFalse(without.status.dungeonCatalogue, "an unloaded catalogue is reported as unloaded")
+    local with = QR.DestinationSearch:CollectResults("")
+    t:assertTrue(with.status.dungeonCatalogue, "and a loaded one as loaded")
+end)

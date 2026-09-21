@@ -27,11 +27,11 @@ QR.ServicePOIs = {
         -- Horde
         { mapID = 85,   x = 0.5430, y = 0.6295, faction = "Horde" },     -- Orgrimmar
         { mapID = 88,   x = 0.3920, y = 0.5296, faction = "Horde" },     -- Thunder Bluff
-        { mapID = 2393, x = 0.6764, y = 0.7074, faction = "Horde" },     -- Silvermoon Horde enclave
+        { mapID = 2393, x = 0.6764, y = 0.7074, faction = "Horde", provenance = "surveyed" }, -- Silvermoon Horde enclave
         -- https://www.wowhead.com/guide/dazaralor-horde-city-important-locations
         { mapID = 1165, x = 0.44, y = 0.40, faction = "Horde", requiresEngineering = true }, -- Dazar'alor
         -- Neutral
-        { mapID = 2393, x = 0.5028, y = 0.7486, faction = "both" },      -- Silvermoon shared district
+        { mapID = 2393, x = 0.5028, y = 0.7486, faction = "both", provenance = "surveyed" }, -- Silvermoon shared district
         -- Northrend's Like Clockwork auctioneers became public in Cataclysm;
         -- do not apply Legion's engineering restriction to this older city.
         -- https://www.wowhead.com/npc=35607/reginald-arcfire#comments

@@ -70,7 +70,8 @@ QR.PortalHubs = {
             {destination = "Caverns of Time", mapID = 71, x = 0.6390, y = 0.5060},
             -- 2393 is the revamped Silvermoon the portal lands on; the
             -- coordinates are the old map 110 values and are unverified.
-            {destination = "Silvermoon City", mapID = 2393, x = 0.5850, y = 0.1920},
+            {destination = "Silvermoon City", mapID = 2393, x = 0.5850, y = 0.1920,
+                provenance = "unverified"},
             {destination = "Thunder Bluff", mapID = 88, x = 0.2920, y = 0.2740},
         },
     },
@@ -88,7 +89,8 @@ QR.PortalHubs = {
             {destination = "Thunder Bluff", mapID = 88, x = 0.2920, y = 0.2740},
             -- 2393 is the revamped Silvermoon; coordinates are the old map
             -- 110 values and are unverified on the new layout.
-            {destination = "Silvermoon City", mapID = 2393, x = 0.5850, y = 0.1920},
+            {destination = "Silvermoon City", mapID = 2393, x = 0.5850, y = 0.1920,
+                provenance = "unverified"},
         },
     },
 

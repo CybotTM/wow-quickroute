@@ -213,7 +213,8 @@ local CAPITAL_CITIES = {
     -- leaving this at 110 made the destination search offer a Silvermoon on a
     -- different map than the one the portals land on.
     -- https://news.blizzard.com/en-us/article/24243213/welcome-to-silvermoon-city
-    ["Silvermoon City"] = {mapID = 2393, x = 0.5028, y = 0.7486, faction = "both"},
+    ["Silvermoon City"] = {mapID = 2393, x = 0.5028, y = 0.7486, faction = "both",
+        provenance = "surveyed"},
     ["Dalaran (Northrend)"] = {mapID = 125, x = 0.4947, y = 0.4709, faction = "both"},
     ["Dalaran (Broken Isles)"] = {mapID = 627, x = 0.5044, y = 0.5313, faction = "both"},
     ["Shattrath City"] = {mapID = 111, x = 0.5410, y = 0.4120, faction = "both"},
@@ -756,6 +757,7 @@ PathCalculator.FAILURE = {
     SEARCH_LIMIT = "search_limit",
     BLOCKED = "blocked",
     STEP_REJECTED = "step_rejected",
+    SUPERSEDED = "superseded",
     NO_CONNECTION = "no_connection",
     INTERNAL_ERROR = "internal_error",
 }
@@ -778,6 +780,7 @@ local FAILURE_MESSAGE = {
     search_limit = "ROUTE_FAIL_SEARCH_LIMIT",
     blocked = "ROUTE_FAIL_BLOCKED",
     step_rejected = "ROUTE_FAIL_STEP_REJECTED",
+    superseded = "ROUTE_FAIL_SUPERSEDED",
     no_connection = "ROUTE_FAIL_NO_CONNECTION",
     internal_error = "ROUTE_FAIL_INTERNAL",
 }
@@ -785,6 +788,7 @@ local FAILURE_MESSAGE = {
 -- Whether trying the same request again can succeed without the player doing
 -- anything. A search budget is worth retrying; a missing connection is not.
 local FAILURE_RETRYABLE = {
+    superseded = true,
     position_unavailable = true,
     graph_unavailable = true,
     search_limit = true,
@@ -1148,6 +1152,12 @@ end
 function PathCalculator:CancelAsync()
     self.asyncGeneration = (self.asyncGeneration or 0) + 1
     self.asyncPending = nil
+    -- A consumer of the public contract is waiting on whatever this supersedes,
+    -- and dropping its callback silently is the one answer the contract does
+    -- not allow. Internal callers reach this too, which is the point.
+    if QR.RoutingAPI and QR.RoutingAPI.NotifySuperseded then
+        QR.RoutingAPI:NotifySuperseded()
+    end
     return self.asyncGeneration
 end
 

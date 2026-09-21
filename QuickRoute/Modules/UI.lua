@@ -449,6 +449,36 @@ function UI:CreateContent(parentFrame)
     multiRouteButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.multiRouteButton = multiRouteButton
 
+    -- The dungeon offer's only surface. Without it the addon printed "Open
+    -- QuickRoute to route there" and then offered nothing to click, and
+    -- DungeonTravelOffer:Route had no caller outside its own tests.
+    -- On the same row as the other actions. A third row below them fell past
+    -- the separator at -60 and was drawn over the time readout and the first
+    -- step. The width follows the text, which names the instance.
+    local dungeonOfferButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["MULTI_ROUTE"]), BUTTON_HEIGHT)
+    dungeonOfferButton:Hide()
+    dungeonOfferButton:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.DungeonTravelOffer then QR.DungeonTravelOffer:Route() end
+    end)
+    dungeonOfferButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(self:GetText())
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    dungeonOfferButton:SetScript("OnLeave", GameTooltip_Hide)
+    frame.dungeonOfferButton = dungeonOfferButton
+    -- Anchored after currencyButton exists, at the end of that row.
+    frame.dungeonOfferAnchor = function()
+        dungeonOfferButton:ClearAllPoints()
+        -- After the phase button, which takes the same anchor off currencyButton
+        -- and is created later: both sat on the same point and the phase button
+        -- took the clicks in the 93 pixels they shared.
+        local previous = frame.phaseButton or frame.currencyButton or multiRouteButton
+        dungeonOfferButton:SetPoint("LEFT", previous, "RIGHT", BUTTON_PADDING, 0)
+    end
+
     local currencyButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["CURRENCY_VENDORS"]), BUTTON_HEIGHT)
     currencyButton:SetPoint("LEFT", multiRouteButton, "RIGHT", BUTTON_PADDING, 0)
     currencyButton:SetText(L["CURRENCY_VENDORS"])
@@ -762,10 +792,24 @@ end
 
 --- Update the route display with calculation result
 -- @param result table The result from CalculatePathToWaypoint
+--- Show or hide the dungeon-offer button for the offer currently pending.
+function UI:RefreshDungeonOffer()
+    local button = self.frame and self.frame.dungeonOfferButton
+    if not button then return end
+    local pending = QR.DungeonTravelOffer and QR.DungeonTravelOffer.pending
+    if not pending then button:Hide() return end
+    local text = string_format(L["DUNGEON_OFFER_ROUTE"], tostring(pending.title))
+    button:SetText(text)
+    button:SetWidth(CalculateButtonWidth(text))
+    if self.frame.dungeonOfferAnchor then self.frame.dungeonOfferAnchor() end
+    button:Show()
+end
+
 function UI:UpdateRoute(result)
     if not self.frame then
         return
     end
+    self:RefreshDungeonOffer()
     -- The destination the rows on screen belong to. A refusal made on one of
     -- them has to be stamped with this, not with whatever a background
     -- calculation happened to ask for last.

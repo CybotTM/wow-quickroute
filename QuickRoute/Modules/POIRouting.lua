@@ -46,6 +46,19 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
         end
     end
 
+    -- A destination the player chose by hand is theirs. Claiming it and locking
+    -- it means an alert or a guide step can ask for a detour but cannot quietly
+    -- replace where they were going.
+    --
+    -- TakeOver rather than Claim: a detour must not stand against the player
+    -- choosing somewhere else by hand. Refusing here made every routing entry
+    -- point -- the map click, the dungeon picker, the Encounter Journal button,
+    -- the vendor router -- dead for as long as a dungeon offer was pending.
+    if QR.Journey then
+        QR.Journey:TakeOver(QR.Journey.SOURCE.MANUAL, { mapID = mapID, x = x, y = y, title = zoneName })
+        QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
+    end
+
     QR:Debug(string_format(
         "POIRouting: routing to map %d (%s) at (%.4f, %.4f)",
         mapID, zoneName, x, y

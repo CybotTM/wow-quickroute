@@ -23,4 +23,14 @@ Follow-up cases from live feedback:
 16. Start a route, then remove its target or choose an unreachable target. Old travel buttons and QuickRoute navigation must disappear. Immediately replace the native map pin with your own: clearing the old route must preserve the replacement. Clear a route immediately after calculating it and confirm no delayed callback restores the arrow.
 17. Open quest and currency search results, then change the quest objective or visit a merchant whose currency offer changed before clicking a result. The click must use current target/offer data or report that it is unavailable, rather than routing to the stale result.
 
-Store results with the tested commit. Publishing this checklist is not evidence that the checks were run.
+Cases for the routing changes of 2026-09-20:
+
+18. Paste one section of a community profession guide, headings and notes included, with comma-separated coordinates and a semicolon inside a label. Every waypoint line must be imported, every other line must be named in the preview, and a malformed `/way` line must still refuse the whole import. Repeat with a zone name in place of the map ID, and with a zone name that matches nothing.
+19. On an Alliance character, search for Silvermoon. The shared hub must be offered and the route must reach the shared district, not the Horde enclave. Repeat on Horde. On both, confirm Orgrimmar and Stormwind are still filtered by faction.
+20. Force each failure: route while the position is unavailable, to a destination with no known connection, and through a portal the character has not unlocked. The three must read differently, and only the position case may offer a retry.
+21. Follow a route whose approach crosses a zone boundary and one that passes a cave mouth. The navigation must reach the intermediate anchor before the final coordinate, and must not jump straight to the destination.
+22. Refuse a step with "Cannot use" mid-journey. The destination must be kept and an alternative offered; refusing the only route must say so rather than claiming no connection exists. Route somewhere else and back: the refusal must still apply to the route it was made on and to no other. Right-click Refresh: every refusal must be taken back. Log out and back in: they must be gone.
+23. Accept a Premade Group Finder invitation for a dungeon. Either an offer appears for the right instance with a button to route there, or the debug log shows why the activity could not be resolved. Nothing may set a waypoint or cast anything by itself. Start a manual trip first: the offer must suspend it and give it back.
+24. During a 20-stop trip and a large vendor comparison, record median and worst frame time. Change the destination midway: the superseded calculation must never replace the newer route.
+
+Store results with the tested commit, in the form `RETAIL-EVIDENCE-TEMPLATE.md` sets out. Publishing this checklist is not evidence that the checks were run.

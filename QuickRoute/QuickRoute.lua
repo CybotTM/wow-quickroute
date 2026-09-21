@@ -238,6 +238,7 @@ function QR:OnPlayerLogin()
             { "EJButton",           function() if QR.EncounterJournalButton then QR.EncounterJournalButton:Initialize() end end },
             { "DungeonPicker",      function() QR.DungeonPicker:Initialize() end },
             { "DestinationSearch",  function() QR.DestinationSearch:Initialize() end },
+            { "DungeonTravelOffer", function() QR.DungeonTravelOffer:Initialize() end },
             { "ServiceRouter",      function() QR.ServiceRouter:Initialize() end },
             { "MultiRoute",         function() QR.MultiRoute:Initialize() end },
             { "SettingsPanel",      function() QR.SettingsPanel:Initialize() end },
