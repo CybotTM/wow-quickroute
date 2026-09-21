@@ -139,21 +139,29 @@ function Offer:Route(callback)
     return true
 end
 
+--- The offer's own detour, suspended under somebody else's.
+-- @return table|nil The ledger entry, innermost first
+function Offer:SuspendedDetour()
+    local suspended = QR.Journey and QR.Journey.suspended
+    if type(suspended) ~= "table" then return nil end
+    for index = #suspended, 1, -1 do
+        local entry = suspended[index]
+        if entry.detour and entry.source == QR.Journey.SOURCE.DUNGEON_OFFER then
+            return entry
+        end
+    end
+    return nil
+end
+
 --- Point an offer detour that is suspended under somebody else's at a new
 --- instance.
 -- @return boolean Whether such an entry was found
 function Offer:RetargetSuspended(destination)
-    local suspended = QR.Journey and QR.Journey.suspended
-    if type(suspended) ~= "table" then return false end
-    for index = #suspended, 1, -1 do
-        local entry = suspended[index]
-        if entry.detour and entry.source == QR.Journey.SOURCE.DUNGEON_OFFER then
-            entry.destination = { mapID = destination.mapID, x = destination.x,
-                y = destination.y, title = destination.title }
-            return true
-        end
-    end
-    return false
+    local entry = self:SuspendedDetour()
+    if not entry then return false end
+    entry.destination = { mapID = destination.mapID, x = destination.x,
+        y = destination.y, title = destination.title }
+    return true
 end
 
 --- Drop the offer. Entering the instance is the normal reason.
@@ -257,6 +265,13 @@ function Offer:Initialize()
             -- treating "the current journey is not mine" as proof of a takeover
             -- destroyed it the moment that unrelated detour ended.
             if not self.holdsDetour then return end
+            -- "I took a detour once" is not "my detour is gone". With two
+            -- foreign detours above it, the offer's own entry is still in the
+            -- ledger when the outer one ends, and destroying the offer here
+            -- left that entry unreachable: every clear path is gated on
+            -- `pending`. The player's own trip, suspended below it, never came
+            -- back.
+            if self:SuspendedDetour() then return end
             self.pending = nil
             self.clearWhenFree = nil
             self.holdsDetour = nil

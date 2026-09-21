@@ -293,6 +293,88 @@ T:run("DungeonOffer: a second offer under a foreign detour retargets the suspend
     end)
 end)
 
+T:run("DungeonOffer: two foreign detours above the offer's do not destroy it", function(t)
+    withInstance(70017, { name = "Nested Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        QR.Journey:Clear()
+        QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = 84, x = 0.1, y = 0.2, title = "Chosen" })
+        QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
+        QR.DungeonTravelOffer:Present(70017, 33)
+        QR.Journey:Detour("rare_alert", { mapID = 90, x = 0.5, y = 0.5 })
+        QR.Journey:Detour("world_boss", { mapID = 91, x = 0.5, y = 0.5 })
+        -- The outer foreign detour ends. The offer's own detour is not current
+        -- and not gone: it is the entry below the one that just came back.
+        QR.Journey:Release("world_boss")
+        t:assertEqual("rare_alert", QR.Journey:Get().source,
+            "the inner foreign detour is current, got " .. tostring(QR.Journey:Get().source))
+        t:assertNotNil(QR.DungeonTravelOffer.pending,
+            "the offer survives, because its detour is still in the ledger")
+
+        -- And the whole stack unwinds: without the offer, its detour would be
+        -- unreachable and the player's locked trip would never come back.
+        QR.Journey:Release("rare_alert")
+        t:assertEqual(QR.Journey.SOURCE.DUNGEON_OFFER, QR.Journey:Get().source,
+            "the offer's detour is current again")
+        QR.DungeonTravelOffer:Clear()
+        t:assertEqual(QR.Journey.SOURCE.MANUAL, QR.Journey:Get().source,
+            "and clearing the offer gives the player their own trip back, got "
+            .. tostring(QR.Journey:Get().source))
+        QR.Journey:Clear()
+    end)
+end)
+
+T:run("DungeonOffer: retargeting a suspended offer makes the offer hold that detour", function(t)
+    withInstance(70018, { name = "Gamma Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        withInstance(70019, { name = "Delta Halls", zoneMapID = 86, x = 0.6, y = 0.7 }, function()
+            QR.Journey:Clear()
+            QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = 84, x = 0.1, y = 0.2 })
+            QR.Journey:Lock(QR.Journey.SOURCE.MANUAL)
+            QR.DungeonTravelOffer:Present(70018, 34)
+            QR.Journey:Detour("rare_alert", { mapID = 90, x = 0.5, y = 0.5 })
+            QR.DungeonTravelOffer:Present(70019, 35)
+            t:assertTrue(QR.DungeonTravelOffer.holdsDetour,
+                "the retargeted entry is the offer's own detour")
+            -- Read through what the flag governs rather than through the flag
+            -- alone: the release listener destroys an offer that holds nothing.
+            QR.Journey:Release("rare_alert")
+            QR.Journey:Release(QR.Journey.SOURCE.DUNGEON_OFFER)
+            t:assertNil(QR.DungeonTravelOffer.pending,
+                "so ending it is read as the journey being taken over")
+            QR.Journey:Clear()
+        end)
+    end)
+end)
+
+T:run("DungeonOffer: retargeting reports no entry rather than guessing", function(t)
+    withInstance(70020, { name = "Epsilon Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        QR.Journey:Clear()
+        local destination = { mapID = 86, x = 0.6, y = 0.7, title = "Epsilon Halls" }
+        t:assertFalse(QR.DungeonTravelOffer:RetargetSuspended(destination),
+            "an empty ledger holds no offer detour")
+
+        -- A suspended entry that is itself a detour, from another source. A
+        -- scan that asks only "is this a detour" moves somebody else's arrow.
+        QR.Journey:Claim(QR.Journey.SOURCE.MANUAL, { mapID = 84, x = 0.1, y = 0.2 })
+        QR.Journey:Detour("rare_alert", { mapID = 90, x = 0.5, y = 0.5, title = "Rare" })
+        QR.Journey:Detour("world_boss", { mapID = 91, x = 0.5, y = 0.5 })
+        t:assertFalse(QR.DungeonTravelOffer:RetargetSuspended(destination),
+            "and a suspended detour from another source is not ours to move")
+        t:assertEqual("Rare", QR.Journey.suspended[2].destination.title,
+            "so its destination is untouched, got "
+            .. tostring(QR.Journey.suspended[2].destination.title))
+
+        -- The ledger is a field of a module that may not be loaded. Present
+        -- reads the return value, so a nil ledger must answer false rather
+        -- than raise.
+        local savedSuspended = QR.Journey.suspended
+        QR.Journey.suspended = nil
+        local ok, answered = pcall(function() return QR.DungeonTravelOffer:RetargetSuspended(destination) end)
+        QR.Journey.suspended = savedSuspended
+        t:assertTrue(ok, "a ledger that is not a table does not raise")
+        t:assertFalse(answered, "it answers that there is no entry")
+        QR.Journey:Clear()
+    end)
+end)
+
 T:run("DungeonOffer: the offer button does not sit on top of another control", function(t)
     withInstance(70016, { name = "Overlap Halls", zoneMapID = 84, x = 0.4, y = 0.5 }, function()
         QR.UI:Initialize()
