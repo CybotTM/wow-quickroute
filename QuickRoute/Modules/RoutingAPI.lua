@@ -125,7 +125,9 @@ function API:CalculateRoute(request, callback)
     handle.callback = callback
 
     local function publish(route, failure)
-        if handle.cancelled or handle.withdrawn then return end
+        -- `cancelled` alone: Cancel sets both, and supersession sets only
+        -- `cancelled`, so testing `withdrawn` here could never change anything.
+        if handle.cancelled then return end
         inFlight[1] = nil
         if not route then
             callback(nil, Detached(failure or { reason = "no_connection" }))

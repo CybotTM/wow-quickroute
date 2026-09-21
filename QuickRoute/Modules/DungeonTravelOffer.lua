@@ -93,9 +93,20 @@ function Offer:Present(journalInstanceID, resultID)
             -- it left an offer detour that nothing could reach: every clear
             -- path is gated on `pending`, which the entry into the instance
             -- had already cleared.
+            --
+            -- An earlier offer of ours may still be suspended below. Retargeting
+            -- it keeps the ledger and the offer naming the same dungeon; without
+            -- that, ending the foreign detour restored the arrow to the first
+            -- instance while the button named the second.
+            if self:RetargetSuspended(self.pending) then
+                self.holdsDetour = true
+            else
+                self.holdsDetour = false
+            end
             QR:Debug("DungeonTravelOffer: another detour is in force, no detour taken")
         else
             QR.Journey:Detour(QR.Journey.SOURCE.DUNGEON_OFFER, self.pending)
+            self.holdsDetour = true
         end
     end
     QR:Print(string.format(QR.L["DUNGEON_OFFER_READY"], tostring(instance.name)))
@@ -128,13 +139,33 @@ function Offer:Route(callback)
     return true
 end
 
+--- Point an offer detour that is suspended under somebody else's at a new
+--- instance.
+-- @return boolean Whether such an entry was found
+function Offer:RetargetSuspended(destination)
+    local suspended = QR.Journey and QR.Journey.suspended
+    if type(suspended) ~= "table" then return false end
+    for index = #suspended, 1, -1 do
+        local entry = suspended[index]
+        if entry.detour and entry.source == QR.Journey.SOURCE.DUNGEON_OFFER then
+            entry.destination = { mapID = destination.mapID, x = destination.x,
+                y = destination.y, title = destination.title }
+            return true
+        end
+    end
+    return false
+end
+
 --- Drop the offer. Entering the instance is the normal reason.
 -- Ending the detour restores whatever journey it interrupted.
 function Offer:Clear()
     -- Release first. Dropping `pending` regardless left the detour in force
     -- with every remaining clear path gated on `pending`, so nothing could ever
     -- end it.
-    if QR.Journey then
+    -- Only an offer that took a journey has one to give back. An offer
+    -- presented while a third source held a detour never took one, and waiting
+    -- for a journey it does not own would keep it forever.
+    if QR.Journey and self.holdsDetour then
         local held = QR.Journey:Get()
         if held and held.source ~= QR.Journey.SOURCE.DUNGEON_OFFER then
             QR:Debug("DungeonTravelOffer: another source holds the journey, offer kept")
@@ -146,6 +177,7 @@ function Offer:Clear()
     end
     self.pending = nil
     self.clearWhenFree = nil
+    self.holdsDetour = nil
     if QR.UI and QR.UI.RefreshDungeonOffer then QR.UI:RefreshDungeonOffer() end
     return true
 end
@@ -217,12 +249,17 @@ function Offer:Initialize()
                 if self.clearWhenFree then self:Clear() end
                 return
             end
-            -- The offer's detour is gone and somebody else owns the journey:
-            -- the player took it over by choosing somewhere else. The offer no
-            -- longer stands, and the pending record has to go with it or
-            -- nothing will ever clear it.
+            -- The player took the journey over by choosing somewhere else, so
+            -- the offer no longer stands.
+            --
+            -- Only when this offer actually held a detour. An offer presented
+            -- while a third source held one never took a journey at all, and
+            -- treating "the current journey is not mine" as proof of a takeover
+            -- destroyed it the moment that unrelated detour ended.
+            if not self.holdsDetour then return end
             self.pending = nil
             self.clearWhenFree = nil
+            self.holdsDetour = nil
             if QR.UI and QR.UI.RefreshDungeonOffer then QR.UI:RefreshDungeonOffer() end
         end)
     end

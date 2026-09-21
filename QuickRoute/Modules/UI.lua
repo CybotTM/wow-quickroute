@@ -472,7 +472,11 @@ function UI:CreateContent(parentFrame)
     -- Anchored after currencyButton exists, at the end of that row.
     frame.dungeonOfferAnchor = function()
         dungeonOfferButton:ClearAllPoints()
-        dungeonOfferButton:SetPoint("LEFT", frame.currencyButton or multiRouteButton, "RIGHT", BUTTON_PADDING, 0)
+        -- After the phase button, which takes the same anchor off currencyButton
+        -- and is created later: both sat on the same point and the phase button
+        -- took the clicks in the 93 pixels they shared.
+        local previous = frame.phaseButton or frame.currencyButton or multiRouteButton
+        dungeonOfferButton:SetPoint("LEFT", previous, "RIGHT", BUTTON_PADDING, 0)
     end
 
     local currencyButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["CURRENCY_VENDORS"]), BUTTON_HEIGHT)

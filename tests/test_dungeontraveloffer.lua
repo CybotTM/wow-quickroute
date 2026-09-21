@@ -1,4 +1,4 @@
-local T, QR = ...
+local T, QR, MockWoW = ...
 
 -- Travel to a dungeon is offered when the player is accepted into a group for
 -- it. The identity of the instance comes from an id, never from the group's
@@ -246,7 +246,11 @@ T:run("DungeonOffer: a foreign detour is not stacked under", function(t)
             "and no second detour was stacked under it, got " .. #QR.Journey.suspended)
         QR.Journey:Release("rare_alert")
         t:assertEqual(QR.Journey.SOURCE.MANUAL, QR.Journey:Get().source, "the player's trip comes back")
+        -- The offer never held a journey, so ending an unrelated detour must not
+        -- be read as the player taking over and destroy it.
+        t:assertNotNil(QR.DungeonTravelOffer.pending, "and the offer is still there to click")
         QR.DungeonTravelOffer:Clear()
+        t:assertNil(QR.DungeonTravelOffer.clearWhenFree, "the clear left no flag behind")
         QR.Journey:Clear()
     end)
 end)
@@ -264,6 +268,47 @@ T:run("DungeonOffer: a detour ended with Resume also releases the offer", functi
         QR.Journey:Resume("rare_alert")
         t:assertNil(QR.DungeonTravelOffer.pending,
             "ending the detour with Resume clears the offer too")
+        QR.Journey:Clear()
+    end)
+end)
+
+T:run("DungeonOffer: a second offer under a foreign detour retargets the suspended one", function(t)
+    withInstance(70014, { name = "Alpha Halls", zoneMapID = 85, x = 0.4, y = 0.5 }, function()
+        withInstance(70015, { name = "Beta Halls", zoneMapID = 86, x = 0.6, y = 0.7 }, function()
+            QR.Journey:Clear()
+            QR.DungeonTravelOffer:Present(70014, 31)
+            QR.Journey:Detour("rare_alert", { mapID = 90, x = 0.5, y = 0.5 })
+            QR.DungeonTravelOffer:Present(70015, 32)
+            t:assertEqual("Beta Halls", QR.DungeonTravelOffer.pending.title, "the newer offer is the pending one")
+            QR.Journey:Release("rare_alert")
+            -- The ledger and the offer have to name the same dungeon: ending the
+            -- foreign detour used to restore the arrow to the first instance
+            -- while the button named the second.
+            t:assertEqual("Beta Halls", QR.Journey:Get().destination.title,
+                "and the restored detour points at it too, got "
+                .. tostring(QR.Journey:Get().destination.title))
+            QR.DungeonTravelOffer:Clear()
+            QR.Journey:Clear()
+        end)
+    end)
+end)
+
+T:run("DungeonOffer: the offer button does not sit on top of another control", function(t)
+    withInstance(70016, { name = "Overlap Halls", zoneMapID = 84, x = 0.4, y = 0.5 }, function()
+        QR.UI:Initialize()
+        QR.Journey:Clear()
+        QR.DungeonTravelOffer:Present(70016, 33)
+        local frame = QR.UI.frame
+        local offer = MockWoW:ComputeFrameBounds(frame.dungeonOfferButton)
+        for _, name in ipairs({ "multiRouteButton", "currencyButton", "phaseButton" }) do
+            local other = frame[name] and MockWoW:ComputeFrameBounds(frame[name])
+            if other then
+                t:assertTrue(offer.left >= other.right or offer.right <= other.left,
+                    "the offer button clears " .. name .. ": offer [" .. offer.left .. "," .. offer.right
+                    .. "] vs " .. name .. " [" .. other.left .. "," .. other.right .. "]")
+            end
+        end
+        QR.DungeonTravelOffer:Clear()
         QR.Journey:Clear()
     end)
 end)
