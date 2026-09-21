@@ -3428,16 +3428,23 @@ T:run("Rejected step: restoring refusals does not change the destination", funct
     end
     t:assertEqual(1, refreshes, "ten right-clicks in a second recalculate once, got " .. refreshes)
 
-    -- And the throttle lets go. Without this the same assertions hold for a
-    -- button that never works a second time.
+    -- And the throttle lets go, at one second. Asserting only that it
+    -- eventually releases leaves the length free: a two-second throttle passes
+    -- a release measured at two seconds just as well.
     local savedTime = MockWoW.config.baseTime
-    MockWoW.config.baseTime = savedTime + 2
+    MockWoW.config.baseTime = savedTime + 0.9
+    QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
+    t:assertEqual(1, refreshes, "just under a second is still swallowed, got " .. refreshes)
+    MockWoW.config.baseTime = savedTime + 1.1
     QR.UI.frame.refreshButton:GetScript("OnClick")(QR.UI.frame.refreshButton, "RightButton")
     MockWoW.config.baseTime = savedTime
-    t:assertEqual(2, refreshes, "a click two seconds later recalculates again, got " .. refreshes)
+    t:assertEqual(2, refreshes, "just over a second recalculates again, got " .. refreshes)
 
     QR.UI.RefreshRoute = savedRefresh
     QR.db = savedDB
+    -- Both throttles go back as the next test expects to find them. Resetting
+    -- at the start of a test protects that test, not its successor.
+    QR.UI.lastRefreshClickTime, QR.UI.lastRestoreClickTime = 0, 0
 end)
 
 T:run("Cooperative search: a parked search keeps its own journey's refusals", function(t)
