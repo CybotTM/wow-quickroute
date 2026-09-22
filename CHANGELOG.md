@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [1.20.0] - 2026-09-22
 
 ### Added
 - Resolve known hearthstone inns from their localized bind name without requiring a first use. Use a compact, sourced inn catalogue and retain observed character bindings as the preferred destination. Morgenluft defaults to its current Midnight version until an actual binding or arrival is observed.
