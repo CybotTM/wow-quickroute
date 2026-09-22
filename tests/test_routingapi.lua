@@ -15,7 +15,13 @@ local function withDriver(body)
             callback()
         end
     end
-    local ok, err = pcall(body, pc, drain)
+    -- One frame: the timers already scheduled run, the ones they schedule wait.
+    local function tick()
+        local frame = queue
+        queue = {}
+        for _, callback in ipairs(frame) do callback() end
+    end
+    local ok, err = pcall(body, pc, drain, tick)
     pc.CalculatePath, C_Timer.After = savedCalculate, savedAfter
     pc:CancelAsync()
     if not ok then error(err, 0) end
@@ -276,6 +282,36 @@ T:run("RoutingAPI: the contract still supersedes its own earlier request", funct
         drain()
         t:assertEqual("superseded", first, "one consumer asking twice replaces its own request")
         t:assertEqual("route", second, "and the newer one publishes")
+    end)
+end)
+
+T:run("RoutingAPI: a late publish does not empty a newer request's slot", function(t)
+    withDriver(function(pc, drain, tick)
+        -- h1 is short and finishes in its first slice; its publish waits one
+        -- tick. h2 is asked for before that tick and takes several frames. The
+        -- tick then emptied the slot h2 had taken, so when h3 replaced h2,
+        -- nobody told h2 -- the one answer the contract promises never to
+        -- withhold.
+        local calls = 0
+        pc.CalculatePath = function()
+            calls = calls + 1
+            if calls > 1 then
+                for _ = 1, 3 do coroutine.yield() end
+            end
+            return { totalTime = 1, steps = {} }
+        end
+        local heard = {}
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function(_, f) heard.h1 = f and f.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+            function(_, f) heard.h2 = f and f.reason or "route" end)
+        tick()
+        t:assertNil(heard.h2, "h2 is still running after one frame")
+        QuickRouteAPI:CalculateRoute({ mapID = 86, x = 0.5, y = 0.5 },
+            function(_, f) heard.h3 = f and f.reason or "route" end)
+        drain()
+        t:assertEqual("superseded", heard.h2, "h2 is told it was replaced, got " .. tostring(heard.h2))
+        t:assertEqual("route", heard.h3, "h3 got its route, got " .. tostring(heard.h3))
     end)
 end)
 

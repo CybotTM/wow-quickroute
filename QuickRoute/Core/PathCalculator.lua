@@ -1137,8 +1137,12 @@ end
 -- the earlier requests of its OWN consumer and nothing else: a player who picks
 -- another destination does not want the one they just replaced, and a route
 -- panel refresh must not destroy the dungeon offer's search or a foreign
--- addon's. One calculation runs at a time, so the frame budget still bounds
--- what a frame spends on searching.
+-- addon's. One calculation runs at a time, and each slice of it is held to the
+-- frame budget. That bounds a slice, not a frame: a request made from inside a
+-- finishing request's callback starts at once and takes its own first slice in
+-- the same frame. A flag that deferred it was tried and dropped -- if its timer
+-- ever failed to fire, every later request would wait in the queue for good,
+-- which is a worse failure than one frame spending the budget twice.
 --
 -- A queued request reads no ambient state while it waits. CalculatePath notes
 -- its own destination as the journey before anything can yield, so a request
@@ -1332,9 +1336,9 @@ function PathCalculator:ResumeAsync()
             QR:Error("Route callback failed: " .. tostring(err))
         end
     end
-    -- The next request starts on the next frame rather than here. Starting it
-    -- inline handed the same frame a fresh full budget, so a frame could spend
-    -- the budget once per queued request instead of once.
+    -- The next queued request starts on the next frame rather than here, so a
+    -- queue of waiting requests does not each take a fresh budget in the frame
+    -- the previous one finished in.
     if C_Timer and C_Timer.After then
         C_Timer.After(0, function() self:StepAsync() end)
     else

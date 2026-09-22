@@ -138,7 +138,10 @@ function API:CalculateRoute(request, callback)
         -- `cancelled` alone: Cancel sets both, and supersession sets only
         -- `cancelled`, so testing `withdrawn` here could never change anything.
         if handle.cancelled then return end
-        inFlight[1] = nil
+        -- Only this handle's own slot. The publish waits a tick, and a later
+        -- request may already have taken the slot; emptying it then left that
+        -- request unannounced when a third one superseded it.
+        if inFlight[1] == handle then inFlight[1] = nil end
         if not route then
             callback(nil, Detached(failure or { reason = "no_connection" }))
             return

@@ -1911,3 +1911,33 @@ T:run("RefreshRoute: a refresh whose stamp moved on gives the flag back", functi
         t:assertTrue(started, "and the next refresh is not refused by a stale flag")
     end)
 end)
+
+T:run("RefreshRoute: a refresh replaced after its stamp moved still gives the flag back", function(t)
+    withParkedRefresh(function(drain)
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the refresh is in flight")
+        -- The window closes while the search is parked, which moves the stamp,
+        -- and then a map click replaces the request. The refresh's callback
+        -- never runs, so this is the only place the flag can come back.
+        QR.UI:ClearStepLabels()
+        QR.PathCalculator:CalculatePathAsync(85, 0.2, 0.2, nil, function() end,
+            { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
+        t:assertFalse(QR.UI.isCalculating, "the replaced refresh gave the calculating state back")
+        drain()
+    end)
+end)
+
+T:run("RefreshRoute: a refresh to the active waypoint gives the flag back when replaced", function(t)
+    withParkedRefresh(function(drain)
+        -- No locked destination: the refresh goes through the waypoint helper,
+        -- which has to pass the abandon notice on to the calculator.
+        QR.db.destinationLocked = false
+        setMapPinWaypoint(84, 0.3, 0.3)
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the refresh is in flight")
+        QR.PathCalculator:CalculatePathAsync(85, 0.2, 0.2, nil, function() end,
+            { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
+        t:assertFalse(QR.UI.isCalculating, "the replaced refresh gave the calculating state back")
+        drain()
+    end)
+end)

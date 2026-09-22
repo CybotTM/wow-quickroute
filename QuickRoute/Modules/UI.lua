@@ -702,7 +702,7 @@ function UI:RefreshRoute()
     -- after the panel moved on to another destination is dropped rather than
     -- rendered over the newer one.
     local generation = self.routeGeneration
-    local function abandoned() self:AbandonRefresh(generation) end
+    local function abandoned() self:AbandonRefresh() end
     local success, errOrResult = pcall(function()
         -- For saved/locked destinations, calculate directly (bypass waypoint detection)
         if waypoint.source == "saved" or waypoint.source == "locked" then
@@ -739,9 +739,14 @@ end
 -- RefreshRoute returns at its own guard while that flag stands: the panel
 -- would keep "Calculating..." and refuse every later refresh for the rest of
 -- the session.
--- @param generation number The route stamp the abandoned search was started under
-function UI:AbandonRefresh(generation)
-    if self.routeGeneration ~= generation then return end
+--
+-- The stamp is not checked here. It moves while a refresh is parked -- the
+-- window closing, another consumer's route reaching UpdateRoute -- and a
+-- replaced refresh must give the flag back in that case too. Nothing newer can
+-- lose its state: RefreshRoute is the only place that sets the flag, it cannot
+-- run while the flag stands, and this runs once, synchronously, before the
+-- replacing request is queued.
+function UI:AbandonRefresh()
     self:ResetCalculatingState()
 end
 
