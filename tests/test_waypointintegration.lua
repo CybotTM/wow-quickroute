@@ -359,14 +359,19 @@ end)
 -- 8. CalculatePathToWaypoint
 -------------------------------------------------------------------------------
 
-T:run("CalculatePathToWaypoint: returns nil when no waypoint", function(t)
+T:run("CalculatePathToWaypointAsync: answers nil when there is no waypoint", function(t)
     resetState()
 
-    local result = QR.WaypointIntegration:CalculatePathToWaypoint()
-    t:assertNil(result, "No result when no waypoint")
+    local called, result = 0, "unset"
+    local started = QR.WaypointIntegration:CalculatePathToWaypointAsync(function(route)
+        called, result = called + 1, route
+    end)
+    t:assertFalse(started, "no waypoint, no request")
+    t:assertEqual(1, called, "the caller is answered rather than left waiting")
+    t:assertNil(result, "and the answer is no route")
 end)
 
-T:run("CalculatePathToWaypoint: returns result with waypoint info", function(t)
+T:run("CalculatePathToWaypointAsync: the route carries the waypoint it was for", function(t)
     resetState()
     setMapPinWaypoint(84, 0.3, 0.3)
     MockWoW.config.currentMapID = 84
@@ -377,14 +382,19 @@ T:run("CalculatePathToWaypoint: returns result with waypoint info", function(t)
         QR.PathCalculator.graphDirty = true
     end
 
-    local result = QR.WaypointIntegration:CalculatePathToWaypoint()
+    local called, result = 0, nil
+    local started = QR.WaypointIntegration:CalculatePathToWaypointAsync(function(route)
+        called, result = called + 1, route
+    end)
+    t:assertTrue(started, "a waypoint produces a request")
+    t:assertEqual(1, called, "the callback runs exactly once")
 
     if result then
         t:assertNotNil(result.waypoint, "Result has waypoint info")
         t:assertNotNil(result.waypointSource, "Result has waypointSource")
     else
         -- Path might not be found if graph is minimal - that's OK
-        t:assertTrue(true, "CalculatePathToWaypoint returned nil (no path found)")
+        t:assertTrue(true, "CalculatePathToWaypointAsync produced no route (no path found)")
     end
 end)
 
@@ -2043,4 +2053,28 @@ T:run("Waypoint cost: an empty tracker measures nothing and says so", function(t
         "an empty tracker is reported rather than measured")
     t:assertNil(report:find("cold total", 1, true),
         "and no total is offered for a measurement that did not happen")
+end)
+
+T:run("/qrwp reports when its route request is replaced", function(t)
+    resetState()
+    setMapPinWaypoint(84, 0.3, 0.3)
+    -- The command used to report every time. With the route panel's requests
+    -- queued, a later panel request can replace this one before it answers;
+    -- the command must still say something rather than go silent.
+    local pc = QR.PathCalculator
+    local savedAsync, savedPrint = pc.CalculatePathAsync, _G.print
+    local printed = {}
+    _G.print = function(text) printed[#printed + 1] = tostring(text) end
+    pc.CalculatePathAsync = function(_, _, _, _, _, _, options)
+        if options and options.onSuperseded then options.onSuperseded() end
+        return 1
+    end
+    local ok, err = pcall(SlashCmdList["QRWP"], "")
+    pc.CalculatePathAsync, _G.print = savedAsync, savedPrint
+    t:assertTrue(ok, "the command ran, got " .. tostring(err))
+    local said = false
+    for _, line in ipairs(printed) do
+        if line:find(QR.L["ROUTE_FAIL_SUPERSEDED"], 1, true) then said = true end
+    end
+    t:assertTrue(said, "the replaced request is reported, printed: " .. table.concat(printed, " | "))
 end)

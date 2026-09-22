@@ -201,7 +201,10 @@ function Offer:Route(callback)
                 QR.UI:UpdateRoute(result)
             end
             if type(callback) == "function" then callback(result, failure) end
-        end)
+        end,
+        -- The offer's own key. A route panel refresh or a foreign addon's
+        -- request queues behind this search rather than destroying it.
+        { consumer = QR.ROUTE_CONSUMER.DUNGEON_OFFER })
     return true
 end
 

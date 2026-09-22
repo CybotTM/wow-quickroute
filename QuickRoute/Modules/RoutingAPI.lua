@@ -107,7 +107,7 @@ function API:GetVersion()
 end
 
 --- Ask for a route.
--- Calculation spends a measured budget per frame. The callback receives either
+-- Calculation is spread across frames in budgeted slices. The callback receives either
 -- a detached result or nil plus a failure table naming the reason.
 -- Nothing here sets a waypoint, changes the player's pin or starts travel.
 -- @param request table {mapID, x, y, title}
@@ -138,7 +138,10 @@ function API:CalculateRoute(request, callback)
         -- `cancelled` alone: Cancel sets both, and supersession sets only
         -- `cancelled`, so testing `withdrawn` here could never change anything.
         if handle.cancelled then return end
-        inFlight[1] = nil
+        -- Only this handle's own slot. The publish waits a tick, and a later
+        -- request may already have taken the slot; emptying it then left that
+        -- request unannounced when a third one superseded it.
+        if inFlight[1] == handle then inFlight[1] = nil end
         if not route then
             callback(nil, Detached(failure or { reason = "no_connection" }))
             return
@@ -157,10 +160,15 @@ function API:CalculateRoute(request, callback)
         }))
     end
 
-    -- Registered after the calculator is asked, not before. CalculatePathAsync
-    -- supersedes what was in flight and NotifySuperseded tells whoever that
-    -- was; with this handle already registered, it would have announced the new
-    -- request as superseded by itself.
+    -- Registered after the calculator is asked, not before. The request below
+    -- supersedes this contract's own earlier request and NotifySuperseded tells
+    -- that consumer; with this handle already registered, it would have
+    -- announced the new request as superseded by itself.
+    --
+    -- The consumer key is what keeps QuickRoute's own route panel, its dungeon
+    -- offer and this contract out of each other's way: they queue rather than
+    -- destroy each other, so a foreign addon's request is no longer cancelled
+    -- because the player opened the route panel.
     handle.generation = QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, function(route, failure)
         -- A short route finishes inside the first budget, so without this the
         -- callback could run before CalculateRoute returned and the consumer
@@ -170,16 +178,24 @@ function API:CalculateRoute(request, callback)
         else
             publish(route, failure)
         end
-    end)
+    end, {
+        consumer = QR.ROUTE_CONSUMER.API,
+        onSuperseded = function() API:NotifySuperseded() end,
+    })
     inFlight[1] = handle
     return handle
 end
 
---- Tell the consumer in flight that something else took the calculator.
--- PathCalculator supersedes on every request, internal ones included, and the
--- stale callback is then dropped without a word. A consumer that hears nothing
--- cannot tell a slow route from a dead one, so the internal callers announce it
--- here. Idempotent: a handle is notified once.
+--- Tell the consumer in flight that its request was replaced.
+-- A superseded request's callback is dropped without a word, and a consumer
+-- that hears nothing cannot tell a slow route from a dead one. The calculator
+-- calls this through the request's `onSuperseded`, which happens when this
+-- contract is asked for a second route while the first is in flight.
+-- (CancelAsync, which drops every request, reaches here too; nothing in the
+-- addon calls it outside the tests.) An internal calculation for the route
+-- panel or the dungeon offer does not reach here: those carry their own
+-- consumer key and supersede only their own requests. Idempotent: a handle is
+-- notified once.
 function API:NotifySuperseded()
     local previous = inFlight[1]
     if not previous or previous.cancelled then return false end
@@ -208,9 +224,9 @@ function API:Cancel(handle)
     -- consumer withdrew, and nothing may call it again.
     handle.withdrawn = true
     if inFlight[1] == handle then inFlight[1] = nil end
-    if QR.PathCalculator.asyncGeneration == handle.generation then
-        QR.PathCalculator:CancelAsync()
-    end
+    -- Exactly this request. Cancelling everything took the dungeon offer's
+    -- search and the route panel's with it.
+    QR.PathCalculator:CancelRequest(handle.generation)
     return true
 end
 

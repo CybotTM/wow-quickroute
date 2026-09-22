@@ -7,6 +7,7 @@ local pairs, ipairs, type, tostring = pairs, ipairs, type, tostring
 local math_sqrt, math_max, math_min, math_huge, math_floor = math.sqrt, math.max, math.min, math.huge, math.floor
 local string_format = string.format
 local table_insert, table_sort, table_concat = table.insert, table.sort, table.concat
+local table_remove = table.remove
 local pcall = pcall
 
 -- Constants
@@ -1124,18 +1125,53 @@ end
 -- Scheduling one calculation per frame bounds how many searches start, not what
 -- one of them costs. A single expensive search still ran to completion inside
 -- one frame. The driver below runs a calculation inside a coroutine, spends a
--- measured budget per frame and continues on the next.
+-- measured budget per slice of the graph search and continues on the next
+-- frame. What that does and does not bound is set out further down.
 --
 -- Two guarantees matter as much as the budget. A superseded calculation cannot
--- publish: its result is dropped unless its generation is still the current one.
--- And a superseded calculation is still run to the end rather than abandoned,
--- because CalculatePath adds a temporary destination node to the shared graph
--- and removes it on the way out; dropping the coroutine would leave it behind.
+-- publish: its result is dropped once it is marked superseded. And a superseded
+-- calculation is still run to the end rather than abandoned, because
+-- CalculatePath adds a temporary destination node to the shared graph and
+-- removes it on the way out; dropping the coroutine would leave it behind.
+--
+-- Requests carry a consumer key and wait in a queue. A new request supersedes
+-- the earlier requests of its OWN consumer and nothing else: a player who picks
+-- another destination does not want the one they just replaced, and a route
+-- panel refresh must not destroy the dungeon offer's search or a foreign
+-- addon's. One calculation runs at a time. The budget is checked inside the
+-- graph search only; building the graph, placing the player and turning the
+-- path into steps run inside a slice without a check. And it bounds a slice,
+-- not a frame: a finish schedules the next start for the next frame, but a
+-- request that arrives before then starts the head of the queue at once, and
+-- every finish schedules its own start, so a frame can run more than one
+-- slice. A flag that held those starts back was tried and dropped -- if its
+-- timer ever failed to fire, every later request would wait in the queue for
+-- good, which is worse than a frame spending the budget twice.
+--
+-- A queued request reads no ambient state while it waits. CalculatePath notes
+-- its own destination as the journey before anything can yield, so a request
+-- that starts three frames late still answers for the destination it was made
+-- for.
 -------------------------------------------------------------------------------
 
--- Milliseconds of route search per frame.
+-- Milliseconds of graph search per slice.
 PathCalculator.FRAME_BUDGET_MS = 6
 PathCalculator.asyncGeneration = 0
+-- Requests waiting for the calculator, oldest first.
+PathCalculator.asyncQueue = {}
+
+-- The consumers that ask for a route. A key names an owner, not a call site:
+-- the route panel, a map click and the waypoint command all fill the same
+-- panel, so they share one and supersede each other.
+-- On the namespace rather than on PathCalculator: a route context created by
+-- CreateRouteContext falls through to PathCalculator for functions only, and a
+-- test that stands a double in for the calculator would take the keys with it.
+local CONSUMER = {
+    ROUTE_PANEL = "route_panel",
+    DUNGEON_OFFER = "dungeon_offer",
+    API = "api",
+}
+QR.ROUTE_CONSUMER = CONSUMER
 
 local function ProfileClock()
     local clock = _G.debugprofilestop
@@ -1145,30 +1181,85 @@ local function ProfileClock()
     return clock
 end
 
---- Supersede any calculation in flight.
--- The running search finishes so the graph is left clean, but its result is no
--- longer published.
+-- Mark one request superseded and tell whoever asked for it.
+local function Supersede(request)
+    if request.superseded then return end
+    request.superseded = true
+    if type(request.onSuperseded) == "function" then request.onSuperseded() end
+end
+
+--- Supersede every request of one consumer, queued or running.
+-- @param consumer string The consumer key
+function PathCalculator:SupersedeConsumer(consumer)
+    local kept = {}
+    for _, request in ipairs(self.asyncQueue or {}) do
+        if request.consumer == consumer then
+            Supersede(request)
+        else
+            kept[#kept + 1] = request
+        end
+    end
+    self.asyncQueue = kept
+    local running = self.asyncRunning
+    if running and running.consumer == consumer then Supersede(running) end
+end
+
+--- Supersede one request by the generation CalculatePathAsync returned.
+-- What a consumer withdrawing a single request needs: its other requests, and
+-- everybody else's, are left alone.
+-- @param generation number
+-- @return boolean True when a request with that generation was found
+function PathCalculator:CancelRequest(generation)
+    local found, kept = false, {}
+    for _, request in ipairs(self.asyncQueue or {}) do
+        if request.generation == generation then
+            found = true
+            request.superseded = true
+        else
+            kept[#kept + 1] = request
+        end
+    end
+    self.asyncQueue = kept
+    local running = self.asyncRunning
+    if running and running.generation == generation then
+        running.superseded = true
+        found = true
+    end
+    return found
+end
+
+--- Supersede every calculation, queued or in flight.
+-- The blunt form: nothing published afterwards, whoever asked. A running search
+-- still finishes so the graph is left clean. Each request it drops is told
+-- through its own `onSuperseded`, which is how the public contract hears.
 -- @return number The new current generation
 function PathCalculator:CancelAsync()
     self.asyncGeneration = (self.asyncGeneration or 0) + 1
-    self.asyncPending = nil
-    -- A consumer of the public contract is waiting on whatever this supersedes,
-    -- and dropping its callback silently is the one answer the contract does
-    -- not allow. Internal callers reach this too, which is the point.
-    if QR.RoutingAPI and QR.RoutingAPI.NotifySuperseded then
-        QR.RoutingAPI:NotifySuperseded()
-    end
+    for _, request in ipairs(self.asyncQueue or {}) do Supersede(request) end
+    self.asyncQueue = {}
+    if self.asyncRunning then Supersede(self.asyncRunning) end
     return self.asyncGeneration
 end
 
 --- Calculate a route across frames.
--- @param callback function Receives (route, failure) when this request is still
---   the current one
+-- @param callback function Receives (route, failure) unless this request is
+--   superseded first
+-- @param options table|nil `consumer` names the owner whose earlier requests
+--   this one replaces; `onSuperseded` is called if this request is replaced
 -- @return number The generation of this request
-function PathCalculator:CalculatePathAsync(destMapID, destX, destY, destTitle, callback)
-    local generation = self:CancelAsync()
-    self.asyncPending = {
+function PathCalculator:CalculatePathAsync(destMapID, destX, destY, destTitle, callback, options)
+    options = options or {}
+    local consumer = options.consumer or CONSUMER.ROUTE_PANEL
+    local generation = (self.asyncGeneration or 0) + 1
+    self.asyncGeneration = generation
+    -- Before the new request is queued, so a consumer's own supersession
+    -- notice cannot announce the new request as replaced by itself.
+    self:SupersedeConsumer(consumer)
+    self.asyncQueue = self.asyncQueue or {}
+    self.asyncQueue[#self.asyncQueue + 1] = {
         generation = generation,
+        consumer = consumer,
+        onSuperseded = options.onSuperseded,
         args = { destMapID, destX, destY, destTitle },
         callback = callback,
     }
@@ -1176,12 +1267,14 @@ function PathCalculator:CalculatePathAsync(destMapID, destX, destY, destTitle, c
     return generation
 end
 
---- Start the queued request, if any and if nothing is running.
+--- Start the next queued request, if any and if nothing is running.
 function PathCalculator:StepAsync()
     if self.asyncRunning then return end
-    local pending = self.asyncPending
-    if not pending then return end
-    self.asyncPending = nil
+    -- A superseded request is taken out of the queue by whatever superseded
+    -- it, so the head of the queue is always live.
+    local queue = self.asyncQueue or {}
+    if #queue == 0 then return end
+    local pending = table_remove(queue, 1)
     -- Baseline. CalculatePath raises it again if it rebuilds the graph itself,
     -- so only a rebuild by somebody else leaves the two apart.
     pending.graphBuild = self.graphBuild or 0
@@ -1192,7 +1285,7 @@ function PathCalculator:StepAsync()
     self:ResumeAsync()
 end
 
---- Spend one frame's budget on the running calculation.
+--- Run one slice of the running calculation, within the search budget.
 function PathCalculator:ResumeAsync()
     local running = self.asyncRunning
     if not running then return end
@@ -1235,10 +1328,23 @@ function PathCalculator:ResumeAsync()
         route, failure = nil, { reason = self.FAILURE.GRAPH_UNAVAILABLE, retryable = true }
     end
     -- A superseded request never publishes, whatever it found.
-    if running.generation == self.asyncGeneration and type(running.callback) == "function" then
-        running.callback(route, failure)
+    --
+    -- The callback is guarded. It belongs to whoever asked, and with a queue
+    -- behind it a raising callback would strand every request waiting on the
+    -- calculator until somebody happened to ask again.
+    if not running.superseded and type(running.callback) == "function" then
+        local delivered, err = pcall(running.callback, route, failure)
+        if not delivered then
+            QR:Error("Route callback failed: " .. tostring(err))
+        end
     end
-    self:StepAsync()
+    -- The next queued request is started from the next frame rather than from
+    -- here. See the section header for what that does and does not bound.
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function() self:StepAsync() end)
+    else
+        self:StepAsync()
+    end
 end
 
 --- Create a reusable calculator with its own graph and position caches.

@@ -1123,40 +1123,44 @@ end
 -- Path Calculation Integration
 -------------------------------------------------------------------------------
 
---- Calculate path to the active waypoint
--- Gets active waypoint and calculates path using PathCalculator
--- @return table|nil Path result with waypoint info added, or nil if no waypoint/path
-function WaypointIntegration:CalculatePathToWaypoint()
+--- Calculate the path to the active waypoint across frames.
+-- The search yields between frames rather than running to completion inside
+-- one, so a long calculation does not hold the client.
+-- The failure reason travels with the empty result so the caller can tell
+-- "cannot reach" from "cannot currently establish a route".
+-- @param callback function Receives (result, failure). The result carries the
+--   waypoint and the source it came from
+-- @param onSuperseded function|nil Called instead when another consumer of the
+--   route panel replaces this request, so the caller can give up its state
+-- @return boolean False when there is no active waypoint to route to
+function WaypointIntegration:CalculatePathToWaypointAsync(callback, onSuperseded)
     local waypoint, source = self:GetActiveWaypoint()
     if not waypoint then
-        return nil
+        if type(callback) == "function" then callback(nil, nil) end
+        return false
     end
 
     -- Detect if player is inside an instance
-    local inInstance, instanceType = IsInInstance()
+    local inInstance = IsInInstance()
     if inInstance then
         QR:Log("WARN", "Player is inside instance, pathfinding may be limited")
     end
 
-    -- Calculate path using PathCalculator. The failure reason travels with the
-    -- empty result so the caller can tell "cannot reach" from "cannot
-    -- currently establish a route".
-    local result, failure = QR.PathCalculator:CalculatePath(
+    QR.PathCalculator:CalculatePathAsync(
         waypoint.mapID,
         waypoint.x,
         waypoint.y,
-        waypoint.title
+        waypoint.title,
+        function(result, failure)
+            if result then
+                result.waypoint = waypoint
+                result.waypointSource = source
+            end
+            if type(callback) == "function" then callback(result, failure) end
+        end,
+        { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL, onSuperseded = onSuperseded }
     )
-
-    if not result then
-        return nil, failure
-    end
-
-    -- Add waypoint info to result
-    result.waypoint = waypoint
-    result.waypointSource = source
-
-    return result
+    return true
 end
 
 -------------------------------------------------------------------------------
@@ -1795,39 +1799,43 @@ SlashCmdList["QRWP"] = function(msg)
         print(string_format("  Source: %s | Map: %d | Position: (%.2f, %.2f)",
             source, waypoint.mapID or 0, waypoint.x or 0, waypoint.y or 0))
 
-        -- Calculate path
-        local result = WaypointIntegration:CalculatePathToWaypoint()
-
-        -- Show UI with result
-        if QR.UI then
-            QR.UI:Show()
-            if result then
-                QR.UI:UpdateRoute(result)
-            else
-                QR.UI:ClearRoute()
+        -- The report is printed from the callback: the search runs across
+        -- frames, so there is nothing to print yet when this returns.
+        WaypointIntegration:CalculatePathToWaypointAsync(function(result)
+            if QR.UI then
+                QR.UI:Show()
+                if result then
+                    QR.UI:UpdateRoute(result)
+                else
+                    QR.UI:ClearRoute()
+                end
             end
-        end
 
-        if not result then
-            print("|cFFFF0000QuickRoute|r: No path found to waypoint")
-            return
-        end
-
-        print("----------------------------------------")
-        print(string_format("|cFFFFFF00Destination:|r %s", waypoint.title))
-        print(string_format("|cFFFFFF00Total time:|r %s",
-            QR.CooldownTracker and QR.CooldownTracker:FormatTime(result.totalTime) or tostring(result.totalTime)))
-        print("----------------------------------------")
-        print("|cFFFFFF00Steps:|r")
-
-        if result.steps then
-            for i, step in ipairs(result.steps) do
-                local timeStr = QR.CooldownTracker and QR.CooldownTracker:FormatTime(step.time) or "?"
-                print(string_format("  %d. %s |cFFAAAAAA(%s)|r", i, step.action or "?", timeStr))
+            if not result then
+                print("|cFFFF0000QuickRoute|r: No path found to waypoint")
+                return
             end
-        end
 
-        print("----------------------------------------")
+            print("----------------------------------------")
+            print(string_format("|cFFFFFF00Destination:|r %s", waypoint.title))
+            print(string_format("|cFFFFFF00Total time:|r %s",
+                QR.CooldownTracker and QR.CooldownTracker:FormatTime(result.totalTime) or tostring(result.totalTime)))
+            print("----------------------------------------")
+            print("|cFFFFFF00Steps:|r")
+
+            if result.steps then
+                for i, step in ipairs(result.steps) do
+                    local timeStr = QR.CooldownTracker and QR.CooldownTracker:FormatTime(step.time) or "?"
+                    print(string_format("  %d. %s |cFFAAAAAA(%s)|r", i, step.action or "?", timeStr))
+                end
+            end
+
+            print("----------------------------------------")
+        end, function()
+            -- Another request for the route panel replaced this one before it
+            -- answered. The command used to report every time; it still does.
+            print("|cFFFF0000QuickRoute|r: " .. QR.PathCalculator:DescribeFailure({ reason = "superseded" }))
+        end)
     end)
 
     if not success then

@@ -77,25 +77,25 @@ T:run("RefreshRoute re-entrancy guard prevents double execution", function(t)
     -- Manually set isCalculating to true (simulating already running)
     QR.UI.isCalculating = true
 
-    -- Track if CalculatePathToWaypoint gets called
-    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypoint
+    -- Track if CalculatePathToWaypointAsync gets called
+    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypointAsync
     local calcCallCount = 0
-    QR.WaypointIntegration.CalculatePathToWaypoint = function(self)
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function(self, callback, onSuperseded)
         calcCallCount = calcCallCount + 1
-        return originalCalc(self)
+        return originalCalc(self, callback, onSuperseded)
     end
 
     -- Call RefreshRoute while isCalculating is true
     QR.UI:RefreshRoute()
 
-    -- Should NOT have called CalculatePathToWaypoint
-    t:assertEqual(0, calcCallCount, "CalculatePathToWaypoint was not called during re-entrant RefreshRoute")
+    -- Should NOT have called CalculatePathToWaypointAsync
+    t:assertEqual(0, calcCallCount, "CalculatePathToWaypointAsync was not called during re-entrant RefreshRoute")
 
     -- isCalculating should still be true (the guard returned early, not resetting)
     t:assertTrue(QR.UI.isCalculating, "isCalculating still true after guarded return")
 
     -- Restore
-    QR.WaypointIntegration.CalculatePathToWaypoint = originalCalc
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = originalCalc
     QR.UI.isCalculating = false
 end)
 
@@ -109,22 +109,22 @@ T:run("RefreshRoute executes normally when isCalculating is false", function(t)
 
     QR.UI.isCalculating = false
 
-    -- Track if CalculatePathToWaypoint gets called
-    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypoint
+    -- Track if CalculatePathToWaypointAsync gets called
+    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypointAsync
     local calcCalled = false
-    QR.WaypointIntegration.CalculatePathToWaypoint = function(self)
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function(self, callback)
         calcCalled = true
-        return originalCalc(self)
+        return originalCalc(self, callback)
     end
 
     QR.UI:RefreshRoute()
 
-    t:assertTrue(calcCalled, "CalculatePathToWaypoint was called when not calculating")
+    t:assertTrue(calcCalled, "CalculatePathToWaypointAsync was called when not calculating")
     -- After completion, isCalculating should be false again
     t:assertFalse(QR.UI.isCalculating, "isCalculating reset to false after RefreshRoute completes")
 
     -- Restore
-    QR.WaypointIntegration.CalculatePathToWaypoint = originalCalc
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = originalCalc
 end)
 
 -------------------------------------------------------------------------------
@@ -439,10 +439,10 @@ T:run("RefreshRoute shows steps for a valid same-map waypoint", function(t)
 
     QR.UI.isCalculating = false
 
-    -- Mock CalculatePathToWaypoint to return a known result (UI test, not pathfinding test)
-    local originalCalcPath = QR.WaypointIntegration.CalculatePathToWaypoint
-    QR.WaypointIntegration.CalculatePathToWaypoint = function()
-        return {
+    -- Mock CalculatePathToWaypointAsync to return a known result (UI test, not pathfinding test)
+    local originalCalcPath = QR.WaypointIntegration.CalculatePathToWaypointAsync
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function(_, callback)
+        callback({
             waypoint = { title = "Map Pin", mapID = 84 },
             waypointSource = "mappin",
             totalTime = 30,
@@ -457,7 +457,8 @@ T:run("RefreshRoute shows steps for a valid same-map waypoint", function(t)
                     destY = 0.3,
                 },
             },
-        }
+        })
+        return true
     end
 
     -- Mock CreateStepLabel to avoid secure frame issues in test env
@@ -483,7 +484,7 @@ T:run("RefreshRoute shows steps for a valid same-map waypoint", function(t)
     -- Restore
     C_Timer.After = originalTimerAfter
     QR.UI.CreateStepLabel = originalCreateStepLabel
-    QR.WaypointIntegration.CalculatePathToWaypoint = originalCalcPath
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = originalCalcPath
 end)
 
 T:run("RefreshRoute handles no waypoint gracefully", function(t)
@@ -511,9 +512,9 @@ T:run("RefreshRoute handles path calculation error gracefully", function(t)
     MockWoW.config.currentMapID = 84
     setMapPinWaypoint(84, 0.3, 0.3)
 
-    -- Override CalculatePathToWaypoint to throw
-    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypoint
-    QR.WaypointIntegration.CalculatePathToWaypoint = function()
+    -- Override CalculatePathToWaypointAsync to throw
+    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypointAsync
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function()
         error("Simulated path calculation failure")
     end
 
@@ -524,7 +525,7 @@ T:run("RefreshRoute handles path calculation error gracefully", function(t)
     t:assertFalse(QR.UI.isCalculating, "isCalculating reset after calculation error")
 
     -- Restore
-    QR.WaypointIntegration.CalculatePathToWaypoint = originalCalc
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = originalCalc
 end)
 
 -------------------------------------------------------------------------------
@@ -941,9 +942,9 @@ T:run("RefreshRoute subtitle shows destination when waypoint found", function(t)
     end
 
     -- Mock path calculation to return a result
-    local origCalcPath = QR.WaypointIntegration.CalculatePathToWaypoint
-    QR.WaypointIntegration.CalculatePathToWaypoint = function()
-        return {
+    local origCalcPath = QR.WaypointIntegration.CalculatePathToWaypointAsync
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function(_, callback)
+        callback({
             waypoint = { title = "Map Pin", mapID = 84 },
             waypointSource = "mappin",
             totalTime = 30,
@@ -951,7 +952,8 @@ T:run("RefreshRoute subtitle shows destination when waypoint found", function(t)
                 { type = "walk", action = "Walk", time = 30, to = "Target",
                   destMapID = 84, destX = 0.3, destY = 0.3 },
             },
-        }
+        })
+        return true
     end
 
     -- Show on route tab and refresh
@@ -968,7 +970,7 @@ T:run("RefreshRoute subtitle shows destination when waypoint found", function(t)
     -- Restore
     C_Timer.After = origTimerAfter
     QR.UI.CreateStepLabel = origCreateStepLabel
-    QR.WaypointIntegration.CalculatePathToWaypoint = origCalcPath
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = origCalcPath
 end)
 
 T:run("RefreshRoute subtitle shows TAB_ROUTE when no waypoint", function(t)
@@ -1728,14 +1730,17 @@ T:run("RefreshRoute subtitles avoid duplicate zones in normal and precomputed ro
     ensureUIFrame()
     local ui, main, integration = QR.UI, QR.MainFrame, QR.WaypointIntegration
     local saved = {mapInfo = C_Map.GetMapInfo, active = integration.GetActiveWaypoint,
-        calculate = integration.CalculatePathToWaypoint, update = ui.UpdateRoute,
+        calculate = integration.CalculatePathToWaypointAsync, update = ui.UpdateRoute,
         tab = main.activeTab, subtitle = main.subtitle:GetText(), locked = QR.db.destinationLocked,
         destination = QR.db.lastDestination, pending = ui._pendingPOIRoute, calculating = ui.isCalculating,
         refreshed = ui.lastRefreshTime}
     local waypoint, zoneName
     C_Map.GetMapInfo = function() return zoneName and {name = zoneName} or nil end
     integration.GetActiveWaypoint = function() return waypoint end
-    integration.CalculatePathToWaypoint = function() return {steps = {}, totalTime = 0} end
+    integration.CalculatePathToWaypointAsync = function(_, callback)
+        callback({steps = {}, totalTime = 0})
+        return true
+    end
     ui.UpdateRoute = function() end
     main.activeTab, QR.db.destinationLocked = "route", false
     local ok, err = pcall(function()
@@ -1758,7 +1763,7 @@ T:run("RefreshRoute subtitles avoid duplicate zones in normal and precomputed ro
         end
     end)
     C_Map.GetMapInfo, integration.GetActiveWaypoint = saved.mapInfo, saved.active
-    integration.CalculatePathToWaypoint, ui.UpdateRoute = saved.calculate, saved.update
+    integration.CalculatePathToWaypointAsync, ui.UpdateRoute = saved.calculate, saved.update
     main.activeTab = saved.tab
     main.subtitle:SetText(saved.subtitle)
     QR.db.destinationLocked, QR.db.lastDestination = saved.locked, saved.destination
@@ -1837,4 +1842,184 @@ T:run("UI: the reject button does not cover the step text on a row without a Use
     t:assertTrue(reject.right <= nav.left - (nav.right - nav.left),
         "the reject button leaves the secure slot free: reject.right " .. tostring(reject.right)
         .. " vs nav.left " .. tostring(nav.left))
+end)
+
+-------------------------------------------------------------------------------
+-- A refresh that never publishes still gives back the calculating state
+--
+-- RefreshRoute sets isCalculating and returns at its own guard while the flag
+-- stands. With the search spanning frames, the flag has to come back on every
+-- way a refresh can end, or the panel keeps "Calculating..." and refuses every
+-- later refresh for the rest of the session.
+-------------------------------------------------------------------------------
+
+-- Runs `body` with a search that yields once and timers that wait to be
+-- drained, so a refresh is genuinely in flight while `body` acts on it.
+local function withParkedRefresh(body)
+    resetState()
+    ensureUIFrame()
+    local pc = QR.PathCalculator
+    local saved = { calc = pc.CalculatePath, after = C_Timer.After,
+        locked = QR.db.destinationLocked, destination = QR.db.lastDestination }
+    local queue = {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    pc.CalculatePath = function() coroutine.yield() return nil, { reason = "no_connection" } end
+    QR.db.destinationLocked = true
+    QR.db.lastDestination = { mapID = 84, x = 0.4, y = 0.4, title = "Parked" }
+    QR.UI.isCalculating = false
+    local function drain()
+        while #queue > 0 do table.remove(queue, 1)() end
+    end
+    local ok, err = pcall(body, drain)
+    pc.CalculatePath, C_Timer.After = saved.calc, saved.after
+    QR.db.destinationLocked, QR.db.lastDestination = saved.locked, saved.destination
+    pc:CancelAsync()
+    QR.UI.isCalculating = false
+    if not ok then error(err, 0) end
+end
+
+T:run("RefreshRoute: a refresh replaced by another panel consumer gives the flag back", function(t)
+    withParkedRefresh(function(drain)
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the refresh is in flight")
+        -- A map click and the waypoint command fill the same panel, so they
+        -- supersede its request. The refresh's own callback never runs.
+        QR.PathCalculator:CalculatePathAsync(85, 0.2, 0.2, nil, function() end,
+            { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
+        t:assertFalse(QR.UI.isCalculating, "the replaced refresh gave the calculating state back")
+        drain()
+    end)
+end)
+
+T:run("RefreshRoute: a refresh whose stamp moved on gives the flag back", function(t)
+    withParkedRefresh(function(drain)
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the refresh is in flight")
+        -- Closing the window clears the step list, and another consumer
+        -- publishing a route does the same through UpdateRoute. Either moves
+        -- the stamp this refresh was started under.
+        QR.UI:ClearStepLabels()
+        drain()
+        t:assertFalse(QR.UI.isCalculating, "the orphaned refresh gave the calculating state back")
+        -- The flag is what RefreshRoute's guard reads. With it back, the next
+        -- refresh starts instead of returning at the guard.
+        local started = false
+        local savedAsync = QR.PathCalculator.CalculatePathAsync
+        QR.PathCalculator.CalculatePathAsync = function() started = true return 1 end
+        QR.UI:RefreshRoute()
+        QR.PathCalculator.CalculatePathAsync = savedAsync
+        t:assertTrue(started, "and the next refresh is not refused by a stale flag")
+    end)
+end)
+
+T:run("RefreshRoute: a refresh replaced after its stamp moved still gives the flag back", function(t)
+    withParkedRefresh(function(drain)
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the refresh is in flight")
+        -- The window closes while the search is parked, which moves the stamp,
+        -- and then a map click replaces the request. The refresh's callback
+        -- never runs, so this is the only place the flag can come back.
+        QR.UI:ClearStepLabels()
+        QR.PathCalculator:CalculatePathAsync(85, 0.2, 0.2, nil, function() end,
+            { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
+        t:assertFalse(QR.UI.isCalculating, "the replaced refresh gave the calculating state back")
+        drain()
+    end)
+end)
+
+T:run("RefreshRoute: a refresh to the active waypoint gives the flag back when replaced", function(t)
+    withParkedRefresh(function(drain)
+        -- No locked destination: the refresh goes through the waypoint helper,
+        -- which has to pass the abandon notice on to the calculator.
+        QR.db.destinationLocked = false
+        setMapPinWaypoint(84, 0.3, 0.3)
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the refresh is in flight")
+        QR.PathCalculator:CalculatePathAsync(85, 0.2, 0.2, nil, function() end,
+            { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
+        t:assertFalse(QR.UI.isCalculating, "the replaced refresh gave the calculating state back")
+        drain()
+    end)
+end)
+
+T:run("RefreshRoute: a route handed over during a parked refresh is shown, not held back", function(t)
+    withParkedRefresh(function(drain)
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the refresh is in flight")
+        -- The trip planner hands a finished route to the panel the same way a
+        -- map click does, but calculates it synchronously, so nothing had
+        -- replaced the parked refresh. The route stayed pending and turned up
+        -- on the next refresh, late.
+        local shown, published = nil, 0
+        local savedUpdate, savedPublish = QR.UI.UpdateRoute, QR.UI.PublishRefreshedRoute
+        QR.UI.UpdateRoute = function(_, route) shown = route end
+        -- Counts only the parked refresh's own publish. A handover that merely
+        -- lowered the flag would let that refresh answer later, over the
+        -- handed-over route.
+        QR.UI.PublishRefreshedRoute = function(ui, ...)
+            published = published + 1
+            return savedPublish(ui, ...)
+        end
+        -- Another consumer's request is waiting as well. Handing a route to the
+        -- panel must replace the panel's own request and nothing else.
+        local offered = false
+        QR.PathCalculator:CalculatePathAsync(85, 0.3, 0.3, nil, function() offered = true end,
+            { consumer = QR.ROUTE_CONSUMER.DUNGEON_OFFER })
+        local handed = { totalTime = 5, steps = {}, waypoint = { mapID = 84, x = 0.2, y = 0.2, title = "Stop" } }
+        QR.UI._pendingPOIRoute = handed
+        QR.UI:RefreshRoute()
+        drain()
+        QR.UI.UpdateRoute, QR.UI.PublishRefreshedRoute = savedUpdate, savedPublish
+        t:assertEqual(handed, shown, "the handed-over route is the one shown")
+        t:assertNil(QR.UI._pendingPOIRoute, "and nothing stays pending for a later refresh")
+        t:assertFalse(QR.UI.isCalculating, "and the panel is not left calculating")
+        t:assertEqual(0, published, "the replaced refresh never publishes over it, got " .. published)
+        t:assertTrue(offered, "and the dungeon offer's request still ran")
+    end)
+end)
+
+T:run("RefreshRoute: a route handed over during a map click's search is the one that stays", function(t)
+    resetState()
+    ensureUIFrame()
+    local pc = QR.PathCalculator
+    local saved = { calc = pc.CalculatePath, after = C_Timer.After, update = QR.UI.UpdateRoute,
+        locked = QR.db.destinationLocked, destination = QR.db.lastDestination }
+    local queue, shown = {}, {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    pc.CalculatePath = function(_, mapID) coroutine.yield() return { totalTime = 1, steps = {}, tag = mapID } end
+    QR.UI.UpdateRoute = function(_, route) shown[#shown + 1] = route end
+    QR.UI.isCalculating = false
+    local ok, err = pcall(function()
+        -- The click's search is still running when the trip planner hands its
+        -- stop to the panel. The stop is the newer decision; the click used to
+        -- finish afterwards and paint its older route over it.
+        QR.POIRouting:RouteToMapPosition(85, 0.3, 0.3)
+        local trip = { totalTime = 2, steps = {}, waypoint = { mapID = 86, x = 0.1, y = 0.1, title = "Stop" } }
+        QR.UI._pendingPOIRoute = trip
+        QR.UI:RefreshRoute()
+        while #queue > 0 do table.remove(queue, 1)() end
+        t:assertEqual(1, #shown, "one route is shown, got " .. #shown)
+        t:assertEqual(trip, shown[#shown], "and it is the trip planner's stop")
+    end)
+    pc.CalculatePath, C_Timer.After, QR.UI.UpdateRoute = saved.calc, saved.after, saved.update
+    QR.db.destinationLocked, QR.db.lastDestination = saved.locked, saved.destination
+    QR.UI._pendingPOIRoute, QR.UI.isCalculating = nil, false
+    pc:CancelAsync()
+    if not ok then error(err, 0) end
+end)
+
+T:run("RefreshRoute: a refresh replaced twice gives its flag back once", function(t)
+    withParkedRefresh(function(drain)
+        -- The first refresh is running when a map click replaces it; a second
+        -- refresh then starts and replaces the click. The first refresh is
+        -- still the running request, and notifying it a second time would
+        -- take the second refresh's calculating flag down with it.
+        QR.UI:RefreshRoute()
+        QR.PathCalculator:CalculatePathAsync(85, 0.2, 0.2, nil, function() end,
+            { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
+        t:assertFalse(QR.UI.isCalculating, "the first refresh gave its flag back")
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the second refresh keeps its own flag")
+        drain()
+    end)
 end)

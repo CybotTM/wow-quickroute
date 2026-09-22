@@ -587,6 +587,22 @@ function UI:RefreshRoute()
         return
     end
 
+    -- A finished route handed over to the panel replaces whatever panel search
+    -- is still running: a parked refresh, a map click, the waypoint command.
+    -- The route handed over is the newer decision. Without this, a refresh's
+    -- guard held the route back until the next refresh, and a map click still
+    -- searching painted its older route over the trip planner's stop once it
+    -- finished. Superseding gives a refresh's calculating flag back through its
+    -- abandon notice, and the route is read below. When a map click hands over
+    -- its own route, nothing is left to replace: its request has finished, and
+    -- any panel request made after it would already have replaced the click, so
+    -- the click's callback would not be running. A re-entrant call from the
+    -- pending branch finds nothing pending, because that branch clears it
+    -- before rendering.
+    if self._pendingPOIRoute then
+        QR.PathCalculator:SupersedeConsumer(QR.ROUTE_CONSUMER.ROUTE_PANEL)
+    end
+
     -- Re-entrancy guard: auto-waypoint triggers TomTom callback which re-enters here
     if self.isCalculating then
         return
@@ -697,20 +713,29 @@ function UI:RefreshRoute()
         QR.MainFrame.subtitle:SetText(DestinationSubtitle(waypoint))
     end
 
-    -- Now try to calculate path
-    local success, errOrResult, failure = pcall(function()
+    -- The search runs across frames, so what follows it happens in a callback.
+    -- The route this refresh belongs to is stamped above; a result that arrives
+    -- after the panel moved on to another destination is dropped rather than
+    -- rendered over the newer one.
+    local generation = self.routeGeneration
+    local function abandoned() self:AbandonRefresh() end
+    local success, errOrResult = pcall(function()
         -- For saved/locked destinations, calculate directly (bypass waypoint detection)
         if waypoint.source == "saved" or waypoint.source == "locked" then
-            local calcResult, calcFailure = QR.PathCalculator:CalculatePath(
-                waypoint.mapID, waypoint.x, waypoint.y, waypoint.title
-            )
-            if calcResult then
-                calcResult.waypoint = waypoint
-                calcResult.waypointSource = waypoint.source
-            end
-            return calcResult, calcFailure
+            return QR.PathCalculator:CalculatePathAsync(
+                waypoint.mapID, waypoint.x, waypoint.y, waypoint.title,
+                function(calcResult, calcFailure)
+                    if calcResult then
+                        calcResult.waypoint = waypoint
+                        calcResult.waypointSource = waypoint.source
+                    end
+                    self:PublishRefreshedRoute(generation, waypoint, calcResult, calcFailure)
+                end,
+                { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL, onSuperseded = abandoned })
         end
-        return QR.WaypointIntegration:CalculatePathToWaypoint()
+        return QR.WaypointIntegration:CalculatePathToWaypointAsync(function(calcResult, calcFailure)
+            self:PublishRefreshedRoute(generation, waypoint, calcResult, calcFailure)
+        end, abandoned)
     end)
 
     if not success then
@@ -721,8 +746,45 @@ function UI:RefreshRoute()
         QR:Error(tostring(errOrResult))
         return
     end
+end
 
-    local result = errOrResult
+--- Give up a refresh that will never publish.
+-- Another consumer of the panel -- a map click, the waypoint command -- can
+-- replace this refresh's request, and then its callback never runs. The
+-- calculating flag set at the top of RefreshRoute would stay set, and
+-- RefreshRoute returns at its own guard while that flag stands: the panel
+-- would keep "Calculating..." and refuse every later refresh for the rest of
+-- the session.
+--
+-- The stamp is not checked here. It moves while a refresh is parked -- the
+-- window closing, another consumer's route reaching UpdateRoute -- and a
+-- replaced refresh must give the flag back in that case too. Nothing newer can
+-- lose its state: only RefreshRoute sets the flag, it starts a new refresh
+-- only once the flag is down, and at most one panel request is live, so the
+-- request this notice belongs to is the one the standing flag was set for.
+function UI:AbandonRefresh()
+    self:ResetCalculatingState()
+end
+
+--- Render the result of one RefreshRoute search.
+-- @param generation number The route stamp the search was started under
+-- @param waypoint table The destination the search was for
+-- @param result table|nil The route
+-- @param failure table|nil Why there is none
+function UI:PublishRefreshedRoute(generation, waypoint, result, failure)
+    -- Another destination was asked for while this search ran. Its own callback
+    -- renders; this one would only overwrite it with an older answer.
+    --
+    -- The calculating flag still has to come back. RefreshRoute cannot have
+    -- started a second time while it stood -- its own guard forbids that -- so
+    -- the flag standing here is this request's, and nothing newer loses its
+    -- state. The stamp moves on from outside RefreshRoute too: clearing the
+    -- step list does it, and another consumer publishing a route does it
+    -- through UpdateRoute.
+    if self.routeGeneration ~= generation then
+        self:ResetCalculatingState()
+        return
+    end
     if result then
         local updateOk, updateErr = pcall(function()
             self:UpdateRoute(result)

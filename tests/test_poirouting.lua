@@ -893,3 +893,19 @@ WorldMapFrame.HookScript = origHookScript
 QR.db.lastDestination = origDb.lastDestination
 QR.db.destinationLocked = origDb.destinationLocked
 QR.db.activeTab = origDb.activeTab
+
+T:run("POIRouting: an unreachable destination is not reported as an error", function(t)
+    local pc = QR.PathCalculator
+    local savedCalc, savedError, savedShow = pc.CalculatePath, QR.Error, QR.UI.Show
+    local errors = 0
+    pc.CalculatePath = function() return nil, { reason = "no_connection" } end
+    QR.Error = function() errors = errors + 1 end
+    QR.UI.Show = function() end
+    local ok, err = pcall(function() QR.POIRouting:RouteToMapPosition(84, 0.5, 0.5) end)
+    pc.CalculatePath, QR.Error, QR.UI.Show = savedCalc, savedError, savedShow
+    pc:CancelAsync()
+    t:assertTrue(ok, "the click ran, got " .. tostring(err))
+    -- No route is an answer the panel explains; before the search moved across
+    -- frames this printed nothing, and it must not start printing red text.
+    t:assertEqual(0, errors, "no error is printed for a destination with no route, got " .. errors)
+end)

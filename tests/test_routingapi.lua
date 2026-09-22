@@ -15,7 +15,13 @@ local function withDriver(body)
             callback()
         end
     end
-    local ok, err = pcall(body, pc, drain)
+    -- One frame: the timers already scheduled run, the ones they schedule wait.
+    local function tick()
+        local frame = queue
+        queue = {}
+        for _, callback in ipairs(frame) do callback() end
+    end
+    local ok, err = pcall(body, pc, drain, tick)
     pc.CalculatePath, C_Timer.After = savedCalculate, savedAfter
     pc:CancelAsync()
     if not ok then error(err, 0) end
@@ -246,18 +252,79 @@ T:run("RoutingAPI: superseded reads as its own sentence, not as an internal erro
     t:assertNotNil(text ~= QR.L["ROUTE_FAIL_INTERNAL"] or nil, "and not that the addon is broken")
 end)
 
-T:run("RoutingAPI: an internal calculation also tells the consumer it superseded", function(t)
+T:run("RoutingAPI: an internal calculation queues behind the contract rather than taking it", function(t)
     withDriver(function(pc, drain)
         pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
-        local heard
+        local heard, internal
         QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
             function(_, failure) heard = failure and failure.reason or "route" end)
         -- QuickRoute's own dungeon offer, the route panel, POIRouting: all of
-        -- these take the calculator without going through the contract.
-        pc:CalculatePathAsync(85, 0.2, 0.2, nil, function() end)
+        -- these take the calculator without going through the contract. They
+        -- used to supersede whatever was in flight, so opening the route panel
+        -- cancelled a foreign addon's request. Each consumer now supersedes
+        -- only its own earlier requests, and the rest queue.
+        pc:CalculatePathAsync(85, 0.2, 0.2, nil, function(route) internal = route and "route" or "none" end,
+            { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
         drain()
-        t:assertEqual("superseded", heard,
-            "the consumer is told rather than left waiting for a callback that will never come")
+        t:assertEqual("route", heard, "the contract's request still publishes")
+        t:assertEqual("route", internal, "and so does the internal one that followed it")
+    end)
+end)
+
+T:run("RoutingAPI: the contract still supersedes its own earlier request", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local first, second
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function(_, failure) first = failure and failure.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+            function(_, failure) second = failure and failure.reason or "route" end)
+        drain()
+        t:assertEqual("superseded", first, "one consumer asking twice replaces its own request")
+        t:assertEqual("route", second, "and the newer one publishes")
+    end)
+end)
+
+T:run("RoutingAPI: a late publish does not empty a newer request's slot", function(t)
+    withDriver(function(pc, drain, tick)
+        -- h1 is short and finishes in its first slice; its publish waits one
+        -- tick. h2 is asked for before that tick and takes several frames. The
+        -- tick then emptied the slot h2 had taken, so when h3 replaced h2,
+        -- nobody told h2 -- the one answer the contract promises never to
+        -- withhold.
+        local calls = 0
+        pc.CalculatePath = function()
+            calls = calls + 1
+            if calls > 1 then
+                for _ = 1, 3 do coroutine.yield() end
+            end
+            return { totalTime = 1, steps = {} }
+        end
+        local heard = {}
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function(_, f) heard.h1 = f and f.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+            function(_, f) heard.h2 = f and f.reason or "route" end)
+        tick()
+        t:assertNil(heard.h2, "h2 is still running after one frame")
+        QuickRouteAPI:CalculateRoute({ mapID = 86, x = 0.5, y = 0.5 },
+            function(_, f) heard.h3 = f and f.reason or "route" end)
+        drain()
+        t:assertEqual("superseded", heard.h2, "h2 is told it was replaced, got " .. tostring(heard.h2))
+        t:assertEqual("route", heard.h3, "h3 got its route, got " .. tostring(heard.h3))
+    end)
+end)
+
+T:run("RoutingAPI: cancelling one request leaves another consumer's alone", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local internal
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function() end)
+        pc:CalculatePathAsync(85, 0.2, 0.2, nil, function(route) internal = route and "route" or "none" end,
+            { consumer = QR.ROUTE_CONSUMER.DUNGEON_OFFER })
+        QuickRouteAPI:Cancel(handle)
+        drain()
+        t:assertEqual("route", internal, "the other consumer's request survives the withdrawal")
     end)
 end)
 

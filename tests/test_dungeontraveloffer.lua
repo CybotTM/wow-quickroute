@@ -236,6 +236,23 @@ T:run("DungeonOffer: a clear that could not finish still stops the route", funct
     end)
 end)
 
+T:run("DungeonOffer: the offer's search carries its own consumer key", function(t)
+    withInstance(70001, INSTANCE, function()
+        -- Under the route panel's key a panel refresh would replace the offer's
+        -- search, and the other way round.
+        local pc = QR.PathCalculator
+        local savedAsync = pc.CalculatePathAsync
+        local options
+        pc.CalculatePathAsync = function(_, _, _, _, _, _, opts) options = opts return 1 end
+        QR.DungeonTravelOffer:Present(70001)
+        QR.DungeonTravelOffer:Route()
+        pc.CalculatePathAsync = savedAsync
+        QR.DungeonTravelOffer:Clear()
+        t:assertEqual(QR.ROUTE_CONSUMER.DUNGEON_OFFER, options and options.consumer,
+            "the offer asks as the dungeon offer, got " .. tostring(options and options.consumer))
+    end)
+end)
+
 T:run("DungeonOffer: routing without an offer does nothing", function(t)
     QR.DungeonTravelOffer:Clear()
     t:assertFalse(QR.DungeonTravelOffer:Route(), "no offer, no request")
