@@ -630,8 +630,12 @@ T:run("MainFrame: hiding UIParent does not release the tab content", function(t)
     t:assertNotNil(onHide, "the window has an OnHide handler")
     if not onHide then return end
     frame._shown = true
+    local closesBefore = QR.MainFrame.closeCount
     onHide(frame)
 
+    t:assertEqual(closesBefore, QR.MainFrame.closeCount,
+        "an ancestor hide is not counted as a close (count went from "
+            .. tostring(closesBefore) .. " to " .. tostring(QR.MainFrame.closeCount) .. ")")
     t:assertEqual(populated, #QR.TeleportPanel.teleportRows,
         "the rows survive an ancestor hide (held: "
             .. tostring(#QR.TeleportPanel.teleportRows) .. ")")

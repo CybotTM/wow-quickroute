@@ -1800,9 +1800,11 @@ SlashCmdList["QRWP"] = function(msg)
             source, waypoint.mapID or 0, waypoint.x or 0, waypoint.y or 0))
 
         -- The report is printed from the callback: the search runs across
-        -- frames, so there is nothing to print yet when this returns.
+        -- frames, so there is nothing to print yet when this returns. A window
+        -- closed while it ran stays closed; the report is printed either way.
+        local closes = QR.MainFrame and QR.MainFrame.closeCount
         WaypointIntegration:CalculatePathToWaypointAsync(function(result)
-            if QR.UI then
+            if QR.UI and not (QR.MainFrame and QR.MainFrame:ClosedSince(closes)) then
                 QR.UI:Show()
                 if result then
                     QR.UI:UpdateRoute(result)

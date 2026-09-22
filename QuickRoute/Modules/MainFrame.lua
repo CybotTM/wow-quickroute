@@ -22,6 +22,10 @@ QR.MainFrame = {
     header = nil,        -- { portrait, title, subtitle } from CreatePortraitHeader
     initialized = false,
     wasShowingBeforeCombat = false,
+    -- How many times the window has been closed. A search that finishes on a
+    -- later frame compares it against the count taken when it started, so a
+    -- window closed in between is not opened again by the answer.
+    closeCount = 0,
 }
 
 local MainFrame = QR.MainFrame
@@ -112,6 +116,7 @@ function MainFrame:CreateFrame()
             return
         end
         MainFrame.isShowing = false
+        MainFrame.closeCount = MainFrame.closeCount + 1
         MainFrame:ReleaseTabContent()
     end)
 
@@ -282,6 +287,21 @@ function MainFrame:ReleaseTabContent()
     if QR.TeleportPanel and QR.TeleportPanel.ClearRows then
         QR.TeleportPanel:ClearRows()
     end
+end
+
+--- Whether the window was closed after a count taken with `closeCount`, and
+-- is still closed.
+-- For an answer that arrives frames after it was asked for: a window the player
+-- closed in the meantime stays closed. A window that was already closed when
+-- the count was taken may still be opened, because the player asked for the
+-- route with it closed. A window closed and opened again in the meantime is
+-- open, and the answer belongs in it: skipping it there left the reopened
+-- window on the old destination, or on "Calculating..." when the answer had
+-- already replaced the reopened window's own search.
+-- @param count number|nil The value of `closeCount` when the request started
+-- @return boolean
+function MainFrame:ClosedSince(count)
+    return count ~= nil and self.closeCount ~= count and not self.isShowing
 end
 
 --- Hide the main frame

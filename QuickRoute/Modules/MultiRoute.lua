@@ -409,6 +409,7 @@ function MR:Start(stops, fastestNext)
     self.stops, self.fastestNext = copy, fastestNext ~= false
     self.total = #copy
     self:Save()
+    self.closes = QR.MainFrame and QR.MainFrame.closeCount
     self:SelectNext()
     return true
 end
@@ -416,6 +417,13 @@ end
 function MR:DisplayRoute(stop, result)
     local waypoint = { mapID = stop.mapID, x = stop.x, y = stop.y, title = title(stop) }
     if QR.db then QR.db.lastDestination = waypoint end
+    -- The leg is chosen across frames. A route window the player closed after
+    -- starting the trip or confirming a stop stays closed; the leg is saved and
+    -- locked, so the next open routes to it.
+    if QR.MainFrame and QR.MainFrame:ClosedSince(self.closes) then
+        if QR.db then QR.db.destinationLocked = true end
+        return
+    end
     result.waypoint, result.waypointSource = waypoint, "map_click"
     if QR.UI then
         QR.UI._pendingPOIRoute = result
@@ -580,6 +588,7 @@ function MR:Next()
         self.currentIndex = nil
     end
     self:Save()
+    self.closes = QR.MainFrame and QR.MainFrame.closeCount
     if #self.stops == 0 then
         self.message = QR.L["MULTI_COMPLETE"]
         self:UpdateStatus()
