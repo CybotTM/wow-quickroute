@@ -52,7 +52,7 @@ The distribution listing text lives in [docs/CURSEFORGE-LISTING.md](docs/CURSEFO
 - **Acquisition Help:** Click a missing teleport item for its ATT details, or open QuickRoute's source help with requirements and a route when a source position is known
 - **Refuse a Step:** A step you cannot use gets a "Cannot use" button. QuickRoute keeps the destination, drops that connection for this route and looks for another way; right-clicking Refresh takes your refusals back
 - **Says Why It Failed:** A route that cannot be produced names its reason — position not available yet, something this character does not have, a refused step, or no known connection — because those need different responses from you
-- **Bounded Search:** A calculation another addon asks for through `QuickRouteAPI`, and the one behind a dungeon group offer, continue across frames instead of holding the client. The route panel, map-click routing and trip planning still calculate in one piece
+- **Bounded Search:** A calculation another addon asks for through `QuickRouteAPI`, and the one behind a dungeon group offer, continue across frames instead of holding the client. A trip comparison and the quest-tracker buttons start one calculation per frame, which bounds how many run at once rather than what one of them costs. The route panel and map-click routing still calculate in one piece
 - **Dungeon Group Offer:** Accepting a group invitation offers the way to that dungeon's entrance, and suspends the trip you were on rather than replacing it
 - **For Other Addons:** `QuickRouteAPI` is a versioned contract another addon can ask for a route through, without taking over your arrow (see below)
 
