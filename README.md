@@ -50,6 +50,11 @@ The distribution listing text lives in [docs/CURSEFORGE-LISTING.md](docs/CURSEFO
 - **Access Checks:** Known quest, level, class, faction, reputation and other requirements gate sourced travel connections
 - **Automatic Hearth Destination:** Recognize known inns from the client's localized bind name, even before the first use. Morgenluft defaults to its current Midnight version. Observed bindings always take precedence over catalogue approximations and defaults.
 - **Acquisition Help:** Click a missing teleport item for its ATT details, or open QuickRoute's source help with requirements and a route when a source position is known
+- **Refuse a Step:** A step you cannot use gets a "Cannot use" button. QuickRoute keeps the destination, drops that connection for this route and looks for another way; right-clicking Refresh takes your refusals back
+- **Says Why It Failed:** A route that cannot be produced names its reason — position not available yet, something this character does not have, a refused step, or no known connection — because those need different responses from you
+- **Bounded Search:** A long calculation continues across frames instead of holding the client
+- **Dungeon Group Offer:** Accepting a group invitation offers the way to that dungeon's entrance, and suspends the trip you were on rather than replacing it
+- **For Other Addons:** `QuickRouteAPI` is a versioned contract another addon can ask for a route through, without taking over your arrow (see below)
 
 ## Screenshots
 
@@ -136,6 +141,43 @@ In the Teleports tab, **left-click a missing item** to open its source details i
 Trips support up to 20 stops and persist per character. Up to ten stops use an exact shortest-order solver for the estimated reusable-route matrix; larger lists use a bounded optimization heuristic. The matrix excludes personal teleports and uses phase/access state available during comparison. Each executable leg is recalculated from your actual position and available teleports. Confirm a reached stop to continue. Random landings are not presented as exact teleport destinations.
 
 A missing route means the addon lacks a usable recorded connection or required state; it does not prove the destination is inaccessible in the game. Known hearth inns are resolved automatically from their localized name. Morgenluft uses the current Midnight inn as its default; an observed arrival or binding overrides it, including a binding in the legacy area. Other unknown or ambiguous inns require an observed arrival or binding. Catalogue coordinates approximate the inn, not the precise landing; [coverage and sources](docs/data/hearthstone-locations.md) describe the limits. Housing destinations require owned-house identity and an observed neighborhood plot position. Phase assumptions never change your character’s actual phase or mark an unperformed Zidormi conversation complete.
+
+## For addon authors
+
+`QuickRouteAPI` is a global table another addon can use to ask QuickRoute for a
+route. It is versioned: `QuickRouteAPI:GetVersion()` returns the contract version
+this build implements.
+
+```lua
+local handle = QuickRouteAPI:CalculateRoute(
+    { mapID = 84, x = 0.5, y = 0.6, title = "Stormwind", role = "objective" },
+    function(route, failure)
+        if not route then
+            print("no route:", failure.reason, failure.retryable)
+            return
+        end
+        print(route.totalTime, #route.steps)
+    end
+)
+-- Later, if the answer is no longer wanted:
+QuickRouteAPI:Cancel(handle)
+```
+
+What the contract guarantees:
+
+- The callback receives either a route or a named failure, never silence. A
+  request superseded by a newer one is told so.
+- The result is a detached copy. Only the fields the contract names cross the
+  boundary, so an internal rename cannot break a consumer.
+- `route.assumptions` states what the estimate rests on: which maps have unknown
+  movement eligibility, whether a flight time is a distance heuristic, and which
+  legs land on a guessed position rather than an observed one.
+- Nothing in the contract sets a waypoint, moves your arrow or starts travel.
+
+`QuickRouteAPI:RejectStep(from, to, destination)` and `AcceptStep(from, to)` are
+the same refusal the "Cannot use" button makes, for a consumer that renders its
+own step list. A refusal applies to the destination it was made for and is never
+written to disk.
 
 ## Dependencies
 
