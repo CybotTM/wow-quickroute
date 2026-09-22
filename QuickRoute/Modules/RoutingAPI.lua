@@ -27,18 +27,47 @@ local issued = setmetatable({}, { __mode = "k" })
 -- every addon shared one key, so one addon's request cancelled another's.
 -- The two prefixes keep an owner's name from ever matching an anonymous key.
 local anonymousRequests = 0
+local function OwnerKey(owner)
+    return QR.ROUTE_CONSUMER.API .. ":owner:" .. owner
+end
 local function ConsumerKey(owner)
-    if owner then return QR.ROUTE_CONSUMER.API .. ":owner:" .. owner end
+    if owner then return OwnerKey(owner) end
     anonymousRequests = anonymousRequests + 1
     return QR.ROUTE_CONSUMER.API .. ":request:" .. anonymousRequests
+end
+
+-- How many contract requests may wait for the calculator at once. One
+-- calculation runs at a time, first come first served, so every waiting request
+-- delays the player's own route behind it. With one shared key there was never
+-- more than one; with a key per request, an addon that asks on every update
+-- without an owner would queue without end. A request past the limit is refused
+-- at once, so nobody else's request is touched.
+API.MAX_PENDING = 8
+
+-- Count the contract's live requests, queued or running, and whether one of
+-- them belongs to `key`. Read from the calculator itself, so the count cannot
+-- drift from what is actually waiting.
+local function PendingRequests(key)
+    local pc = QR.PathCalculator
+    local prefix = QR.ROUTE_CONSUMER.API .. ":"
+    local count, hasKey = 0, false
+    local function note(request)
+        if request.superseded or type(request.consumer) ~= "string" then return end
+        if request.consumer:sub(1, #prefix) ~= prefix then return end
+        count = count + 1
+        if request.consumer == key then hasKey = true end
+    end
+    for _, request in ipairs(pc.asyncQueue or {}) do note(request) end
+    if pc.asyncRunning then note(pc.asyncRunning) end
+    return count, hasKey
 end
 
 --- Tell one consumer that its request was replaced.
 -- A superseded request's callback is dropped without a word, and a consumer
 -- that hears nothing cannot tell a slow route from a dead one. The calculator
 -- calls this through the request's `onSuperseded`: when the same owner asks
--- again while the request is in flight, and when CancelAsync drops every
--- request. Idempotent: a handle is notified once.
+-- again while the request is queued or running, and when CancelAsync drops
+-- every request. Idempotent: a handle is notified once.
 local function NotifySuperseded(handle)
     if handle.cancelled then return end
     handle.cancelled = true
@@ -146,7 +175,8 @@ end
 --   owner replaces that owner's earlier request; without one, requests run
 --   independently.
 -- @param callback function Receives (result, failure)
--- @return table|nil A handle for Cancel, or nil plus a failure for a bad request
+-- @return table|nil A handle for Cancel, or nil plus a failure: `invalid_request`
+--   for a bad request, `busy` (retryable) when MAX_PENDING requests are waiting
 function API:CalculateRoute(request, callback)
     if type(request) ~= "table" or type(callback) ~= "function" then
         return nil, { reason = "invalid_request" }
@@ -164,6 +194,12 @@ function API:CalculateRoute(request, callback)
     -- location has to be able to tell an active objective from a catalogued
     -- one, and arrival never completes either.
     local role = type(request.role) == "string" and request.role or QR.TargetIdentity.ROLE.REFERENCE
+    -- An owner that already has a request waiting replaces it, so the queue
+    -- does not grow and the request is always taken.
+    local pending, replaces = PendingRequests(owner and OwnerKey(owner))
+    if not replaces and pending >= API.MAX_PENDING then
+        return nil, { reason = "busy", retryable = true }
+    end
     local handle = { cancelled = false }
     issued[handle] = true
 

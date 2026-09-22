@@ -271,27 +271,13 @@ T:run("RoutingAPI: an internal calculation queues behind the contract rather tha
     end)
 end)
 
-T:run("RoutingAPI: an owner's new request supersedes its own earlier one", function(t)
-    withDriver(function(pc, drain)
-        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
-        local first, second
-        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
-            function(_, failure) first = failure and failure.reason or "route" end)
-        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" },
-            function(_, failure) second = failure and failure.reason or "route" end)
-        drain()
-        t:assertEqual("superseded", first, "one owner asking twice replaces its own request, got " .. tostring(first))
-        t:assertEqual("route", second, "and the newer one publishes")
-    end)
-end)
-
 T:run("RoutingAPI: a late publish does not keep a newer request from being told", function(t)
     withDriver(function(pc, drain, tick)
         -- h1 is short and finishes in its first slice; its publish waits one
-        -- tick. h2 is asked for before that tick and takes several frames. The
-        -- tick then emptied the slot h2 had taken, so when h3 replaced h2,
-        -- nobody told h2 -- the one answer the contract promises never to
-        -- withhold.
+        -- tick. h2 is asked for before that tick and takes several frames. In
+        -- version 1 that tick emptied the one slot the contract kept, which h2
+        -- had taken, so when h3 replaced h2 nobody told h2 -- the one answer
+        -- the contract promises never to withhold.
         local calls = 0
         pc.CalculatePath = function()
             calls = calls + 1
@@ -328,7 +314,7 @@ T:run("RoutingAPI: cancelling one request leaves another consumer's alone", func
     end)
 end)
 
-T:run("RoutingAPI: two consumers that retry do not supersede each other forever", function(t)
+T:run("RoutingAPI: one owner's retries do not replace each other forever", function(t)
     withDriver(function(pc, drain)
         pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
         local rounds = 0
@@ -356,10 +342,10 @@ T:run("RoutingAPI: a cancelled request stays silent even when something supersed
     withDriver(function(pc, drain)
         pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
         local calls = 0
-        local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
             function() calls = calls + 1 end)
         QuickRouteAPI:Cancel(handle)
-        pc:CalculatePathAsync(85, 0.2, 0.2, nil, function() end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" }, function() end)
         drain()
         t:assertEqual(0, calls, "a withdrawn consumer hears nothing at all, got " .. calls)
     end)
@@ -369,11 +355,11 @@ T:run("RoutingAPI: cancelling after a supersede still silences the consumer", fu
     withDriver(function(pc, drain)
         pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
         local calls = 0
-        local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
             function() calls = calls + 1 end)
         -- The supersede is queued first, the withdrawal comes after it. The
         -- queued notice has to notice.
-        pc:CalculatePathAsync(85, 0.2, 0.2, nil, function() end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" }, function() end)
         t:assertTrue(QuickRouteAPI:Cancel(handle), "the handle is accepted")
         drain()
         t:assertEqual(0, calls, "a withdrawn consumer hears nothing, got " .. calls)
@@ -430,4 +416,63 @@ T:run("RoutingAPI: an owner that is not a non-empty string is refused", function
         t:assertEqual("invalid_request", failure and failure.reason,
             "the refusal is named for owner " .. tostring(owner))
     end
+end)
+
+T:run("RoutingAPI: a request cancelled before its finished route is delivered stays silent", function(t)
+    withDriver(function(pc, drain)
+        -- Finishes inside the first slice, so the calculator is done before
+        -- Cancel; only the delivery, one tick later, is left to stop.
+        pc.CalculatePath = function() return { totalTime = 1, steps = {} } end
+        local calls = 0
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function() calls = calls + 1 end)
+        QuickRouteAPI:Cancel(handle)
+        drain()
+        t:assertEqual(0, calls, "the withdrawn consumer is not called, got " .. calls)
+    end)
+end)
+
+T:run("RoutingAPI: past the pending limit a request is refused, and nobody else's is touched", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local heard = {}
+        for i = 1, QuickRouteAPI.MAX_PENDING do
+            local handle = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+                function(_, f) heard[i] = f and f.reason or "route" end)
+            t:assertNotNil(handle, "request " .. i .. " within the limit is taken")
+        end
+        local refused, failure = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 }, function() end)
+        t:assertNil(refused, "a request past the limit gets no handle")
+        t:assertEqual("busy", failure and failure.reason, "the refusal is named, got "
+            .. tostring(failure and failure.reason))
+        t:assertTrue(failure and failure.retryable, "and retrying later can work")
+        local newOwner = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonB" },
+            function() end)
+        t:assertNil(newOwner, "an owner with nothing waiting is refused too")
+        drain()
+        for i = 1, QuickRouteAPI.MAX_PENDING do
+            t:assertEqual("route", heard[i], "request " .. i .. " still got its route, got " .. tostring(heard[i]))
+        end
+        t:assertNotNil(QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 }, function() end),
+            "once the queue has drained a request is taken again")
+        drain()
+    end)
+end)
+
+T:run("RoutingAPI: at the limit an owner can still replace its own waiting request", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local first, second
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) first = f and f.reason or "route" end)
+        for _ = 2, QuickRouteAPI.MAX_PENDING do
+            QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function() end)
+        end
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) second = f and f.reason or "route" end)
+        t:assertNotNil(handle, "the owner's replacement is taken although the queue is full")
+        drain()
+        t:assertEqual("superseded", first, "the replaced request is told, got " .. tostring(first))
+        t:assertEqual("route", second, "the replacement publishes, got " .. tostring(second))
+    end)
 end)

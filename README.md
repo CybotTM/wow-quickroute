@@ -173,6 +173,12 @@ What the contract guarantees:
   owner run independently and end only with their answer or with `Cancel`.
   Contract version 2 introduced this; in version 1 any addon's request
   replaced any other's.
+- One route is calculated at a time, and every waiting request delays the
+  player's own. At most `QuickRouteAPI.MAX_PENDING` (8) requests wait at once.
+  Past that, `CalculateRoute` returns no handle and the failure `busy`,
+  which is retryable. A request from an owner that already has one waiting is
+  always taken, because it replaces that one. An addon that asks often should
+  pass an `owner` or `Cancel` the requests it no longer needs.
 - The result is a detached copy. Only the fields the contract names cross the
   boundary, so an internal rename cannot break a consumer.
 - `route.assumptions` states what the estimate rests on: which maps have unknown
