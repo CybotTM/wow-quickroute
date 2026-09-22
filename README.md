@@ -165,8 +165,10 @@ QuickRouteAPI:Cancel(handle)
 
 What the contract guarantees:
 
-- The callback receives either a route or a named failure, never silence. A
-  request superseded by a newer one is told so.
+- For every request that returns a handle, the callback receives either a
+  route or a named failure, never silence. A request superseded by a newer one
+  is told so. A malformed request returns no handle and the failure
+  `invalid_request`, and its callback is not called.
 - `owner` is optional: a non-empty string, usually your addon's name. A new
   request with an owner replaces that owner's earlier request, which is told
   `superseded`. It never replaces another owner's request. Requests without an
@@ -175,9 +177,9 @@ What the contract guarantees:
   replaced any other's.
 - One route is calculated at a time, and every waiting request delays the
   player's own. At most `QuickRouteAPI.MAX_PENDING` (8) requests wait at once.
-  Past that, `CalculateRoute` returns no handle and the failure `busy`,
-  which is retryable; the callback receives the same failure on the next
-  frame. A request from an owner that already has one waiting is
+  Past that, the request still returns a handle, and its callback receives the
+  retryable failure `busy` on the next frame. A request from an owner that
+  already has one waiting is
   always taken, because it replaces that one. An addon that asks often should
   pass an `owner` or `Cancel` the requests it no longer needs.
 - The result is a detached copy. Only the fields the contract names cross the

@@ -441,18 +441,18 @@ T:run("RoutingAPI: past the pending limit a request is refused, and nobody else'
                 function(_, f) heard[i] = f and f.reason or "route" end)
             t:assertNotNil(handle, "request " .. i .. " within the limit is taken")
         end
-        local told
-        local refused, failure = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
-            function(_, f) told = f and f.reason or "route" end)
-        t:assertNil(refused, "a request past the limit gets no handle")
-        t:assertEqual("busy", failure and failure.reason, "the refusal is named, got "
-            .. tostring(failure and failure.reason))
-        t:assertTrue(failure and failure.retryable, "and retrying later can work")
-        local newOwner = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonB" },
-            function() end)
-        t:assertNil(newOwner, "an owner with nothing waiting is refused too")
+        local told, retryable, ownerTold
+        local refused, returned = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+            function(_, f) told, retryable = f and f.reason or "route", f and f.retryable end)
+        t:assertNotNil(refused, "a refused request still gets a handle")
+        t:assertNil(returned, "the refusal is not also returned, got " .. tostring(returned and returned.reason))
+        t:assertNil(told, "and not answered inside the call, got " .. tostring(told))
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonB" },
+            function(_, f) ownerTold = f and f.reason or "route" end)
         drain()
-        t:assertEqual("busy", told, "the refused consumer also hears it through its callback, got " .. tostring(told))
+        t:assertEqual("busy", told, "the refused consumer hears busy through its callback, got " .. tostring(told))
+        t:assertTrue(retryable, "and retrying later can work")
+        t:assertEqual("busy", ownerTold, "an owner with nothing waiting is refused too, got " .. tostring(ownerTold))
         for i = 1, QuickRouteAPI.MAX_PENDING do
             t:assertEqual("route", heard[i], "request " .. i .. " still got its route, got " .. tostring(heard[i]))
         end
@@ -515,5 +515,20 @@ T:run("RoutingAPI: a cancelled running request does not hold a place under the l
         t:assertEqual(QuickRouteAPI.MAX_PENDING, taken,
             "the full limit is available after the cancel, got " .. taken)
         drain()
+    end)
+end)
+
+T:run("RoutingAPI: a refused request that is cancelled is not told busy", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        for _ = 1, QuickRouteAPI.MAX_PENDING do
+            QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function() end)
+        end
+        local calls = 0
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+            function() calls = calls + 1 end)
+        t:assertTrue(QuickRouteAPI:Cancel(handle), "the refused request's handle is accepted by Cancel")
+        drain()
+        t:assertEqual(0, calls, "a withdrawn consumer hears nothing, got " .. calls)
     end)
 end)

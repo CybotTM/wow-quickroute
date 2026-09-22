@@ -177,10 +177,10 @@ end
 --   owner replaces that owner's earlier request; without one, requests run
 --   independently.
 -- @param callback function Receives (result, failure)
--- @return table|nil A handle for Cancel, or nil plus a failure: `invalid_request`
---   for a bad request, `busy` (retryable) when MAX_PENDING requests are waiting.
---   `busy` also reaches the callback on the next tick, so a consumer that
---   ignores the return value is still told.
+-- @return table|nil A handle for Cancel, or nil plus `invalid_request` for a
+--   bad request. A request refused because MAX_PENDING requests are waiting
+--   still gets a handle; its callback receives `busy` (retryable) on the next
+--   tick, the one channel a refusal travels on.
 function API:CalculateRoute(request, callback)
     if type(request) ~= "table" or type(callback) ~= "function" then
         return nil, { reason = "invalid_request" }
@@ -201,16 +201,23 @@ function API:CalculateRoute(request, callback)
     -- An owner that already has a request waiting replaces it, so the queue
     -- does not grow and the request is always taken.
     local pending, replaces = PendingRequests(owner and OwnerKey(owner))
-    if not replaces and pending >= API.MAX_PENDING then
-        -- Through the callback as well: "a route or a named failure, never
-        -- silence" is the one promise a version 1 consumer, which reads no
-        -- second return value, can rely on.
-        local function refuse() callback(nil, { reason = "busy", retryable = true }) end
-        if C_Timer and C_Timer.After then C_Timer.After(0, refuse) else refuse() end
-        return nil, { reason = "busy", retryable = true }
-    end
     local handle = { cancelled = false }
     issued[handle] = true
+    if not replaces and pending >= API.MAX_PENDING then
+        -- Through the callback only, the way `superseded` arrives. A version 1
+        -- consumer reads no second return value, so the callback is the one
+        -- place it is told; answering on the return value as well made a
+        -- consumer that retries on both double its requests with every
+        -- refusal. A tick later, like every other answer, so a consumer that
+        -- retries from inside the callback does not recurse into this call.
+        handle.cancelled = true
+        local function refuse()
+            if handle.withdrawn then return end
+            callback(nil, { reason = "busy", retryable = true })
+        end
+        if C_Timer and C_Timer.After then C_Timer.After(0, refuse) else refuse() end
+        return handle
+    end
 
     -- A second request of the same owner supersedes the first inside
     -- PathCalculator, so the first consumer would simply never hear again.
