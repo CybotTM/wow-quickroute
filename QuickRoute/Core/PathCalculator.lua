@@ -2319,8 +2319,6 @@ function PathCalculator:SelectStepAnchor(step)
             -- anchor for the whole journey.
             local anchorMap, anchorX, anchorY = self:ResolveMapPosition(anchor.mapID, anchor.x, anchor.y)
             local mapID, x, y = self:GetPlayerPosition(anchorMap or anchor.mapID)
-            -- No position means no evidence the anchor is behind the player, so
-            -- the ordered approach is kept rather than skipped.
             -- No position, and a position on another map, are both no evidence
             -- that this anchor is behind the player. The cursor stays where it
             -- is rather than counting the anchor as done.
