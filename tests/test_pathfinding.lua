@@ -2994,6 +2994,59 @@ T:run("Cooperative search: a superseded calculation cannot publish its result", 
     t:assertEqual("second", published[1], "the superseded request is dropped, the current one publishes")
 end)
 
+T:run("Cooperative search: a consumer supersedes only its own queued request", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local saved, after = pc.CalculatePath, C_Timer.After
+    local queue = {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    -- Each search yields once, so a request made while one runs waits in the
+    -- queue instead of starting. That is the state this case is about: an
+    -- earlier version superseded every waiting request, whoever had made it.
+    pc.CalculatePath = function(_, mapID) coroutine.yield() return { tag = mapID } end
+    local published = {}
+    local function record(route) published[#published + 1] = route and route.tag or "none" end
+    pc:CalculatePathAsync(84, 0.5, 0.5, nil, record, { consumer = "a" })
+    pc:CalculatePathAsync(85, 0.5, 0.5, nil, record, { consumer = "b" })
+    pc:CalculatePathAsync(86, 0.5, 0.5, nil, record, { consumer = "c" })
+    -- Replaces b's queued request and nothing else.
+    pc:CalculatePathAsync(87, 0.5, 0.5, nil, record, { consumer = "b" })
+    while #queue > 0 do
+        local callback = table.remove(queue, 1)
+        callback()
+    end
+    pc.CalculatePath, C_Timer.After = saved, after
+    pc:CancelAsync()
+    t:assertEqual(3, #published, "three of the four requests publish, got " .. #published)
+    t:assertEqual(84, published[1], "the running request is untouched, got " .. tostring(published[1]))
+    t:assertEqual(86, published[2], "c keeps its place in the queue, got " .. tostring(published[2]))
+    t:assertEqual(87, published[3], "and b's replacement publishes, got " .. tostring(published[3]))
+end)
+
+T:run("Cooperative search: one withdrawn request leaves the others in the queue", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local saved, after = pc.CalculatePath, C_Timer.After
+    local queue = {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    pc.CalculatePath = function(_, mapID) coroutine.yield() return { tag = mapID } end
+    local published = {}
+    local function record(route) published[#published + 1] = route and route.tag or "none" end
+    pc:CalculatePathAsync(84, 0.5, 0.5, nil, record, { consumer = "a" })
+    local withdrawn = pc:CalculatePathAsync(85, 0.5, 0.5, nil, record, { consumer = "b" })
+    pc:CalculatePathAsync(86, 0.5, 0.5, nil, record, { consumer = "c" })
+    t:assertTrue(pc:CancelRequest(withdrawn), "the request was found")
+    while #queue > 0 do
+        local callback = table.remove(queue, 1)
+        callback()
+    end
+    pc.CalculatePath, C_Timer.After = saved, after
+    pc:CancelAsync()
+    t:assertEqual(2, #published, "the withdrawn request publishes nothing, got " .. #published)
+    t:assertEqual(84, published[1], "the running request is untouched, got " .. tostring(published[1]))
+    t:assertEqual(86, published[2], "and the one behind it still runs, got " .. tostring(published[2]))
+end)
+
 -------------------------------------------------------------------------------
 -- Rejected steps
 --

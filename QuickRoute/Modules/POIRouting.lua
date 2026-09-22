@@ -64,35 +64,35 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
         mapID, zoneName, x, y
     ))
 
-    -- Calculate path
-    local calcOk, result = pcall(function()
-        return QR.PathCalculator:CalculatePath(mapID, x, y, zoneName)
-    end)
-
-    if not calcOk then
-        QR:Error("POIRouting path calculation error: " .. tostring(result))
-        result = nil
-    end
-
-    -- Save destination so it persists across close/reopen
+    -- Saved before the search rather than after it. The search now spans
+    -- frames, and the destination the player picked is theirs from the click,
+    -- not from the moment a route for it happens to be ready.
     if QR.db then
         QR.db.lastDestination = { mapID = mapID, x = x, y = y, title = zoneName }
         QR.db.destinationLocked = true
     end
 
-    -- Show route in UI. Pass the pre-calculated result via _pendingPOIRoute so
-    -- RefreshRoute (triggered by SetActiveTab during Show) uses it directly
-    -- instead of re-calculating from the active waypoint.
-    if QR.UI then
-        QR.UI._pendingPOIRoute = nil
-        if result then
-            result.waypoint = { mapID = mapID, x = x, y = y, title = zoneName }
-            result.waypointSource = "map_click"
-            QR.UI._pendingPOIRoute = result
+    -- The search yields between frames instead of holding the client, so
+    -- everything that needs its result happens in the callback. A raised error
+    -- inside the search is caught by the driver and arrives here as a failure.
+    QR.PathCalculator:CalculatePathAsync(mapID, x, y, zoneName, function(result, failure)
+        if not result then
+            QR:Error("POIRouting path calculation error: " ..
+                tostring(failure and failure.reason or "no route"))
         end
-        QR.UI:Show()
-    end
-    return result
+        -- Show route in UI. Pass the calculated result via _pendingPOIRoute so
+        -- RefreshRoute (triggered by SetActiveTab during Show) uses it directly
+        -- instead of calculating a second time.
+        if QR.UI then
+            QR.UI._pendingPOIRoute = nil
+            if result then
+                result.waypoint = { mapID = mapID, x = x, y = y, title = zoneName }
+                result.waypointSource = "map_click"
+                QR.UI._pendingPOIRoute = result
+            end
+            QR.UI:Show()
+        end
+    end, { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
 end
 
 -------------------------------------------------------------------------------

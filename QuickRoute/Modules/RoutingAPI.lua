@@ -157,10 +157,15 @@ function API:CalculateRoute(request, callback)
         }))
     end
 
-    -- Registered after the calculator is asked, not before. CalculatePathAsync
-    -- supersedes what was in flight and NotifySuperseded tells whoever that
-    -- was; with this handle already registered, it would have announced the new
-    -- request as superseded by itself.
+    -- Registered after the calculator is asked, not before. The request below
+    -- supersedes this contract's own earlier request and NotifySuperseded tells
+    -- that consumer; with this handle already registered, it would have
+    -- announced the new request as superseded by itself.
+    --
+    -- The consumer key is what keeps QuickRoute's own route panel, its dungeon
+    -- offer and this contract out of each other's way: they queue rather than
+    -- destroy each other, so a foreign addon's request is no longer cancelled
+    -- because the player opened the route panel.
     handle.generation = QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, function(route, failure)
         -- A short route finishes inside the first budget, so without this the
         -- callback could run before CalculateRoute returned and the consumer
@@ -170,7 +175,10 @@ function API:CalculateRoute(request, callback)
         else
             publish(route, failure)
         end
-    end)
+    end, {
+        consumer = QR.ROUTE_CONSUMER.API,
+        onSuperseded = function() API:NotifySuperseded() end,
+    })
     inFlight[1] = handle
     return handle
 end
@@ -208,9 +216,9 @@ function API:Cancel(handle)
     -- consumer withdrew, and nothing may call it again.
     handle.withdrawn = true
     if inFlight[1] == handle then inFlight[1] = nil end
-    if QR.PathCalculator.asyncGeneration == handle.generation then
-        QR.PathCalculator:CancelAsync()
-    end
+    -- Exactly this request. Cancelling everything took the dungeon offer's
+    -- search and the route panel's with it.
+    QR.PathCalculator:CancelRequest(handle.generation)
     return true
 end
 

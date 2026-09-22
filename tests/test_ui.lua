@@ -77,10 +77,10 @@ T:run("RefreshRoute re-entrancy guard prevents double execution", function(t)
     -- Manually set isCalculating to true (simulating already running)
     QR.UI.isCalculating = true
 
-    -- Track if CalculatePathToWaypoint gets called
-    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypoint
+    -- Track if CalculatePathToWaypointAsync gets called
+    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypointAsync
     local calcCallCount = 0
-    QR.WaypointIntegration.CalculatePathToWaypoint = function(self)
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function(self)
         calcCallCount = calcCallCount + 1
         return originalCalc(self)
     end
@@ -88,14 +88,14 @@ T:run("RefreshRoute re-entrancy guard prevents double execution", function(t)
     -- Call RefreshRoute while isCalculating is true
     QR.UI:RefreshRoute()
 
-    -- Should NOT have called CalculatePathToWaypoint
-    t:assertEqual(0, calcCallCount, "CalculatePathToWaypoint was not called during re-entrant RefreshRoute")
+    -- Should NOT have called CalculatePathToWaypointAsync
+    t:assertEqual(0, calcCallCount, "CalculatePathToWaypointAsync was not called during re-entrant RefreshRoute")
 
     -- isCalculating should still be true (the guard returned early, not resetting)
     t:assertTrue(QR.UI.isCalculating, "isCalculating still true after guarded return")
 
     -- Restore
-    QR.WaypointIntegration.CalculatePathToWaypoint = originalCalc
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = originalCalc
     QR.UI.isCalculating = false
 end)
 
@@ -109,22 +109,22 @@ T:run("RefreshRoute executes normally when isCalculating is false", function(t)
 
     QR.UI.isCalculating = false
 
-    -- Track if CalculatePathToWaypoint gets called
-    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypoint
+    -- Track if CalculatePathToWaypointAsync gets called
+    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypointAsync
     local calcCalled = false
-    QR.WaypointIntegration.CalculatePathToWaypoint = function(self)
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function(self, callback)
         calcCalled = true
-        return originalCalc(self)
+        return originalCalc(self, callback)
     end
 
     QR.UI:RefreshRoute()
 
-    t:assertTrue(calcCalled, "CalculatePathToWaypoint was called when not calculating")
+    t:assertTrue(calcCalled, "CalculatePathToWaypointAsync was called when not calculating")
     -- After completion, isCalculating should be false again
     t:assertFalse(QR.UI.isCalculating, "isCalculating reset to false after RefreshRoute completes")
 
     -- Restore
-    QR.WaypointIntegration.CalculatePathToWaypoint = originalCalc
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = originalCalc
 end)
 
 -------------------------------------------------------------------------------
@@ -439,10 +439,10 @@ T:run("RefreshRoute shows steps for a valid same-map waypoint", function(t)
 
     QR.UI.isCalculating = false
 
-    -- Mock CalculatePathToWaypoint to return a known result (UI test, not pathfinding test)
-    local originalCalcPath = QR.WaypointIntegration.CalculatePathToWaypoint
-    QR.WaypointIntegration.CalculatePathToWaypoint = function()
-        return {
+    -- Mock CalculatePathToWaypointAsync to return a known result (UI test, not pathfinding test)
+    local originalCalcPath = QR.WaypointIntegration.CalculatePathToWaypointAsync
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function(_, callback)
+        callback({
             waypoint = { title = "Map Pin", mapID = 84 },
             waypointSource = "mappin",
             totalTime = 30,
@@ -457,7 +457,8 @@ T:run("RefreshRoute shows steps for a valid same-map waypoint", function(t)
                     destY = 0.3,
                 },
             },
-        }
+        })
+        return true
     end
 
     -- Mock CreateStepLabel to avoid secure frame issues in test env
@@ -483,7 +484,7 @@ T:run("RefreshRoute shows steps for a valid same-map waypoint", function(t)
     -- Restore
     C_Timer.After = originalTimerAfter
     QR.UI.CreateStepLabel = originalCreateStepLabel
-    QR.WaypointIntegration.CalculatePathToWaypoint = originalCalcPath
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = originalCalcPath
 end)
 
 T:run("RefreshRoute handles no waypoint gracefully", function(t)
@@ -511,9 +512,9 @@ T:run("RefreshRoute handles path calculation error gracefully", function(t)
     MockWoW.config.currentMapID = 84
     setMapPinWaypoint(84, 0.3, 0.3)
 
-    -- Override CalculatePathToWaypoint to throw
-    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypoint
-    QR.WaypointIntegration.CalculatePathToWaypoint = function()
+    -- Override CalculatePathToWaypointAsync to throw
+    local originalCalc = QR.WaypointIntegration.CalculatePathToWaypointAsync
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function()
         error("Simulated path calculation failure")
     end
 
@@ -524,7 +525,7 @@ T:run("RefreshRoute handles path calculation error gracefully", function(t)
     t:assertFalse(QR.UI.isCalculating, "isCalculating reset after calculation error")
 
     -- Restore
-    QR.WaypointIntegration.CalculatePathToWaypoint = originalCalc
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = originalCalc
 end)
 
 -------------------------------------------------------------------------------
@@ -941,8 +942,8 @@ T:run("RefreshRoute subtitle shows destination when waypoint found", function(t)
     end
 
     -- Mock path calculation to return a result
-    local origCalcPath = QR.WaypointIntegration.CalculatePathToWaypoint
-    QR.WaypointIntegration.CalculatePathToWaypoint = function()
+    local origCalcPath = QR.WaypointIntegration.CalculatePathToWaypointAsync
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = function()
         return {
             waypoint = { title = "Map Pin", mapID = 84 },
             waypointSource = "mappin",
@@ -968,7 +969,7 @@ T:run("RefreshRoute subtitle shows destination when waypoint found", function(t)
     -- Restore
     C_Timer.After = origTimerAfter
     QR.UI.CreateStepLabel = origCreateStepLabel
-    QR.WaypointIntegration.CalculatePathToWaypoint = origCalcPath
+    QR.WaypointIntegration.CalculatePathToWaypointAsync = origCalcPath
 end)
 
 T:run("RefreshRoute subtitle shows TAB_ROUTE when no waypoint", function(t)
@@ -1728,14 +1729,14 @@ T:run("RefreshRoute subtitles avoid duplicate zones in normal and precomputed ro
     ensureUIFrame()
     local ui, main, integration = QR.UI, QR.MainFrame, QR.WaypointIntegration
     local saved = {mapInfo = C_Map.GetMapInfo, active = integration.GetActiveWaypoint,
-        calculate = integration.CalculatePathToWaypoint, update = ui.UpdateRoute,
+        calculate = integration.CalculatePathToWaypointAsync, update = ui.UpdateRoute,
         tab = main.activeTab, subtitle = main.subtitle:GetText(), locked = QR.db.destinationLocked,
         destination = QR.db.lastDestination, pending = ui._pendingPOIRoute, calculating = ui.isCalculating,
         refreshed = ui.lastRefreshTime}
     local waypoint, zoneName
     C_Map.GetMapInfo = function() return zoneName and {name = zoneName} or nil end
     integration.GetActiveWaypoint = function() return waypoint end
-    integration.CalculatePathToWaypoint = function() return {steps = {}, totalTime = 0} end
+    integration.CalculatePathToWaypointAsync = function() return {steps = {}, totalTime = 0} end
     ui.UpdateRoute = function() end
     main.activeTab, QR.db.destinationLocked = "route", false
     local ok, err = pcall(function()
@@ -1758,7 +1759,7 @@ T:run("RefreshRoute subtitles avoid duplicate zones in normal and precomputed ro
         end
     end)
     C_Map.GetMapInfo, integration.GetActiveWaypoint = saved.mapInfo, saved.active
-    integration.CalculatePathToWaypoint, ui.UpdateRoute = saved.calculate, saved.update
+    integration.CalculatePathToWaypointAsync, ui.UpdateRoute = saved.calculate, saved.update
     main.activeTab = saved.tab
     main.subtitle:SetText(saved.subtitle)
     QR.db.destinationLocked, QR.db.lastDestination = saved.locked, saved.destination

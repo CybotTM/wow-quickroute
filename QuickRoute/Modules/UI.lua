@@ -697,20 +697,28 @@ function UI:RefreshRoute()
         QR.MainFrame.subtitle:SetText(DestinationSubtitle(waypoint))
     end
 
-    -- Now try to calculate path
-    local success, errOrResult, failure = pcall(function()
+    -- The search runs across frames, so what follows it happens in a callback.
+    -- The route this refresh belongs to is stamped above; a result that arrives
+    -- after the panel moved on to another destination is dropped rather than
+    -- rendered over the newer one.
+    local generation = self.routeGeneration
+    local success, errOrResult = pcall(function()
         -- For saved/locked destinations, calculate directly (bypass waypoint detection)
         if waypoint.source == "saved" or waypoint.source == "locked" then
-            local calcResult, calcFailure = QR.PathCalculator:CalculatePath(
-                waypoint.mapID, waypoint.x, waypoint.y, waypoint.title
-            )
-            if calcResult then
-                calcResult.waypoint = waypoint
-                calcResult.waypointSource = waypoint.source
-            end
-            return calcResult, calcFailure
+            return QR.PathCalculator:CalculatePathAsync(
+                waypoint.mapID, waypoint.x, waypoint.y, waypoint.title,
+                function(calcResult, calcFailure)
+                    if calcResult then
+                        calcResult.waypoint = waypoint
+                        calcResult.waypointSource = waypoint.source
+                    end
+                    self:PublishRefreshedRoute(generation, waypoint, calcResult, calcFailure)
+                end,
+                { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
         end
-        return QR.WaypointIntegration:CalculatePathToWaypoint()
+        return QR.WaypointIntegration:CalculatePathToWaypointAsync(function(calcResult, calcFailure)
+            self:PublishRefreshedRoute(generation, waypoint, calcResult, calcFailure)
+        end)
     end)
 
     if not success then
@@ -721,8 +729,17 @@ function UI:RefreshRoute()
         QR:Error(tostring(errOrResult))
         return
     end
+end
 
-    local result = errOrResult
+--- Render the result of one RefreshRoute search.
+-- @param generation number The route stamp the search was started under
+-- @param waypoint table The destination the search was for
+-- @param result table|nil The route
+-- @param failure table|nil Why there is none
+function UI:PublishRefreshedRoute(generation, waypoint, result, failure)
+    -- Another destination was asked for while this search ran. Its own callback
+    -- renders; this one would only overwrite it with an older answer.
+    if self.routeGeneration ~= generation then return end
     if result then
         local updateOk, updateErr = pcall(function()
             self:UpdateRoute(result)
