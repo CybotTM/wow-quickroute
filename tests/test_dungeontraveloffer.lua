@@ -138,6 +138,39 @@ T:run("DungeonOffer: a cleared offer publishes no route", function(t)
     end)
 end)
 
+T:run("DungeonOffer: a clear that could not finish still stops the route", function(t)
+    withInstance(70001, INSTANCE, function()
+        local pc = QR.PathCalculator
+        local savedAsync = pc.CalculatePathAsync
+        local savedUpdate = QR.UI.UpdateRoute
+        local deliver, updated = nil, 0
+        QR.UI.UpdateRoute = function() updated = updated + 1 end
+        pc.CalculatePathAsync = function(_, mapID, _, _, _, callback)
+            deliver = function() callback({ totalTime = 42, steps = { { type = "walk", navMapID = mapID } } }) end
+            return 1
+        end
+        QR.Journey.current, QR.Journey.suspended = nil, {}
+        QR.DungeonTravelOffer:Present(70001)
+        QR.DungeonTravelOffer:Route()
+        -- A second detour stacks above the offer's. Clear cannot give the
+        -- journey back while somebody else holds it, so it keeps the offer
+        -- record until the release listener fires -- and the player has left
+        -- the group all the same.
+        QR.Journey:Detour(QR.Journey.SOURCE.QUEST, { mapID = 84, x = 0.1, y = 0.1, title = "Elsewhere" })
+        local cleared = QR.DungeonTravelOffer:Clear()
+        deliver()
+        pc.CalculatePathAsync = savedAsync
+        QR.UI.UpdateRoute = savedUpdate
+        t:assertFalse(cleared, "the clear could not finish")
+        t:assertNotNil(QR.DungeonTravelOffer.pending, "so the offer record is still there on purpose")
+        t:assertEqual(0, updated, "and no route is shown for the group the player has left")
+        QR.Journey.current, QR.Journey.suspended = nil, {}
+        QR.DungeonTravelOffer.clearWhenFree = nil
+        QR.DungeonTravelOffer.holdsDetour = nil
+        QR.DungeonTravelOffer.pending = nil
+    end)
+end)
+
 T:run("DungeonOffer: routing without an offer does nothing", function(t)
     QR.DungeonTravelOffer:Clear()
     t:assertFalse(QR.DungeonTravelOffer:Route(), "no offer, no request")

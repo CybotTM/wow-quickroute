@@ -136,12 +136,25 @@ function Offer:Route(callback)
             -- The search outlives the offer it was started for. Leaving the
             -- group clears the offer, and without this the result still reached
             -- the panel and showed the way to a dungeon the player is no longer
-            -- going to. The calculation itself is not cancelled: another
-            -- consumer of the same calculator may be waiting on it.
-            if self.pending ~= pending then
-                QR:Debug("DungeonTravelOffer: offer cleared before its route arrived, result dropped")
+            -- going to.
+            --
+            -- Two ways the offer stops standing. Its record is replaced or
+            -- dropped, which `pending` catches. Or Clear was asked for and
+            -- refused because another source holds the journey -- then
+            -- `pending` survives on purpose, waiting for the release listener,
+            -- and `clearWhenFree` is the only thing that says the player has
+            -- already left the group.
+            --
+            -- The calculation itself runs to the end rather than being
+            -- cancelled: it cleans up the temporary destination node on its way
+            -- out, and the result is simply not published.
+            if self.pending ~= pending or self.clearWhenFree then
+                QR:Debug("DungeonTravelOffer: offer no longer stands, route dropped")
                 if type(callback) == "function" then
-                    callback(nil, { reason = QR.PathCalculator.FAILURE.SUPERSEDED })
+                    -- Not retryable: asking again produces a route to a dungeon
+                    -- the player is no longer going to. The same answer the
+                    -- public contract gives for a withdrawn request.
+                    callback(nil, { reason = QR.PathCalculator.FAILURE.SUPERSEDED, retryable = false })
                 end
                 return
             end
