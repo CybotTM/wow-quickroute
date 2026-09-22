@@ -120,6 +120,13 @@ local function labelFollows(text, mark)
     return not text:match("^[%.,]%d")
 end
 
+local function inRange(value)
+    return value ~= nil and value >= 0 and value <= 100
+end
+
+-- The pattern the comma-separated shape below reads a pair with.
+local SEPARATED_PAIR = "^(%d+%.?%d*)%s*,%s*(%d+%.?%d*)%s*(.-)%s*$"
+
 -- Read a coordinate pair. Community guides separate the pair with a comma, and
 -- some locales write the decimal point as one. Each value is consumed as a
 -- whole token, so "50,57 56,62" is one pair and never four numbers, and
@@ -127,19 +134,42 @@ end
 -- leaving ",62" at the front of the label. Reading part of a number and
 -- carrying the rest into the label moved the destination while both values
 -- stayed in range, so nothing downstream could catch it.
--- @return number|nil x, number|nil y, string|nil label, string|nil reason
+-- @return number|nil x, number|nil y, string|nil label, string|nil reason,
+--   table|nil candidates for reason "COMMA_CHOICE": { decimal = {x, y, label}, pair = {x, y, label} }
 local function coordinatePair(rest)
     local x, xMark, afterX = readCoordinate(rest)
     local betweenPair = x and afterX:match("^%s+(.*)$")
     local y, yMark, afterY
     if betweenPair then y, yMark, afterY = readCoordinate(betweenPair) end
-    -- "45,32 3 rares here": a compact pair, then a label that starts with a
-    -- number. Reading the comma as a decimal mark would make that 45.32 and 3.
-    -- A comma on the first value followed by a plain second value is read the
-    -- way the released parser read it -- the comma separates the pair -- and
-    -- goes to the shape below. The mirror case is different: "50 56,62"
-    -- could otherwise only mean a label of ",62", which no guide writes.
-    if y and xMark == "comma" and yMark == "plain" then y = nil end
+    -- A comma on the first value followed by a plain second value reads two
+    -- ways. "50,57 56 Treasure" is:
+    --   decimal: x = 50.57, y = 56, label "Treasure" (the comma is a decimal mark)
+    --   pair:    x = 50, y = 57, label "56 Treasure" (the comma separates a
+    --            compact pair, and the label starts with a number)
+    -- The shape is exactly: digits, a comma, digits, whitespace, digits with no
+    -- decimal mark of their own. It is a choice only when both readings are
+    -- complete: the decimal reading needs a label boundary after the plain
+    -- value and both of its values in 0..100, the pair reading needs its
+    -- second value -- the digits after the comma -- in 0..100. The player
+    -- picks; the parser returns both. When only one reading is complete, the
+    -- line takes the path it took before the choice existed: the pair shape
+    -- below, which accepts "50,57 150 Label" and refuses "50,570 56 Treasure".
+    -- The mirror case is different: "50 56,62" could otherwise only mean a
+    -- label of ",62", which no guide writes.
+    if y and xMark == "comma" and yMark == "plain" then
+        local sx, sy, tail = rest:match(SEPARATED_PAIR)
+        local pairX, pairY = tonumber(sx), tonumber(sy)
+        -- "0,0 0" reads as the same point either way; only the label would
+        -- differ, and that is no choice worth stopping the import for.
+        if labelFollows(afterY, yMark) and inRange(x) and inRange(y)
+            and inRange(pairX) and inRange(pairY) and not (x == pairX and y == pairY) then
+            return nil, nil, nil, "COMMA_CHOICE", {
+                decimal = { x = x, y = y, label = (gsub(afterY, "^%s+", "")) },
+                pair = { x = pairX, y = pairY, label = tail },
+            }
+        end
+        y = nil
+    end
     if y then
         -- Two values were read. From here the line is either this pair or
         -- refused -- never handed to the shape below, which would take the
@@ -165,7 +195,7 @@ local function coordinatePair(rest)
     end
     -- "50,57 Bank" and "50, 57 Bank": the comma separates the pair. Reached only
     -- when no second value could be read above.
-    local sx, sy, tail = rest:match("^(%d+%.?%d*)%s*,%s*(%d+%.?%d*)%s*(.-)%s*$")
+    local sx, sy, tail = rest:match(SEPARATED_PAIR)
     if sx then return tonumber(sx), tonumber(sy), tail end
     return nil
 end
@@ -223,17 +253,21 @@ end
 -- An ambiguous pair stops the parse where it is found. Falling through to the
 -- next shape would read a different pair out of the same line -- the map token
 -- and the first coordinate -- and accept it.
+-- A line whose pair reads two ways returns the reason "COMMA_CHOICE", its map
+-- token and both candidates, so the map is resolved the same way for either.
 local function parseWayBody(body)
     local mapText, rest = body:match("^#(%d+)%s+(.+)$")
     if mapText then
-        local x, y, label, reason = coordinatePair(rest)
+        local x, y, label, reason, candidates = coordinatePair(rest)
         if x then return tonumber(mapText), x, y, label end
+        if candidates then return tonumber(mapText), nil, nil, nil, reason, candidates end
         return nil, nil, nil, nil, reason or "BAD_COORDS"
     end
     mapText, rest = body:match("^(%d+)%s+(.+)$")
     if mapText then
-        local x, y, label, reason = coordinatePair(rest)
+        local x, y, label, reason, candidates = coordinatePair(rest)
         if x then return tonumber(mapText), x, y, label end
+        if candidates then return tonumber(mapText), nil, nil, nil, reason, candidates end
         if reason then return nil, nil, nil, nil, reason end
         -- Two numbers follow the leading one, so this is the map form and its
         -- pair could not be read. Falling through to the next shape would pair
@@ -244,13 +278,14 @@ local function parseWayBody(body)
             return nil, nil, nil, nil, "BAD_COORDS"
         end
     end
-    local x, y, label, reason = coordinatePair(body)
+    local x, y, label, reason, candidates = coordinatePair(body)
     if x then return nil, x, y, label end
-    if reason then return nil, nil, nil, nil, reason end
+    if reason then return nil, nil, nil, nil, reason, candidates end
     local name, remainder = body:match("^(.-)%s+(%d.*)$")
     if name and name ~= "" then
-        local nx, ny, nlabel, nreason = coordinatePair(remainder)
+        local nx, ny, nlabel, nreason, ncandidates = coordinatePair(remainder)
         if nx then return name, nx, ny, nlabel end
+        if ncandidates then return name, nil, nil, nil, nreason, ncandidates end
         if nreason then return nil, nil, nil, nil, nreason end
     end
     return nil, nil, nil, nil, "BAD_COORDS"
@@ -277,19 +312,26 @@ local function addEntry(report, entry, always)
 end
 
 --- Parse pasted waypoint text into trip stops.
+-- A line whose comma pair reads two ways (see coordinatePair) is imported only
+-- with a reading chosen for it. Without one the whole import stops, the way it
+-- stops for an unreadable line, and the report lists the line with both
+-- readings so the player can choose.
 -- @param text string Pasted block, at most 8192 characters
+-- @param choices table|nil Reading per ambiguous line, "decimal" or "pair",
+--   keyed by the `key` of that line's report entry
 -- @return table|nil Accepted stops, or nil when none could be read
 -- @return string|nil Failure message when no stop was accepted
 -- @return table Import report: `accepted` count and one `entries` row per line
-function MR:ParseWaypoints(text)
+function MR:ParseWaypoints(text, choices)
     local report = { accepted = 0, entries = {}, shown = 0, suppressed = 0 }
     if type(text) ~= "string" or #text > 8192 then return nil, QR.L["MULTI_INVALID"], report end
-    local stops = {}
+    if type(choices) ~= "table" then choices = {} end
+    local stops, pending = {}, 0
     local lines, physicalLines = importLines(text)
     -- The same unit as the warnings. Counting list entries made the summary say
     -- "2 of 3" while a warning named line 4 of that same paste.
     report.total = physicalLines
-    for _, entry in ipairs(lines) do
+    for key, entry in ipairs(lines) do
         local line, number = entry.text, entry.line
         local body = line:match("^%s*/way%s+(.-)%s*$")
         if not body then
@@ -297,29 +339,56 @@ function MR:ParseWaypoints(text)
             -- warning rather than invalidating the whole paste.
             addEntry(report, { line = number, text = line, status = "skipped", reason = "NOT_A_WAYPOINT" })
         else
-            local mapToken, x, y, label, failure = parseWayBody(body)
+            local mapToken, x, y, label, failure, candidates = parseWayBody(body)
             local mapID, mapFailure
-            if not failure then mapID, mapFailure = resolveMap(mapToken) end
-            failure = failure or mapFailure
-            if failure then
+            if not failure or candidates then mapID, mapFailure = resolveMap(mapToken) end
+            local chosen = candidates and not mapFailure and candidates[choices[key]]
+            if chosen then
+                x, y, label, failure = chosen.x, chosen.y, chosen.label, nil
+            end
+            failure = mapFailure or failure
+            local readings
+            if failure == "COMMA_CHOICE" then
+                readings = {}
+                for reading, candidate in pairs(candidates) do
+                    local option = { mapID = mapID, x = candidate.x / 100, y = candidate.y / 100, title = candidate.label }
+                    if option.title == "" then option.title = nil end
+                    if validStop(option) then readings[reading] = option end
+                end
+                if not (readings.decimal and readings.pair) then failure = "BAD_COORDS" end
+            end
+            if failure == "COMMA_CHOICE" then
+                -- Both readings stay in the report and the parse goes on, so
+                -- one pass lists every line that needs a choice. The import
+                -- itself stops after the loop.
+                pending = pending + 1
+                addEntry(report, { line = number, text = line, status = "ambiguous", key = key,
+                    candidates = readings }, true)
+                if #stops + pending > self.MAX_STOPS then return nil, QR.L["MULTI_LIMIT"], report end
+            elseif failure then
                 -- A /way line that cannot be read is an error, not a note:
                 -- the import stops so no silent gap reaches the trip.
                 addEntry(report, { line = number, text = line, status = "invalid",
                     reason = failure, token = mapToken }, true)
                 return nil, QR.L["MULTI_INVALID"], report
+            else
+                local stop = { mapID = mapID, x = x / 100, y = y / 100, title = label }
+                if not validStop(stop) then
+                    addEntry(report, { line = number, text = line, status = "invalid", reason = "BAD_COORDS" }, true)
+                    return nil, QR.L["MULTI_INVALID"], report
+                end
+                if stop.title == "" then stop.title = nil end
+                stops[#stops + 1] = stop
+                report.accepted = report.accepted + 1
+                addEntry(report, { line = number, text = line, status = "accepted", stop = stop })
+                if #stops + pending > self.MAX_STOPS then return nil, QR.L["MULTI_LIMIT"], report end
             end
-            local stop = { mapID = mapID, x = x / 100, y = y / 100, title = label }
-            if not validStop(stop) then
-                addEntry(report, { line = number, text = line, status = "invalid", reason = "BAD_COORDS" }, true)
-                return nil, QR.L["MULTI_INVALID"], report
-            end
-            if stop.title == "" then stop.title = nil end
-            stops[#stops + 1] = stop
-            report.accepted = report.accepted + 1
-            addEntry(report, { line = number, text = line, status = "accepted", stop = stop })
-            if #stops > self.MAX_STOPS then return nil, QR.L["MULTI_LIMIT"], report end
         end
     end
+    -- A line still waiting for its reading stops the import: taking the rest
+    -- without it would start a trip with a silent gap, and Start replaces the
+    -- trip, so the missing stop could not be added afterwards.
+    if pending > 0 then return nil, QR.L["MULTI_IMPORT_CHOOSE"], report end
     if #stops == 0 then return nil, QR.L["MULTI_INVALID"], report end
     return stops, nil, report
 end
@@ -335,6 +404,33 @@ function MR:ImportHasWarnings(report)
     return false
 end
 
+-- A coordinate as the player wrote it: 50.57, not 50.5700 or 50.570000001.
+local function percent(value)
+    return (gsub(gsub(format("%.4f", value * 100), "0+$", ""), "%.$", ""))
+end
+
+--- Render one reading of an ambiguous line: its two coordinates and its label.
+-- @param stop table A candidate from an "ambiguous" report entry
+-- @param coordinatesOnly boolean|nil Leave the label out, for a button
+-- @return string For example `50, 57 "56 Treasure"`
+function MR:FormatReading(stop, coordinatesOnly)
+    if type(stop) ~= "table" then return "?" end
+    local text = percent(stop.x) .. ", " .. percent(stop.y)
+    if stop.title and not coordinatesOnly then text = text .. ' "' .. display(stop.title:sub(1, 40)) .. '"' end
+    return text
+end
+
+--- The first line of a report that still waits for the player's reading.
+-- @param report table Third return value of ParseWaypoints
+-- @return table|nil The report entry, with `key`, `line` and `candidates`
+function MR:PendingCommaChoice(report)
+    if type(report) ~= "table" or type(report.entries) ~= "table" then return nil end
+    for _, entry in ipairs(report.entries) do
+        if entry.status == "ambiguous" then return entry end
+    end
+    return nil
+end
+
 --- Render an import report as the status text shown beside the paste box.
 -- @param report table Third return value of ParseWaypoints
 -- @return string|nil Summary plus one line per skipped or rejected input line
@@ -342,10 +438,19 @@ function MR:FormatImportReport(report)
     if type(report) ~= "table" or type(report.entries) ~= "table" then return nil end
     local total = #report.entries
     if total == 0 then return nil end
-    local parts = { format(QR.L["MULTI_IMPORT_SUMMARY"], report.accepted or 0, report.total or total) }
+    -- While a line waits for its reading nothing has been imported, so
+    -- "Imported 1 of 2 lines." above "nothing is imported" would contradict it.
+    local waiting = MR:PendingCommaChoice(report) ~= nil
+    local parts = {}
+    if not waiting then
+        parts[1] = format(QR.L["MULTI_IMPORT_SUMMARY"], report.accepted or 0, report.total or total)
+    end
     for _, entry in ipairs(report.entries) do
         if entry.status == "skipped" then
             parts[#parts + 1] = format(QR.L["MULTI_IMPORT_SKIPPED"], entry.line, display(entry.text:sub(1, 60)))
+        elseif entry.status == "ambiguous" and type(entry.candidates) == "table" then
+            parts[#parts + 1] = format(QR.L["MULTI_IMPORT_COMMA_CHOICE"], entry.line,
+                MR:FormatReading(entry.candidates.decimal), MR:FormatReading(entry.candidates.pair))
         elseif entry.status == "invalid" then
             local key = "MULTI_IMPORT_" .. tostring(entry.reason)
             if entry.reason == "UNKNOWN_MAP" or entry.reason == "AMBIGUOUS_MAP" then
@@ -599,6 +704,14 @@ function MR:Next()
 end
 
 function MR:Clear()
+    -- Every way a trip is cleared or replaced passes here -- the Clear
+    -- button, /qrmulti clear, /qrmulti tomtom, Start -- so an offered reading
+    -- for a paste that is no longer being imported goes with the trip.
+    -- Finishing the last stop (Next) does not come here, and keeps the
+    -- reading: the paste it belongs to is still in the box. The
+    -- import itself withdraws or offers before it calls Start, so no reading
+    -- is pending when Start reaches here from the paste.
+    if self.withdrawCommaChoice then self.withdrawCommaChoice() end
     self.generation = self.generation + 1
     self.stops, self.completed, self.total = {}, 0, 0
     self.currentIndex, self.busy = nil, false
@@ -669,7 +782,7 @@ function MR:Show()
     if InCombatLockdown() then QR:Print(QR.L["CANNOT_USE_IN_COMBAT"]); return end
     if not self.frame then
         local L = QR.L
-        local frame = QR.CreateStandardWindow({ name = "QuickRouteMultiRouteFrame", title = L["MULTI_TITLE"], width = 580, height = 650 })
+        local frame = QR.CreateStandardWindow({ name = "QuickRouteMultiRouteFrame", title = L["MULTI_TITLE"], width = 580, height = 684 })
         self.frame = frame
         local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         hint:SetPoint("TOPLEFT", 16, -42)
@@ -729,9 +842,9 @@ function MR:Show()
         self.itinerary = itinerary
         itineraryBody:SetScript("OnSizeChanged", function() itinerary:SetWidth(itineraryBody:GetWidth()) end)
         self.itineraryBody = itineraryBody
-        local function button(text, x, callback)
-            local btn = QR.CreateModernButton(frame, 132, 26)
-            btn:SetPoint("BOTTOMLEFT", x, 80)
+        local function button(text, x, callback, y, width)
+            local btn = QR.CreateModernButton(frame, width or 132, 26)
+            btn:SetPoint("BOTTOMLEFT", x, y or 80)
             btn:SetText(text)
             btn:SetScript("OnClick", function()
                 PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
@@ -740,7 +853,17 @@ function MR:Show()
             end)
             return btn
         end
+        -- A line whose comma pair reads two ways gets one button per reading.
+        -- The choice belongs to the paste it was made for: a changed paste
+        -- starts with no choices, so an old answer never reads a new line.
+        local choices, choicesFor = {}, nil
+        local offer
         local function start(stops, err, report)
+            -- Only when the choice is the one thing left. Offered under another
+            -- failure -- too many lines, an unreadable line -- a click could
+            -- not import anything, and fixing that failure means editing the
+            -- paste, which drops the choice again.
+            offer(err == L["MULTI_IMPORT_CHOOSE"] and report or nil)
             local preview = self:FormatImportReport(report)
             if stops then
                 edit:ClearFocus()
@@ -756,10 +879,53 @@ function MR:Show()
                 self:UpdateStatus()
             end
         end
-        button(L["MULTI_START"], 16, function() start(self:ParseWaypoints(edit:GetText())) end)
+        local function importPaste()
+            local text = edit:GetText()
+            if choicesFor ~= text then choices, choicesFor = {}, text end
+            start(self:ParseWaypoints(text, choices))
+        end
+        local withdraw
+        local function choose(reading)
+            local pending = self.pendingCommaChoice
+            -- A button standing for a paste that has changed since is
+            -- withdrawn rather than obeyed: importing on its click would start
+            -- a trip from text the player never confirmed.
+            if not (pending and pending.text == edit:GetText() and choicesFor == pending.text) then
+                withdraw()
+                return
+            end
+            choices[pending.key] = reading
+            importPaste()
+        end
+        self.commaDecimalButton = button("", 16, function() choose("decimal") end, 118, 269)
+        self.commaPairButton = button("", 295, function() choose("pair") end, 118, 269)
+        withdraw = function()
+            self.pendingCommaChoice = nil
+            self.commaDecimalButton:Hide()
+            self.commaPairButton:Hide()
+        end
+        -- For MR:Clear, which the slash commands reach without the window.
+        self.withdrawCommaChoice = withdraw
+        withdraw()
+        offer = function(report)
+            local entry = self:PendingCommaChoice(report)
+            if not entry then withdraw(); return end
+            self.pendingCommaChoice = { key = entry.key, text = edit:GetText() }
+            self.commaDecimalButton:SetText(format(L["MULTI_COMMA_USE"], entry.line,
+                self:FormatReading(entry.candidates.decimal, true)))
+            self.commaPairButton:SetText(format(L["MULTI_COMMA_USE"], entry.line,
+                self:FormatReading(entry.candidates.pair, true)))
+            self.commaDecimalButton:Show()
+            self.commaPairButton:Show()
+        end
+        -- Editing the paste withdraws a choice offered for the old text.
+        edit:SetScript("OnTextChanged", function(_, userInput)
+            if userInput then withdraw() end
+        end)
+        self.startButton = button(L["MULTI_START"], 16, importPaste)
         button(L["MULTI_TOMTOM"], 154, function() start(self:CollectTomTomWaypoints()) end)
         button(L["MULTI_NEXT"], 292, function() self:Next() end)
-        button(L["MULTI_CLEAR"], 430, function() self:Clear() end)
+        self.clearButton = button(L["MULTI_CLEAR"], 430, function() self:Clear() end)
         self.statusLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         self.statusLabel:SetPoint("BOTTOMLEFT", 16, 14)
         self.statusLabel:SetSize(548, 54)
