@@ -3069,6 +3069,32 @@ T:run("Cooperative search: withdrawing the running request drops its result only
     t:assertEqual(85, published[1], "and the queued one still runs, got " .. tostring(published[1]))
 end)
 
+T:run("Cooperative search: a replaced request never runs its search", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local saved, after = pc.CalculatePath, C_Timer.After
+    local queue, started, published = {}, {}, {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    pc.CalculatePath = function(_, mapID)
+        started[#started + 1] = mapID
+        coroutine.yield()
+        return { tag = mapID }
+    end
+    -- StepAsync takes the head of the queue without looking, because whatever
+    -- supersedes a request also takes it out. If a replaced request stayed in
+    -- the queue, it would cost a full search whose result is thrown away.
+    pc:CalculatePathAsync(84, 0.5, 0.5, nil, function() end, { consumer = "a" })
+    local record = function(route) published[#published + 1] = route.tag end
+    pc:CalculatePathAsync(85, 0.5, 0.5, nil, record, { consumer = "b" })
+    pc:CalculatePathAsync(86, 0.5, 0.5, nil, record, { consumer = "b" })
+    t:assertEqual(1, #pc.asyncQueue, "the replaced request left the queue, queued " .. #pc.asyncQueue)
+    while #queue > 0 do table.remove(queue, 1)() end
+    pc.CalculatePath, C_Timer.After = saved, after
+    pc:CancelAsync()
+    t:assertEqual(2, #started, "two searches ran, not three, got " .. #started)
+    t:assertEqual(86, published[1], "and the replacement published, got " .. tostring(published[1]))
+end)
+
 T:run("Cooperative search: the next queued request starts on the next frame", function(t)
     resetState()
     local pc = QR.PathCalculator

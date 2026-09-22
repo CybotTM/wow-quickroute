@@ -594,9 +594,11 @@ function UI:RefreshRoute()
     -- searching painted its older route over the trip planner's stop once it
     -- finished. Superseding gives a refresh's calculating flag back through its
     -- abandon notice, and the route is read below. When a map click hands over
-    -- its own route, its request has already finished, so this replaces only a
-    -- refresh queued behind it. A re-entrant call from the pending branch finds
-    -- nothing pending, because that branch clears it before rendering.
+    -- its own route, nothing is left to replace: its request has finished, and
+    -- any panel request made after it would already have replaced the click, so
+    -- the click's callback would not be running. A re-entrant call from the
+    -- pending branch finds nothing pending, because that branch clears it
+    -- before rendering.
     if self._pendingPOIRoute then
         QR.PathCalculator:SupersedeConsumer(QR.ROUTE_CONSUMER.ROUTE_PANEL)
     end
