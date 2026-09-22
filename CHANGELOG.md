@@ -5,6 +5,23 @@
 ### Added
 - Resolve known hearthstone inns from their localized bind name without requiring a first use. Use a compact, sourced inn catalogue and retain observed character bindings as the preferred destination. Morgenluft defaults to its current Midnight version until an actual binding or arrival is observed.
 - Explain automatically inferred inn positions in hearthstone tooltips. Catalogue coordinates are approximate; successful observed arrivals refine them.
+- Offer a route to a dungeon entrance when a group invitation is accepted. The trip the player was on is suspended and comes back when the offer ends.
+- Give the destination an owner. A destination the player chose can be locked, an interruption suspends it instead of replacing it, and the suspended trip is restored still locked.
+- Add `QuickRouteAPI`, a versioned contract other addons can ask for a route through. It answers with a detached result or a named failure, states what the estimate assumes, and never sets a waypoint or starts travel.
+- Say what a destination is, not only where: objective, hand-in, reference, prerequisite, acquisition, service, entrance or hub. A quest that is not in this character's log is a reference rather than an active objective.
+- Record where a coordinate came from, in a closed vocabulary of surveyed, estimated, reference and unverified, with a counted pin on the service points that carry none.
+- Accept the waypoint forms players actually paste into the trip window, including several `/way` lines on one line, decimal commas and guide text around them.
+
+### Changed
+- Order destination search results by what was typed: exact name, then prefix, then word start, then substring, alphabetical within each rank.
+- Offer the shared Silvermoon hub to both factions. It was marked Horde, so the search filtered it out for Alliance characters.
+- Price a leg on a map the player is not standing on from what that zone allows, rather than from what the client reports about the current one.
+
+### Fixed
+- Say why a route could not be produced instead of returning nothing: the position is not available yet, the route needs something this character does not have, a refused step was the only way, or no connection is known at all. Those need different responses from the player.
+- Bound what a single route calculation may spend in one frame. A long search now continues across frames instead of holding the client.
+- Let the player refuse a step they cannot use. QuickRoute keeps the destination, drops that one connection for this route and looks for another way; right-clicking Refresh takes the refusals back.
+- Keep the approach when consecutive steps are summarised into one row, so a merged row still leads where its hops did.
 
 ## [1.19.0] - 2026-09-11
 

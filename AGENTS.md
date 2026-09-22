@@ -1,6 +1,6 @@
 # AGENTS.md — QuickRoute
 
-> Last updated: 2026-08-30
+> Last updated: 2026-09-22
 
 World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, portals, spells, and items. Uses Dijkstra's algorithm. Namespace: `QR`.
 
@@ -8,7 +8,7 @@ World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, po
 
 | Command | What it does | ~Time |
 |---------|-------------|-------|
-| `~/.local/bin/lua5.1 tests/run_tests.lua` | Run the suite (33 test files). Compare the assertion count to the previous run rather than to a number written down here | ~5s |
+| `~/.local/bin/lua5.1 tests/run_tests.lua` | Run the suite (83 Lua test files). Compare the assertion count to the previous run rather than to a number written down here | ~5s |
 | `QR_TEST_ORDER=reverse ~/.local/bin/lua5.1 tests/run_tests.lua` | Same suite, files back to front. CI runs both; a file that borrows shared state and does not restore it fails here and nowhere else | ~5s |
 | `./scripts/lint.sh` | Luacheck over `QuickRoute/` and `tests/`, native or via Docker. Fails when no linter is available | ~3s |
 | `luacheck QuickRoute/ tests/ --config .luacheckrc` | Lint only, native luacheck 1.2.0 | ~2s |
@@ -29,12 +29,21 @@ QuickRoute/
     Graph.lua             → Dijkstra pathfinding graph (nodes, edges, shortest path)
     PathCalculator.lua    → Route calculation orchestrator (builds graph, finds path)
     TravelTime.lua        → Walking/flying time estimation between coordinates
+    TourPlanner.lua       → Visit order for a multi-stop trip
   Data/
     TeleportItems.lua     → All teleport data (items, toys, spells, racials, class, general)
     Portals.lua           → Portal hub connections (boats, zeppelins, portals)
     ZoneAdjacency.lua     → Zone neighbor graph for overland travel
     DungeonEntrances.lua  → Static dungeon/raid entrance coordinates
     ServicePOIs.lua       → Vendor, bank, auction house and other service points
+    DestinationCatalog.lua → Generated destination catalogue
+    DungeonTeleports.lua  → Mythic+ and attunement teleport spells
+    FlightPoints.lua      → Flight master positions per zone
+    HearthstoneLocations.lua → Known inns per localized area name
+    Provenance.lua        → Where a coordinate came from, and what the
+                              coverage pin does and does not count
+    TravelShortcuts.lua   → Wormholes, mole machine, engineering stops
+    TravelTransitions.lua → Observed zone crossings
   Modules/
     MainFrame.lua         → Unified tabbed container (Route + Teleports tabs)
     UI.lua                → Route display tab (step list, use buttons, progress)
@@ -55,6 +64,21 @@ QuickRoute/
     ServiceRouter.lua     → Routing to service POIs
     EncounterJournalButton.lua → Teleport button in the Encounter Journal
     SettingsPanel.lua     → Settings UI (native Settings API, vertical layout)
+    SettingsHeader.lua    → Section headers for the settings panel
+    RoutingAPI.lua        → QuickRouteAPI, the versioned contract other
+                              addons call; only named fields cross it
+    Journey.lua           → Who owns the destination: claim, lock, detour,
+                              resume, release, take over
+    TargetIdentity.lua    → What a target is (objective, reference, ...)
+    DungeonTravelOffer.lua → Offers the way to a dungeon on an accepted invite
+    Hearthstone.lua       → Bound inn: observed arrivals and catalogue lookup
+    MultiRoute.lua        → Multi-stop trips, waypoint import, saved trips
+    TravelRequirements.lua → Gates a connection on what this character has
+    TeleportDestinations.lua → Builds the routable destination set
+    DestinationCatalog.lua → Loads and indexes the generated catalogue
+    PhasePanel.lua        → Zidormi phase controls
+    Diagnostics.lua       → Diagnostics output
+    ZoneSurvey.lua        → Records observed zone crossings
   Utils/
     Colors.lua            → Color constants (QR.Colors)
     PlayerInfo.lua        → Cached player info (faction, class, engineering)
@@ -65,7 +89,9 @@ tests/
   run_tests.lua           → Standalone test runner entry point
   mock_wow_api.lua        → Full WoW API mock (~2000 lines)
   addon_loader.lua        → Loads addon files in .toc order for tests
-  test_*.lua              → 27 test files covering all modules
+  test_*.lua              → 83 test files covering all modules
+  test_*.py               → 3 generator and packaging tests, run by CI
+                            with python3 -m unittest discover -s tests
 ```
 
 ## Architecture
@@ -174,7 +200,7 @@ After changing `MockWoW.config.playerFaction`, call `QR.PlayerInfo:InvalidateCac
 - **Interface**: `120100` (WoW 12.1.0). The live retail build is the authority — check https://wago.tools/api/builds, not the wiki, which lags.
 - **Dependencies**: none required. TomTom optional (`## OptionalDeps`). No libraries are vendored and there is no `embeds.xml`.
 - **CI**: GitHub Actions — luacheck 1.2.0 over `QuickRoute/` and `tests/`, plus the full Lua 5.1 test suite, on push/PR to main. Actions are SHA-pinned and maintained by Dependabot.
-- **Shipped since the last VISION revision**: dungeon/raid routing, destination search, service-POI routing, Encounter Journal button.
+- **Shipped since the last VISION revision**: dungeon/raid routing, destination search, service-POI routing, Encounter Journal button, multi-stop trips, the public routing contract (`QuickRouteAPI`), journey ownership, target roles, coordinate provenance, refusing a step, and the hearthstone inn catalogue.
 - **Planned features**: NPC/vendor routing, world events (see `docs/VISION.md`)
 
 ## Terminology
