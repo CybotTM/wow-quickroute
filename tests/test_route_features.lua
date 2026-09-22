@@ -229,6 +229,29 @@ T:run("SelectStepAnchor: an anchor stays behind the player after they leave it",
     QR.PathCalculator.GetPlayerPosition = saved
 end)
 
+T:run("SelectStepAnchor: a call with no position does not move the cursor on", function(t)
+    resetState()
+    -- A loading screen answers with no position at all. Counting that as
+    -- arrival would walk the cursor through the whole row while the player is
+    -- standing still, and navigation would point at the end of it.
+    local steps = {
+        { type = "walk", from = "Start", to = "P1", time = 10, navMapID = 2393, navX = 0.10, navY = 0.10, navTitle = "P1" },
+        { type = "walk", from = "P1", to = "P2", time = 10, navMapID = 2393, navX = 0.50, navY = 0.50, navTitle = "P2" },
+        { type = "walk", from = "P2", to = "P3", time = 10, navMapID = 2393, navX = 0.90, navY = 0.90, navTitle = "P3" },
+    }
+    local merged = QR.PathCalculator:CollapseConsecutiveSteps(steps)[1]
+    local saved = QR.PathCalculator.GetPlayerPosition
+    QR.PathCalculator.GetPlayerPosition = function() return 2393, 0.02, 0.02 end
+    t:assertEqual("P1", QR.PathCalculator:SelectStepAnchor(merged).title, "before P1 navigation points at it")
+    QR.PathCalculator.GetPlayerPosition = function() return nil, nil, nil end
+    t:assertEqual("P1", QR.PathCalculator:SelectStepAnchor(merged).title, "with no position it still points at P1")
+    QR.PathCalculator.GetPlayerPosition = function() return 84, 0.5, 0.5 end
+    t:assertEqual("P1", QR.PathCalculator:SelectStepAnchor(merged).title, "and on another map it still points at P1")
+    QR.PathCalculator.GetPlayerPosition = function() return 2393, 0.02, 0.02 end
+    t:assertEqual("P1", QR.PathCalculator:SelectStepAnchor(merged).title, "the cursor was never moved on")
+    QR.PathCalculator.GetPlayerPosition = saved
+end)
+
 T:run("SelectStepAnchor: a step without merged anchors keeps its own target", function(t)
     resetState()
     local step = { type = "portal", navMapID = 84, navX = 0.2, navY = 0.3, navTitle = "Portal room", to = "Stormwind City" }
