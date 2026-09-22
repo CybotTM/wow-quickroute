@@ -695,6 +695,12 @@ function MR:Next()
 end
 
 function MR:Clear()
+    -- Every way a trip ends or a new one starts passes here -- the Clear
+    -- button, /qrmulti clear, /qrmulti tomtom, Start -- so an offered reading
+    -- for a paste that is no longer being imported goes with the trip. The
+    -- import itself withdraws or offers before it calls Start, so no reading
+    -- is pending when Start reaches here from the paste.
+    if self.withdrawCommaChoice then self.withdrawCommaChoice() end
     self.generation = self.generation + 1
     self.stops, self.completed, self.total = {}, 0, 0
     self.currentIndex, self.busy = nil, false
@@ -887,7 +893,7 @@ function MR:Show()
             self.commaDecimalButton:Hide()
             self.commaPairButton:Hide()
         end
-        -- For /qrmulti clear, which reaches the trip without the window.
+        -- For MR:Clear, which the slash commands reach without the window.
         self.withdrawCommaChoice = withdraw
         withdraw()
         offer = function(report)
@@ -908,7 +914,7 @@ function MR:Show()
         self.startButton = button(L["MULTI_START"], 16, importPaste)
         button(L["MULTI_TOMTOM"], 154, function() start(self:CollectTomTomWaypoints()) end)
         button(L["MULTI_NEXT"], 292, function() self:Next() end)
-        self.clearButton = button(L["MULTI_CLEAR"], 430, function() withdraw(); self:Clear() end)
+        self.clearButton = button(L["MULTI_CLEAR"], 430, function() self:Clear() end)
         self.statusLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         self.statusLabel:SetPoint("BOTTOMLEFT", 16, 14)
         self.statusLabel:SetSize(548, 54)
@@ -923,9 +929,7 @@ _G.SLASH_QRMULTI1 = "/qrmulti"
 SlashCmdList["QRMULTI"] = function(message)
     local command = type(message) == "string" and message:match("^%s*(.-)%s*$") or ""
     if command == "next" then MR:Next()
-    elseif command == "clear" then
-        if MR.withdrawCommaChoice then MR.withdrawCommaChoice() end
-        MR:Clear()
+    elseif command == "clear" then MR:Clear()
     elseif command == "tomtom" then
         local stops, err = MR:CollectTomTomWaypoints()
         if stops then MR:Start(stops, true) else QR:Print(err) end

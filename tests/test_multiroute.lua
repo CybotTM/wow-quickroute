@@ -279,6 +279,17 @@ T:run("MultiRoute: the trip window offers a reading only while the choice is wha
         t:assertTrue(mr.commaDecimalButton:IsShown(), "offered again")
         SlashCmdList["QRMULTI"]("clear")
         t:assertFalse(mr.commaDecimalButton:IsShown(), "/qrmulti clear withdraws the offered reading")
+        -- And a trip started from TomTom by slash command, through the real Start.
+        mr.startButton:GetScript("OnClick")()
+        t:assertTrue(mr.commaDecimalButton:IsShown(), "offered once more")
+        local savedTomTom = TomTom
+        TomTom = { waypoints = { [84] = { a = { 84, 0.2, 0.3, title = "TT stop" } } } }
+        mr.Start = start
+        SlashCmdList["QRMULTI"]("tomtom")
+        mr.Start = function(_, stops) started = stops; return true end
+        TomTom = savedTomTom
+        t:assertFalse(mr.commaDecimalButton:IsShown(), "/qrmulti tomtom withdraws the offered reading")
+        mr:Clear()
     end
     edit:SetText(previous or "")
     mr.Start, mr.message = start, message
