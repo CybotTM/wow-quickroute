@@ -103,6 +103,41 @@ T:run("DungeonOffer: routing shows the route and sets no waypoint", function(t)
     end)
 end)
 
+T:run("DungeonOffer: a cleared offer publishes no route", function(t)
+    withInstance(70001, INSTANCE, function()
+        local pc = QR.PathCalculator
+        local savedAsync = pc.CalculatePathAsync
+        local savedUpdate = QR.UI.UpdateRoute
+        local deliver, updated = nil, 0
+        QR.UI.UpdateRoute = function() updated = updated + 1 end
+        -- The calculator is held open on purpose. The lifecycle under test is
+        -- the offer's: a search started for one offer finishing after that
+        -- offer is gone.
+        pc.CalculatePathAsync = function(_, mapID, _, _, _, callback)
+            deliver = function()
+                callback({ totalTime = 42, steps = { { type = "walk", to = "Entrance", navMapID = mapID } } })
+            end
+            return 1
+        end
+        QR.DungeonTravelOffer:Present(70001)
+        local got, failure, called = nil, nil, 0
+        QR.DungeonTravelOffer:Route(function(result, reason)
+            called, got, failure = called + 1, result, reason
+        end)
+        -- Leaving the group is the ordinary way this happens.
+        QR.DungeonTravelOffer:Clear()
+        deliver()
+        pc.CalculatePathAsync = savedAsync
+        QR.UI.UpdateRoute = savedUpdate
+        t:assertNil(QR.DungeonTravelOffer.pending, "the offer is gone before the result arrives")
+        t:assertEqual(0, updated, "the panel shows no route for an offer that no longer stands")
+        t:assertEqual(1, called, "the consumer still hears back rather than waiting forever")
+        t:assertNil(got, "the consumer receives no route")
+        t:assertEqual(QR.PathCalculator.FAILURE.SUPERSEDED, type(failure) == "table" and failure.reason or failure,
+            "the consumer is told the request was superseded")
+    end)
+end)
+
 T:run("DungeonOffer: routing without an offer does nothing", function(t)
     QR.DungeonTravelOffer:Clear()
     t:assertFalse(QR.DungeonTravelOffer:Route(), "no offer, no request")

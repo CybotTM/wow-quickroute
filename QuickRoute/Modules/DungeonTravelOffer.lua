@@ -133,6 +133,18 @@ function Offer:Route(callback)
     if not pending then return false end
     QR.PathCalculator:CalculatePathAsync(pending.mapID, pending.x, pending.y, pending.title,
         function(result, failure)
+            -- The search outlives the offer it was started for. Leaving the
+            -- group clears the offer, and without this the result still reached
+            -- the panel and showed the way to a dungeon the player is no longer
+            -- going to. The calculation itself is not cancelled: another
+            -- consumer of the same calculator may be waiting on it.
+            if self.pending ~= pending then
+                QR:Debug("DungeonTravelOffer: offer cleared before its route arrived, result dropped")
+                if type(callback) == "function" then
+                    callback(nil, { reason = QR.PathCalculator.FAILURE.SUPERSEDED })
+                end
+                return
+            end
             if not result then
                 QR:Print(QR.PathCalculator:DescribeFailure(failure))
             elseif QR.UI and QR.UI.UpdateRoute then
