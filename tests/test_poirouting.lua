@@ -172,6 +172,75 @@ T:run("RouteToMapPosition: result has map_click waypointSource", function(t)
     QR.UI.UpdateRoute = origUpdate
 end)
 
+-- The search spans frames, so the player can close the window between the
+-- click and the answer. Timers queue here and run only when drained, which is
+-- the order the client runs them in.
+local function withQueuedSearch(body)
+    local pc = QR.PathCalculator
+    local savedCalculate, savedAfter = pc.CalculatePath, C_Timer.After
+    local queue = {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    local function drain()
+        while #queue > 0 do table.remove(queue, 1)() end
+    end
+    -- Yields once, as a search over the budget does, so the answer arrives on
+    -- a later frame instead of inside the call that asked for it.
+    pc.CalculatePath = function()
+        coroutine.yield()
+        return { steps = {}, totalTime = 1 }
+    end
+    local ok, err = pcall(body, drain)
+    pc.CalculatePath, C_Timer.After = savedCalculate, savedAfter
+    pc:CancelAsync()
+    QR.MainFrame:Hide()
+    QR.UI._pendingPOIRoute = nil
+    if not ok then error(err, 0) end
+end
+
+T:run("RouteToMapPosition: a window closed while the search runs stays closed", function(t)
+    resetState()
+    withQueuedSearch(function(drain)
+        QR.MainFrame:Show("route")
+        QR.POIRouting:RouteToMapPosition(84, 0.5, 0.5)
+        QR.MainFrame:Hide()
+        drain()
+        t:assertFalse(QR.MainFrame.isShowing,
+            "the late answer does not reopen the window, isShowing=" .. tostring(QR.MainFrame.isShowing))
+        t:assertNil(QR.UI._pendingPOIRoute,
+            "no route is left waiting for the next open, got " .. tostring(QR.UI._pendingPOIRoute))
+    end)
+end)
+
+T:run("RouteToMapPosition: a click with the window closed still opens it", function(t)
+    resetState()
+    withQueuedSearch(function(drain)
+        QR.MainFrame:Hide()
+        QR.POIRouting:RouteToMapPosition(84, 0.5, 0.5)
+        drain()
+        t:assertTrue(QR.MainFrame.isShowing,
+            "the answer opens the window, isShowing=" .. tostring(QR.MainFrame.isShowing))
+    end)
+end)
+
+T:run("/qrwp: a window closed while the search runs stays closed", function(t)
+    resetState()
+    local wi = QR.WaypointIntegration
+    local savedGet = wi.GetActiveWaypoint
+    wi.GetActiveWaypoint = function()
+        return { mapID = 84, x = 0.5, y = 0.5, title = "Pin" }, "map_pin"
+    end
+    local ok, err = pcall(withQueuedSearch, function(drain)
+        QR.MainFrame:Show("route")
+        SlashCmdList["QRWP"]("")
+        QR.MainFrame:Hide()
+        drain()
+        t:assertFalse(QR.MainFrame.isShowing,
+            "the late answer does not reopen the window, isShowing=" .. tostring(QR.MainFrame.isShowing))
+    end)
+    wi.GetActiveWaypoint = savedGet
+    if not ok then error(err, 0) end
+end)
+
 -------------------------------------------------------------------------------
 -- 3. OnMapClick
 -------------------------------------------------------------------------------

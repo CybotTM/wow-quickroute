@@ -75,11 +75,20 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
     -- The search yields between frames instead of holding the client, so
     -- everything that needs its result happens in the callback. A raised error
     -- inside the search is caught by the driver and arrives here as a failure.
+    local closes = QR.MainFrame and QR.MainFrame.closeCount
     QR.PathCalculator:CalculatePathAsync(mapID, x, y, zoneName, function(result, failure)
         -- No route is an answer, not an error: the panel names the reason.
         -- A search that raised has already been logged by the driver.
         if not result then
             QR:Debug("POIRouting: no route, " .. tostring(failure and failure.reason))
+        end
+        -- Closing the window after the click is the player's later decision,
+        -- so the answer does not open it again. The destination is already
+        -- saved and locked above: the next time the window opens, it routes
+        -- there. That covers the window hidden for combat too.
+        if QR.MainFrame and QR.MainFrame:ClosedSince(closes) then
+            QR:Debug("POIRouting: window closed while routing, not reopening")
+            return
         end
         -- Show route in UI. Pass the calculated result via _pendingPOIRoute so
         -- RefreshRoute (triggered by SetActiveTab during Show) uses it directly
