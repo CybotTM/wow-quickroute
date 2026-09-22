@@ -2285,6 +2285,17 @@ local ANCHOR_REACHED = 0.02
 -- A merged row can stand for several segments. Navigation executes them in
 -- order: the first anchor the player has not reached yet, and the final
 -- destination once the intermediate ones are behind them.
+--
+-- Arrival is a transition, not a place the player stands in. Proximity alone
+-- says only "the player is here now", so re-scanning from the first anchor on
+-- every call reopens an anchor the moment they walk off it. Reaching an anchor
+-- writes `step.anchorCursor` on the step instead, and the cursor only ever
+-- moves forward. A recalculated route builds new step tables, which is what
+-- resets it; nothing else does.
+--
+-- This writes to the step it is given. A caller that means to re-read a route
+-- from the beginning has to pass a freshly built step table, which is what
+-- every calculation produces.
 -- @param step table A route step, possibly carrying `waypoints`
 -- @return table Anchor with mapID, x, y and title
 function PathCalculator:SelectStepAnchor(step)
@@ -2296,7 +2307,9 @@ function PathCalculator:SelectStepAnchor(step)
     }
     local anchors = step.waypoints
     if type(anchors) ~= "table" or #anchors < 2 then return final end
-    for index = 1, #anchors - 1 do
+    local cursor = step.anchorCursor
+    if type(cursor) ~= "number" or cursor < 1 then cursor = 1 end
+    for index = cursor, #anchors - 1 do
         local anchor = anchors[index]
         if anchor.mapID and anchor.x and anchor.y then
             -- Both sides are resolved the same way before they are compared.
@@ -2306,12 +2319,16 @@ function PathCalculator:SelectStepAnchor(step)
             -- anchor for the whole journey.
             local anchorMap, anchorX, anchorY = self:ResolveMapPosition(anchor.mapID, anchor.x, anchor.y)
             local mapID, x, y = self:GetPlayerPosition(anchorMap or anchor.mapID)
-            -- No position means no evidence the anchor is behind the player, so
-            -- the ordered approach is kept rather than skipped.
+            -- No position, and a position on another map, are both no evidence
+            -- that this anchor is behind the player. The cursor stays where it
+            -- is rather than counting the anchor as done.
             if not anchorMap or mapID ~= anchorMap then return anchor end
             local dx, dy = x - anchorX, y - anchorY
             if (dx * dx + dy * dy) > (ANCHOR_REACHED * ANCHOR_REACHED) then return anchor end
         end
+        -- Reached, or carrying no position of its own to compare against:
+        -- either way this anchor is done and navigation never returns to it.
+        step.anchorCursor = index + 1
     end
     return final
 end
