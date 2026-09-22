@@ -565,3 +565,34 @@ T:run("RoutingAPI: a delivered answer is not superseded afterwards", function(t)
         t:assertEqual("route", heard[1], "and with its route, got " .. tostring(heard[1]))
     end)
 end)
+
+T:run("RoutingAPI: a superseded answer's late tick does not free its successor", function(t)
+    withDriver(function(pc, drain, tick)
+        -- h1 finishes at once and waits a tick; h2 supersedes it and takes
+        -- several frames. h1's tick still runs. If it cleared the owner's entry
+        -- unconditionally, h2 -- by then finished and waiting for its own tick
+        -- -- could no longer be superseded by h3, and both would get routes.
+        local calls = 0
+        pc.CalculatePath = function()
+            calls = calls + 1
+            if calls == 2 then
+                for _ = 1, 3 do coroutine.yield() end
+            end
+            return { totalTime = 1, steps = {} }
+        end
+        local heard = {}
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) heard.h1 = f and f.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) heard.h2 = f and f.reason or "route" end)
+        tick()
+        tick()
+        tick()
+        QuickRouteAPI:CalculateRoute({ mapID = 86, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) heard.h3 = f and f.reason or "route" end)
+        drain()
+        t:assertEqual("superseded", heard.h1, "h1 was replaced, got " .. tostring(heard.h1))
+        t:assertEqual("superseded", heard.h2, "h2 was replaced by h3, got " .. tostring(heard.h2))
+        t:assertEqual("route", heard.h3, "h3 gets its route, got " .. tostring(heard.h3))
+    end)
+end)

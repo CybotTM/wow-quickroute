@@ -64,7 +64,8 @@ local function PendingRequests(key)
     return count, hasKey
 end
 
--- Each owner's newest accepted request, held until its answer is delivered.
+-- Each owner's newest accepted request, held until its answer is delivered or
+-- the owner's next request replaces it.
 -- The calculator forgets a request once its search ends, but the answer waits
 -- a tick before it reaches the consumer. A newer request from the same owner
 -- in that tick found nothing to supersede, and both answers were delivered.
@@ -75,7 +76,8 @@ local latestByOwner = {}
 -- that hears nothing cannot tell a slow route from a dead one. The calculator
 -- calls this through the request's `onSuperseded`: when the same owner asks
 -- again while the request is queued or running, and when CancelAsync drops
--- every request. Idempotent: a handle is notified once.
+-- every request. CalculateRoute calls it directly for an owner's request whose
+-- search has ended and whose answer is still waiting for its tick. Idempotent: a handle is notified once.
 local function NotifySuperseded(handle)
     if handle.cancelled then return end
     handle.cancelled = true
