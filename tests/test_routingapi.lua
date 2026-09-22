@@ -441,7 +441,9 @@ T:run("RoutingAPI: past the pending limit a request is refused, and nobody else'
                 function(_, f) heard[i] = f and f.reason or "route" end)
             t:assertNotNil(handle, "request " .. i .. " within the limit is taken")
         end
-        local refused, failure = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 }, function() end)
+        local told
+        local refused, failure = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+            function(_, f) told = f and f.reason or "route" end)
         t:assertNil(refused, "a request past the limit gets no handle")
         t:assertEqual("busy", failure and failure.reason, "the refusal is named, got "
             .. tostring(failure and failure.reason))
@@ -450,6 +452,7 @@ T:run("RoutingAPI: past the pending limit a request is refused, and nobody else'
             function() end)
         t:assertNil(newOwner, "an owner with nothing waiting is refused too")
         drain()
+        t:assertEqual("busy", told, "the refused consumer also hears it through its callback, got " .. tostring(told))
         for i = 1, QuickRouteAPI.MAX_PENDING do
             t:assertEqual("route", heard[i], "request " .. i .. " still got its route, got " .. tostring(heard[i]))
         end
@@ -474,5 +477,43 @@ T:run("RoutingAPI: at the limit an owner can still replace its own waiting reque
         drain()
         t:assertEqual("superseded", first, "the replaced request is told, got " .. tostring(first))
         t:assertEqual("route", second, "the replacement publishes, got " .. tostring(second))
+    end)
+end)
+
+T:run("RoutingAPI: at the limit an owner can replace its request while it waits in the queue", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        -- An anonymous request takes the calculator first, so AddonA's waits in
+        -- the queue rather than running.
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function() end)
+        local first, second
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) first = f and f.reason or "route" end)
+        for _ = 3, QuickRouteAPI.MAX_PENDING do
+            QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function() end)
+        end
+        local handle = QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) second = f and f.reason or "route" end)
+        t:assertNotNil(handle, "the queued owner's replacement is taken although the queue is full")
+        drain()
+        t:assertEqual("superseded", first, "the queued request is told it was replaced, got " .. tostring(first))
+        t:assertEqual("route", second, "the replacement publishes, got " .. tostring(second))
+    end)
+end)
+
+T:run("RoutingAPI: a cancelled running request does not hold a place under the limit", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local running = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function() end)
+        QuickRouteAPI:Cancel(running)
+        local taken = 0
+        for _ = 1, QuickRouteAPI.MAX_PENDING do
+            if QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function() end) then
+                taken = taken + 1
+            end
+        end
+        t:assertEqual(QuickRouteAPI.MAX_PENDING, taken,
+            "the full limit is available after the cancel, got " .. taken)
+        drain()
     end)
 end)

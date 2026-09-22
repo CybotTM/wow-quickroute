@@ -41,7 +41,9 @@ end
 -- delays the player's own route behind it. With one shared key there was never
 -- more than one; with a key per request, an addon that asks on every update
 -- without an owner would queue without end. A request past the limit is refused
--- at once, so nobody else's request is touched.
+-- at once, so nobody else's request is touched. A cancelled search that was
+-- already running still finishes and is not counted, so the player's route can
+-- wait behind one such search on top of the limit.
 API.MAX_PENDING = 8
 
 -- Count the contract's live requests, queued or running, and whether one of
@@ -176,7 +178,9 @@ end
 --   independently.
 -- @param callback function Receives (result, failure)
 -- @return table|nil A handle for Cancel, or nil plus a failure: `invalid_request`
---   for a bad request, `busy` (retryable) when MAX_PENDING requests are waiting
+--   for a bad request, `busy` (retryable) when MAX_PENDING requests are waiting.
+--   `busy` also reaches the callback on the next tick, so a consumer that
+--   ignores the return value is still told.
 function API:CalculateRoute(request, callback)
     if type(request) ~= "table" or type(callback) ~= "function" then
         return nil, { reason = "invalid_request" }
@@ -198,6 +202,11 @@ function API:CalculateRoute(request, callback)
     -- does not grow and the request is always taken.
     local pending, replaces = PendingRequests(owner and OwnerKey(owner))
     if not replaces and pending >= API.MAX_PENDING then
+        -- Through the callback as well: "a route or a named failure, never
+        -- silence" is the one promise a version 1 consumer, which reads no
+        -- second return value, can rely on.
+        local function refuse() callback(nil, { reason = "busy", retryable = true }) end
+        if C_Timer and C_Timer.After then C_Timer.After(0, refuse) else refuse() end
         return nil, { reason = "busy", retryable = true }
     end
     local handle = { cancelled = false }
