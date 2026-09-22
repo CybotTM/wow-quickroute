@@ -63,18 +63,22 @@ T:run("MultiRoute: a coordinate token is read whole, or the line is refused", fu
     t:assertTrue(math.abs(stops[1].y - 0.5662) < 1e-9, "56,62 reads as 56.62 percent, got " .. stops[1].y)
     t:assertEqual("Treasure", stops[1].title, "the label holds no part of a coordinate")
 
-    stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 50.57 56,62 Treasure")
-    t:assertNil(err, "a decimal point paired with a decimal comma is accepted")
-    t:assertTrue(math.abs(stops[1].x - 0.5057) < 1e-9, "50.57 reads as 50.57 percent, got " .. stops[1].x)
-    t:assertTrue(math.abs(stops[1].y - 0.5662) < 1e-9, "56,62 reads as 56.62 percent, got " .. stops[1].y)
+    -- A value with no decimal mark contradicts no convention, so the comma is
+    -- read as the decimal mark whichever side it is on.
+    stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 50,57 56 Treasure")
+    t:assertNil(err, "a decimal comma paired with a plain number is accepted")
+    t:assertTrue(math.abs(stops[1].x - 0.5057) < 1e-9, "50,57 reads as 50.57 percent, got " .. stops[1].x)
+    t:assertTrue(math.abs(stops[1].y - 0.56) < 1e-9, "56 reads as 56 percent, got " .. stops[1].y)
 
-    local none, noneErr, report = QR.MultiRoute:ParseWaypoints("/way #2393 50,57 56.62 Treasure")
-    -- "50,57" is either 50.57 or the pair 50 and 57. Both readings are complete,
-    -- so the line names two different places and neither may be chosen for the
-    -- player.
-    t:assertNil(none, "a line mixing both decimal marks yields no stop")
-    t:assertNotNil(noneErr, "a mixed-convention line explains the failure")
-    t:assertEqual("AMBIGUOUS_COORDS", report.entries[1].reason, "the reason names the ambiguity, not a missing pair")
+    -- A point on one value and a comma on the other explain the line two ways,
+    -- and neither order may be picked for the player. Refusing only one of the
+    -- two orders moved the destination on the other.
+    for _, line in ipairs({ "/way #2393 50,57 56.62 Treasure", "/way #2393 50.57 56,62 Treasure" }) do
+        local none, noneErr, report = QR.MultiRoute:ParseWaypoints(line)
+        t:assertNil(none, "no stop from: " .. line)
+        t:assertNotNil(noneErr, "the failure is explained for: " .. line)
+        t:assertEqual("AMBIGUOUS_COORDS", report.entries[1].reason, "named as ambiguous: " .. line)
+    end
 
     stops, err = QR.MultiRoute:ParseWaypoints("/way #84 50, 57 Bank")
     t:assertNil(err, "the comma-separated pair is still accepted")
@@ -108,10 +112,20 @@ T:run("MultiRoute: a map line whose pair cannot be read is refused, not re-paire
     -- Two numbers follow the map id, so the line is the map form. The pair is
     -- unreadable, and the answer is a refusal rather than a destination on
     -- whichever map the player happens to be standing on.
-    local stops, err, report = QR.MultiRoute:ParseWaypoints("/way 84 50 60Bank")
+    local stops, err, report = QR.MultiRoute:ParseWaypoints("/way 84 50 .5 Label")
     t:assertNil(stops, "no stop from an unreadable pair")
     t:assertNotNil(err, "the line is reported")
     t:assertEqual("BAD_COORDS", report.entries[1].reason, "and named as an unreadable pair")
+    -- A digit behind the second value, or a decimal mark with a digit behind
+    -- it, means the reader stopped in the middle of a number. Reading 60 and
+    -- keeping "5 Label" as the label would be the partial read this parser
+    -- exists to refuse.
+    for _, line in ipairs({ "/way 84 50 60-5 Label", "/way 84 50 60..5 Label" }) do
+        local none, noneErr, noneReport = QR.MultiRoute:ParseWaypoints(line)
+        t:assertNil(none, "no stop from: " .. line)
+        t:assertNotNil(noneErr, "the failure is explained for: " .. line)
+        t:assertEqual("BAD_COORDS", noneReport.entries[1].reason, "named as an unreadable pair: " .. line)
+    end
 end)
 
 T:run("MultiRoute: two numbers with no map use the current map", function(t)
@@ -122,15 +136,18 @@ T:run("MultiRoute: two numbers with no map use the current map", function(t)
     t:assertTrue(math.abs(stops[1].y - 0.60) < 1e-9, "y is 60, got " .. stops[1].y)
 end)
 
-T:run("MultiRoute: a decimal comma beside a plain number is ambiguous too", function(t)
-    -- "50,60 3" is either the pair 50.60 and 3, or the pair 50 and 60 with a
-    -- label that starts with a number. The second value carries no decimal
-    -- mark at all, so a rule that only compared a comma against a point let
-    -- this one through.
-    local stops, err, report = QR.MultiRoute:ParseWaypoints("/way 84 50,60 3 chests")
-    t:assertNil(stops, "no stop from a line that names two places")
-    t:assertNotNil(err, "the line is reported")
-    t:assertEqual("AMBIGUOUS_COORDS", report.entries[1].reason, "and named as ambiguous")
+T:run("MultiRoute: a label may sit straight against the second coordinate", function(t)
+    -- A guide that writes no space before its note still names one place. The
+    -- number is whole either way, so there is nothing to refuse -- only a digit
+    -- behind the value, or a decimal mark with a digit behind it, means the
+    -- reader stopped in the middle of a number.
+    local forms = { "/way 84 50 60Bank", "/way 84 50 60,near the tree", "/way 84 50 60:Bank" }
+    for _, line in ipairs(forms) do
+        local stops, err = QR.MultiRoute:ParseWaypoints(line)
+        t:assertNil(err, "accepted: " .. line)
+        t:assertEqual(84, stops and stops[1].mapID, "the leading number stays the map in: " .. line)
+        t:assertTrue(stops and math.abs(stops[1].y - 0.60) < 1e-9, "y is 60 in: " .. line)
+    end
 end)
 
 T:run("MultiRoute: an ambiguous pair with no map token is named, not retried as a zone", function(t)
@@ -138,7 +155,7 @@ T:run("MultiRoute: an ambiguous pair with no map token is named, not retried as 
     -- ambiguous pair fall through to the zone-name shape reported it as an
     -- unreadable pair instead, which tells the player to check the wrong
     -- thing.
-    local stops, err, report = QR.MultiRoute:ParseWaypoints("/way 50,60 3 chests")
+    local stops, err, report = QR.MultiRoute:ParseWaypoints("/way 50,57 56.62 Treasure")
     t:assertNil(stops, "no stop from a line that names two places")
     t:assertNotNil(err, "the line is reported")
     t:assertEqual("AMBIGUOUS_COORDS", report.entries[1].reason, "and named as ambiguous, not as bad coordinates")

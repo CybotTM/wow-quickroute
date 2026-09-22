@@ -121,19 +121,38 @@ end
 -- carrying the rest into the label moved the destination while both values
 -- stayed in range, so nothing downstream could catch it.
 -- @return number|nil x, number|nil y, string|nil label, string|nil reason
+-- Whether what is left after a coordinate is a label rather than the rest of a
+-- number the reader stopped short of. A label may sit straight against the
+-- value -- "60Bank", "60,near the tree" -- but a digit, or a decimal mark with
+-- a digit behind it, means the number was cut in half.
+local function labelFollows(text)
+    if text == "" then return true end
+    if text:match("^%d") then return false end
+    if text:match("^[%.,]%d") then return false end
+    return true
+end
+
 local function coordinatePair(rest)
     local x, xMark, afterX = readCoordinate(rest)
     if x then
         local betweenPair = afterX and afterX:match("^%s+(.*)$")
         if betweenPair then
             local y, yMark, afterY = readCoordinate(betweenPair)
-            -- A label may follow, and it has to be separated from the second
-            -- value: "60Bank" is not the value 60.
-            if y and (afterY == "" or afterY:match("^%s")) then
-                -- "50,57 56.62" is either the pair 50.57 and 56.62, or the pair
-                -- 50 and 57 followed by a label that starts with a number. Both
-                -- readings are complete, so the line names two different places.
-                if xMark == "comma" and yMark ~= "comma" then
+            if y and labelFollows(afterY) then
+                -- One value writing its decimal point as a comma and the other
+                -- as a point explains the line two ways: "50,57 56.62" is the
+                -- pair 50.57 and 56.62, or the pair 50 and 57 with a label that
+                -- starts with a number. Both readings are complete, so the line
+                -- names two different places and neither may be picked.
+                --
+                -- A value with no decimal mark at all contradicts nothing, so
+                -- "50 56,62" and "50,57 56" are read with the comma as the
+                -- decimal mark. That is a choice: "60,3 chests" could be the
+                -- pair 60 and 3 with the label "chests". It follows the
+                -- convention the rest of the line states, and a guide that
+                -- meant two values writes the separator with a space.
+                if (xMark == "comma" and yMark == "dot")
+                    or (xMark == "dot" and yMark == "comma") then
                     return nil, nil, nil, "AMBIGUOUS_COORDS"
                 end
                 return x, y, (gsub(afterY, "^%s+", ""))
@@ -216,7 +235,7 @@ local function parseWayBody(body)
         -- the map token with the first coordinate and accept a destination on
         -- the player's current map -- a line that reads correctly to a human,
         -- imported as somewhere else entirely.
-        if rest:match("^%d[%d%.,]*%s+%d") then
+        if rest:match("^%d[%d%.,]*%s+[%.%d]") then
             return nil, nil, nil, nil, "BAD_COORDS"
         end
     end
