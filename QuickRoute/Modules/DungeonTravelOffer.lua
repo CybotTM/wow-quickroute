@@ -153,7 +153,7 @@ function Offer:Route(callback)
                 if type(callback) == "function" then
                     -- Not retryable: asking again produces a route to a dungeon
                     -- the player is no longer going to. The same answer the
-                    -- public contract gives for a withdrawn request.
+                    -- public contract gives a superseded request.
                     callback(nil, { reason = QR.PathCalculator.FAILURE.SUPERSEDED, retryable = false })
                 end
                 return
