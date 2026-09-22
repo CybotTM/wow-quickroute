@@ -94,8 +94,10 @@ T:run("MultiRoute: punctuation after a coordinate belongs to the line, not to th
     -- became the destination, and both numbers stayed in range.
     local forms = {
         ["/way 84 50 60, near the tree"] = "near the tree",
-        ["/way 84 50 60: Bank"] = "Bank",
-        ["/way 84 50 60- Bank"] = "Bank",
+        -- A dot or comma ending the number is dropped; any other character
+        -- stays with the label, as the released parser left it.
+        ["/way 84 50 60: Bank"] = ": Bank",
+        ["/way 84 50 60- Bank"] = "- Bank",
         ["/way 84 50. 60 Label"] = "Label",
     }
     for line, label in pairs(forms) do
@@ -116,11 +118,14 @@ T:run("MultiRoute: a map line whose pair cannot be read is refused, not re-paire
     t:assertNil(stops, "no stop from an unreadable pair")
     t:assertNotNil(err, "the line is reported")
     t:assertEqual("BAD_COORDS", report.entries[1].reason, "and named as an unreadable pair")
-    -- A digit behind the second value, or a decimal mark with a digit behind
-    -- it, means the reader stopped in the middle of a number. Reading 60 and
-    -- keeping "5 Label" as the label would be the partial read this parser
-    -- exists to refuse.
-    for _, line in ipairs({ "/way 84 50 60-5 Label", "/way 84 50 60..5 Label" }) do
+    -- A decimal mark with a digit behind it, straight after a value that has
+    -- no fraction yet, means the reader stopped in the middle of a number.
+    -- Reading 60 and keeping ".5 Label" as the label would be the partial read
+    -- this parser exists to refuse.
+    -- The second line is the one that could fall through: its first value
+    -- carries a comma, so the comma-separated shape would read it as the
+    -- pair 50 and 57.
+    for _, line in ipairs({ "/way 84 50 60..5 Label", "/way #2393 50,57 56..5 Treasure" }) do
         local none, noneErr, noneReport = QR.MultiRoute:ParseWaypoints(line)
         t:assertNil(none, "no stop from: " .. line)
         t:assertNotNil(noneErr, "the failure is explained for: " .. line)
@@ -134,6 +139,29 @@ T:run("MultiRoute: two numbers with no map use the current map", function(t)
     t:assertEqual(QR.TravelTime:GetCurrentMapID(), stops[1].mapID, "the stop lands on the current map")
     t:assertTrue(math.abs(stops[1].x - 0.50) < 1e-9, "x is 50, got " .. stops[1].x)
     t:assertTrue(math.abs(stops[1].y - 0.60) < 1e-9, "y is 60, got " .. stops[1].y)
+end)
+
+T:run("MultiRoute: a pair that was read is kept or refused, never re-read", function(t)
+    -- Both values were read, and something glued to the second one is not a
+    -- label the first reading accepts. Handing the line to the comma-separated
+    -- shape took the comma inside "50,57" as the separator and imported
+    -- (50, 57) -- the pair the line does not name.
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 50,57 56,62-2 Treasure")
+    t:assertNil(err, "the line is accepted")
+    t:assertTrue(stops and math.abs(stops[1].x - 0.5057) < 1e-9, "x is 50.57, got " .. tostring(stops and stops[1].x))
+    t:assertTrue(stops and math.abs(stops[1].y - 0.5662) < 1e-9, "y is 56.62, got " .. tostring(stops and stops[1].y))
+    -- A value that already carries its fraction cannot be continued, so the
+    -- mark behind it starts the label.
+    stops, err = QR.MultiRoute:ParseWaypoints("/way 84 50.25 60.75,3 chests")
+    t:assertNil(err, "a mark after a finished fraction is not a cut number")
+    t:assertTrue(stops and math.abs(stops[1].y - 0.6075) < 1e-9, "y is 60.75, got " .. tostring(stops and stops[1].y))
+    -- Punctuation other than a dot or comma stays in the label, and a digit
+    -- behind it is the label's, not the number's.
+    for _, line in ipairs({ "/way 84 50 60-5 Label", "/way 84 50 60#2", "/way 84 50 60(2)" }) do
+        local accepted, failure = QR.MultiRoute:ParseWaypoints(line)
+        t:assertNil(failure, "accepted: " .. line)
+        t:assertTrue(accepted and math.abs(accepted[1].y - 0.60) < 1e-9, "y is 60 in: " .. line)
+    end
 end)
 
 T:run("MultiRoute: a label may sit straight against the second coordinate", function(t)

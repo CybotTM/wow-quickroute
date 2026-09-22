@@ -83,11 +83,13 @@ end
 -- Read one coordinate from the front of `text`. Returns the value, which
 -- decimal mark it used, and what is left of the line.
 --
--- A mark counts as a decimal mark only when digits follow it. "56,62" is one
--- value; the comma in "60, near the tree" is punctuation the number does not
--- own, and is dropped rather than left at the front of the label. Which mark
--- was used travels with the value, because a line that uses both can be read
--- two ways and has to be refused rather than resolved one way in silence.
+-- A dot or a comma counts as a decimal mark only when digits follow it: "56,62"
+-- is one value. A dot or comma with no digit behind it ends the number and is
+-- dropped, so "60, near the tree" and "50. 60" read as 60 and 50. Any other
+-- character after the number stays where it is and becomes part of the label.
+-- Which mark was used travels with the value, because a line that uses both can
+-- be read two ways and has to be refused rather than resolved one way in
+-- silence.
 local function readCoordinate(text)
     local value, mark, rest
     local digits, separator, fraction, tail = text:match("^(%d+)([%.,])(%d+)(.*)$")
@@ -101,16 +103,21 @@ local function readCoordinate(text)
         if not whole then return nil end
         value, mark = tonumber(whole), "plain"
     end
-    -- Punctuation glued to the number belongs to the line, not to the value:
-    -- "60, near the tree" and "60: Bank" both carry the value 60. A dot or a
-    -- comma with digits behind it is the exception -- there it is a decimal
-    -- mark, and the digits are part of the number.
-    local punctuation, afterPunctuation = rest:match("^(%p)(.*)$")
-    if punctuation and not ((punctuation == "." or punctuation == ",")
-        and afterPunctuation:match("^%d")) then
-        rest = afterPunctuation
-    end
+    local afterMark = rest:match("^[%.,](.*)$")
+    if afterMark and not afterMark:match("^%d") then rest = afterMark end
     return value, mark, rest
+end
+
+-- Whether what is left after the second coordinate is a label, or the rest of
+-- a number the reader stopped short of. A label may sit straight against the
+-- value -- "60Bank", "60:Bank", "60-5 Label" -- and it may start with anything
+-- but one thing: a decimal mark with a digit behind it, directly after a value
+-- that has no fraction yet. Only that shape is a number cut in half. A value
+-- that already carries its fraction cannot be continued, so "60.75,3 chests"
+-- is 60.75 with the label ",3 chests".
+local function labelFollows(text, mark)
+    if mark ~= "plain" then return true end
+    return not text:match("^[%.,]%d")
 end
 
 -- Read a coordinate pair. Community guides separate the pair with a comma, and
@@ -121,45 +128,38 @@ end
 -- carrying the rest into the label moved the destination while both values
 -- stayed in range, so nothing downstream could catch it.
 -- @return number|nil x, number|nil y, string|nil label, string|nil reason
--- Whether what is left after a coordinate is a label rather than the rest of a
--- number the reader stopped short of. A label may sit straight against the
--- value -- "60Bank", "60,near the tree" -- but a digit, or a decimal mark with
--- a digit behind it, means the number was cut in half.
-local function labelFollows(text)
-    if text == "" then return true end
-    if text:match("^%d") then return false end
-    if text:match("^[%.,]%d") then return false end
-    return true
-end
-
 local function coordinatePair(rest)
     local x, xMark, afterX = readCoordinate(rest)
-    if x then
-        local betweenPair = afterX and afterX:match("^%s+(.*)$")
-        if betweenPair then
-            local y, yMark, afterY = readCoordinate(betweenPair)
-            if y and labelFollows(afterY) then
-                -- One value writing its decimal point as a comma and the other
-                -- as a point explains the line two ways: "50,57 56.62" is the
-                -- pair 50.57 and 56.62, or the pair 50 and 57 with a label that
-                -- starts with a number. Both readings are complete, so the line
-                -- names two different places and neither may be picked.
-                --
-                -- A value with no decimal mark at all contradicts nothing, so
-                -- "50 56,62" and "50,57 56" are read with the comma as the
-                -- decimal mark. That is a choice: "60,3 chests" could be the
-                -- pair 60 and 3 with the label "chests". It follows the
-                -- convention the rest of the line states, and a guide that
-                -- meant two values writes the separator with a space.
-                if (xMark == "comma" and yMark == "dot")
-                    or (xMark == "dot" and yMark == "comma") then
-                    return nil, nil, nil, "AMBIGUOUS_COORDS"
-                end
-                return x, y, (gsub(afterY, "^%s+", ""))
-            end
+    local betweenPair = x and afterX:match("^%s+(.*)$")
+    local y, yMark, afterY
+    if betweenPair then y, yMark, afterY = readCoordinate(betweenPair) end
+    if y then
+        -- Two values were read. From here the line is either this pair or
+        -- refused -- never handed to the shape below, which would take the
+        -- comma inside "50,57" as a separator and import (50, 57).
+        if not labelFollows(afterY, yMark) then
+            return nil, nil, nil, "BAD_COORDS"
         end
+        -- One value writing its decimal point as a comma and the other as a
+        -- point explains the line two ways: "50,57 56.62" is the pair 50.57
+        -- and 56.62, or the pair 50 and 57 with a label that starts with a
+        -- number. Both readings are complete, so the line names two different
+        -- places and neither may be picked.
+        --
+        -- A value with no decimal mark at all contradicts nothing, so
+        -- "50 56,62" and "50,57 56" are read with the comma as the decimal
+        -- mark. That is a choice: "60,3 chests" could be the pair 60 and 3
+        -- with the label "chests". It follows the convention the rest of the
+        -- line states, and a guide that meant two values writes the separator
+        -- with a space.
+        if (xMark == "comma" and yMark == "dot")
+            or (xMark == "dot" and yMark == "comma") then
+            return nil, nil, nil, "AMBIGUOUS_COORDS"
+        end
+        return x, y, (gsub(afterY, "^%s+", ""))
     end
-    -- "50,57 Bank": one token carrying the separated pair, with no space.
+    -- "50,57 Bank" and "50, 57 Bank": the comma separates the pair. Reached only
+    -- when no second value could be read above.
     local sx, sy, tail = rest:match("^(%d+%.?%d*)%s*,%s*(%d+%.?%d*)%s*(.-)%s*$")
     if sx then return tonumber(sx), tonumber(sy), tail end
     return nil
