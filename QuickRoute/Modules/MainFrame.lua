@@ -289,15 +289,19 @@ function MainFrame:ReleaseTabContent()
     end
 end
 
---- Whether the window was closed after a count taken with `closeCount`.
+--- Whether the window was closed after a count taken with `closeCount`, and
+-- is still closed.
 -- For an answer that arrives frames after it was asked for: a window the player
 -- closed in the meantime stays closed. A window that was already closed when
 -- the count was taken may still be opened, because the player asked for the
--- route with it closed.
+-- route with it closed. A window closed and opened again in the meantime is
+-- open, and the answer belongs in it: skipping it there left the reopened
+-- window on the old destination, or on "Calculating..." when the answer had
+-- already replaced the reopened window's own search.
 -- @param count number|nil The value of `closeCount` when the request started
 -- @return boolean
 function MainFrame:ClosedSince(count)
-    return count ~= nil and self.closeCount ~= count
+    return count ~= nil and self.closeCount ~= count and not self.isShowing
 end
 
 --- Hide the main frame
