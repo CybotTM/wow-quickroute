@@ -532,3 +532,36 @@ T:run("RoutingAPI: a refused request that is cancelled is not told busy", functi
         t:assertEqual(0, calls, "a withdrawn consumer hears nothing, got " .. calls)
     end)
 end)
+
+T:run("RoutingAPI: an owner's newer request supersedes an answer not yet delivered", function(t)
+    withDriver(function(pc, drain)
+        -- Finishes inside the first slice: the calculator is done with A before
+        -- B is asked for, and only A's delivery, one tick later, is pending.
+        pc.CalculatePath = function() return { totalTime = 1, steps = {} } end
+        local a, b, other
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) a = f and f.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonB" },
+            function(_, f) other = f and f.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) b = f and f.reason or "route" end)
+        drain()
+        t:assertEqual("superseded", a, "the older answer is not delivered as a route, got " .. tostring(a))
+        t:assertEqual("route", b, "the newer request publishes, got " .. tostring(b))
+        t:assertEqual("route", other, "another owner's answer is untouched, got " .. tostring(other))
+    end)
+end)
+
+T:run("RoutingAPI: a delivered answer is not superseded afterwards", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() return { totalTime = 1, steps = {} } end
+        local heard = {}
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) heard[#heard + 1] = f and f.reason or "route" end)
+        drain()
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" }, function() end)
+        drain()
+        t:assertEqual(1, #heard, "the first request is answered exactly once, got " .. #heard)
+        t:assertEqual("route", heard[1], "and with its route, got " .. tostring(heard[1]))
+    end)
+end)

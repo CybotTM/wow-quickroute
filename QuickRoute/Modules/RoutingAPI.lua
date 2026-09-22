@@ -64,6 +64,12 @@ local function PendingRequests(key)
     return count, hasKey
 end
 
+-- Each owner's newest accepted request, held until its answer is delivered.
+-- The calculator forgets a request once its search ends, but the answer waits
+-- a tick before it reaches the consumer. A newer request from the same owner
+-- in that tick found nothing to supersede, and both answers were delivered.
+local latestByOwner = {}
+
 --- Tell one consumer that its request was replaced.
 -- A superseded request's callback is dropped without a word, and a consumer
 -- that hears nothing cannot tell a slow route from a dead one. The calculator
@@ -226,6 +232,7 @@ function API:CalculateRoute(request, callback)
     handle.callback = callback
 
     local function publish(route, failure)
+        if owner and latestByOwner[owner] == handle then latestByOwner[owner] = nil end
         -- `cancelled` alone: Cancel sets both, and supersession sets only
         -- `cancelled`, so testing `withdrawn` here could never change anything.
         if handle.cancelled then return end
@@ -252,6 +259,15 @@ function API:CalculateRoute(request, callback)
     -- than destroy each other. Each request's supersession notice is bound to
     -- its own handle, so the notice the calculator sends for an earlier request
     -- reaches that request and never the one being made.
+    -- The calculator supersedes the owner's queued or running request below;
+    -- one whose search has finished and whose answer is still on its way is
+    -- superseded here. NotifySuperseded tells a handle once, so a request both
+    -- paths reach is not told twice.
+    if owner then
+        local previous = latestByOwner[owner]
+        if previous then NotifySuperseded(previous) end
+        latestByOwner[owner] = handle
+    end
     handle.generation = QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, function(route, failure)
         -- A short route finishes inside the first budget, so without this the
         -- callback could run before CalculateRoute returned and the consumer
