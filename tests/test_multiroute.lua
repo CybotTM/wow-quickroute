@@ -63,20 +63,9 @@ T:run("MultiRoute: a coordinate token is read whole, or the line is refused", fu
     t:assertTrue(math.abs(stops[1].y - 0.5662) < 1e-9, "56,62 reads as 56.62 percent, got " .. stops[1].y)
     t:assertEqual("Treasure", stops[1].title, "the label holds no part of a coordinate")
 
-    -- A comma on the first value and a plain number after it is a compact
-    -- pair followed by a label that starts with a number, as the released
-    -- parser read it. Reading the comma as a decimal mark moved
-    -- "45,32 3 rares here" to 45.32 and 3.
-    for line, label in pairs({
-        ["/way #2393 45,32 3 rares here"] = "3 rares here",
-        ["/way #2393 50,57 56 Treasure"] = "56 Treasure",
-    }) do
-        stops, err = QR.MultiRoute:ParseWaypoints(line)
-        t:assertNil(err, "accepted: " .. line)
-        t:assertTrue(stops and stops[1].x * 100 == math.floor(stops[1].x * 100 + 0.5),
-            "x is a whole number in: " .. line .. ", got " .. tostring(stops and stops[1].x))
-        t:assertEqual(label, stops and stops[1].title, "the label keeps its number in: " .. line)
-    end
+    -- A comma on the first value and a plain number after it reads two ways;
+    -- the player chooses. See "a compact comma pair before a number offers
+    -- both readings" below.
 
     -- A point on one value and a comma on the other explain the line two ways,
     -- and neither order may be picked for the player. Refusing only one of the
@@ -93,6 +82,152 @@ T:run("MultiRoute: a coordinate token is read whole, or the line is refused", fu
     t:assertTrue(math.abs(stops[1].x - 0.50) < 1e-9, "50 reads as 50 percent, got " .. stops[1].x)
     t:assertTrue(math.abs(stops[1].y - 0.57) < 1e-9, "57 reads as 57 percent, got " .. stops[1].y)
     t:assertEqual("Bank", stops[1].title, "the label after a separated pair survives")
+end)
+
+local function near(value, expected)
+    return type(value) == "number" and math.abs(value - expected) < 1e-9
+end
+
+-- "50,57 56 Treasure" is the pair 50.57 and 56 with the label "Treasure", or
+-- the pair 50 and 57 with the label "56 Treasure". Both are complete and in
+-- range, so the parser may not pick one: a player writing decimal commas got
+-- the wrong point with no warning when it did.
+T:run("MultiRoute: a compact comma pair before a number offers both readings", function(t)
+    local lines = {
+        { "/way #2393 50,57 56 Treasure", 0.5057, 0.56, "Treasure", 0.50, 0.57, "56 Treasure" },
+        { "/way #2393 45,32 3 rares here", 0.4532, 0.03, "rares here", 0.45, 0.32, "3 rares here" },
+        -- Without a map token the line reaches the same pair.
+        { "/way 50,57 56 Treasure", 0.5057, 0.56, "Treasure", 0.50, 0.57, "56 Treasure" },
+        -- The map form without the hash.
+        { "/way 84 50,57 56", 0.5057, 0.56, nil, 0.50, 0.57, "56" },
+    }
+    for _, case in ipairs(lines) do
+        local line = case[1]
+        local stops, err, report = QR.MultiRoute:ParseWaypoints(line)
+        t:assertNil(stops, "no stop before a choice from: " .. line .. ", got " .. tostring(stops and #stops))
+        t:assertNotNil(err, "the pending choice is explained for: " .. line)
+        local entry = report.entries[1]
+        t:assertEqual("ambiguous", entry and entry.status, "the line is listed as ambiguous: " .. line)
+        local choices = entry and entry.candidates
+        t:assertNotNil(choices, "both readings travel with the entry: " .. line)
+        if choices then
+            local decimal, pair = choices.decimal, choices.pair
+            t:assertTrue(decimal and near(decimal.x, case[2]) and near(decimal.y, case[3]),
+                "decimal reading of " .. line .. " is " .. case[2] .. ", " .. case[3] .. ", got "
+                .. tostring(decimal and decimal.x) .. ", " .. tostring(decimal and decimal.y))
+            t:assertEqual(case[4], decimal and decimal.title, "decimal reading label of " .. line)
+            t:assertTrue(pair and near(pair.x, case[5]) and near(pair.y, case[6]),
+                "pair reading of " .. line .. " is " .. case[5] .. ", " .. case[6] .. ", got "
+                .. tostring(pair and pair.x) .. ", " .. tostring(pair and pair.y))
+            t:assertEqual(case[7], pair and pair.title, "pair reading label of " .. line)
+        end
+    end
+end)
+
+T:run("MultiRoute: the preview names both readings of an ambiguous line", function(t)
+    local _, _, report = QR.MultiRoute:ParseWaypoints("/way #84 10 20 First\n/way #2393 50,57 56 Treasure")
+    local text = QR.MultiRoute:FormatImportReport(report) or ""
+    t:assertNotNil(text:find("50.57, 56", 1, true), "decimal reading shown, preview: " .. text)
+    t:assertNotNil(text:find("50, 57", 1, true), "pair reading shown, preview: " .. text)
+    t:assertNotNil(text:find("56 Treasure", 1, true), "pair reading's label shown, preview: " .. text)
+    t:assertNotNil(text:find("Line 2", 1, true), "the line the player counts is named, preview: " .. text)
+end)
+
+T:run("MultiRoute: choosing the decimal reading imports 50.57 and 56", function(t)
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 50,57 56 Treasure", { [1] = "decimal" })
+    t:assertNil(err, "the chosen line is accepted, got " .. tostring(err))
+    local stop = stops and stops[1]
+    t:assertTrue(stop and near(stop.x, 0.5057), "x is 50.57, got " .. tostring(stop and stop.x))
+    t:assertTrue(stop and near(stop.y, 0.56), "y is 56, got " .. tostring(stop and stop.y))
+    t:assertEqual("Treasure", stop and stop.title, "the label is the text after 56")
+end)
+
+-- On the code before the choice existed this test is green as well: the parser
+-- ignored the second argument and always took this reading.
+T:run("MultiRoute: choosing the pair reading imports 50 and 57 with the number in the label", function(t)
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 50,57 56 Treasure", { [1] = "pair" })
+    t:assertNil(err, "the chosen line is accepted, got " .. tostring(err))
+    local stop = stops and stops[1]
+    t:assertTrue(stop and near(stop.x, 0.50), "x is 50, got " .. tostring(stop and stop.x))
+    t:assertTrue(stop and near(stop.y, 0.57), "y is 57, got " .. tostring(stop and stop.y))
+    t:assertEqual("56 Treasure", stop and stop.title, "the label keeps its number")
+end)
+
+T:run("MultiRoute: without a choice nothing is imported, not even the clear lines", function(t)
+    local paste = "/way #84 10 20 First\n/way #2393 50,57 56 Treasure\n/way #84 30 40 Last"
+    local stops, err, report = QR.MultiRoute:ParseWaypoints(paste)
+    t:assertNil(stops, "no partial trip, got " .. tostring(stops and #stops) .. " stops")
+    t:assertNotNil(err, "the import says why it stopped")
+    local pending = {}
+    for _, entry in ipairs(report.entries) do
+        if entry.status == "ambiguous" then pending[#pending + 1] = entry.line end
+    end
+    t:assertEqual(1, #pending, "exactly one line waits for a choice, got " .. #pending)
+    t:assertEqual(2, pending[1], "and it is line 2, got " .. tostring(pending[1]))
+    -- A choice for one line resolves only that line.
+    local two = "/way #2393 50,57 56 A\n/way #2393 45,32 3 B"
+    stops = QR.MultiRoute:ParseWaypoints(two, { [1] = "decimal" })
+    t:assertNil(stops, "the second line still waits, got " .. tostring(stops and #stops))
+    stops = QR.MultiRoute:ParseWaypoints(two, { [1] = "decimal", [2] = "pair" })
+    t:assertEqual(2, stops and #stops, "both lines chosen, got " .. tostring(stops and #stops))
+    t:assertTrue(stops and near(stops[1].x, 0.5057), "line 1 took the decimal reading, got " .. tostring(stops and stops[1].x))
+    t:assertTrue(stops and near(stops[2].x, 0.45), "line 2 took the pair reading, got " .. tostring(stops and stops[2].x))
+    t:assertEqual("3 B", stops and stops[2].title, "line 2 label keeps its number")
+end)
+
+T:run("MultiRoute: a comma pair with only one valid reading is not offered as a choice", function(t)
+    -- 150 is no coordinate, so only the pair reading exists and it is read
+    -- as before.
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 50,57 150 Label")
+    t:assertNil(err, "accepted, got " .. tostring(err))
+    t:assertTrue(stops and near(stops[1].x, 0.50) and near(stops[1].y, 0.57),
+        "read as 50 and 57, got " .. tostring(stops and stops[1].x) .. ", " .. tostring(stops and stops[1].y))
+    t:assertEqual("150 Label", stops and stops[1].title, "the number stays in the label")
+    -- 570 is no coordinate, so the pair reading does not exist. The line is
+    -- refused as it was before, not turned into a choice.
+    local none, noneErr, report = QR.MultiRoute:ParseWaypoints("/way #2393 50,570 56 Treasure")
+    t:assertNil(none, "no stop, got " .. tostring(none and #none))
+    t:assertNotNil(noneErr, "the line is reported")
+    t:assertEqual("BAD_COORDS", report.entries[1].reason, "refused as before, got " .. tostring(report.entries[1].reason))
+end)
+
+T:run("MultiRoute: the trip window asks for the reading and imports the one chosen", function(t)
+    local mr = QR.MultiRoute
+    local combat, start, message = InCombatLockdown, mr.Start, mr.message
+    _G.InCombatLockdown = function() return false end
+    local started
+    mr.Start = function(_, stops) started = stops; return true end
+    mr:Show()
+    local previous = mr.editBox:GetText()
+    mr.editBox:SetText("/way #2393 50,57 56 Treasure")
+    t:assertNotNil(mr.startButton, "the start button is reachable")
+    t:assertNotNil(mr.commaDecimalButton, "the decimal choice button exists")
+    if mr.startButton and mr.commaDecimalButton and mr.commaPairButton then
+        t:assertFalse(mr.commaDecimalButton:IsShown(), "no choice is offered before an ambiguous paste")
+        mr.startButton:GetScript("OnClick")()
+        t:assertNil(started, "nothing started before the choice, got " .. tostring(started and #started))
+        t:assertTrue(mr.commaDecimalButton:IsShown(), "decimal choice offered")
+        t:assertTrue(mr.commaPairButton:IsShown(), "pair choice offered")
+        mr.commaDecimalButton:GetScript("OnClick")()
+        local stop = started and started[1]
+        t:assertTrue(stop and near(stop.x, 0.5057) and near(stop.y, 0.56),
+            "the decimal reading was imported, got " .. tostring(stop and stop.x) .. ", " .. tostring(stop and stop.y))
+        t:assertFalse(mr.commaDecimalButton:IsShown(), "the choice is withdrawn after the import")
+        -- A different paste does not inherit the choice made for the old one.
+        started = nil
+        mr.editBox:SetText("/way #2393 45,32 3 rares here")
+        mr.startButton:GetScript("OnClick")()
+        t:assertNil(started, "a new ambiguous paste waits again, got " .. tostring(started and #started))
+        mr.commaPairButton:GetScript("OnClick")()
+        stop = started and started[1]
+        t:assertTrue(stop and near(stop.x, 0.45) and near(stop.y, 0.32),
+            "the pair reading was imported, got " .. tostring(stop and stop.x) .. ", " .. tostring(stop and stop.y))
+    end
+    mr.editBox:SetText(previous or "")
+    mr.Start, mr.message = start, message
+    if mr.commaDecimalButton then mr.commaDecimalButton:Hide(); mr.commaPairButton:Hide() end
+    if mr.frame then mr.frame:Hide() end
+    _G.InCombatLockdown = combat
 end)
 
 T:run("MultiRoute: punctuation after a coordinate belongs to the line, not to the number", function(t)
