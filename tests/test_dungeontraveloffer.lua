@@ -26,9 +26,22 @@ end
 
 local INSTANCE = { name = "Test Halls", zoneMapID = 84, x = 0.42, y = 0.58, isRaid = false }
 
+-- The one field the live GroupFinderActivityInfo structure carries for the
+-- instance is `mapID`, a game map id. The journal lookup is keyed by journal
+-- instance id, a different namespace, so the client has to convert.
+local function withGameMapConversion(map, body)
+    local saved = _G.C_EncounterJournal.GetInstanceForGameMap
+    _G.C_EncounterJournal.GetInstanceForGameMap = function(mapID) return map[mapID] end
+    local ok, err = pcall(body)
+    _G.C_EncounterJournal.GetInstanceForGameMap = saved
+    if not ok then error(err, 0) end
+end
+
+
 T:run("DungeonOffer: a single resolvable activity produces an offer", function(t)
     withInstance(70001, INSTANCE, function()
-        withLFG({ activityIDs = { 555 } }, { journalInstanceID = 70001 }, function()
+        withLFG({ activityIDs = { 555 } }, { mapID = 2000 }, function()
+            withGameMapConversion({ [2000] = 70001 }, function()
             local resolved = QR.DungeonTravelOffer:ResolveInstance(1)
             t:assertEqual(70001, resolved, "the journal instance is read from the activity")
             t:assertTrue(QR.DungeonTravelOffer:Present(resolved), "the offer is presented")
@@ -36,13 +49,14 @@ T:run("DungeonOffer: a single resolvable activity produces an offer", function(t
             t:assertEqual(84, pending.mapID, "the offer carries the entrance zone")
             t:assertEqual("Test Halls", pending.title, "and the instance name")
             QR.DungeonTravelOffer:Clear()
+            end)
         end)
     end)
 end)
 
 T:run("DungeonOffer: an ambiguous application produces no offer", function(t)
     withInstance(70001, INSTANCE, function()
-        withLFG({ activityIDs = { 555, 556 } }, { journalInstanceID = 70001 }, function()
+        withLFG({ activityIDs = { 555, 556 } }, { mapID = 2000 }, function()
             t:assertNil(QR.DungeonTravelOffer:ResolveInstance(1),
                 "two activities are two possible destinations, so neither is offered")
         end)
@@ -55,23 +69,14 @@ T:run("DungeonOffer: an activity with no known instance produces no offer", func
             "a group title is not an instance identifier")
     end)
     withInstance(70001, INSTANCE, function()
-        withLFG({ activityIDs = { 555 } }, { journalInstanceID = 999999 }, function()
-            t:assertNil(QR.DungeonTravelOffer:ResolveInstance(1),
-                "an id QuickRoute does not know is not offered")
+        withLFG({ activityIDs = { 555 } }, { mapID = 2000 }, function()
+            withGameMapConversion({ [2000] = 999999 }, function()
+                t:assertNil(QR.DungeonTravelOffer:ResolveInstance(1),
+                    "a journal instance QuickRoute does not know is not offered")
+            end)
         end)
     end)
 end)
-
--- The one field the live GroupFinderActivityInfo structure carries for the
--- instance is `mapID`, a game map id. The journal lookup is keyed by journal
--- instance id, a different namespace, so the client has to convert.
-local function withGameMapConversion(map, body)
-    local saved = _G.C_EncounterJournal.GetInstanceForGameMap
-    _G.C_EncounterJournal.GetInstanceForGameMap = function(mapID) return map[mapID] end
-    local ok, err = pcall(body)
-    _G.C_EncounterJournal.GetInstanceForGameMap = saved
-    if not ok then error(err, 0) end
-end
 
 T:run("DungeonOffer: an activity game map is converted, never used as a journal id", function(t)
     withInstance(70001, INSTANCE, function()

@@ -22,22 +22,26 @@
 -- instance for activity N" on every accepted group.
 --
 -- The instance identity comes out of the activity record. The generated
--- GroupFinderActivityInfo structure declares `mapID` and no journal field, and
--- a game map id is a different namespace from the journal instance id the
--- lookup is keyed by, so it is converted through the client rather than passed
--- through. Passing it through matched whichever journal record happened to
--- share the number, which is the one outcome the paragraph above promises
+-- GroupFinderActivityInfo structure declares `mapID` and no journal field at
+-- all, and a game map id is a different namespace from the journal instance id
+-- the lookup is keyed by, so it is converted through the client rather than
+-- passed through. Passing it through matched whichever journal record happened
+-- to share the number, which is the one outcome the paragraph above promises
 -- cannot happen.
+--
+-- SECOND ASSUMPTION, also only settleable against a live client: that this
+-- `mapID` is the game map id GetInstanceForGameMap takes. The field carries no
+-- documentation, and Blizzard's own group finder code never reads it. The
+-- conversion result is checked against the journal before it is used, so a
+-- wrong namespace normally costs an offer rather than a wrong one -- and the
+-- Debug line below names the activity, the game map, the journal instance and
+-- the instance name on every resolved offer, so one session of real groups
+-- settles it either way.
 local ADDON_NAME, QR = ...
 local type, pairs, ipairs, pcall, tostring = type, pairs, ipairs, pcall, tostring
 
 local Offer = { pending = nil }
 QR.DungeonTravelOffer = Offer
-
--- Field names an activity record may carry the journal instance under. Read in
--- order; the first numeric one wins. `mapID` is deliberately absent: it is a
--- game map id and goes through GetInstanceForGameMap instead.
-local INSTANCE_FIELDS = { "journalInstanceID", "instanceID" }
 
 local function Call(fn, ...)
     if type(fn) ~= "function" then return nil end
@@ -63,21 +67,29 @@ function Offer:ResolveInstance(resultID)
     local activityID = info.activityIDs[1]
     local activity = Call(lfg.GetActivityInfoTable, activityID)
     if type(activity) ~= "table" then return nil end
-    for _, field in ipairs(INSTANCE_FIELDS) do
-        local value = activity[field]
-        if type(value) == "number" and QR.DungeonData and QR.DungeonData:GetInstance(value) then
-            return value
-        end
-    end
     local gameMapID = activity.mapID
     if type(gameMapID) == "number" then
         local journal = _G.C_EncounterJournal
         local converted = journal and Call(journal.GetInstanceForGameMap, gameMapID)
-        if type(converted) == "number" and QR.DungeonData and QR.DungeonData:GetInstance(converted) then
-            return converted
+        if type(converted) == "number" then
+            local instance = QR.DungeonData and QR.DungeonData:GetInstance(converted)
+            if instance then
+                -- The success path is logged as well as the failure, because
+                -- the two ways of being wrong about the map namespace look
+                -- different: one produces no offer, the other produces an
+                -- offer to somewhere else. A line naming the activity, the
+                -- game map, the journal instance and the name it resolved to
+                -- settles which happened from one session.
+                QR:Debug(string.format(
+                    "DungeonTravelOffer: activity %s, game map %s -> journal instance %s (%s)",
+                    tostring(activityID), tostring(gameMapID), tostring(converted),
+                    tostring(instance.name)))
+                return converted
+            end
         end
     end
-    QR:Debug("DungeonTravelOffer: no journal instance for activity " .. tostring(activityID))
+    QR:Debug("DungeonTravelOffer: no journal instance for activity " .. tostring(activityID) ..
+        ", game map " .. tostring(gameMapID))
     return nil
 end
 
