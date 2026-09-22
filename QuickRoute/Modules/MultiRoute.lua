@@ -133,6 +133,13 @@ local function coordinatePair(rest)
     local betweenPair = x and afterX:match("^%s+(.*)$")
     local y, yMark, afterY
     if betweenPair then y, yMark, afterY = readCoordinate(betweenPair) end
+    -- "45,32 3 rares here": a compact pair, then a label that starts with a
+    -- number. Reading the comma as a decimal mark would make that 45.32 and 3.
+    -- A comma on the first value followed by a plain second value is read the
+    -- way the released parser read it -- the comma separates the pair -- and
+    -- goes to the shape below. The mirror case is different: "50 56,62"
+    -- could otherwise only mean a label of ",62", which no guide writes.
+    if y and xMark == "comma" and yMark == "plain" then y = nil end
     if y then
         -- Two values were read. From here the line is either this pair or
         -- refused -- never handed to the shape below, which would take the
@@ -146,12 +153,10 @@ local function coordinatePair(rest)
         -- number. Both readings are complete, so the line names two different
         -- places and neither may be picked.
         --
-        -- A value with no decimal mark at all contradicts nothing, so
-        -- "50 56,62" and "50,57 56" are read with the comma as the decimal
-        -- mark. That is a choice: "60,3 chests" could be the pair 60 and 3
-        -- with the label "chests". It follows the convention the rest of the
-        -- line states, and a guide that meant two values writes the separator
-        -- with a space.
+        -- A plain first value next to a comma decimal, "50 56,62", reads the
+        -- comma as the decimal mark: the other reading would leave ",62" as a
+        -- label. That is still a choice -- "60,3 chests" could be the pair 60
+        -- and 3 -- and it is the one the report this change answers asked for.
         if (xMark == "comma" and yMark == "dot")
             or (xMark == "dot" and yMark == "comma") then
             return nil, nil, nil, "AMBIGUOUS_COORDS"
@@ -235,7 +240,7 @@ local function parseWayBody(body)
         -- the map token with the first coordinate and accept a destination on
         -- the player's current map -- a line that reads correctly to a human,
         -- imported as somewhere else entirely.
-        if rest:match("^%d[%d%.,]*%s+[%.%d]") then
+        if rest:match("^%d[%d%.,]*%s+%.?%d") then
             return nil, nil, nil, nil, "BAD_COORDS"
         end
     end
