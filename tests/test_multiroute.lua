@@ -83,6 +83,67 @@ T:run("MultiRoute: a coordinate token is read whole, or the line is refused", fu
     t:assertEqual("Bank", stops[1].title, "the label after a separated pair survives")
 end)
 
+T:run("MultiRoute: punctuation after a coordinate belongs to the line, not to the number", function(t)
+    -- A guide writing "60, near the tree" means the coordinate 60. Reading the
+    -- comma as part of the number failed the pair, and the line was then read
+    -- again as map-plus-one-coordinate: the map id became x, the current map
+    -- became the destination, and both numbers stayed in range.
+    local forms = {
+        ["/way 84 50 60, near the tree"] = "near the tree",
+        ["/way 84 50 60: Bank"] = "Bank",
+        ["/way 84 50 60- Bank"] = "Bank",
+        ["/way 84 50. 60 Label"] = "Label",
+    }
+    for line, label in pairs(forms) do
+        local stops, err = QR.MultiRoute:ParseWaypoints(line)
+        t:assertNil(err, "accepted: " .. line)
+        t:assertEqual(84, stops and stops[1].mapID, "the leading number stays the map in: " .. line)
+        t:assertTrue(stops and math.abs(stops[1].x - 0.50) < 1e-9, "x is 50 in: " .. line)
+        t:assertTrue(stops and math.abs(stops[1].y - 0.60) < 1e-9, "y is 60 in: " .. line)
+        t:assertEqual(label, stops and stops[1].title, "the label keeps its words in: " .. line)
+    end
+end)
+
+T:run("MultiRoute: a map line whose pair cannot be read is refused, not re-paired", function(t)
+    -- Two numbers follow the map id, so the line is the map form. The pair is
+    -- unreadable, and the answer is a refusal rather than a destination on
+    -- whichever map the player happens to be standing on.
+    local stops, err, report = QR.MultiRoute:ParseWaypoints("/way 84 50 60Bank")
+    t:assertNil(stops, "no stop from an unreadable pair")
+    t:assertNotNil(err, "the line is reported")
+    t:assertEqual("BAD_COORDS", report.entries[1].reason, "and named as an unreadable pair")
+end)
+
+T:run("MultiRoute: two numbers with no map use the current map", function(t)
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way 50 60 Bank")
+    t:assertNil(err, "the two-number form is accepted")
+    t:assertEqual(QR.TravelTime:GetCurrentMapID(), stops[1].mapID, "the stop lands on the current map")
+    t:assertTrue(math.abs(stops[1].x - 0.50) < 1e-9, "x is 50, got " .. stops[1].x)
+    t:assertTrue(math.abs(stops[1].y - 0.60) < 1e-9, "y is 60, got " .. stops[1].y)
+end)
+
+T:run("MultiRoute: a decimal comma beside a plain number is ambiguous too", function(t)
+    -- "50,60 3" is either the pair 50.60 and 3, or the pair 50 and 60 with a
+    -- label that starts with a number. The second value carries no decimal
+    -- mark at all, so a rule that only compared a comma against a point let
+    -- this one through.
+    local stops, err, report = QR.MultiRoute:ParseWaypoints("/way 84 50,60 3 chests")
+    t:assertNil(stops, "no stop from a line that names two places")
+    t:assertNotNil(err, "the line is reported")
+    t:assertEqual("AMBIGUOUS_COORDS", report.entries[1].reason, "and named as ambiguous")
+end)
+
+T:run("MultiRoute: an ambiguous pair with no map token is named, not retried as a zone", function(t)
+    -- Without the map token the line reaches the pair directly. Letting an
+    -- ambiguous pair fall through to the zone-name shape reported it as an
+    -- unreadable pair instead, which tells the player to check the wrong
+    -- thing.
+    local stops, err, report = QR.MultiRoute:ParseWaypoints("/way 50,60 3 chests")
+    t:assertNil(stops, "no stop from a line that names two places")
+    t:assertNotNil(err, "the line is reported")
+    t:assertEqual("AMBIGUOUS_COORDS", report.entries[1].reason, "and named as ambiguous, not as bad coordinates")
+end)
+
 T:run("MultiRoute: zone name resolves, unknown and ambiguous names are reported", function(t)
     QR.MultiRoute:ResetZoneNameIndex()
     local stops, err = QR.MultiRoute:ParseWaypoints("/way Stormwind City 49.65 87.25 Bank")
