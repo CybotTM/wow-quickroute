@@ -12,7 +12,7 @@
 local ADDON_NAME, QR = ...
 local type, pairs, ipairs = type, pairs, ipairs
 
-local API = { VERSION = 1 }
+local API = { VERSION = 2 }
 QR.RoutingAPI = API
 
 -- Handles this session issued, keyed by an opaque token. A handle is only
@@ -20,7 +20,69 @@ QR.RoutingAPI = API
 -- integer, so accepting any table carrying one let an addon cancel whatever
 -- calculation happened to be in flight by guessing.
 local issued = setmetatable({}, { __mode = "k" })
-local inFlight = {}
+
+-- Which requests replace each other. A request that names an owner replaces
+-- the earlier requests of that owner and no others; a request without one
+-- replaces nothing and ends only by its answer or by Cancel. Before version 2
+-- every addon shared one key, so one addon's request cancelled another's.
+-- The two prefixes keep an owner's name from ever matching an anonymous key.
+local anonymousRequests = 0
+local function OwnerKey(owner)
+    return QR.ROUTE_CONSUMER.API .. ":owner:" .. owner
+end
+local function ConsumerKey(owner)
+    if owner then return OwnerKey(owner) end
+    anonymousRequests = anonymousRequests + 1
+    return QR.ROUTE_CONSUMER.API .. ":request:" .. anonymousRequests
+end
+
+-- How many contract requests may wait for the calculator at once. One
+-- calculation runs at a time, first come first served, so every waiting request
+-- delays the player's own route behind it. With one shared key there was never
+-- more than one; with a key per request, an addon that asks on every update
+-- without an owner would queue without end. A request past the limit is refused
+-- at once, so nobody else's request is touched. A cancelled search that was
+-- already running still finishes and is not counted, so the player's route can
+-- wait behind one such search on top of the limit.
+API.MAX_PENDING = 8
+
+-- Count the contract's live requests, queued or running, and whether one of
+-- them belongs to `key`. Read from the calculator itself, so the count cannot
+-- drift from what is actually waiting.
+local function PendingRequests(key)
+    local pc = QR.PathCalculator
+    local prefix = QR.ROUTE_CONSUMER.API .. ":"
+    local count, hasKey = 0, false
+    local function note(request)
+        if request.superseded or type(request.consumer) ~= "string" then return end
+        if request.consumer:sub(1, #prefix) ~= prefix then return end
+        count = count + 1
+        if request.consumer == key then hasKey = true end
+    end
+    for _, request in ipairs(pc.asyncQueue or {}) do note(request) end
+    if pc.asyncRunning then note(pc.asyncRunning) end
+    return count, hasKey
+end
+
+--- Tell one consumer that its request was replaced.
+-- A superseded request's callback is dropped without a word, and a consumer
+-- that hears nothing cannot tell a slow route from a dead one. The calculator
+-- calls this through the request's `onSuperseded`: when the same owner asks
+-- again while the request is queued or running, and when CancelAsync drops
+-- every request. Idempotent: a handle is notified once.
+local function NotifySuperseded(handle)
+    if handle.cancelled then return end
+    handle.cancelled = true
+    local notify = handle.callback
+    local function tell()
+        -- Re-checked at fire time, as publish does. A consumer that cancels
+        -- between the supersede and this tick was still called, which is the
+        -- one thing Cancel documents will not happen.
+        if handle.withdrawn then return end
+        notify(nil, { reason = "superseded", retryable = false })
+    end
+    if C_Timer and C_Timer.After then C_Timer.After(0, tell) else tell() end
+end
 
 -- Every result is a fresh deep copy. A consumer can hold it, read it and change
 -- its own copy; nothing it does reaches QuickRoute's state or another
@@ -110,9 +172,15 @@ end
 -- Calculation is spread across frames in budgeted slices. The callback receives either
 -- a detached result or nil plus a failure table naming the reason.
 -- Nothing here sets a waypoint, changes the player's pin or starts travel.
--- @param request table {mapID, x, y, title}
+-- @param request table {mapID, x, y, title, role, owner}. `owner` is a
+--   non-empty string, usually the calling addon's name. A new request with an
+--   owner replaces that owner's earlier request; without one, requests run
+--   independently.
 -- @param callback function Receives (result, failure)
--- @return table|nil A handle for Cancel, or nil plus a failure for a bad request
+-- @return table|nil A handle for Cancel, or nil plus `invalid_request` for a
+--   bad request. A request refused because MAX_PENDING requests are waiting
+--   still gets a handle; its callback receives `busy` (retryable) on the next
+--   tick, the one channel a refusal travels on.
 function API:CalculateRoute(request, callback)
     if type(request) ~= "table" or type(callback) ~= "function" then
         return nil, { reason = "invalid_request" }
@@ -122,26 +190,45 @@ function API:CalculateRoute(request, callback)
         return nil, { reason = "invalid_request" }
     end
     local title = type(request.title) == "string" and request.title or nil
+    local owner = request.owner
+    if owner ~= nil and (type(owner) ~= "string" or owner == "") then
+        return nil, { reason = "invalid_request" }
+    end
     -- What the target is, not only where. A consumer that asks for a quest
     -- location has to be able to tell an active objective from a catalogued
     -- one, and arrival never completes either.
     local role = type(request.role) == "string" and request.role or QR.TargetIdentity.ROLE.REFERENCE
+    -- An owner that already has a request waiting replaces it, so the queue
+    -- does not grow and the request is always taken.
+    local pending, replaces = PendingRequests(owner and OwnerKey(owner))
     local handle = { cancelled = false }
     issued[handle] = true
+    if not replaces and pending >= API.MAX_PENDING then
+        -- Through the callback only, the way `superseded` arrives. A version 1
+        -- consumer reads no second return value, so the callback is the one
+        -- place it is told; answering on the return value as well made a
+        -- consumer that retries on both double its requests with every
+        -- refusal. A tick later, like every other answer, so a consumer that
+        -- retries from inside the callback does not recurse into this call.
+        handle.cancelled = true
+        local function refuse()
+            if handle.withdrawn then return end
+            callback(nil, { reason = "busy", retryable = true })
+        end
+        if C_Timer and C_Timer.After then C_Timer.After(0, refuse) else refuse() end
+        return handle
+    end
 
-    -- A second request supersedes the first inside PathCalculator, so the first
-    -- consumer would simply never hear again. Silence is not one of the two
-    -- answers this contract promises, so the superseded request is told.
+    -- A second request of the same owner supersedes the first inside
+    -- PathCalculator, so the first consumer would simply never hear again.
+    -- Silence is not one of the two answers this contract promises, so the
+    -- superseded request is told.
     handle.callback = callback
 
     local function publish(route, failure)
         -- `cancelled` alone: Cancel sets both, and supersession sets only
         -- `cancelled`, so testing `withdrawn` here could never change anything.
         if handle.cancelled then return end
-        -- Only this handle's own slot. The publish waits a tick, and a later
-        -- request may already have taken the slot; emptying it then left that
-        -- request unannounced when a third one superseded it.
-        if inFlight[1] == handle then inFlight[1] = nil end
         if not route then
             callback(nil, Detached(failure or { reason = "no_connection" }))
             return
@@ -160,15 +247,11 @@ function API:CalculateRoute(request, callback)
         }))
     end
 
-    -- Registered after the calculator is asked, not before. The request below
-    -- supersedes this contract's own earlier request and NotifySuperseded tells
-    -- that consumer; with this handle already registered, it would have
-    -- announced the new request as superseded by itself.
-    --
     -- The consumer key is what keeps QuickRoute's own route panel, its dungeon
-    -- offer and this contract out of each other's way: they queue rather than
-    -- destroy each other, so a foreign addon's request is no longer cancelled
-    -- because the player opened the route panel.
+    -- offer and each calling addon out of each other's way: they queue rather
+    -- than destroy each other. Each request's supersession notice is bound to
+    -- its own handle, so the notice the calculator sends for an earlier request
+    -- reaches that request and never the one being made.
     handle.generation = QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, function(route, failure)
         -- A short route finishes inside the first budget, so without this the
         -- callback could run before CalculateRoute returned and the consumer
@@ -179,39 +262,10 @@ function API:CalculateRoute(request, callback)
             publish(route, failure)
         end
     end, {
-        consumer = QR.ROUTE_CONSUMER.API,
-        onSuperseded = function() API:NotifySuperseded() end,
+        consumer = ConsumerKey(owner),
+        onSuperseded = function() NotifySuperseded(handle) end,
     })
-    inFlight[1] = handle
     return handle
-end
-
---- Tell the consumer in flight that its request was replaced.
--- A superseded request's callback is dropped without a word, and a consumer
--- that hears nothing cannot tell a slow route from a dead one. The calculator
--- calls this through the request's `onSuperseded`, which happens when this
--- contract is asked for a second route while the first is in flight.
--- (CancelAsync, which drops every request, reaches here too; nothing in the
--- addon calls it outside the tests.) An internal calculation for the route
--- panel or the dungeon offer does not reach here: those carry their own
--- consumer key and supersede only their own requests. Idempotent: a handle is
--- notified once.
-function API:NotifySuperseded()
-    local previous = inFlight[1]
-    if not previous or previous.cancelled then return false end
-    previous.cancelled = true
-    inFlight[1] = nil
-    local notify = previous.callback
-    if type(notify) ~= "function" then return true end
-    local function tell()
-        -- Re-checked at fire time, as publish does. A consumer that cancels
-        -- between the supersede and this tick was still called, which is the
-        -- one thing Cancel documents will not happen.
-        if previous.withdrawn then return end
-        notify(nil, { reason = "superseded", retryable = false })
-    end
-    if C_Timer and C_Timer.After then C_Timer.After(0, tell) else tell() end
-    return true
 end
 
 --- Withdraw a request. The callback is not called afterwards.
@@ -223,7 +277,6 @@ function API:Cancel(handle)
     -- Distinct from `cancelled`, which supersession also sets: this says the
     -- consumer withdrew, and nothing may call it again.
     handle.withdrawn = true
-    if inFlight[1] == handle then inFlight[1] = nil end
     -- Exactly this request. Cancelling everything took the dungeon offer's
     -- search and the route panel's with it.
     QR.PathCalculator:CancelRequest(handle.generation)
