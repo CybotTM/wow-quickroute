@@ -80,16 +80,45 @@ local function importLines(text)
     return lines, physical
 end
 
+-- One complete coordinate token: "50", "50.57" or "50,57". The decimal mark
+-- comes back with the value, because a line that uses both marks can be read
+-- two ways and has to be refused rather than resolved one way in silence.
+local function coordinateToken(token)
+    if token:match("^%d+$") then return tonumber(token), "plain" end
+    if token:match("^%d+%.%d+$") then return tonumber(token), "dot" end
+    if token:match("^%d+,%d+$") then return tonumber((gsub(token, ",", "."))), "comma" end
+    return nil
+end
+
 -- Read a coordinate pair. Community guides separate the pair with a comma, and
--- some locales write the decimal point as one, so the two-comma form is tried
--- first: "50,57 56,62" is one pair, never four numbers.
+-- some locales write the decimal point as one. Each value is consumed as a
+-- whole token: "50,57 56,62" is one pair and never four numbers, and
+-- "50 56,62" keeps the second value's fraction instead of reading 56 and
+-- leaving ",62" at the front of the label. Reading part of a number and
+-- carrying the rest into the label moved the destination while both values
+-- stayed in range, so nothing downstream could catch it.
+-- @return number|nil x, number|nil y, string|nil label, string|nil reason
 local function coordinatePair(rest)
-    local x, y, label = rest:match("^(%d+,%d+)%s+(%d+,%d+)%s*(.-)%s*$")
-    if x then return tonumber((gsub(x, ",", "."))), tonumber((gsub(y, ",", "."))), label end
-    x, y, label = rest:match("^(%d+%.?%d*)%s*,%s*(%d+%.?%d*)%s*(.-)%s*$")
-    if x then return tonumber(x), tonumber(y), label end
-    x, y, label = rest:match("^(%d+%.?%d*)%s+(%d+%.?%d*)%s*(.-)%s*$")
-    if x then return tonumber(x), tonumber(y), label end
+    local first, second, label = rest:match("^(%S+)%s+(%S+)%s*(.-)%s*$")
+    if first then
+        -- "50, 57 Bank": that comma separates the pair and belongs to neither
+        -- number, so it is stripped before the token is read.
+        local head = first:match("^(%d[%d%.]*),$")
+        local x, xMark = coordinateToken(head or first)
+        local y, yMark = coordinateToken(second)
+        if x and y then
+            -- "50,57 56.62" is either the pair 50.57 and 56.62, or the pair 50
+            -- and 57 followed by a label that starts with a number. Both
+            -- readings are complete, so the line names two different places.
+            if not head and xMark == "comma" and yMark ~= "comma" then
+                return nil, nil, nil, "AMBIGUOUS_COORDS"
+            end
+            return x, y, label
+        end
+    end
+    -- "50,57 Bank": one token carrying the separated pair, with no space.
+    local x, y, tail = rest:match("^(%d+%.?%d*)%s*,%s*(%d+%.?%d*)%s*(.-)%s*$")
+    if x then return tonumber(x), tonumber(y), tail end
     return nil
 end
 
@@ -143,24 +172,30 @@ end
 -- Split one /way body into a map token and a coordinate pair. The documented
 -- three-number form keeps priority, so "/way 84 1 100 First" still reads 84 as
 -- the map and never as a coordinate.
+-- An ambiguous pair stops the parse where it is found. Falling through to the
+-- next shape would read a different pair out of the same line -- the map token
+-- and the first coordinate -- and accept it.
 local function parseWayBody(body)
     local mapText, rest = body:match("^#(%d+)%s+(.+)$")
     if mapText then
-        local x, y, label = coordinatePair(rest)
+        local x, y, label, reason = coordinatePair(rest)
         if x then return tonumber(mapText), x, y, label end
-        return nil, nil, nil, nil, "BAD_COORDS"
+        return nil, nil, nil, nil, reason or "BAD_COORDS"
     end
     mapText, rest = body:match("^(%d+)%s+(.+)$")
     if mapText then
-        local x, y, label = coordinatePair(rest)
+        local x, y, label, reason = coordinatePair(rest)
         if x then return tonumber(mapText), x, y, label end
+        if reason then return nil, nil, nil, nil, reason end
     end
-    local x, y, label = coordinatePair(body)
+    local x, y, label, reason = coordinatePair(body)
     if x then return nil, x, y, label end
+    if reason then return nil, nil, nil, nil, reason end
     local name, remainder = body:match("^(.-)%s+(%d.*)$")
     if name and name ~= "" then
-        local nx, ny, nlabel = coordinatePair(remainder)
+        local nx, ny, nlabel, nreason = coordinatePair(remainder)
         if nx then return name, nx, ny, nlabel end
+        if nreason then return nil, nil, nil, nil, nreason end
     end
     return nil, nil, nil, nil, "BAD_COORDS"
 end

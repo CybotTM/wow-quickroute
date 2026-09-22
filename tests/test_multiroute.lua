@@ -53,6 +53,36 @@ T:run("MultiRoute: decimal commas are one pair, not four numbers", function(t)
     t:assertEqual("Vein", stops[1].title, "label after a decimal-comma pair survives")
 end)
 
+T:run("MultiRoute: a coordinate token is read whole, or the line is refused", function(t)
+    -- Reading only part of a number and keeping the rest as the label accepted
+    -- the line and moved the destination, which is worse than refusing it: both
+    -- values stayed inside the valid range, so nothing downstream noticed.
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 50 56,62 Treasure")
+    t:assertNil(err, "an integer paired with a decimal-comma value is accepted")
+    t:assertTrue(math.abs(stops[1].x - 0.50) < 1e-9, "50 reads as 50 percent, got " .. stops[1].x)
+    t:assertTrue(math.abs(stops[1].y - 0.5662) < 1e-9, "56,62 reads as 56.62 percent, got " .. stops[1].y)
+    t:assertEqual("Treasure", stops[1].title, "the label holds no part of a coordinate")
+
+    stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 50.57 56,62 Treasure")
+    t:assertNil(err, "a decimal point paired with a decimal comma is accepted")
+    t:assertTrue(math.abs(stops[1].x - 0.5057) < 1e-9, "50.57 reads as 50.57 percent, got " .. stops[1].x)
+    t:assertTrue(math.abs(stops[1].y - 0.5662) < 1e-9, "56,62 reads as 56.62 percent, got " .. stops[1].y)
+
+    local none, noneErr, report = QR.MultiRoute:ParseWaypoints("/way #2393 50,57 56.62 Treasure")
+    -- "50,57" is either 50.57 or the pair 50 and 57. Both readings are complete,
+    -- so the line names two different places and neither may be chosen for the
+    -- player.
+    t:assertNil(none, "a line mixing both decimal marks yields no stop")
+    t:assertNotNil(noneErr, "a mixed-convention line explains the failure")
+    t:assertEqual("AMBIGUOUS_COORDS", report.entries[1].reason, "the reason names the ambiguity, not a missing pair")
+
+    stops, err = QR.MultiRoute:ParseWaypoints("/way #84 50, 57 Bank")
+    t:assertNil(err, "the comma-separated pair is still accepted")
+    t:assertTrue(math.abs(stops[1].x - 0.50) < 1e-9, "50 reads as 50 percent, got " .. stops[1].x)
+    t:assertTrue(math.abs(stops[1].y - 0.57) < 1e-9, "57 reads as 57 percent, got " .. stops[1].y)
+    t:assertEqual("Bank", stops[1].title, "the label after a separated pair survives")
+end)
+
 T:run("MultiRoute: zone name resolves, unknown and ambiguous names are reported", function(t)
     QR.MultiRoute:ResetZoneNameIndex()
     local stops, err = QR.MultiRoute:ParseWaypoints("/way Stormwind City 49.65 87.25 Bank")
