@@ -257,10 +257,21 @@ T:run("MultiRoute: the trip window offers a reading only while the choice is wha
         -- A button still standing for an old paste imports nothing from the new one.
         mr.startButton:GetScript("OnClick")()
         t:assertTrue(mr.commaDecimalButton:IsShown(), "offered again for the paste as it is")
-        edit:SetText("/way #2393 45,32 3 rares here")
+        -- A plain paste: pressing Start on it would import at once, so only
+        -- the guard keeps the old button from starting a trip.
+        edit:SetText("/way #84 10 20 Plain")
         mr.commaDecimalButton:GetScript("OnClick")()
         t:assertNil(started, "a click meant for the old paste starts no trip from the new one, got "
             .. tostring(started and #started))
+        t:assertFalse(mr.commaDecimalButton:IsShown(), "and the stale button is withdrawn")
+        -- Clear takes an offered reading away with the trip.
+        edit:SetText("/way #2393 50,57 56 Treasure")
+        mr.startButton:GetScript("OnClick")()
+        t:assertTrue(mr.commaDecimalButton:IsShown(), "offered for the ambiguous paste")
+        local clear = mr.clearButton
+        t:assertNotNil(clear, "the clear button is reachable")
+        if clear then clear:GetScript("OnClick")() end
+        t:assertFalse(mr.commaDecimalButton:IsShown(), "Clear withdraws the offered reading")
     end
     edit:SetText(previous or "")
     mr.Start, mr.message = start, message

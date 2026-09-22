@@ -463,7 +463,6 @@ function MR:FormatImportReport(report)
     if (report.suppressed or 0) > 0 then
         parts[#parts + 1] = format(QR.L["MULTI_IMPORT_MORE"], report.suppressed)
     end
-    if #parts == 0 then return nil end
     if #parts == 1 then return parts[1] end
     return concat(parts, "\n")
 end
@@ -868,16 +867,22 @@ function MR:Show()
             if choicesFor ~= text then choices, choicesFor = {}, text end
             start(self:ParseWaypoints(text, choices))
         end
+        local withdraw
         local function choose(reading)
             local pending = self.pendingCommaChoice
-            if pending and pending.text == edit:GetText() and choicesFor == pending.text then
-                choices[pending.key] = reading
+            -- A button standing for a paste that has changed since is
+            -- withdrawn rather than obeyed: importing on its click would start
+            -- a trip from text the player never confirmed.
+            if not (pending and pending.text == edit:GetText() and choicesFor == pending.text) then
+                withdraw()
+                return
             end
+            choices[pending.key] = reading
             importPaste()
         end
         self.commaDecimalButton = button("", 16, function() choose("decimal") end, 118, 269)
         self.commaPairButton = button("", 295, function() choose("pair") end, 118, 269)
-        local function withdraw()
+        withdraw = function()
             self.pendingCommaChoice = nil
             self.commaDecimalButton:Hide()
             self.commaPairButton:Hide()
@@ -901,7 +906,7 @@ function MR:Show()
         self.startButton = button(L["MULTI_START"], 16, importPaste)
         button(L["MULTI_TOMTOM"], 154, function() start(self:CollectTomTomWaypoints()) end)
         button(L["MULTI_NEXT"], 292, function() self:Next() end)
-        button(L["MULTI_CLEAR"], 430, function() self:Clear() end)
+        self.clearButton = button(L["MULTI_CLEAR"], 430, function() withdraw(); self:Clear() end)
         self.statusLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         self.statusLabel:SetPoint("BOTTOMLEFT", 16, 14)
         self.statusLabel:SetSize(548, 54)
