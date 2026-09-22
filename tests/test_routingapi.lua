@@ -30,7 +30,7 @@ end
 T:run("RoutingAPI: the global is present and versioned", function(t)
     t:assertNotNil(_G.QuickRouteAPI, "other addons find QuickRouteAPI")
     t:assertEqual(QR.RoutingAPI, _G.QuickRouteAPI, "the global is the module, not a copy")
-    t:assertEqual(1, QuickRouteAPI:GetVersion(), "the contract states its version")
+    t:assertEqual(2, QuickRouteAPI:GetVersion(), "the contract states its version")
 end)
 
 T:run("RoutingAPI: a route is returned as detached data a consumer can iterate", function(t)
@@ -163,12 +163,12 @@ T:run("RoutingAPI: a superseded request is told, not left silent", function(t)
     withDriver(function(pc, drain)
         pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
         local first, second
-        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
             function(route, failure) first = failure and failure.reason or "route" end)
-        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" },
             function(route, failure) second = failure and failure.reason or "route" end)
         drain()
-        t:assertEqual("superseded", first, "the first consumer hears why it will get nothing")
+        t:assertEqual("superseded", first, "the first request hears why it will get nothing")
         t:assertEqual("route", second, "the current request still publishes")
     end)
 end)
@@ -224,15 +224,15 @@ T:run("RoutingAPI: a retry issued from the superseded callback is not lost", fun
         local function consumerA(route, failure)
             if failure and failure.reason == "superseded" then
                 log[#log + 1] = "a:superseded"
-                QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, function(r, f)
+                QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" }, function(r, f)
                     log[#log + 1] = "retry:" .. (f and f.reason or "route")
                 end)
             else
                 log[#log + 1] = "a:route"
             end
         end
-        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, consumerA)
-        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 }, function(r, f)
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" }, consumerA)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" }, function(r, f)
             log[#log + 1] = "b:" .. (f and f.reason or "route")
         end)
         drain()
@@ -271,21 +271,21 @@ T:run("RoutingAPI: an internal calculation queues behind the contract rather tha
     end)
 end)
 
-T:run("RoutingAPI: the contract still supersedes its own earlier request", function(t)
+T:run("RoutingAPI: an owner's new request supersedes its own earlier one", function(t)
     withDriver(function(pc, drain)
         pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
         local first, second
-        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
             function(_, failure) first = failure and failure.reason or "route" end)
-        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" },
             function(_, failure) second = failure and failure.reason or "route" end)
         drain()
-        t:assertEqual("superseded", first, "one consumer asking twice replaces its own request")
+        t:assertEqual("superseded", first, "one owner asking twice replaces its own request, got " .. tostring(first))
         t:assertEqual("route", second, "and the newer one publishes")
     end)
 end)
 
-T:run("RoutingAPI: a late publish does not empty a newer request's slot", function(t)
+T:run("RoutingAPI: a late publish does not keep a newer request from being told", function(t)
     withDriver(function(pc, drain, tick)
         -- h1 is short and finishes in its first slice; its publish waits one
         -- tick. h2 is asked for before that tick and takes several frames. The
@@ -301,13 +301,13 @@ T:run("RoutingAPI: a late publish does not empty a newer request's slot", functi
             return { totalTime = 1, steps = {} }
         end
         local heard = {}
-        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
             function(_, f) heard.h1 = f and f.reason or "route" end)
-        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" },
             function(_, f) heard.h2 = f and f.reason or "route" end)
         tick()
         t:assertNil(heard.h2, "h2 is still running after one frame")
-        QuickRouteAPI:CalculateRoute({ mapID = 86, x = 0.5, y = 0.5 },
+        QuickRouteAPI:CalculateRoute({ mapID = 86, x = 0.5, y = 0.5, owner = "AddonA" },
             function(_, f) heard.h3 = f and f.reason or "route" end)
         drain()
         t:assertEqual("superseded", heard.h2, "h2 is told it was replaced, got " .. tostring(heard.h2))
@@ -338,14 +338,14 @@ T:run("RoutingAPI: two consumers that retry do not supersede each other forever"
                 if failure and failure.retryable then
                     rounds = rounds + 1
                     if rounds < 50 then
-                        QuickRouteAPI:CalculateRoute({ mapID = mapID, x = 0.5, y = 0.5 }, again)
+                        QuickRouteAPI:CalculateRoute({ mapID = mapID, x = 0.5, y = 0.5, owner = "AddonA" }, again)
                     end
                 end
             end
             return again
         end
-        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 }, retryer(84))
-        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 }, retryer(85))
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" }, retryer(84))
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" }, retryer(85))
         drain()
         t:assertEqual(0, rounds,
             "supersession is not advertised as retryable, so neither consumer restarts the other, got " .. rounds)
@@ -378,4 +378,56 @@ T:run("RoutingAPI: cancelling after a supersede still silences the consumer", fu
         drain()
         t:assertEqual(0, calls, "a withdrawn consumer hears nothing, got " .. calls)
     end)
+end)
+
+T:run("RoutingAPI: two addons with different owners do not supersede each other", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local a, b
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) a = f and f.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonB" },
+            function(_, f) b = f and f.reason or "route" end)
+        drain()
+        t:assertEqual("route", a, "addon A still gets its route, got " .. tostring(a))
+        t:assertEqual("route", b, "addon B gets its route, got " .. tostring(b))
+    end)
+end)
+
+T:run("RoutingAPI: requests without an owner run independently", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local first, second
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function(_, f) first = f and f.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5 },
+            function(_, f) second = f and f.reason or "route" end)
+        drain()
+        t:assertEqual("route", first, "the first request is not replaced, got " .. tostring(first))
+        t:assertEqual("route", second, "the second one publishes too, got " .. tostring(second))
+    end)
+end)
+
+T:run("RoutingAPI: an owner's request does not supersede a request without one", function(t)
+    withDriver(function(pc, drain)
+        pc.CalculatePath = function() coroutine.yield() return { totalTime = 1, steps = {} } end
+        local anonymous, owned
+        QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5 },
+            function(_, f) anonymous = f and f.reason or "route" end)
+        QuickRouteAPI:CalculateRoute({ mapID = 85, x = 0.5, y = 0.5, owner = "AddonA" },
+            function(_, f) owned = f and f.reason or "route" end)
+        drain()
+        t:assertEqual("route", anonymous, "the request without an owner survives, got " .. tostring(anonymous))
+        t:assertEqual("route", owned, "and the owned one publishes, got " .. tostring(owned))
+    end)
+end)
+
+T:run("RoutingAPI: an owner that is not a non-empty string is refused", function(t)
+    for _, owner in ipairs({ "", 42, {} }) do
+        local handle, failure = QuickRouteAPI:CalculateRoute({ mapID = 84, x = 0.5, y = 0.5, owner = owner },
+            function() end)
+        t:assertNil(handle, "no handle for owner " .. tostring(owner))
+        t:assertEqual("invalid_request", failure and failure.reason,
+            "the refusal is named for owner " .. tostring(owner))
+    end
 end)

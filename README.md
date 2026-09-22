@@ -52,7 +52,7 @@ The distribution listing text lives in [docs/CURSEFORGE-LISTING.md](docs/CURSEFO
 - **Acquisition Help:** Click a missing teleport item for its ATT details, or open QuickRoute's source help with requirements and a route when a source position is known
 - **Refuse a Step:** A step you cannot use gets a "Cannot use" button. QuickRoute keeps the destination, drops that connection for this route and looks for another way; right-clicking Refresh takes your refusals back
 - **Says Why It Failed:** A route that cannot be produced names its reason — position not available yet, something this character does not have, a refused step, or no known connection — because those need different responses from you
-- **Bounded Search:** A route for the route panel, a map click, the waypoint command, a dungeon group offer, or another addon through `QuickRouteAPI` is searched in budgeted slices across frames instead of holding the client. Requests from different sources queue rather than cancel each other; a new request from the same source — a second map click, a second request from the same addon — replaces the earlier one. A trip comparison and the quest-tracker buttons start one calculation per frame, which bounds how many run at once rather than what one of them costs. Finding the nearest auction house, bank, void storage or crafting table, or the nearest giver of a quest, still calculates a route for every candidate within the same frame; the currency-vendor search tries one candidate per frame
+- **Bounded Search:** A route for the route panel, a map click, the waypoint command, a dungeon group offer, or another addon through `QuickRouteAPI` is searched in budgeted slices across frames instead of holding the client. Requests from different sources queue rather than cancel each other; a new request from the same source — a second map click, a second request from an addon under the same `owner` — replaces the earlier one. Requests from other addons, and requests without an `owner`, are not replaced. A trip comparison and the quest-tracker buttons start one calculation per frame, which bounds how many run at once rather than what one of them costs. Finding the nearest auction house, bank, void storage or crafting table, or the nearest giver of a quest, still calculates a route for every candidate within the same frame; the currency-vendor search tries one candidate per frame
 - **Dungeon Group Offer:** Accepting a group invitation offers the way to that dungeon's entrance, and suspends the trip you were on rather than replacing it
 - **For Other Addons:** `QuickRouteAPI` is a versioned contract another addon can ask for a route through, without taking over your arrow (see below)
 
@@ -150,7 +150,7 @@ this build implements.
 
 ```lua
 local handle = QuickRouteAPI:CalculateRoute(
-    { mapID = 84, x = 0.5, y = 0.6, title = "Stormwind", role = "objective" },
+    { mapID = 84, x = 0.5, y = 0.6, title = "Stormwind", role = "objective", owner = "MyAddon" },
     function(route, failure)
         if not route then
             print("no route:", failure.reason, failure.retryable)
@@ -167,6 +167,12 @@ What the contract guarantees:
 
 - The callback receives either a route or a named failure, never silence. A
   request superseded by a newer one is told so.
+- `owner` is optional: a non-empty string, usually your addon's name. A new
+  request with an owner replaces that owner's earlier request, which is told
+  `superseded`. It never replaces another owner's request. Requests without an
+  owner run independently and end only with their answer or with `Cancel`.
+  Contract version 2 introduced this; in version 1 any addon's request
+  replaced any other's.
 - The result is a detached copy. Only the fields the contract names cross the
   boundary, so an internal rename cannot break a consumer.
 - `route.assumptions` states what the estimate rests on: which maps have unknown
