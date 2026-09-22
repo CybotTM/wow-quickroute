@@ -103,6 +103,74 @@ T:run("DungeonOffer: routing shows the route and sets no waypoint", function(t)
     end)
 end)
 
+T:run("DungeonOffer: a cleared offer publishes no route", function(t)
+    withInstance(70001, INSTANCE, function()
+        local pc = QR.PathCalculator
+        local savedAsync = pc.CalculatePathAsync
+        local savedUpdate = QR.UI.UpdateRoute
+        local deliver, updated = nil, 0
+        QR.UI.UpdateRoute = function() updated = updated + 1 end
+        -- The calculator is held open on purpose. The lifecycle under test is
+        -- the offer's: a search started for one offer finishing after that
+        -- offer is gone.
+        pc.CalculatePathAsync = function(_, mapID, _, _, _, callback)
+            deliver = function()
+                callback({ totalTime = 42, steps = { { type = "walk", to = "Entrance", navMapID = mapID } } })
+            end
+            return 1
+        end
+        QR.DungeonTravelOffer:Present(70001)
+        local got, failure, called = nil, nil, 0
+        QR.DungeonTravelOffer:Route(function(result, reason)
+            called, got, failure = called + 1, result, reason
+        end)
+        -- Leaving the group is the ordinary way this happens.
+        QR.DungeonTravelOffer:Clear()
+        deliver()
+        pc.CalculatePathAsync = savedAsync
+        QR.UI.UpdateRoute = savedUpdate
+        t:assertNil(QR.DungeonTravelOffer.pending, "the offer is gone before the result arrives")
+        t:assertEqual(0, updated, "the panel shows no route for an offer that no longer stands")
+        t:assertEqual(1, called, "the consumer still hears back rather than waiting forever")
+        t:assertNil(got, "the consumer receives no route")
+        t:assertEqual(QR.PathCalculator.FAILURE.SUPERSEDED, type(failure) == "table" and failure.reason or failure,
+            "the consumer is told the request was superseded")
+    end)
+end)
+
+T:run("DungeonOffer: a clear that could not finish still stops the route", function(t)
+    withInstance(70001, INSTANCE, function()
+        local pc = QR.PathCalculator
+        local savedAsync = pc.CalculatePathAsync
+        local savedUpdate = QR.UI.UpdateRoute
+        local deliver, updated = nil, 0
+        QR.UI.UpdateRoute = function() updated = updated + 1 end
+        pc.CalculatePathAsync = function(_, mapID, _, _, _, callback)
+            deliver = function() callback({ totalTime = 42, steps = { { type = "walk", navMapID = mapID } } }) end
+            return 1
+        end
+        QR.Journey.current, QR.Journey.suspended = nil, {}
+        QR.DungeonTravelOffer:Present(70001)
+        QR.DungeonTravelOffer:Route()
+        -- A second detour stacks above the offer's. Clear cannot give the
+        -- journey back while somebody else holds it, so it keeps the offer
+        -- record until the release listener fires -- and the player has left
+        -- the group all the same.
+        QR.Journey:Detour(QR.Journey.SOURCE.QUEST, { mapID = 84, x = 0.1, y = 0.1, title = "Elsewhere" })
+        local cleared = QR.DungeonTravelOffer:Clear()
+        deliver()
+        pc.CalculatePathAsync = savedAsync
+        QR.UI.UpdateRoute = savedUpdate
+        t:assertFalse(cleared, "the clear could not finish")
+        t:assertNotNil(QR.DungeonTravelOffer.pending, "so the offer record is still there on purpose")
+        t:assertEqual(0, updated, "and no route is shown for the group the player has left")
+        QR.Journey.current, QR.Journey.suspended = nil, {}
+        QR.DungeonTravelOffer.clearWhenFree = nil
+        QR.DungeonTravelOffer.holdsDetour = nil
+        QR.DungeonTravelOffer.pending = nil
+    end)
+end)
+
 T:run("DungeonOffer: routing without an offer does nothing", function(t)
     QR.DungeonTravelOffer:Clear()
     t:assertFalse(QR.DungeonTravelOffer:Route(), "no offer, no request")
