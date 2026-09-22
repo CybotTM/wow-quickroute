@@ -112,7 +112,7 @@ An addon manager keeps QuickRoute current on its own, which matters here: the ad
 - `/qr currency <ID or exact localized name>` - Route to the fastest known vendor accepting that currency
 - `/qr quest <questID> [target|giver]` - Route to the live quest target/turn-in or a known quest giver
 - `/qr phases` - Inspect detected phases and set session assumptions when the client cannot report a phase
-- `/qr multi` or `/qrmulti` - Open the trip planner; paste `/way #mapID x y` lines with coordinates from 0 to 100
+- `/qr multi` or `/qrmulti` - Open the trip planner; paste `/way #mapID x y` lines with coordinates from 0 to 100. A line such as `50,57 56 Treasure`, where the comma can be a decimal mark or the separator between the two values, shows both readings; pick one before the trip starts
 - `/qrmulti tomtom` / `/qrmulti next` / `/qrmulti clear` - Import active TomTom destinations, mark a stop reached, or clear the trip
 - `/qrhelp` - Show all commands
 - `/qrwp` - Calculate path to current waypoint
