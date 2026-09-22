@@ -80,16 +80,93 @@ local function importLines(text)
     return lines, physical
 end
 
+-- Read one coordinate from the front of `text`. Returns the value, which
+-- decimal mark it used, and what is left of the line.
+--
+-- A dot or a comma counts as a decimal mark only when digits follow it: "56,62"
+-- is one value. A dot or comma with no digit behind it ends the number and is
+-- dropped, so "60, near the tree" and "50. 60" read as 60 and 50. Any other
+-- character after the number stays where it is and becomes part of the label.
+-- Which mark was used travels with the value, because a line that uses both can
+-- be read two ways and has to be refused rather than resolved one way in
+-- silence.
+local function readCoordinate(text)
+    local value, mark, rest
+    local digits, separator, fraction, tail = text:match("^(%d+)([%.,])(%d+)(.*)$")
+    if digits then
+        value = tonumber(digits .. "." .. fraction)
+        mark = (separator == ",") and "comma" or "dot"
+        rest = tail
+    else
+        local whole
+        whole, rest = text:match("^(%d+)(.*)$")
+        if not whole then return nil end
+        value, mark = tonumber(whole), "plain"
+    end
+    local afterMark = rest:match("^[%.,](.*)$")
+    if afterMark and not afterMark:match("^%d") then rest = afterMark end
+    return value, mark, rest
+end
+
+-- Whether what is left after the second coordinate is a label, or the rest of
+-- a number the reader stopped short of. A label may sit straight against the
+-- value -- "60Bank", "60:Bank", "60-5 Label" -- and it may start with anything
+-- but one thing: a decimal mark with a digit behind it, directly after a value
+-- that has no fraction yet. Only that shape is a number cut in half. A value
+-- that already carries its fraction cannot be continued, so "60.75,3 chests"
+-- is 60.75 with the label ",3 chests".
+local function labelFollows(text, mark)
+    if mark ~= "plain" then return true end
+    return not text:match("^[%.,]%d")
+end
+
 -- Read a coordinate pair. Community guides separate the pair with a comma, and
--- some locales write the decimal point as one, so the two-comma form is tried
--- first: "50,57 56,62" is one pair, never four numbers.
+-- some locales write the decimal point as one. Each value is consumed as a
+-- whole token, so "50,57 56,62" is one pair and never four numbers, and
+-- "50 56,62" keeps the second value's fraction instead of reading 56 and
+-- leaving ",62" at the front of the label. Reading part of a number and
+-- carrying the rest into the label moved the destination while both values
+-- stayed in range, so nothing downstream could catch it.
+-- @return number|nil x, number|nil y, string|nil label, string|nil reason
 local function coordinatePair(rest)
-    local x, y, label = rest:match("^(%d+,%d+)%s+(%d+,%d+)%s*(.-)%s*$")
-    if x then return tonumber((gsub(x, ",", "."))), tonumber((gsub(y, ",", "."))), label end
-    x, y, label = rest:match("^(%d+%.?%d*)%s*,%s*(%d+%.?%d*)%s*(.-)%s*$")
-    if x then return tonumber(x), tonumber(y), label end
-    x, y, label = rest:match("^(%d+%.?%d*)%s+(%d+%.?%d*)%s*(.-)%s*$")
-    if x then return tonumber(x), tonumber(y), label end
+    local x, xMark, afterX = readCoordinate(rest)
+    local betweenPair = x and afterX:match("^%s+(.*)$")
+    local y, yMark, afterY
+    if betweenPair then y, yMark, afterY = readCoordinate(betweenPair) end
+    -- "45,32 3 rares here": a compact pair, then a label that starts with a
+    -- number. Reading the comma as a decimal mark would make that 45.32 and 3.
+    -- A comma on the first value followed by a plain second value is read the
+    -- way the released parser read it -- the comma separates the pair -- and
+    -- goes to the shape below. The mirror case is different: "50 56,62"
+    -- could otherwise only mean a label of ",62", which no guide writes.
+    if y and xMark == "comma" and yMark == "plain" then y = nil end
+    if y then
+        -- Two values were read. From here the line is either this pair or
+        -- refused -- never handed to the shape below, which would take the
+        -- comma inside "50,57" as a separator and import (50, 57).
+        if not labelFollows(afterY, yMark) then
+            return nil, nil, nil, "BAD_COORDS"
+        end
+        -- One value writing its decimal point as a comma and the other as a
+        -- point explains the line two ways: "50,57 56.62" is the pair 50.57
+        -- and 56.62, or the pair 50 and 57 with a label that starts with a
+        -- number. Both readings are complete, so the line names two different
+        -- places and neither may be picked.
+        --
+        -- A plain first value next to a comma decimal, "50 56,62", reads the
+        -- comma as the decimal mark: the other reading would leave ",62" as a
+        -- label. That is still a choice -- "60,3 chests" could be the pair 60
+        -- and 3 -- and it is the one the report this change answers asked for.
+        if (xMark == "comma" and yMark == "dot")
+            or (xMark == "dot" and yMark == "comma") then
+            return nil, nil, nil, "AMBIGUOUS_COORDS"
+        end
+        return x, y, (gsub(afterY, "^%s+", ""))
+    end
+    -- "50,57 Bank" and "50, 57 Bank": the comma separates the pair. Reached only
+    -- when no second value could be read above.
+    local sx, sy, tail = rest:match("^(%d+%.?%d*)%s*,%s*(%d+%.?%d*)%s*(.-)%s*$")
+    if sx then return tonumber(sx), tonumber(sy), tail end
     return nil
 end
 
@@ -143,24 +220,38 @@ end
 -- Split one /way body into a map token and a coordinate pair. The documented
 -- three-number form keeps priority, so "/way 84 1 100 First" still reads 84 as
 -- the map and never as a coordinate.
+-- An ambiguous pair stops the parse where it is found. Falling through to the
+-- next shape would read a different pair out of the same line -- the map token
+-- and the first coordinate -- and accept it.
 local function parseWayBody(body)
     local mapText, rest = body:match("^#(%d+)%s+(.+)$")
     if mapText then
-        local x, y, label = coordinatePair(rest)
+        local x, y, label, reason = coordinatePair(rest)
         if x then return tonumber(mapText), x, y, label end
-        return nil, nil, nil, nil, "BAD_COORDS"
+        return nil, nil, nil, nil, reason or "BAD_COORDS"
     end
     mapText, rest = body:match("^(%d+)%s+(.+)$")
     if mapText then
-        local x, y, label = coordinatePair(rest)
+        local x, y, label, reason = coordinatePair(rest)
         if x then return tonumber(mapText), x, y, label end
+        if reason then return nil, nil, nil, nil, reason end
+        -- Two numbers follow the leading one, so this is the map form and its
+        -- pair could not be read. Falling through to the next shape would pair
+        -- the map token with the first coordinate and accept a destination on
+        -- the player's current map -- a line that reads correctly to a human,
+        -- imported as somewhere else entirely.
+        if rest:match("^%d[%d%.,]*%s+%.?%d") then
+            return nil, nil, nil, nil, "BAD_COORDS"
+        end
     end
-    local x, y, label = coordinatePair(body)
+    local x, y, label, reason = coordinatePair(body)
     if x then return nil, x, y, label end
+    if reason then return nil, nil, nil, nil, reason end
     local name, remainder = body:match("^(.-)%s+(%d.*)$")
     if name and name ~= "" then
-        local nx, ny, nlabel = coordinatePair(remainder)
+        local nx, ny, nlabel, nreason = coordinatePair(remainder)
         if nx then return name, nx, ny, nlabel end
+        if nreason then return nil, nil, nil, nil, nreason end
     end
     return nil, nil, nil, nil, "BAD_COORDS"
 end
