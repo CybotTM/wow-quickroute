@@ -2285,6 +2285,13 @@ local ANCHOR_REACHED = 0.02
 -- A merged row can stand for several segments. Navigation executes them in
 -- order: the first anchor the player has not reached yet, and the final
 -- destination once the intermediate ones are behind them.
+--
+-- Arrival is a transition, not a place the player stands in. Proximity alone
+-- therefore said only "the player is here now", and every anchor reopened the
+-- moment they walked on, so navigation pointed back at the start of the row for
+-- the whole journey. Reaching an anchor advances `step.anchorCursor` instead,
+-- and the cursor only ever moves forward. A recalculated route builds new step
+-- tables, which is what resets it; nothing else does.
 -- @param step table A route step, possibly carrying `waypoints`
 -- @return table Anchor with mapID, x, y and title
 function PathCalculator:SelectStepAnchor(step)
@@ -2296,7 +2303,9 @@ function PathCalculator:SelectStepAnchor(step)
     }
     local anchors = step.waypoints
     if type(anchors) ~= "table" or #anchors < 2 then return final end
-    for index = 1, #anchors - 1 do
+    local cursor = step.anchorCursor
+    if type(cursor) ~= "number" or cursor < 1 then cursor = 1 end
+    for index = cursor, #anchors - 1 do
         local anchor = anchors[index]
         if anchor.mapID and anchor.x and anchor.y then
             -- Both sides are resolved the same way before they are compared.
@@ -2308,11 +2317,21 @@ function PathCalculator:SelectStepAnchor(step)
             local mapID, x, y = self:GetPlayerPosition(anchorMap or anchor.mapID)
             -- No position means no evidence the anchor is behind the player, so
             -- the ordered approach is kept rather than skipped.
-            if not anchorMap or mapID ~= anchorMap then return anchor end
+            if not anchorMap or mapID ~= anchorMap then
+                step.anchorCursor = index
+                return anchor
+            end
             local dx, dy = x - anchorX, y - anchorY
-            if (dx * dx + dy * dy) > (ANCHOR_REACHED * ANCHOR_REACHED) then return anchor end
+            if (dx * dx + dy * dy) > (ANCHOR_REACHED * ANCHOR_REACHED) then
+                step.anchorCursor = index
+                return anchor
+            end
         end
+        -- Reached, or carrying no position to compare against: either way this
+        -- anchor is done and navigation never returns to it.
+        step.anchorCursor = index + 1
     end
+    step.anchorCursor = #anchors
     return final
 end
 
