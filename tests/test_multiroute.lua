@@ -230,6 +230,68 @@ T:run("MultiRoute: the trip window asks for the reading and imports the one chos
     _G.InCombatLockdown = combat
 end)
 
+T:run("MultiRoute: the trip window offers a reading only while the choice is what is missing", function(t)
+    local mr = QR.MultiRoute
+    local combat, start, message = InCombatLockdown, mr.Start, mr.message
+    _G.InCombatLockdown = function() return false end
+    local started
+    mr.Start = function(_, stops) started = stops; return true end
+    mr:Show()
+    local previous = mr.editBox:GetText()
+    local edit = mr.editBox
+    if mr.startButton and mr.commaDecimalButton and mr.commaPairButton then
+        -- Another failure stops the import: no reading is offered.
+        edit:SetText("/way #2393 50,57 56 Treasure\n/way nowhere")
+        mr.startButton:GetScript("OnClick")()
+        t:assertFalse(mr.commaDecimalButton:IsShown(),
+            "no reading is offered while an unreadable line blocks the import")
+        -- The player edits the paste after a choice was offered: it is withdrawn.
+        edit:SetText("/way #2393 50,57 56 Treasure")
+        mr.startButton:GetScript("OnClick")()
+        t:assertTrue(mr.commaDecimalButton:IsShown(), "the reading is offered for the ambiguous paste")
+        local onChanged = edit:GetScript("OnTextChanged")
+        t:assertNotNil(onChanged, "the paste box reacts to typing")
+        if onChanged then onChanged(edit, true) end
+        t:assertFalse(mr.commaDecimalButton:IsShown(), "typing withdraws the offered reading")
+        t:assertFalse(mr.commaPairButton:IsShown(), "both readings are withdrawn")
+        -- A button still standing for an old paste imports nothing from the new one.
+        mr.startButton:GetScript("OnClick")()
+        t:assertTrue(mr.commaDecimalButton:IsShown(), "offered again for the paste as it is")
+        edit:SetText("/way #2393 45,32 3 rares here")
+        mr.commaDecimalButton:GetScript("OnClick")()
+        t:assertNil(started, "a click meant for the old paste starts no trip from the new one, got "
+            .. tostring(started and #started))
+    end
+    edit:SetText(previous or "")
+    mr.Start, mr.message = start, message
+    if mr.commaDecimalButton then mr.commaDecimalButton:Hide(); mr.commaPairButton:Hide() end
+    if mr.frame then mr.frame:Hide() end
+    _G.InCombatLockdown = combat
+end)
+
+T:run("MultiRoute: too many ambiguous lines are refused before any choice is asked for", function(t)
+    local lines = {}
+    for i = 1, QR.MultiRoute.MAX_STOPS + 1 do lines[i] = "/way #2393 50,57 56 Stop " .. i end
+    local stops, err = QR.MultiRoute:ParseWaypoints(table.concat(lines, "\n"))
+    t:assertNil(stops, "no trip, got " .. tostring(stops and #stops))
+    t:assertEqual(QR.L["MULTI_LIMIT"], err, "the limit is named rather than a choice asked for, got " .. tostring(err))
+end)
+
+T:run("MultiRoute: while a reading is missing the preview does not claim lines were imported", function(t)
+    local _, _, report = QR.MultiRoute:ParseWaypoints("/way #84 10 20 First\n/way #2393 50,57 56 Treasure")
+    local text = QR.MultiRoute:FormatImportReport(report) or ""
+    local summary = QR.L["MULTI_IMPORT_SUMMARY"]:gsub("%%d", "%%d+")
+    t:assertNil(text:find(summary), "no import count above the pending choice, preview: " .. text)
+    t:assertNotNil(text:find("50.57, 56", 1, true), "the readings are still shown, preview: " .. text)
+end)
+
+T:run("MultiRoute: a comma pair that reads as the same point either way is no choice", function(t)
+    local stops, err = QR.MultiRoute:ParseWaypoints("/way #2393 0,0 0")
+    t:assertNil(err, "accepted without a choice, got " .. tostring(err))
+    t:assertTrue(stops and near(stops[1].x, 0) and near(stops[1].y, 0),
+        "read as 0, 0, got " .. tostring(stops and stops[1].x) .. ", " .. tostring(stops and stops[1].y))
+end)
+
 T:run("MultiRoute: punctuation after a coordinate belongs to the line, not to the number", function(t)
     -- A guide writing "60, near the tree" means the coordinate 60. Reading the
     -- comma as part of the number failed the pair, and the line was then read

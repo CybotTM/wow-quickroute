@@ -159,8 +159,10 @@ local function coordinatePair(rest)
     if y and xMark == "comma" and yMark == "plain" then
         local sx, sy, tail = rest:match(SEPARATED_PAIR)
         local pairX, pairY = tonumber(sx), tonumber(sy)
+        -- "0,0 0" reads as the same point either way; only the label would
+        -- differ, and that is no choice worth stopping the import for.
         if labelFollows(afterY, yMark) and inRange(x) and inRange(y)
-            and inRange(pairX) and inRange(pairY) then
+            and inRange(pairX) and inRange(pairY) and not (x == pairX and y == pairY) then
             return nil, nil, nil, "COMMA_CHOICE", {
                 decimal = { x = x, y = y, label = (gsub(afterY, "^%s+", "")) },
                 pair = { x = pairX, y = pairY, label = tail },
@@ -436,7 +438,13 @@ function MR:FormatImportReport(report)
     if type(report) ~= "table" or type(report.entries) ~= "table" then return nil end
     local total = #report.entries
     if total == 0 then return nil end
-    local parts = { format(QR.L["MULTI_IMPORT_SUMMARY"], report.accepted or 0, report.total or total) }
+    -- While a line waits for its reading nothing has been imported, so
+    -- "Imported 1 of 2 lines." above "nothing is imported" would contradict it.
+    local waiting = MR:PendingCommaChoice(report) ~= nil
+    local parts = {}
+    if not waiting then
+        parts[1] = format(QR.L["MULTI_IMPORT_SUMMARY"], report.accepted or 0, report.total or total)
+    end
     for _, entry in ipairs(report.entries) do
         if entry.status == "skipped" then
             parts[#parts + 1] = format(QR.L["MULTI_IMPORT_SKIPPED"], entry.line, display(entry.text:sub(1, 60)))
@@ -455,6 +463,7 @@ function MR:FormatImportReport(report)
     if (report.suppressed or 0) > 0 then
         parts[#parts + 1] = format(QR.L["MULTI_IMPORT_MORE"], report.suppressed)
     end
+    if #parts == 0 then return nil end
     if #parts == 1 then return parts[1] end
     return concat(parts, "\n")
 end
@@ -834,7 +843,11 @@ function MR:Show()
         local choices, choicesFor = {}, nil
         local offer
         local function start(stops, err, report)
-            offer(report)
+            -- Only when the choice is the one thing left. Offered under another
+            -- failure -- too many lines, an unreadable line -- a click could
+            -- not import anything, and fixing that failure means editing the
+            -- paste, which drops the choice again.
+            offer(err == L["MULTI_IMPORT_CHOOSE"] and report or nil)
             local preview = self:FormatImportReport(report)
             if stops then
                 edit:ClearFocus()
