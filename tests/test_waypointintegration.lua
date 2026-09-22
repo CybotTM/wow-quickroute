@@ -2054,3 +2054,27 @@ T:run("Waypoint cost: an empty tracker measures nothing and says so", function(t
     t:assertNil(report:find("cold total", 1, true),
         "and no total is offered for a measurement that did not happen")
 end)
+
+T:run("/qrwp reports when its route request is replaced", function(t)
+    resetState()
+    setMapPinWaypoint(84, 0.3, 0.3)
+    -- The command used to report every time. With the route panel's requests
+    -- queued, a later panel request can replace this one before it answers;
+    -- the command must still say something rather than go silent.
+    local pc = QR.PathCalculator
+    local savedAsync, savedPrint = pc.CalculatePathAsync, _G.print
+    local printed = {}
+    _G.print = function(text) printed[#printed + 1] = tostring(text) end
+    pc.CalculatePathAsync = function(_, _, _, _, _, _, options)
+        if options and options.onSuperseded then options.onSuperseded() end
+        return 1
+    end
+    local ok, err = pcall(SlashCmdList["QRWP"], "")
+    pc.CalculatePathAsync, _G.print = savedAsync, savedPrint
+    t:assertTrue(ok, "the command ran, got " .. tostring(err))
+    local said = false
+    for _, line in ipairs(printed) do
+        if line:find(QR.L["ROUTE_FAIL_SUPERSEDED"], 1, true) then said = true end
+    end
+    t:assertTrue(said, "the replaced request is reported, printed: " .. table.concat(printed, " | "))
+end)

@@ -1137,12 +1137,15 @@ end
 -- the earlier requests of its OWN consumer and nothing else: a player who picks
 -- another destination does not want the one they just replaced, and a route
 -- panel refresh must not destroy the dungeon offer's search or a foreign
--- addon's. One calculation runs at a time, and each slice of it is held to the
--- frame budget. That bounds a slice, not a frame: a request made from inside a
--- finishing request's callback starts at once and takes its own first slice in
--- the same frame. A flag that deferred it was tried and dropped -- if its timer
--- ever failed to fire, every later request would wait in the queue for good,
--- which is a worse failure than one frame spending the budget twice.
+-- addon's. One calculation runs at a time. The budget is checked inside the
+-- graph search only; building the graph, placing the player and turning the
+-- path into steps run inside a slice without a check. And it bounds a slice,
+-- not a frame: a finish schedules the next start for the next frame, but a
+-- request that arrives before then starts the head of the queue at once, and
+-- every finish schedules its own start, so a frame can run more than one
+-- slice. A flag that held those starts back was tried and dropped -- if its
+-- timer ever failed to fire, every later request would wait in the queue for
+-- good, which is worse than a frame spending the budget twice.
 --
 -- A queued request reads no ambient state while it waits. CalculatePath notes
 -- its own destination as the journey before anything can yield, so a request
@@ -1336,9 +1339,8 @@ function PathCalculator:ResumeAsync()
             QR:Error("Route callback failed: " .. tostring(err))
         end
     end
-    -- The next queued request starts on the next frame rather than here, so a
-    -- queue of waiting requests does not each take a fresh budget in the frame
-    -- the previous one finished in.
+    -- The next queued request is started from the next frame rather than from
+    -- here. See the section header for what that does and does not bound.
     if C_Timer and C_Timer.After then
         C_Timer.After(0, function() self:StepAsync() end)
     else

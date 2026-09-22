@@ -1941,3 +1941,25 @@ T:run("RefreshRoute: a refresh to the active waypoint gives the flag back when r
         drain()
     end)
 end)
+
+T:run("RefreshRoute: a route handed over during a parked refresh is shown, not held back", function(t)
+    withParkedRefresh(function(drain)
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the refresh is in flight")
+        -- The trip planner hands a finished route to the panel the same way a
+        -- map click does, but calculates it synchronously, so nothing had
+        -- replaced the parked refresh. The route stayed pending and turned up
+        -- on the next refresh, late.
+        local shown
+        local savedUpdate = QR.UI.UpdateRoute
+        QR.UI.UpdateRoute = function(_, route) shown = route end
+        local handed = { totalTime = 5, steps = {}, waypoint = { mapID = 84, x = 0.2, y = 0.2, title = "Stop" } }
+        QR.UI._pendingPOIRoute = handed
+        QR.UI:RefreshRoute()
+        drain()
+        QR.UI.UpdateRoute = savedUpdate
+        t:assertEqual(handed, shown, "the handed-over route is the one shown")
+        t:assertNil(QR.UI._pendingPOIRoute, "and nothing stays pending for a later refresh")
+        t:assertFalse(QR.UI.isCalculating, "and the panel is not left calculating")
+    end)
+end)

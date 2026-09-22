@@ -587,6 +587,18 @@ function UI:RefreshRoute()
         return
     end
 
+    -- A finished route handed over by the trip planner or a map click replaces
+    -- a refresh that is still searching. The guard below returned before the
+    -- handed-over route was read, so it stayed pending and the next refresh
+    -- showed it late, over whatever the player had chosen in between.
+    -- Superseding the panel's request gives the calculating flag back through
+    -- its abandon notice, and the route is read below. A re-entrant call from
+    -- the pending branch itself finds nothing pending, because that branch
+    -- clears it before rendering.
+    if self._pendingPOIRoute and self.isCalculating then
+        QR.PathCalculator:SupersedeConsumer(QR.ROUTE_CONSUMER.ROUTE_PANEL)
+    end
+
     -- Re-entrancy guard: auto-waypoint triggers TomTom callback which re-enters here
     if self.isCalculating then
         return

@@ -1831,6 +1831,10 @@ SlashCmdList["QRWP"] = function(msg)
             end
 
             print("----------------------------------------")
+        end, function()
+            -- Another request for the route panel replaced this one before it
+            -- answered. The command used to report every time; it still does.
+            print("|cFFFF0000QuickRoute|r: " .. QR.PathCalculator:DescribeFailure({ reason = "superseded" }))
         end)
     end)
 
