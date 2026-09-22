@@ -62,6 +62,66 @@ T:run("DungeonOffer: an activity with no known instance produces no offer", func
     end)
 end)
 
+-- The one field the live GroupFinderActivityInfo structure carries for the
+-- instance is `mapID`, a game map id. The journal lookup is keyed by journal
+-- instance id, a different namespace, so the client has to convert.
+local function withGameMapConversion(map, body)
+    local saved = _G.C_EncounterJournal.GetInstanceForGameMap
+    _G.C_EncounterJournal.GetInstanceForGameMap = function(mapID) return map[mapID] end
+    local ok, err = pcall(body)
+    _G.C_EncounterJournal.GetInstanceForGameMap = saved
+    if not ok then error(err, 0) end
+end
+
+T:run("DungeonOffer: an activity game map is converted, never used as a journal id", function(t)
+    withInstance(70001, INSTANCE, function()
+        withLFG({ activityIDs = { 555 } }, { mapID = 2000 }, function()
+            withGameMapConversion({ [2000] = 70001 }, function()
+                t:assertEqual(70001, QR.DungeonTravelOffer:ResolveInstance(1),
+                    "the game map is converted to the journal instance it belongs to")
+            end)
+            -- No conversion, no offer. Reading the game map as a journal id
+            -- would be a guess about a number from another namespace.
+            withGameMapConversion({}, function()
+                t:assertNil(QR.DungeonTravelOffer:ResolveInstance(1),
+                    "an unconvertible game map produces no offer")
+            end)
+        end)
+    end)
+end)
+
+T:run("DungeonOffer: a game map that collides with a journal id does not match it", function(t)
+    -- 70001 is a known journal instance AND, in this fixture, the activity's
+    -- game map id. Passing it straight to the lookup would offer Test Halls for
+    -- a group that is going somewhere else entirely.
+    withInstance(70001, INSTANCE, function()
+        withInstance(70002, { name = "Other Halls", zoneMapID = 85, x = 0.2, y = 0.3 }, function()
+            withLFG({ activityIDs = { 555 } }, { mapID = 70001 }, function()
+                withGameMapConversion({ [70001] = 70002 }, function()
+                    t:assertEqual(70002, QR.DungeonTravelOffer:ResolveInstance(1),
+                        "the conversion decides, not the numeric collision")
+                end)
+                withGameMapConversion({}, function()
+                    t:assertNil(QR.DungeonTravelOffer:ResolveInstance(1),
+                        "a game map that converts to nothing matches no journal record")
+                end)
+            end)
+        end)
+    end)
+end)
+
+T:run("DungeonOffer: no conversion API means no offer rather than a guess", function(t)
+    withInstance(70001, INSTANCE, function()
+        withLFG({ activityIDs = { 555 } }, { mapID = 70001 }, function()
+            local saved = _G.C_EncounterJournal.GetInstanceForGameMap
+            _G.C_EncounterJournal.GetInstanceForGameMap = nil
+            local resolved = QR.DungeonTravelOffer:ResolveInstance(1)
+            _G.C_EncounterJournal.GetInstanceForGameMap = saved
+            t:assertNil(resolved, "without the client conversion the activity stays unresolved")
+        end)
+    end)
+end)
+
 T:run("DungeonOffer: a missing LFG API is survived without error", function(t)
     local saved = _G.C_LFGList
     _G.C_LFGList = nil

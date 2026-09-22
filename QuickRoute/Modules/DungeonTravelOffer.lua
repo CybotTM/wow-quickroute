@@ -16,11 +16,18 @@
 -- protected action is touched. The player clicks, or nothing happens.
 --
 -- ASSUMPTION, only settleable against a live client: the accepted application
--- resolves to a single LFG activity, and that activity carries a journal
--- instance id under one of the field names read in ResolveInstance below. Every
--- lookup is guarded and an unresolved application simply produces no offer, so
--- being wrong costs a missing offer rather than a wrong destination. The tell is
--- a debug line "no journal instance for activity N" on every accepted group.
+-- resolves to a single LFG activity. Every lookup is guarded and an unresolved
+-- application simply produces no offer, so being wrong costs a missing offer
+-- rather than a wrong destination. The tell is a debug line "no journal
+-- instance for activity N" on every accepted group.
+--
+-- The instance identity comes out of the activity record. The generated
+-- GroupFinderActivityInfo structure declares `mapID` and no journal field, and
+-- a game map id is a different namespace from the journal instance id the
+-- lookup is keyed by, so it is converted through the client rather than passed
+-- through. Passing it through matched whichever journal record happened to
+-- share the number, which is the one outcome the paragraph above promises
+-- cannot happen.
 local ADDON_NAME, QR = ...
 local type, pairs, ipairs, pcall, tostring = type, pairs, ipairs, pcall, tostring
 
@@ -28,8 +35,9 @@ local Offer = { pending = nil }
 QR.DungeonTravelOffer = Offer
 
 -- Field names an activity record may carry the journal instance under. Read in
--- order; the first numeric one wins.
-local INSTANCE_FIELDS = { "journalInstanceID", "instanceID", "mapID" }
+-- order; the first numeric one wins. `mapID` is deliberately absent: it is a
+-- game map id and goes through GetInstanceForGameMap instead.
+local INSTANCE_FIELDS = { "journalInstanceID", "instanceID" }
 
 local function Call(fn, ...)
     if type(fn) ~= "function" then return nil end
@@ -59,6 +67,14 @@ function Offer:ResolveInstance(resultID)
         local value = activity[field]
         if type(value) == "number" and QR.DungeonData and QR.DungeonData:GetInstance(value) then
             return value
+        end
+    end
+    local gameMapID = activity.mapID
+    if type(gameMapID) == "number" then
+        local journal = _G.C_EncounterJournal
+        local converted = journal and Call(journal.GetInstanceForGameMap, gameMapID)
+        if type(converted) == "number" and QR.DungeonData and QR.DungeonData:GetInstance(converted) then
+            return converted
         end
     end
     QR:Debug("DungeonTravelOffer: no journal instance for activity " .. tostring(activityID))
