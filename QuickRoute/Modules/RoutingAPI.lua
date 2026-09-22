@@ -190,8 +190,9 @@ end
 -- A superseded request's callback is dropped without a word, and a consumer
 -- that hears nothing cannot tell a slow route from a dead one. The calculator
 -- calls this through the request's `onSuperseded`, which happens when this
--- contract is asked for a second route while the first is in flight, and when
--- something cancels every calculation. An internal calculation for the route
+-- contract is asked for a second route while the first is in flight.
+-- (CancelAsync, which drops every request, reaches here too; nothing in the
+-- addon calls it outside the tests.) An internal calculation for the route
 -- panel or the dungeon offer does not reach here: those carry their own
 -- consumer key and supersede only their own requests. Idempotent: a handle is
 -- notified once.

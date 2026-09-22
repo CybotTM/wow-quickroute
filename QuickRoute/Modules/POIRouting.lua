@@ -76,9 +76,10 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
     -- everything that needs its result happens in the callback. A raised error
     -- inside the search is caught by the driver and arrives here as a failure.
     QR.PathCalculator:CalculatePathAsync(mapID, x, y, zoneName, function(result, failure)
+        -- No route is an answer, not an error: the panel names the reason.
+        -- A search that raised has already been logged by the driver.
         if not result then
-            QR:Error("POIRouting path calculation error: " ..
-                tostring(failure and failure.reason or "no route"))
+            QR:Debug("POIRouting: no route, " .. tostring(failure and failure.reason))
         end
         -- Show route in UI. Pass the calculated result via _pendingPOIRoute so
         -- RefreshRoute (triggered by SetActiveTab during Show) uses it directly

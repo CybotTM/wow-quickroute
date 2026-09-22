@@ -1270,13 +1270,11 @@ end
 --- Start the next queued request, if any and if nothing is running.
 function PathCalculator:StepAsync()
     if self.asyncRunning then return end
-    local pending
-    while not pending do
-        local queue = self.asyncQueue or {}
-        if #queue == 0 then return end
-        pending = table_remove(queue, 1)
-        if pending.superseded then pending = nil end
-    end
+    -- A superseded request is taken out of the queue by whatever superseded
+    -- it, so the head of the queue is always live.
+    local queue = self.asyncQueue or {}
+    if #queue == 0 then return end
+    local pending = table_remove(queue, 1)
     -- Baseline. CalculatePath raises it again if it rebuilds the graph itself,
     -- so only a rebuild by somebody else leaves the two apart.
     pending.graphBuild = self.graphBuild or 0

@@ -1977,3 +1977,49 @@ T:run("RefreshRoute: a route handed over during a parked refresh is shown, not h
         t:assertTrue(offered, "and the dungeon offer's request still ran")
     end)
 end)
+
+T:run("RefreshRoute: a route handed over during a map click's search is the one that stays", function(t)
+    resetState()
+    ensureUIFrame()
+    local pc = QR.PathCalculator
+    local saved = { calc = pc.CalculatePath, after = C_Timer.After, update = QR.UI.UpdateRoute,
+        locked = QR.db.destinationLocked, destination = QR.db.lastDestination }
+    local queue, shown = {}, {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    pc.CalculatePath = function(_, mapID) coroutine.yield() return { totalTime = 1, steps = {}, tag = mapID } end
+    QR.UI.UpdateRoute = function(_, route) shown[#shown + 1] = route end
+    QR.UI.isCalculating = false
+    local ok, err = pcall(function()
+        -- The click's search is still running when the trip planner hands its
+        -- stop to the panel. The stop is the newer decision; the click used to
+        -- finish afterwards and paint its older route over it.
+        QR.POIRouting:RouteToMapPosition(85, 0.3, 0.3)
+        local trip = { totalTime = 2, steps = {}, waypoint = { mapID = 86, x = 0.1, y = 0.1, title = "Stop" } }
+        QR.UI._pendingPOIRoute = trip
+        QR.UI:RefreshRoute()
+        while #queue > 0 do table.remove(queue, 1)() end
+        t:assertEqual(1, #shown, "one route is shown, got " .. #shown)
+        t:assertEqual(trip, shown[#shown], "and it is the trip planner's stop")
+    end)
+    pc.CalculatePath, C_Timer.After, QR.UI.UpdateRoute = saved.calc, saved.after, saved.update
+    QR.db.destinationLocked, QR.db.lastDestination = saved.locked, saved.destination
+    QR.UI._pendingPOIRoute, QR.UI.isCalculating = nil, false
+    pc:CancelAsync()
+    if not ok then error(err, 0) end
+end)
+
+T:run("RefreshRoute: a refresh replaced twice gives its flag back once", function(t)
+    withParkedRefresh(function(drain)
+        -- The first refresh is running when a map click replaces it; a second
+        -- refresh then starts and replaces the click. The first refresh is
+        -- still the running request, and notifying it a second time would
+        -- take the second refresh's calculating flag down with it.
+        QR.UI:RefreshRoute()
+        QR.PathCalculator:CalculatePathAsync(85, 0.2, 0.2, nil, function() end,
+            { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
+        t:assertFalse(QR.UI.isCalculating, "the first refresh gave its flag back")
+        QR.UI:RefreshRoute()
+        t:assertTrue(QR.UI.isCalculating, "the second refresh keeps its own flag")
+        drain()
+    end)
+end)

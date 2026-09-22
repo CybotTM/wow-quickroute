@@ -3069,6 +3069,36 @@ T:run("Cooperative search: withdrawing the running request drops its result only
     t:assertEqual(85, published[1], "and the queued one still runs, got " .. tostring(published[1]))
 end)
 
+T:run("Cooperative search: the next queued request starts on the next frame", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local saved, after = pc.CalculatePath, C_Timer.After
+    local queue, started = {}, {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    pc.CalculatePath = function(_, mapID)
+        started[#started + 1] = mapID
+        coroutine.yield()
+        return { tag = mapID }
+    end
+    -- One frame: the timers already scheduled run, the ones they schedule wait.
+    local function tick()
+        local frame = queue
+        queue = {}
+        for _, callback in ipairs(frame) do callback() end
+    end
+    pc:CalculatePathAsync(84, 0.5, 0.5, nil, function() end, { consumer = "a" })
+    pc:CalculatePathAsync(85, 0.5, 0.5, nil, function() end, { consumer = "b" })
+    tick()
+    local afterFinish = #started
+    tick()
+    local nextFrame = #started
+    while #queue > 0 do table.remove(queue, 1)() end
+    pc.CalculatePath, C_Timer.After = saved, after
+    pc:CancelAsync()
+    t:assertEqual(1, afterFinish, "the frame the first search finished in starts nothing else, started " .. afterFinish)
+    t:assertEqual(2, nextFrame, "the queued search starts on the next frame, started " .. nextFrame)
+end)
+
 T:run("Cooperative search: a raising callback does not strand the queue", function(t)
     resetState()
     local pc = QR.PathCalculator

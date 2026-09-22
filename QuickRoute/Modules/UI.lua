@@ -587,16 +587,17 @@ function UI:RefreshRoute()
         return
     end
 
-    -- A finished route handed over by the trip planner replaces a refresh that
-    -- is still searching. (A map click hands over the same way, but its own
-    -- request has already replaced any parked refresh by the time it does.)
-    -- The guard below returned before the handed-over route was read, so it stayed pending and the next refresh
-    -- showed it late, over whatever the player had chosen in between.
-    -- Superseding the panel's request gives the calculating flag back through
-    -- its abandon notice, and the route is read below. A re-entrant call from
-    -- the pending branch itself finds nothing pending, because that branch
-    -- clears it before rendering.
-    if self._pendingPOIRoute and self.isCalculating then
+    -- A finished route handed over to the panel replaces whatever panel search
+    -- is still running: a parked refresh, a map click, the waypoint command.
+    -- The route handed over is the newer decision. Without this, a refresh's
+    -- guard held the route back until the next refresh, and a map click still
+    -- searching painted its older route over the trip planner's stop once it
+    -- finished. Superseding gives a refresh's calculating flag back through its
+    -- abandon notice, and the route is read below. When a map click hands over
+    -- its own route, its request has already finished, so this replaces only a
+    -- refresh queued behind it. A re-entrant call from the pending branch finds
+    -- nothing pending, because that branch clears it before rendering.
+    if self._pendingPOIRoute then
         QR.PathCalculator:SupersedeConsumer(QR.ROUTE_CONSUMER.ROUTE_PANEL)
     end
 
