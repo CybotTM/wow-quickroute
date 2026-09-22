@@ -25,7 +25,10 @@ local POIRouting = QR.POIRouting
 -- @param mapID number The destination map ID
 -- @param x number X coordinate (0-1)
 -- @param y number Y coordinate (0-1)
-function POIRouting:RouteToMapPosition(mapID, x, y)
+-- @param closes number|nil `MainFrame.closeCount` when the player asked, for a
+--   caller that searched for the destination across frames before calling here.
+--   Without it the count is taken now.
+function POIRouting:RouteToMapPosition(mapID, x, y, closes)
     mapID, x, y = QR.PathCalculator:ResolveMapPosition(mapID, x, y)
     if not mapID then
         QR:Debug("POIRouting: invalid arguments")
@@ -75,7 +78,7 @@ function POIRouting:RouteToMapPosition(mapID, x, y)
     -- The search yields between frames instead of holding the client, so
     -- everything that needs its result happens in the callback. A raised error
     -- inside the search is caught by the driver and arrives here as a failure.
-    local closes = QR.MainFrame and QR.MainFrame.closeCount
+    if closes == nil then closes = QR.MainFrame and QR.MainFrame.closeCount end
     QR.PathCalculator:CalculatePathAsync(mapID, x, y, zoneName, function(result, failure)
         -- No route is an answer, not an error: the panel names the reason.
         -- A search that raised has already been logged by the driver.

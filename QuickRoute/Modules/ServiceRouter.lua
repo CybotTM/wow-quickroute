@@ -401,6 +401,9 @@ function SR:RouteToCurrency(query)
         return false
     end
     QR:Print(QR.L["CALCULATING"])
+    -- Taken before the vendor search, which spans frames: a window the player
+    -- closes while it runs stays closed when the route arrives.
+    local closes = QR.MainFrame and QR.MainFrame.closeCount
     self:FindNearestCurrencyVendorAsync(currencyID, function(loc, _, _, reason)
         if not loc then
             QR:Print(QR.L[reason == "position_changed" and "CURRENCY_VENDOR_MOVED"
@@ -410,7 +413,7 @@ function SR:RouteToCurrency(query)
         end
         if QR.POIRouting then
             -- Recalculate the selected vendor from the player's current state.
-            QR.POIRouting:RouteToMapPosition(loc.mapID, loc.x, loc.y)
+            QR.POIRouting:RouteToMapPosition(loc.mapID, loc.x, loc.y, closes)
             if QR.DestinationSearch then
                 QR.DestinationSearch:SetSearchText(loc.name .. " — " .. GetCurrencyName(currencyID))
             end

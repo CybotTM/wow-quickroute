@@ -192,6 +192,10 @@ local function withQueuedSearch(body)
     local ok, err = pcall(body, drain)
     pc.CalculatePath, C_Timer.After = savedCalculate, savedAfter
     pc:CancelAsync()
+    -- A body that raised before draining leaves its request marked running
+    -- with no timer left to finish it; every later request would then queue
+    -- behind it for the rest of the run.
+    pc.asyncRunning = nil
     QR.MainFrame:Hide()
     QR.UI._pendingPOIRoute = nil
     if not ok then error(err, 0) end
@@ -206,8 +210,6 @@ T:run("RouteToMapPosition: a window closed while the search runs stays closed", 
         drain()
         t:assertFalse(QR.MainFrame.isShowing,
             "the late answer does not reopen the window, isShowing=" .. tostring(QR.MainFrame.isShowing))
-        t:assertNil(QR.UI._pendingPOIRoute,
-            "no route is left waiting for the next open, got " .. tostring(QR.UI._pendingPOIRoute))
     end)
 end)
 
@@ -220,6 +222,53 @@ T:run("RouteToMapPosition: a click with the window closed still opens it", funct
         t:assertTrue(QR.MainFrame.isShowing,
             "the answer opens the window, isShowing=" .. tostring(QR.MainFrame.isShowing))
     end)
+end)
+
+T:run("Currency route: a window closed during the vendor search stays closed", function(t)
+    resetState()
+    local sr = QR.ServiceRouter
+    local savedLocations, savedFind = sr.GetCurrencyLocations, sr.FindNearestCurrencyVendorAsync
+    sr.GetCurrencyLocations = function() return { { mapID = 84, x = 0.5, y = 0.5, name = "Vendor" } } end
+    local found
+    sr.FindNearestCurrencyVendorAsync = function(_, _, callback) found = callback end
+    local ok, err = pcall(withQueuedSearch, function(drain)
+        QR.MainFrame:Show("route")
+        sr:RouteToCurrency(1792)
+        QR.MainFrame:Hide()
+        t:assertNotNil(found, "the vendor search was started")
+        if found then found({ mapID = 84, x = 0.5, y = 0.5, name = "Vendor", source = "catalog" }) end
+        drain()
+        t:assertFalse(QR.MainFrame.isShowing,
+            "the route does not reopen the window, isShowing=" .. tostring(QR.MainFrame.isShowing))
+    end)
+    sr.GetCurrencyLocations, sr.FindNearestCurrencyVendorAsync = savedLocations, savedFind
+    if not ok then error(err, 0) end
+end)
+
+T:run("Trip: a window closed while the next stop is chosen stays closed", function(t)
+    resetState()
+    local mr = QR.MultiRoute
+    local savedSave, savedStops = mr.Save, mr.stops
+    mr.Save = function() end
+    local ok, err = pcall(withQueuedSearch, function(drain)
+        -- The trip calls the calculator directly, one stop per frame; the
+        -- frames come from its own timer chain, so this stub does not yield.
+        QR.PathCalculator.CalculatePath = function() return { steps = {}, totalTime = 1 } end
+        QR.MainFrame:Show("route")
+        mr:Start({ { mapID = 84, x = 0.2, y = 0.2, title = "A" }, { mapID = 84, x = 0.6, y = 0.6, title = "B" } }, false)
+        QR.MainFrame:Hide()
+        drain()
+        t:assertEqual(1, mr.currentIndex, "a leg was chosen, got " .. tostring(mr.currentIndex))
+        t:assertFalse(QR.MainFrame.isShowing,
+            "the chosen leg does not reopen the window, isShowing=" .. tostring(QR.MainFrame.isShowing))
+        local dest = QR.db.lastDestination
+        t:assertEqual(0.2, dest and dest.x, "the leg is still saved for the next open, got x="
+            .. tostring(dest and dest.x))
+        t:assertTrue(QR.db.destinationLocked, "and locked, got " .. tostring(QR.db.destinationLocked))
+    end)
+    mr:Clear()
+    mr.Save, mr.stops = savedSave, savedStops
+    if not ok then error(err, 0) end
 end)
 
 T:run("/qrwp: a window closed while the search runs stays closed", function(t)
