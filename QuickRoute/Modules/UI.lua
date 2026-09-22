@@ -587,9 +587,10 @@ function UI:RefreshRoute()
         return
     end
 
-    -- A finished route handed over by the trip planner or a map click replaces
-    -- a refresh that is still searching. The guard below returned before the
-    -- handed-over route was read, so it stayed pending and the next refresh
+    -- A finished route handed over by the trip planner replaces a refresh that
+    -- is still searching. (A map click hands over the same way, but its own
+    -- request has already replaced any parked refresh by the time it does.)
+    -- The guard below returned before the handed-over route was read, so it stayed pending and the next refresh
     -- showed it late, over whatever the player had chosen in between.
     -- Superseding the panel's request gives the calculating flag back through
     -- its abandon notice, and the route is read below. A re-entrant call from
@@ -755,9 +756,9 @@ end
 -- The stamp is not checked here. It moves while a refresh is parked -- the
 -- window closing, another consumer's route reaching UpdateRoute -- and a
 -- replaced refresh must give the flag back in that case too. Nothing newer can
--- lose its state: RefreshRoute is the only place that sets the flag, it cannot
--- run while the flag stands, and this runs once, synchronously, before the
--- replacing request is queued.
+-- lose its state: only RefreshRoute sets the flag, it starts a new refresh
+-- only once the flag is down, and at most one panel request is live, so the
+-- request this notice belongs to is the one the standing flag was set for.
 function UI:AbandonRefresh()
     self:ResetCalculatingState()
 end

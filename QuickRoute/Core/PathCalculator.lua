@@ -1125,7 +1125,8 @@ end
 -- Scheduling one calculation per frame bounds how many searches start, not what
 -- one of them costs. A single expensive search still ran to completion inside
 -- one frame. The driver below runs a calculation inside a coroutine, spends a
--- measured budget per frame and continues on the next.
+-- measured budget per slice of the graph search and continues on the next
+-- frame. What that does and does not bound is set out further down.
 --
 -- Two guarantees matter as much as the budget. A superseded calculation cannot
 -- publish: its result is dropped once it is marked superseded. And a superseded
@@ -1153,7 +1154,7 @@ end
 -- for.
 -------------------------------------------------------------------------------
 
--- Milliseconds of route search per frame.
+-- Milliseconds of graph search per slice.
 PathCalculator.FRAME_BUDGET_MS = 6
 PathCalculator.asyncGeneration = 0
 -- Requests waiting for the calculator, oldest first.
@@ -1286,7 +1287,7 @@ function PathCalculator:StepAsync()
     self:ResumeAsync()
 end
 
---- Spend one frame's budget on the running calculation.
+--- Run one slice of the running calculation, within the search budget.
 function PathCalculator:ResumeAsync()
     local running = self.asyncRunning
     if not running then return end

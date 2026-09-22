@@ -1950,16 +1950,30 @@ T:run("RefreshRoute: a route handed over during a parked refresh is shown, not h
         -- map click does, but calculates it synchronously, so nothing had
         -- replaced the parked refresh. The route stayed pending and turned up
         -- on the next refresh, late.
-        local shown
-        local savedUpdate = QR.UI.UpdateRoute
+        local shown, published = nil, 0
+        local savedUpdate, savedPublish = QR.UI.UpdateRoute, QR.UI.PublishRefreshedRoute
         QR.UI.UpdateRoute = function(_, route) shown = route end
+        -- Counts only the parked refresh's own publish. A handover that merely
+        -- lowered the flag would let that refresh answer later, over the
+        -- handed-over route.
+        QR.UI.PublishRefreshedRoute = function(ui, ...)
+            published = published + 1
+            return savedPublish(ui, ...)
+        end
+        -- Another consumer's request is waiting as well. Handing a route to the
+        -- panel must replace the panel's own request and nothing else.
+        local offered = false
+        QR.PathCalculator:CalculatePathAsync(85, 0.3, 0.3, nil, function() offered = true end,
+            { consumer = QR.ROUTE_CONSUMER.DUNGEON_OFFER })
         local handed = { totalTime = 5, steps = {}, waypoint = { mapID = 84, x = 0.2, y = 0.2, title = "Stop" } }
         QR.UI._pendingPOIRoute = handed
         QR.UI:RefreshRoute()
         drain()
-        QR.UI.UpdateRoute = savedUpdate
+        QR.UI.UpdateRoute, QR.UI.PublishRefreshedRoute = savedUpdate, savedPublish
         t:assertEqual(handed, shown, "the handed-over route is the one shown")
         t:assertNil(QR.UI._pendingPOIRoute, "and nothing stays pending for a later refresh")
         t:assertFalse(QR.UI.isCalculating, "and the panel is not left calculating")
+        t:assertEqual(0, published, "the replaced refresh never publishes over it, got " .. published)
+        t:assertTrue(offered, "and the dungeon offer's request still ran")
     end)
 end)

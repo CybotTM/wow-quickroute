@@ -107,7 +107,7 @@ function API:GetVersion()
 end
 
 --- Ask for a route.
--- Calculation spends a measured budget per frame. The callback receives either
+-- Calculation is spread across frames in budgeted slices. The callback receives either
 -- a detached result or nil plus a failure table naming the reason.
 -- Nothing here sets a waypoint, changes the player's pin or starts travel.
 -- @param request table {mapID, x, y, title}
