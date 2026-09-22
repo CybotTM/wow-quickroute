@@ -695,9 +695,11 @@ function MR:Next()
 end
 
 function MR:Clear()
-    -- Every way a trip ends or a new one starts passes here -- the Clear
+    -- Every way a trip is cleared or replaced passes here -- the Clear
     -- button, /qrmulti clear, /qrmulti tomtom, Start -- so an offered reading
-    -- for a paste that is no longer being imported goes with the trip. The
+    -- for a paste that is no longer being imported goes with the trip.
+    -- Finishing the last stop (Next) does not come here, and keeps the
+    -- reading: the paste it belongs to is still in the box. The
     -- import itself withdraws or offers before it calls Start, so no reading
     -- is pending when Start reaches here from the paste.
     if self.withdrawCommaChoice then self.withdrawCommaChoice() end
