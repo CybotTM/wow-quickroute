@@ -887,6 +887,8 @@ function MR:Show()
             self.commaDecimalButton:Hide()
             self.commaPairButton:Hide()
         end
+        -- For /qrmulti clear, which reaches the trip without the window.
+        self.withdrawCommaChoice = withdraw
         withdraw()
         offer = function(report)
             local entry = self:PendingCommaChoice(report)
@@ -921,7 +923,9 @@ _G.SLASH_QRMULTI1 = "/qrmulti"
 SlashCmdList["QRMULTI"] = function(message)
     local command = type(message) == "string" and message:match("^%s*(.-)%s*$") or ""
     if command == "next" then MR:Next()
-    elseif command == "clear" then MR:Clear()
+    elseif command == "clear" then
+        if MR.withdrawCommaChoice then MR.withdrawCommaChoice() end
+        MR:Clear()
     elseif command == "tomtom" then
         local stops, err = MR:CollectTomTomWaypoints()
         if stops then MR:Start(stops, true) else QR:Print(err) end

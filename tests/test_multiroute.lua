@@ -246,7 +246,9 @@ T:run("MultiRoute: the trip window offers a reading only while the choice is wha
         t:assertFalse(mr.commaDecimalButton:IsShown(),
             "no reading is offered while an unreadable line blocks the import")
         -- The player edits the paste after a choice was offered: it is withdrawn.
-        edit:SetText("/way #2393 50,57 56 Treasure")
+        -- A text of its own: the window keeps its choices across tests, and
+        -- the first window test pastes "50,57 56 Treasure".
+        edit:SetText("/way #2393 60,47 66 Cave")
         mr.startButton:GetScript("OnClick")()
         t:assertTrue(mr.commaDecimalButton:IsShown(), "the reading is offered for the ambiguous paste")
         local onChanged = edit:GetScript("OnTextChanged")
@@ -265,13 +267,18 @@ T:run("MultiRoute: the trip window offers a reading only while the choice is wha
             .. tostring(started and #started))
         t:assertFalse(mr.commaDecimalButton:IsShown(), "and the stale button is withdrawn")
         -- Clear takes an offered reading away with the trip.
-        edit:SetText("/way #2393 50,57 56 Treasure")
+        edit:SetText("/way #2393 60,47 66 Cave")
         mr.startButton:GetScript("OnClick")()
         t:assertTrue(mr.commaDecimalButton:IsShown(), "offered for the ambiguous paste")
         local clear = mr.clearButton
         t:assertNotNil(clear, "the clear button is reachable")
         if clear then clear:GetScript("OnClick")() end
         t:assertFalse(mr.commaDecimalButton:IsShown(), "Clear withdraws the offered reading")
+        -- So does the slash command, which reaches the trip without the window.
+        mr.startButton:GetScript("OnClick")()
+        t:assertTrue(mr.commaDecimalButton:IsShown(), "offered again")
+        SlashCmdList["QRMULTI"]("clear")
+        t:assertFalse(mr.commaDecimalButton:IsShown(), "/qrmulti clear withdraws the offered reading")
     end
     edit:SetText(previous or "")
     mr.Start, mr.message = start, message
