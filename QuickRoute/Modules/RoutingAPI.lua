@@ -183,11 +183,15 @@ function API:CalculateRoute(request, callback)
     return handle
 end
 
---- Tell the consumer in flight that something else took the calculator.
--- PathCalculator supersedes on every request, internal ones included, and the
--- stale callback is then dropped without a word. A consumer that hears nothing
--- cannot tell a slow route from a dead one, so the internal callers announce it
--- here. Idempotent: a handle is notified once.
+--- Tell the consumer in flight that its request was replaced.
+-- A superseded request's callback is dropped without a word, and a consumer
+-- that hears nothing cannot tell a slow route from a dead one. The calculator
+-- calls this through the request's `onSuperseded`, which happens when this
+-- contract is asked for a second route while the first is in flight, and when
+-- something cancels every calculation. An internal calculation for the route
+-- panel or the dungeon offer does not reach here: those carry their own
+-- consumer key and supersede only their own requests. Idempotent: a handle is
+-- notified once.
 function API:NotifySuperseded()
     local previous = inFlight[1]
     if not previous or previous.cancelled then return false end

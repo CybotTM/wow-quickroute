@@ -3047,6 +3047,54 @@ T:run("Cooperative search: one withdrawn request leaves the others in the queue"
     t:assertEqual(86, published[2], "and the one behind it still runs, got " .. tostring(published[2]))
 end)
 
+T:run("Cooperative search: withdrawing the running request drops its result only", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local saved, after = pc.CalculatePath, C_Timer.After
+    local queue = {}
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    pc.CalculatePath = function(_, mapID) coroutine.yield() return { tag = mapID } end
+    local published = {}
+    local function record(route) published[#published + 1] = route and route.tag or "none" end
+    local running = pc:CalculatePathAsync(84, 0.5, 0.5, nil, record, { consumer = "a" })
+    pc:CalculatePathAsync(85, 0.5, 0.5, nil, record, { consumer = "b" })
+    t:assertTrue(pc:CancelRequest(running), "the running request was found")
+    while #queue > 0 do
+        local callback = table.remove(queue, 1)
+        callback()
+    end
+    pc.CalculatePath, C_Timer.After = saved, after
+    pc:CancelAsync()
+    t:assertEqual(1, #published, "the withdrawn running request publishes nothing, got " .. #published)
+    t:assertEqual(85, published[1], "and the queued one still runs, got " .. tostring(published[1]))
+end)
+
+T:run("Cooperative search: a raising callback does not strand the queue", function(t)
+    resetState()
+    local pc = QR.PathCalculator
+    local saved, after = pc.CalculatePath, C_Timer.After
+    local savedError = QR.Error
+    local queue, errors = {}, 0
+    C_Timer.After = function(_, callback) queue[#queue + 1] = callback end
+    QR.Error = function() errors = errors + 1 end
+    pc.CalculatePath = function(_, mapID) coroutine.yield() return { tag = mapID } end
+    local published = {}
+    pc:CalculatePathAsync(84, 0.5, 0.5, nil, function() error("consumer bug") end, { consumer = "a" })
+    pc:CalculatePathAsync(85, 0.5, 0.5, nil, function(route) published[#published + 1] = route.tag end,
+        { consumer = "b" })
+    local drained = pcall(function()
+        while #queue > 0 do
+            local callback = table.remove(queue, 1)
+            callback()
+        end
+    end)
+    pc.CalculatePath, C_Timer.After, QR.Error = saved, after, savedError
+    pc:CancelAsync()
+    t:assertTrue(drained, "the raising callback did not escape the driver")
+    t:assertEqual(1, errors, "it was logged once, got " .. errors)
+    t:assertEqual(85, published[1], "and the request behind it still ran, got " .. tostring(published[1]))
+end)
+
 -------------------------------------------------------------------------------
 -- Rejected steps
 --

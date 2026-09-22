@@ -1222,19 +1222,14 @@ end
 
 --- Supersede every calculation, queued or in flight.
 -- The blunt form: nothing published afterwards, whoever asked. A running search
--- still finishes so the graph is left clean.
+-- still finishes so the graph is left clean. Each request it drops is told
+-- through its own `onSuperseded`, which is how the public contract hears.
 -- @return number The new current generation
 function PathCalculator:CancelAsync()
     self.asyncGeneration = (self.asyncGeneration or 0) + 1
     for _, request in ipairs(self.asyncQueue or {}) do Supersede(request) end
     self.asyncQueue = {}
     if self.asyncRunning then Supersede(self.asyncRunning) end
-    -- A consumer of the public contract is waiting on whatever this supersedes,
-    -- and dropping its callback silently is the one answer the contract does
-    -- not allow.
-    if QR.RoutingAPI and QR.RoutingAPI.NotifySuperseded then
-        QR.RoutingAPI:NotifySuperseded()
-    end
     return self.asyncGeneration
 end
 
@@ -1327,10 +1322,24 @@ function PathCalculator:ResumeAsync()
         route, failure = nil, { reason = self.FAILURE.GRAPH_UNAVAILABLE, retryable = true }
     end
     -- A superseded request never publishes, whatever it found.
+    --
+    -- The callback is guarded. It belongs to whoever asked, and with a queue
+    -- behind it a raising callback would strand every request waiting on the
+    -- calculator until somebody happened to ask again.
     if not running.superseded and type(running.callback) == "function" then
-        running.callback(route, failure)
+        local delivered, err = pcall(running.callback, route, failure)
+        if not delivered then
+            QR:Error("Route callback failed: " .. tostring(err))
+        end
     end
-    self:StepAsync()
+    -- The next request starts on the next frame rather than here. Starting it
+    -- inline handed the same frame a fresh full budget, so a frame could spend
+    -- the budget once per queued request instead of once.
+    if C_Timer and C_Timer.After then
+        C_Timer.After(0, function() self:StepAsync() end)
+    else
+        self:StepAsync()
+    end
 end
 
 --- Create a reusable calculator with its own graph and position caches.

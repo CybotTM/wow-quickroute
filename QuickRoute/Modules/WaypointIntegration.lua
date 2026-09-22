@@ -1130,8 +1130,10 @@ end
 -- "cannot reach" from "cannot currently establish a route".
 -- @param callback function Receives (result, failure). The result carries the
 --   waypoint and the source it came from
+-- @param onSuperseded function|nil Called instead when another consumer of the
+--   route panel replaces this request, so the caller can give up its state
 -- @return boolean False when there is no active waypoint to route to
-function WaypointIntegration:CalculatePathToWaypointAsync(callback)
+function WaypointIntegration:CalculatePathToWaypointAsync(callback, onSuperseded)
     local waypoint, source = self:GetActiveWaypoint()
     if not waypoint then
         if type(callback) == "function" then callback(nil, nil) end
@@ -1156,7 +1158,7 @@ function WaypointIntegration:CalculatePathToWaypointAsync(callback)
             end
             if type(callback) == "function" then callback(result, failure) end
         end,
-        { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL }
+        { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL, onSuperseded = onSuperseded }
     )
     return true
 end
