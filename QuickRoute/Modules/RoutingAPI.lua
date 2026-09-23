@@ -64,12 +64,21 @@ local function PendingRequests(key)
     return count, hasKey
 end
 
+-- Each owner's newest accepted request, held until its answer is delivered or
+-- the owner's next request replaces it.
+-- The calculator forgets a request once its search ends, but the answer waits
+-- a tick before it reaches the consumer. A newer request from the same owner
+-- in that tick found nothing to supersede, and both answers were delivered.
+local latestByOwner = {}
+
 --- Tell one consumer that its request was replaced.
 -- A superseded request's callback is dropped without a word, and a consumer
--- that hears nothing cannot tell a slow route from a dead one. The calculator
--- calls this through the request's `onSuperseded`: when the same owner asks
--- again while the request is queued or running, and when CancelAsync drops
--- every request. Idempotent: a handle is notified once.
+-- that hears nothing cannot tell a slow route from a dead one. CalculateRoute
+-- calls it directly for the owner's previous request, whatever its state,
+-- before the calculator is asked. The calculator calls it through the
+-- request's `onSuperseded` as well; for an owner's request that call finds
+-- the handle already told and does nothing, so the calculator tells first
+-- only when CancelAsync drops every request. Idempotent: a handle is notified once.
 local function NotifySuperseded(handle)
     if handle.cancelled then return end
     handle.cancelled = true
@@ -226,6 +235,7 @@ function API:CalculateRoute(request, callback)
     handle.callback = callback
 
     local function publish(route, failure)
+        if owner and latestByOwner[owner] == handle then latestByOwner[owner] = nil end
         -- `cancelled` alone: Cancel sets both, and supersession sets only
         -- `cancelled`, so testing `withdrawn` here could never change anything.
         if handle.cancelled then return end
@@ -252,6 +262,15 @@ function API:CalculateRoute(request, callback)
     -- than destroy each other. Each request's supersession notice is bound to
     -- its own handle, so the notice the calculator sends for an earlier request
     -- reaches that request and never the one being made.
+    -- The owner's previous request is told here, whether it is queued,
+    -- running, or finished with its answer still on its way. The calculator
+    -- below also drops a queued or running one; its notice then finds the
+    -- handle already told, since NotifySuperseded tells a handle once.
+    if owner then
+        local previous = latestByOwner[owner]
+        if previous then NotifySuperseded(previous) end
+        latestByOwner[owner] = handle
+    end
     handle.generation = QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, function(route, failure)
         -- A short route finishes inside the first budget, so without this the
         -- callback could run before CalculateRoute returned and the consumer
