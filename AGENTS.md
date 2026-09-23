@@ -1,6 +1,6 @@
 # AGENTS.md — QuickRoute
 
-> Last updated: 2026-09-22
+> Last updated: 2026-09-23
 
 World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, portals, spells, and items. Uses Dijkstra's algorithm. Namespace: `QR`.
 
@@ -148,6 +148,27 @@ reads as a fact rather than a boolean.
 
 ### PlayerInfo in Tests
 After changing `MockWoW.config.playerFaction`, call `QR.PlayerInfo:InvalidateCache()`.
+
+### Searches that span frames
+`CalculatePathAsync` runs a search in a coroutine and continues it from
+`C_Timer.After`. A stubbed `CalculatePath` that returns at once finishes inside
+the call that asked for it, so a test of what happens *while* a search runs
+(the window closed, another request made) passes on broken code. Stub it to
+`coroutine.yield()` once, and replace `C_Timer.After` with a queue the test
+drains itself. `tests/test_routingapi.lua` (`withDriver`) and
+`tests/test_poirouting.lua` (`withQueuedSearch`) show the shape.
+
+Code that calls `CalculatePath` directly, such as `MultiRoute:SelectNext`, needs
+a stub that does not yield: the call sits inside `pcall`, which swallows the
+yield error, so the path is skipped and an assertion about its effect holds for
+nothing. Assert that the path was taken as well (for a trip, `currentIndex`).
+
+### Map ids in tests
+`C_Map` reports UI map ids. `C_EncounterJournal.GetInstanceForGameMap` takes a
+game map id, the 8th value of `GetInstanceInfo`. A test that touches both uses
+different numbers for them (`MockWoW.config.currentMapID` and
+`MockWoW.config.instanceMapID`): with one number for both, passing the wrong id
+cannot fail. Issue #98 was invisible to the suite for that reason.
 
 ## Code Style
 
