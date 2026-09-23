@@ -1006,10 +1006,12 @@ end)
 T:run("Inside-dungeon: skips routing when player is inside target instance", function(t)
     resetState()
 
-    -- Player is inside The Stonevault (instance mapID 2341)
+    -- Player is inside The Stonevault. The mock's journal maps game map 2341
+    -- to it; the UI map is set to the same number here.
     MockWoW.config.inInstance = true
     MockWoW.config.instanceType = "party"
     MockWoW.config.currentMapID = 2341
+    MockWoW.config.instanceMapID = 2341
 
     -- Quest 99030 is a dungeon quest
     MockWoW.config.superTrackedQuestID = 99030
@@ -1036,6 +1038,41 @@ T:run("Inside-dungeon: skips routing when player is inside target instance", fun
     local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
 
     t:assertNil(wp, "Returns nil when player is already inside the target dungeon")
+end)
+
+-- C_Map reports a UI map id; GetInstanceForGameMap takes the instance's game
+-- map id, the 8th value of GetInstanceInfo. The two differ in the client. The
+-- UI map here is one the journal knows nothing about, so only the game map id
+-- can tell the player is already inside the quest's dungeon.
+T:run("Inside-dungeon: the instance is looked up by its game map id, not the UI map", function(t)
+    resetState()
+    MockWoW.config.inInstance = true
+    MockWoW.config.instanceType = "party"
+    MockWoW.config.currentMapID = 2339 -- a UI map id the journal does not map
+    MockWoW.config.instanceMapID = 2341 -- The Stonevault's game map in the mock
+    MockWoW.config.superTrackedQuestID = 99032
+    MockWoW.config.questTitles[99032] = "The Stonevault: Game Map Test"
+    MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}
+    MockWoW.config.questTagInfo[99032] = { tagID = Enum.QuestTag.Dungeon, tagName = "Dungeon" }
+    QR.DungeonData.scanned = true
+    QR.DungeonData.instances[1267] = QR.DungeonData.instances[1267] or {
+        name = "The Stonevault", zoneMapID = 2248, x = 0.62, y = 0.31, isRaid = false,
+    }
+    MockWoW.config.questAdditionalHighlights[99032] = { uiMapID = 2248, dungeons = true }
+
+    local asked = {}
+    local savedLookup = C_EncounterJournal.GetInstanceForGameMap
+    C_EncounterJournal.GetInstanceForGameMap = function(mapID)
+        asked[#asked + 1] = mapID
+        return savedLookup(mapID)
+    end
+    local wp = QR.WaypointIntegration:GetSuperTrackedWaypoint()
+    C_EncounterJournal.GetInstanceForGameMap = savedLookup
+
+    t:assertEqual(2341, asked[1], "the journal is asked with the game map id, got " .. tostring(asked[1]))
+    t:assertNil(wp, "inside the quest's own dungeon no entrance is routed to, got map "
+        .. tostring(wp and wp.mapID))
+    resetState()
 end)
 
 T:run("Inside-dungeon: does NOT skip when player is outside instance", function(t)
@@ -1956,6 +1993,7 @@ T:run("Inside-dungeon: unrelated instance does not suppress the quest target ent
     resetState()
     MockWoW.config.inInstance = true
     MockWoW.config.currentMapID = 2341 -- The Stonevault
+    MockWoW.config.instanceMapID = 2341
     MockWoW.config.superTrackedQuestID = 99591
     MockWoW.config.questTitles[99591] = "Maw of Souls: Another Dungeon"
     MockWoW.config.questTagInfo = MockWoW.config.questTagInfo or {}

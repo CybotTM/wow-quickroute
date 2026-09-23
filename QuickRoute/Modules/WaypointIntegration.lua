@@ -664,10 +664,18 @@ function WaypointIntegration:GetQuestWaypoint(questID, ignoreNegativeCache, scan
 
         -- Compare the resolved target instance, not merely whether the player
         -- is inside any dungeon: a quest can require a different instance.
+        --
+        -- GetInstanceForGameMap takes a game map id, which is the 8th value of
+        -- GetInstanceInfo. playerMapID is a UI map id from C_Map, another
+        -- namespace: passing it answered nil, or another instance, so a player
+        -- already inside the quest's dungeon was sent back to its entrance.
         local playerInstanceID
         if isDungeonQuest and IsInInstance and IsInInstance() then
-            if playerMapID and C_EncounterJournal and C_EncounterJournal.GetInstanceForGameMap then
-                playerInstanceID = C_EncounterJournal.GetInstanceForGameMap(playerMapID)
+            if _G.GetInstanceInfo and C_EncounterJournal and C_EncounterJournal.GetInstanceForGameMap then
+                local ok, _, _, _, _, _, _, _, instanceMapID = pcall(_G.GetInstanceInfo)
+                if ok and type(instanceMapID) == "number" then
+                    playerInstanceID = C_EncounterJournal.GetInstanceForGameMap(instanceMapID)
+                end
             end
         end
 

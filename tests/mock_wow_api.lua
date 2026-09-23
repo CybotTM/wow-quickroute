@@ -362,6 +362,10 @@ function MockWoW:Reset()
     self.config.bindLocation = "Stormwind City"
     self.config.questAdditionalHighlights = {}
     self.config.inInstance = false
+    -- The instance's game map id, the 8th value of GetInstanceInfo. It is a
+    -- different namespace from the UI map id C_Map reports.
+    self.config.instanceMapID = nil
+    self.config.instanceName = nil
     self.config.instanceType = "none"
     self.eventFrames = {}
 end
@@ -965,6 +969,12 @@ function MockWoW:Install()
 
     _G.IsInInstance = function()
         return cfg.inInstance or false, cfg.instanceType or "none"
+    end
+
+    -- name, instanceType, difficultyID, difficultyName, maxPlayers,
+    -- dynamicDifficulty, isDynamic, instanceID (the game map id)
+    _G.GetInstanceInfo = function()
+        return cfg.instanceName, cfg.instanceType or "none", 0, "", 5, 0, false, cfg.instanceMapID
     end
 
     ---------------------------------------------------------------------------
