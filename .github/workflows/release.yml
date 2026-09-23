@@ -142,7 +142,7 @@ jobs:
           else
             gh release create "$REF_NAME" \
               "dist/QuickRoute-${VERSION}.zip" \
-              --title "QuickRoute $REF_NAME" \
+              --title "$REF_NAME" \
               --notes-file /tmp/release-notes.md
           fi
       - name: Attach screenshots to release
