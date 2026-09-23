@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.21.0] - 2026-09-23
+
+### Added
+- Ask how to read a pasted waypoint whose comma could be a decimal mark or the separator between the two values, such as `/way #2393 50,57 56 Treasure`. The trip window shows both readings and imports nothing until one is picked.
+- Let another addon name an `owner` when it asks `QuickRouteAPI` for a route. A new request replaces only the same owner's earlier one, including an answer that was calculated but not yet delivered.
+
+### Changed
+- **For addon authors:** `QuickRouteAPI` is now contract version 2. A request no longer replaces another addon's request: without an `owner`, requests run independently. An addon that relied on its second request replacing its first passes the same `owner` on both, or cancels the first. At most eight requests wait at once; past that, the callback receives the retryable failure `busy`. The undocumented `QuickRouteAPI:NotifySuperseded()` is removed.
+- Calculate the route for the route panel, a map click and `/qrwp` in budgeted slices across frames, as the dungeon group offer and `QuickRouteAPI` requests already were. The window opens when the route is ready rather than after a frozen frame. Requests from different sources queue instead of cancelling each other.
+- Read a coordinate in a pasted waypoint as one whole token, so a decimal comma is no longer split into a coordinate and a label. A pair that mixes a decimal point and a decimal comma is refused as ambiguous.
+
+### Fixed
+- Keep the route window closed when a route arrives after the player closed it: from a map click, `/qrwp`, a trip leg or a currency vendor search. A window that was closed when the route was asked for still opens.
+- Stay inside a dungeon quest's instance instead of routing back to its entrance.
+- Drop a dungeon route whose group offer has already ended, and resolve the offered dungeon from its group finder activity correctly.
+
 ## [1.20.0] - 2026-09-22
 
 ### Added
@@ -445,7 +461,9 @@
 - CI pipeline (luacheck + tests)
 - CurseForge + Wago automated publishing
 
-[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.19.0...HEAD
+[Unreleased]: https://github.com/CybotTM/wow-quickroute/compare/v1.21.0...HEAD
+[1.21.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.20.0...v1.21.0
+[1.20.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.19.0...v1.20.0
 [1.19.0]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.5...v1.19.0
 [1.18.5]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.4...v1.18.5
 [1.18.4]: https://github.com/CybotTM/wow-quickroute/compare/v1.18.3...v1.18.4
