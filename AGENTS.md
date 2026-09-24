@@ -1,6 +1,6 @@
 # AGENTS.md — QuickRoute
 
-> Last updated: 2026-09-23
+> Last updated: 2026-09-24
 
 World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, portals, spells, and items. Uses Dijkstra's algorithm. Namespace: `QR`.
 
@@ -127,6 +127,7 @@ Single unified window with portrait header and tab bar. `UI.lua` and `TeleportPa
 - **Runner**: `~/.local/bin/lua5.1 tests/run_tests.lua`
 - **File order**: `QR_TEST_ORDER` is `discovery` (default) or `reverse`. The files share one mock and one addon namespace, so a test that borrows a global -- a frame method, a `QR.db` key -- must put it back, or it breaks whichever file happens to run next.
 - **Mock**: `tests/mock_wow_api.lua` provides full WoW API simulation (frames, events, tooltips, spells, items, C_Map, C_Timer, etc.)
+- **Text width**: the mock measures a string at 7 px per byte (`GetStringWidth`), so a 100 px column holds 14 characters. When width-aware code makes an exact-string assertion fail on an ordinary label, widen the column rather than relax the test: 100 px columns cut real item names in-game too (#52).
 - **Loader**: `tests/addon_loader.lua` loads addon in .toc order
 - **In-game**: `/qrtest graph` runs graph tests inside WoW
 - **UX enforcement**: `test_ux_consistency.lua` verifies 10 UX patterns across all modules
@@ -169,6 +170,19 @@ game map id, the 8th value of `GetInstanceInfo`. A test that touches both uses
 different numbers for them (`MockWoW.config.currentMapID` and
 `MockWoW.config.instanceMapID`): with one number for both, passing the wrong id
 cannot fail. Issue #98 was invisible to the suite for that reason.
+
+### Reading simulator renders
+The screenshots come from wow-ui-sim (`screenshots/seeds/README.md`). Two
+artifacts in a render are simulator defects, not addon defects:
+
+- A raw `tem:<id>:::` in an item name: the simulator's parser for a `|cn`
+  named color escape consumes the `|Hi` of the item link that follows it
+  (fix: [Osso/wow-ui-sim#10](https://github.com/Osso/wow-ui-sim/pull/10)).
+- `Â·` where the source has `·`: the string went through `string.format`,
+  which re-encodes the non-ASCII bytes of the format literal in upstream
+  wow-ui-sim `master` (fix: commit 972bd8f in
+  [Osso/wow-ui-sim#7](https://github.com/Osso/wow-ui-sim/pull/7)). Plain
+  `SetText` renders it correctly.
 
 ## Code Style
 
