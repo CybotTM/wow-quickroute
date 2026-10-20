@@ -232,7 +232,7 @@ artifacts in a render are simulator defects, not addon defects:
 ## Codebase State
 
 - **SavedVariables**: `QuickRouteDB` (DB_VERSION = 1)
-- **Interface**: `120100` (WoW 12.1.0). The live retail build is the authority — check https://wago.tools/api/builds, not the wiki, which lags.
+- **Interface**: `120105` (WoW 12.1.5). The live retail build is the authority — check https://wago.tools/api/builds, not the wiki, which lags.
 - **Dependencies**: none required. TomTom optional (`## OptionalDeps`). No libraries are vendored and there is no `embeds.xml`.
 - **CI**: GitHub Actions — luacheck 1.2.0 over `QuickRoute/` and `tests/`, plus the full Lua 5.1 test suite, on push/PR to main. Actions are SHA-pinned and maintained by Dependabot.
 - **Shipped since the last VISION revision**: dungeon/raid routing, destination search, service-POI routing, Encounter Journal button, multi-stop trips, the public routing contract (`QuickRouteAPI`), journey ownership, target roles, coordinate provenance, refusing a step, and the hearthstone inn catalogue.
