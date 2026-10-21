@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.21.1] - 2026-10-21
+
+### Changed
+- Interface bumped to 120105 for WoW 12.1.5, so the client no longer lists the addon as out of date.
+
+### Fixed
+- Land the Personal Key to the Arcantina in the Arcantina, where it actually arrives, and continue the route through the Arcantina exit to Silvermoon City. Before, the route started in Silvermoon City and skipped the way out.
+- Connect Northshire, Atal'Aman, City of Threads - Lower and The Grudge Pit on foot to the zones around them. Players were observed walking between them without a loading screen, and the addon did not list them.
+
 ## [1.21.0] - 2026-09-23
 
 ### Added
