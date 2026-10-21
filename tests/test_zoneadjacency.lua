@@ -740,8 +740,9 @@ end)
 T:run("New zones: complete KHAZ_ALGAR zone count", function(t)
     local zones = QR.Continents.KHAZ_ALGAR.zones
     -- Isle of Dorn, Ringing Deeps, Hallowfall, Azj-Kahet, Dornogal,
-    -- City of Threads, K'aresh, Siren Isle, Undermine, Tazavesh = 10
-    t:assertEqual(10, #zones, "KHAZ_ALGAR has 10 zones")
+    -- City of Threads, City of Threads - Lower, K'aresh, Siren Isle,
+    -- Undermine, Tazavesh = 11
+    t:assertEqual(11, #zones, "KHAZ_ALGAR has 11 zones")
 end)
 
 T:run("New zones: complete DRAGON_ISLES zone count", function(t)

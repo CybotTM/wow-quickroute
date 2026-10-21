@@ -62,6 +62,15 @@ QR.Continents = {
             2599, -- Val (12.0.7), inside Voidstorm
             2600, -- Naigtal (12.0.7), inside Voidstorm
             2352, -- Founder's Point (player housing)
+            -- Sub-zones the zone survey saw players walk into without a loading
+            -- screen. Parents from UiMap, build 12.1.5.70448: 425 off Elwynn
+            -- Forest (37), 2536 off Zul'Aman (2437), 2510 off Harandar (2413).
+            425,  -- Northshire
+            2536, -- Atal'Aman
+            2510, -- The Grudge Pit
+            -- The Arcantina (2541, parent Quel'Thalas 2537): the Personal Key
+            -- lands here. No overland edge; ARCANTINA_EXIT is the way out.
+            2541, -- The Arcantina
             -- Pre-Midnight legacy zones (classic/TBC dungeon entrances)
             95,   -- Ghostlands (Zul'Aman entrance, pre-Midnight)
             122,  -- Isle of Quel'Danas (TBC, Magisters' Terrace/Sunwell)
@@ -282,6 +291,7 @@ QR.Continents = {
             2255, -- Azj-Kahet
             2339, -- Dornogal
             2213, -- City of Threads
+            2216, -- City of Threads - Lower (UiMap parent Azj-Kahet 2255)
             2371, -- K'aresh (Patch 11.2)
             2369, -- Siren Isle (11.0.7, zeppelin from Isle of Dorn)
             2346, -- Undermine (11.1, teleporter from Dornogal)
@@ -360,6 +370,10 @@ QR.ZoneAdjacencies = {
         {zone = 52, travelTime = 60},   -- Westfall
         {zone = 49, travelTime = 60},   -- Redridge Mountains
         {zone = 47, travelTime = 90},   -- Duskwood
+        {zone = 425, travelTime = 60},  -- Northshire (sub-zone)
+    },
+    [425] = {  -- Northshire (inside Elwynn Forest; observed walk, 60s estimate)
+        {zone = 37, travelTime = 60},   -- Elwynn Forest
     },
     [87] = {  -- Ironforge
         {zone = 27, travelTime = 30},   -- Dun Morogh
@@ -526,8 +540,12 @@ QR.ZoneAdjacencies = {
         {zone = 2214, travelTime = 90},  -- The Ringing Deeps
         {zone = 2215, travelTime = 60},  -- Hallowfall
         {zone = 2213, travelTime = 30},  -- City of Threads
+        {zone = 2216, travelTime = 30},  -- City of Threads - Lower
     },
     [2213] = {  -- City of Threads
+        {zone = 2255, travelTime = 30},  -- Azj-Kahet
+    },
+    [2216] = {  -- City of Threads - Lower (observed walk from Azj-Kahet)
         {zone = 2255, travelTime = 30},  -- Azj-Kahet
     },
     [2371] = {  -- K'aresh (Patch 11.2)
@@ -744,16 +762,29 @@ QR.ZoneAdjacencies = {
         {zone = 2424, travelTime = 60},  -- Isle of Quel'Danas
         {zone = 2437, travelTime = 60},  -- Zul'Aman
         {zone = 122, travelTime = 60},   -- Isle of Quel'Danas (TBC era)
+        {zone = 2536, travelTime = 60},  -- Atal'Aman
     },
     [2424] = {  -- Isle of Quel'Danas
         {zone = 2395, travelTime = 60},  -- Eversong Woods
     },
     [2437] = {  -- Zul'Aman
         {zone = 2395, travelTime = 60},  -- Eversong Woods
+        {zone = 2536, travelTime = 60},  -- Atal'Aman (sub-zone)
         -- Harandar accessed via portal (see StandalonePortals in Portals.lua)
+    },
+    -- The zone survey recorded walks without a loading screen in both
+    -- directions between Atal'Aman and Zul'Aman and between Atal'Aman and
+    -- Eversong Woods. The 60s times are the file's usual estimate.
+    [2536] = {  -- Atal'Aman (inside Zul'Aman)
+        {zone = 2437, travelTime = 60},  -- Zul'Aman
+        {zone = 2395, travelTime = 60},  -- Eversong Woods
     },
     [2413] = {  -- Harandar
         -- Portal-accessed from Eversong/Zul'Aman (see StandalonePortals in Portals.lua)
+        {zone = 2510, travelTime = 60},  -- The Grudge Pit (sub-zone)
+    },
+    [2510] = {  -- The Grudge Pit (inside Harandar; observed walk out)
+        {zone = 2413, travelTime = 60},  -- Harandar
     },
     [2405] = {  -- Voidstorm
         {zone = 2599, travelTime = 60},   -- Val (sub-zone of Voidstorm)

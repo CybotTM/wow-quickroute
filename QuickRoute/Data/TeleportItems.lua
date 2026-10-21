@@ -1036,12 +1036,13 @@ QR.TeleportItemsData = {
     },
     [253629] = {
         name = "Personal Key to the Arcantina",
-        destination = "Silvermoon City (Arcantina)",
-        mapID = 2393,  -- Silvermoon City (revamped, Midnight)
-        -- Landing unsurveyed; uses the capital node's surveyed position so the
-        -- arrival does not cost a walk across the city that may not exist.
-        x = 0.5028,
-        y = 0.7486,
+        destination = "The Arcantina",
+        mapID = 2541,  -- The Arcantina (UiMap 2541, parent Quel'Thalas 2537)
+        -- Landing observed by the zone survey: three loading-screen arrivals
+        -- from Azj-Kahet, Silithus and Moonglade all landed on this point. The
+        -- way out to Silvermoon is the ARCANTINA_EXIT portal.
+        x = 0.5050,
+        y = 0.8070,
         cooldown = 90,  -- 1.5 minutes
         type = QR.TeleportTypes.TOY,
         faction = "both",

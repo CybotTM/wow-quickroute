@@ -125,6 +125,7 @@ TravelTime.NO_FLIGHT_MAPS = {
     [125] = true,   -- Dalaran (Northrend)
     [627] = true,   -- Dalaran (Broken Isles)
     [1670] = true,  -- Oribos
+    [2541] = true,  -- The Arcantina (UiMap type 4, like Dalaran and Oribos)
     [504] = true,   -- Isle of Thunder
     [554] = true,   -- Timeless Isle
     [830] = true,   -- Krokuun
