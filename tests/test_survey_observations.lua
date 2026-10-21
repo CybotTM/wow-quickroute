@@ -58,6 +58,9 @@ T:run("Survey: a route by the Arcantina key leaves through the Arcantina exit", 
         end
         t:assertNotNil(keyStep, "the route uses the key, steps: " .. #steps)
         t:assertNotNil(exitStep, "after the key the route takes a portal out of the Arcantina")
+        local exitFrom = exitStep and steps[exitStep].from
+        t:assertEqual("Travel:ARCANTINA_EXIT", exitFrom,
+            "that portal is the Arcantina exit, got " .. tostring(exitFrom))
         local data = keyStep and steps[keyStep].teleportData
         t:assertEqual(2541, data and data.mapID,
             "the key step lands on the Arcantina map, got " .. tostring(data and data.mapID))
@@ -82,4 +85,11 @@ T:run("Survey: observed walks into sub-zones are overland edges both ways", func
         t:assertNotNil(back, b .. " -> " .. a .. " is a walk edge")
         t:assertTrue(QR.AreSameContinent(a, b), a .. " and " .. b .. " share a continent")
     end
+end)
+
+T:run("Survey: the Arcantina keeps its ground estimate after joining a continent", function(t)
+    -- Before 2541 was listed under Eastern Kingdoms it had no continent and
+    -- was priced on the ground. Listing it must not make it flyable.
+    local eligibility = QR.TravelTime:RemoteFlightEligibility(2541)
+    t:assertEqual("ground", eligibility, "the Arcantina is priced on the ground, got " .. tostring(eligibility))
 end)
