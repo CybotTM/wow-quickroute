@@ -8,7 +8,7 @@ World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, po
 
 | Command | What it does | ~Time |
 |---------|-------------|-------|
-| `~/.local/bin/lua5.1 tests/run_tests.lua` | Run the suite (83 Lua test files). Compare the assertion count to the previous run rather than to a number written down here | ~5s |
+| `~/.local/bin/lua5.1 tests/run_tests.lua` | Run the suite (84 Lua test files). Compare the assertion count to the previous run rather than to a number written down here | ~5s |
 | `QR_TEST_ORDER=reverse ~/.local/bin/lua5.1 tests/run_tests.lua` | Same suite, files back to front. CI runs both; a file that borrows shared state and does not restore it fails here and nowhere else | ~5s |
 | `./scripts/lint.sh` | Luacheck over `QuickRoute/` and `tests/`, native or via Docker. Fails when no linter is available | ~3s |
 | `luacheck QuickRoute/ tests/ --config .luacheckrc` | Lint only, native luacheck 1.2.0 | ~2s |
@@ -89,7 +89,7 @@ tests/
   run_tests.lua           → Standalone test runner entry point
   mock_wow_api.lua        → Full WoW API mock (~2000 lines)
   addon_loader.lua        → Loads addon files in .toc order for tests
-  test_*.lua              → 83 test files covering all modules
+  test_*.lua              → 84 test files covering all modules
   test_*.py               → 3 generator and packaging tests, run by CI
                             with python3 -m unittest discover -s tests
 ```
