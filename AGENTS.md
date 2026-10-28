@@ -179,9 +179,9 @@ artifacts in a render are simulator defects, not addon defects:
   named color escape consumes the `|Hi` of the item link that follows it
   (fix: [Osso/wow-ui-sim#10](https://github.com/Osso/wow-ui-sim/pull/10)).
 - `Â·` where the source has `·`: the string went through `string.format`,
-  which re-encodes the non-ASCII bytes of the format literal in upstream
-  wow-ui-sim `master` (fix: commit 972bd8f in
-  [Osso/wow-ui-sim#7](https://github.com/Osso/wow-ui-sim/pull/7)). Plain
+  which re-encodes the non-ASCII bytes of the format literal in wow-ui-sim
+  builds older than 2026-10-27. Upstream `master` carries the fix since merge
+  [62c00833e](https://github.com/Osso/wow-ui-sim/commit/62c00833e). Plain
   `SetText` renders it correctly.
 
 ## Code Style
