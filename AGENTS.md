@@ -132,6 +132,8 @@ Single unified window with portrait header and tab bar. `UI.lua` and `TeleportPa
 - **In-game**: `/qrtest graph` runs graph tests inside WoW
 - **UX enforcement**: `test_ux_consistency.lua` verifies 10 UX patterns across all modules
 - **Layout tests**: `MockWoW:ComputeFrameBounds()` resolves anchor chains to absolute positions
+- **Content frame size**: MainFrame's content frames get their size from two anchors, and the mock's `GetWidth()` returns only what `SetSize`/`SetWidth` stored, so a content frame reads 0 wide. Assert on `QR.MainFrame.frame:GetWidth()`, or resolve the content frame with `ComputeFrameBounds()`
+- **Map positions**: addon code reads a `UiMapPoint` position both as `.x`/`.y` and through `:GetXY()`. A mock position carries both, or the path that reads the other form sees nil
 
 ### Test Contract
 Files: `tests/test_<module>.lua`, discovered by the runner. Each file receives
@@ -206,6 +208,11 @@ artifacts in a render are simulator defects, not addon defects:
 | Combat-sensitive UI | Use `QR:RegisterCombatCallback(enterCb, leaveCb)` |
 | Secure button needed | Use `SecureActionButtonTemplate`, anchor to UIParent, position via `QR.SecureButtons:AttachOverlay()` |
 | Renaming with replace_all | Bulk replace catches declaration lines too — fix declarations after |
+| Setting a waypoint during a route refresh | TomTom's `Waypoint` callback re-enters `UI:RefreshRoute()`. Keep the `isCalculating` guard, set the waypoint from `C_Timer.After(0, …)` and skip it when `routeGeneration` changed, and set `_settingWaypoint` around `TomTom:AddWaypoint` |
+| Overlay on UIParent that follows another frame | `SetScale(target:GetEffectiveScale() / UIParent:GetEffectiveScale())`, then `SetPoint(…, UIParent, "BOTTOMLEFT", …)` with the target's `GetLeft`/`GetTop` values unchanged. Never divide those offsets by `GetEffectiveScale()` |
+| Displaying a teleport or destination name | Localized name from `C_Spell.GetSpellInfo(id).name`, `GetItemInfo(id)` or `C_Map.GetMapInfo(mapID).name`; static data names only as fallback |
+| `GetLocalized*` helper that takes an entry | Return `""` when `entry` or `entry.data` is nil |
+| Registering events or callbacks | Guard with a flag (`WaypointIntegration.hooksRegistered`) so a second call registers nothing |
 
 ## Boundaries
 
