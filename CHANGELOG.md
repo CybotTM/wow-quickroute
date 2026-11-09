@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.21.2] - 2026-11-09
+
+### Fixed
+- Start a route on foot when the player stands in a sub-zone the addon does not know, such as a district of Silvermoon City, a cave or a phased copy of a zone. The position is placed on the parent zone. Before, the route started with a hearthstone or a teleport, and without one there was no route at all.
+- Record a loading-screen arrival in the zone survey on the zone the player lands in, also when the client briefly reports the continent first. Before, the zone counted a walk from the continent, and the crossing from the real origin was lost.
+
 ## [1.21.1] - 2026-10-21
 
 ### Changed
