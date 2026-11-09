@@ -97,6 +97,16 @@ local function EndpointKey(endpoint)
         math_floor(endpoint.toX * ENDPOINT_BUCKETS), math_floor(endpoint.toY * ENDPOINT_BUCKETS))
 end
 
+--- True for a continent or world map (UiMap type 0-2).
+-- Right after a loading screen the client can report the continent for a
+-- moment before it resolves the zone; such a map is not where the player landed.
+local function IsContinentMap(mapID)
+    if not (C_Map and C_Map.GetMapInfo) then return false end
+    local ok, info = pcall(C_Map.GetMapInfo, mapID)
+    if not ok or (issecretvalue and issecretvalue(info)) or type(info) ~= "table" then return false end
+    return IsFinite(info.mapType) and info.mapType <= 2
+end
+
 local function CountAdjacent(mapID)
     local adj = QR.ZoneAdjacencies and QR.ZoneAdjacencies[mapID]
     if not adj then return nil end
@@ -186,7 +196,8 @@ function ZoneSurvey:SamplePosition()
         previousMapPosition = lastPosition
     end
     lastPosition = position
-    if loadedSince and not loadingArrival and position.mapID ~= lastMapID then
+    if loadedSince and not loadingArrival and position.mapID ~= lastMapID
+        and not IsContinentMap(position.mapID) then
         loadingArrival = position
     end
     return position
@@ -388,6 +399,13 @@ function ZoneSurvey:Capture()
             and existing.from or nil,
         seen = date("%Y-%m-%d %H:%M:%S"),
     }
+    -- A continent reported between a loading screen and the zone is a moment
+    -- of the landing, not the arrival. Keep the departure and the loading
+    -- screen pending, so the zone that follows records the crossing as loaded
+    -- from where the player left -- instead of as a walk from the continent.
+    if loadedSince and IsFinite(info and info.mapType) and info.mapType <= 2 then
+        return mapID
+    end
     RecordArrival(store, mapID)
     return mapID
 end
