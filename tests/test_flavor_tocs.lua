@@ -54,6 +54,11 @@ T:run("Flavor TOCs: the retail suite loads QuickRoute.toc and no Forever data", 
     t:assertNotNil(QR.FlightPoints[84], "retail Stormwind (84) flight master")
     t:assertNil(QR.FlightPoints[1453], "no Forever Stormwind (1453) entry in the retail data")
     t:assertNotNil(QR.PhasePanel, "the retail TOC still loads PhasePanel")
+    -- The route tab creates its phase button only when PhasePanel is loaded;
+    -- on retail it must still be there.
+    QR.MainFrame:Show()
+    t:assertNotNil(QR.UI.frame and QR.UI.frame.phaseButton, "phase button on the retail route tab")
+    QR.MainFrame:Hide()
 end)
 
 T:run("Flavor TOCs: QuickRoute_Camelot.toc carries the retail metadata and interface 16001", function(t)

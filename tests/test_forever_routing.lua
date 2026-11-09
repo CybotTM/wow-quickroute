@@ -90,3 +90,25 @@ T:run("Forever routing: Horde from Durotar to Undercity takes the zeppelin to Ti
     t:assertEqual(1454, zeppelin and zeppelin.fromMapID, "zeppelin leaves from Orgrimmar 1454")
     t:assertEqual(1420, zeppelin and zeppelin.destMapID, "zeppelin lands in Tirisfal Glades 1420")
 end)
+
+T:run("Forever routing: Horde from Orgrimmar to the Badlands flies to Kargath", function(t)
+    -- Flight edges need the client to report the taxi nodes as discovered;
+    -- the mock has no taxi map, so every Forever flight master counts as known.
+    local known = {}
+    for mapID in pairs(QR.FlightPoints) do known[mapID] = true end
+    QR.PathCalculator.knownFlightZonesOverride = known
+    local ok, err = pcall(function()
+        resetState("Horde", 1454)  -- Orgrimmar
+        local result = QR.PathCalculator:CalculatePath(1418, 0.5, 0.5)  -- Badlands
+        t:assertNotNil(result, "route from Orgrimmar (1454) to the Badlands (1418)")
+        local flight
+        for _, step in ipairs(result and result.steps or {}) do
+            if step.type == "flight" then flight = step end
+        end
+        t:assertNotNil(flight, "a flight step")
+        t:assertEqual(1418, flight and flight.destMapID, "the flight lands in the Badlands 1418")
+    end)
+    QR.PathCalculator.knownFlightZonesOverride = nil
+    QR.PathCalculator.graph, QR.PathCalculator.graphDirty = nil, true
+    if not ok then error(err, 0) end
+end)
