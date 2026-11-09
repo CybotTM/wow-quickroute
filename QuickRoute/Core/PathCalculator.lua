@@ -73,6 +73,15 @@ local function IsMapID(value)
     return IsFiniteNumber(value) and value > 0 and value == math_floor(value)
 end
 
+--- True when the routing model can place a point on this map: the map has
+-- overland links, a continent entry, or graph nodes of its own.
+function PathCalculator:IsRoutableMap(mapID)
+    if QR.ZoneAdjacencies and QR.ZoneAdjacencies[mapID] then return true end
+    if QR.ZoneToContinent and QR.ZoneToContinent[mapID] then return true end
+    if not self.graph then return false end
+    return #self:NodesOnMap(mapID) > 0
+end
+
 --- Resolve a parent-map click without changing the location it represents.
 -- Map IDs and normalized coordinates form one value; never relabel coordinates.
 -- Returns the original point if the client cannot project it, nil for bad input.
@@ -94,6 +103,17 @@ function PathCalculator:ResolveMapPosition(mapID, x, y)
             -- the client transform (e.g. The Den -> Harandar), never relabel.
             local parent = C_Map.GetMapInfo(info.parentMapID)
             if parent and parent.mapType == 3 then targetMapID = info.parentMapID end
+        elseif (info.mapType == 3 or info.mapType == 4) and IsMapID(info.parentMapID)
+            and not self:IsRoutableMap(mapID) then
+            -- A sub-zone the model does not know (a district such as Murder
+            -- Row in Silvermoon, a cave, a phased copy of a zone) has no
+            -- overland edge, so a point on it reaches nothing on foot. Its
+            -- parent zone does. Dungeons sit in their own world space, so the
+            -- transform below fails for them and they keep their own map.
+            local parent = C_Map.GetMapInfo(info.parentMapID)
+            if parent and (parent.mapType == 3 or parent.mapType == 4) then
+                targetMapID = info.parentMapID
+            end
         end
         if not IsMapID(targetMapID) or targetMapID == mapID then return end
         local worldID, worldPos = C_Map.GetWorldPosFromMapPos(mapID, CreateVector2D(x, y))

@@ -190,7 +190,7 @@ function TravelTime:GetCurrentMapID()
     end
     if currentMap and C_Map.GetMapInfo and QR.PathCalculator and QR.PathCalculator.GetPlayerPosition then
         local ok, info = pcall(C_Map.GetMapInfo, currentMap)
-        if ok and type(info) == "table" and Number(info.mapType) and (info.mapType <= 2 or info.mapType == 5) then
+        if ok and type(info) == "table" and Number(info.mapType) and info.mapType <= 5 then
             currentMap = QR.PathCalculator:GetPlayerPosition(currentMap) or currentMap
         end
     end
