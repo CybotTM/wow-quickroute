@@ -214,24 +214,33 @@ jobs:
           echo "CurseForge game version ID: ${GAME_VERSION_ID}"
           # WoW Forever versions carry gameVersionTypeID 88568 -- the value the
           # BigWigs packager (release.sh, upload_curseforge) uses for its
-          # "forever" flavor. Exact name match or a loud failure, as above.
+          # "forever" flavor. The packager reads /api/game/wow/versions; whether
+          # this endpoint carries the same field is not verified. A miss must not
+          # cost the retail upload, so it is a warning and the file is tagged for
+          # retail only. The log line that says the assumption failed:
+          #   "No CurseForge WoW Forever game version named 1.60.1"
           FOREVER_VERSION_ID=$(python3 -c '
           import json, os, sys
           versions = json.load(open("/tmp/cf-versions.json"))
           target = os.environ["FOREVER_PATCH"]
           match = [v for v in versions if v.get("gameVersionTypeID") == 88568 and v.get("name") == target]
-          if not match:
-              sys.exit("No CurseForge WoW Forever game version named %s" % target)
-          print(match[0]["id"])
+          print(match[0]["id"] if match else "")
           ')
-          echo "CurseForge WoW Forever game version ID: ${FOREVER_VERSION_ID}"
+          if [ -n "$FOREVER_VERSION_ID" ]; then
+            echo "CurseForge WoW Forever game version ID: ${FOREVER_VERSION_ID}"
+          else
+            echo "::warning::No CurseForge WoW Forever game version named ${FOREVER_PATCH}; uploading for retail only"
+          fi
           METADATA=$(GAME_VERSION_ID="$GAME_VERSION_ID" FOREVER_VERSION_ID="$FOREVER_VERSION_ID" VERSION="$VERSION" python3 -c '
           import json, os
+          ids = [int(os.environ["GAME_VERSION_ID"])]
+          if os.environ["FOREVER_VERSION_ID"]:
+              ids.append(int(os.environ["FOREVER_VERSION_ID"]))
           print(json.dumps({
               "changelog": open("/tmp/release-notes.md").read(),
               "changelogType": "markdown",
               "displayName": "QuickRoute v" + os.environ["VERSION"],
-              "gameVersions": [int(os.environ["GAME_VERSION_ID"]), int(os.environ["FOREVER_VERSION_ID"])],
+              "gameVersions": ids,
               "releaseType": "release",
           }))
           ')
@@ -258,24 +267,39 @@ jobs:
           echo "WoW Forever patch version: ${FOREVER_PATCH}"
           # Wago lists Forever patches under "forever" in
           # https://addons.wago.io/api/data/game (["1.60.1"] on 2026-11-10); the
-          # BigWigs packager sends them as supported_forever_patches.
-          METADATA=$(python3 -c '
+          # BigWigs packager sends them as supported_forever_patches. That field
+          # next to the singular supported_retail_patch this workflow has always
+          # sent is not verified against Wago. If Wago rejects it (HTTP 4xx), the
+          # upload is repeated once for retail only, with a warning that names it.
+          metadata() {
+            WITH_FOREVER="$1" python3 -c '
           import json, os
-          print(json.dumps({
+          meta = {
               "label": os.environ["VERSION"],
               "stability": "stable",
               "changelog": open("/tmp/release-notes.md").read(),
               "supported_retail_patch": os.environ["RETAIL_PATCH"],
-              "supported_forever_patches": [os.environ["FOREVER_PATCH"]],
-          }))
-          ')
-          HTTP_CODE=$(curl -sS -o /tmp/wago-response.json -w '%{http_code}' \
-            -X POST "https://addons.wago.io/api/projects/Q6aRgaKW/version" \
-            -H "Authorization: Bearer ${WAGO_API_TOKEN}" \
-            -H "Accept: application/json" \
-            -F "metadata=${METADATA}" \
-            -F "file=@dist/QuickRoute-${VERSION}.zip")
+          }
+          if os.environ["WITH_FOREVER"] == "1":
+              meta["supported_forever_patches"] = [os.environ["FOREVER_PATCH"]]
+          print(json.dumps(meta))
+          '
+          }
+          upload() {
+            curl -sS -o /tmp/wago-response.json -w '%{http_code}' \
+              -X POST "https://addons.wago.io/api/projects/Q6aRgaKW/version" \
+              -H "Authorization: Bearer ${WAGO_API_TOKEN}" \
+              -H "Accept: application/json" \
+              -F "metadata=$1" \
+              -F "file=@dist/QuickRoute-${VERSION}.zip"
+          }
+          HTTP_CODE=$(upload "$(metadata 1)")
           echo "Wago response (HTTP ${HTTP_CODE}): $(cat /tmp/wago-response.json)"
+          if [[ "$HTTP_CODE" =~ ^4[0-9][0-9]$ ]]; then
+            echo "::warning::Wago rejected supported_forever_patches (HTTP ${HTTP_CODE}); uploading for retail only"
+            HTTP_CODE=$(upload "$(metadata 0)")
+            echo "Wago response, retail only (HTTP ${HTTP_CODE}): $(cat /tmp/wago-response.json)"
+          fi
           echo "http_code=${HTTP_CODE}" >> "$GITHUB_OUTPUT"
           [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]
       # The GitHub release is already published at this point, so the store
