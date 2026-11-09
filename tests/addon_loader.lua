@@ -12,7 +12,7 @@ local AddonLoader = {}
 --   local ADDON_NAME, namespace = ...
 --
 -- @param MockWoW table The mock framework (must be installed already)
--- @param options table Optional overrides: { addonName, quiet }
+-- @param options table Optional overrides: { addonName, quiet, addonDir, toc }
 -- @return table The QR addon namespace
 function AddonLoader:Load(MockWoW, options)
     options = options or {}
@@ -31,62 +31,15 @@ function AddonLoader:Load(MockWoW, options)
     -- Create the addon namespace table
     local QR = {}
 
-    -- File load order from .toc (excluding the in-game test runner)
-    local files = {
-        "Localization.lua",
-        "Utils/Colors.lua",
-        "Utils/WindowFactory.lua",
-        "Utils/PlayerInfo.lua",
-        "Data/TeleportItems.lua",
-        "Data/Portals.lua",
-        "Data/TravelTransitions.lua",
-        "Data/ZoneAdjacency.lua",
-        "Data/DungeonEntrances.lua",
-        "Data/DungeonTeleports.lua",
-        "Data/TravelShortcuts.lua",
-        "Data/FlightPoints.lua",
-        "Data/ServicePOIs.lua",
-        "Data/Provenance.lua",
-        "Data/HearthstoneLocations.lua",
-        "Data/DestinationCatalog.lua",
-        "Core/Graph.lua",
-        "Core/TourPlanner.lua",
-        "Core/TravelTime.lua",
-        "Core/PathCalculator.lua",
-        "Modules/TravelRequirements.lua",
-        "Modules/Hearthstone.lua",
-        "Modules/TeleportDestinations.lua",
-        "Modules/PlayerInventory.lua",
-        "Modules/CooldownTracker.lua",
-        "Modules/WaypointIntegration.lua",
-        "Modules/MainFrame.lua",
-        "Modules/TeleportPanel.lua",
-        "Modules/SecureButtons.lua",
-        "Modules/UI.lua",
-        "Modules/MinimapButton.lua",
-        "Modules/MiniTeleportPanel.lua",
-        "Modules/MapSidebar.lua",
-        "Modules/MapTeleportButton.lua",
-        "Modules/QuestTeleportButtons.lua",
-        "Modules/POIRouting.lua",
-        "Modules/DungeonData.lua",
-        "Modules/DungeonPicker.lua",
-        "Modules/DestinationCatalog.lua",
-        "Modules/DestinationSearch.lua",
-        "Modules/ServiceRouter.lua",
-        "Modules/MultiRoute.lua",
-        "Modules/PhasePanel.lua",
-        "Modules/EncounterJournalButton.lua",
-        "Modules/SettingsHeader.lua",
-        "Modules/SettingsPanel.lua",
-        "Modules/TargetIdentity.lua",
-        "Modules/Journey.lua",
-        "Modules/RoutingAPI.lua",
-        "Modules/DungeonTravelOffer.lua",
-        "Modules/ZoneSurvey.lua",
-        "Modules/Diagnostics.lua",
-        "QuickRoute.lua",
-    }
+    -- File load order from the TOC, so the suite loads exactly what the client
+    -- loads. options.toc picks the flavor: QuickRoute.toc (retail, default) or
+    -- QuickRoute_Camelot.toc (WoW Forever). XML files and the in-game test
+    -- runner under Tests\ are skipped; the mock has no XML loader.
+    local tocName = options.toc or "QuickRoute.toc"
+    local files, tocErr = self:ReadTocFiles(addonDir .. tocName)
+    if not files then
+        error(tocErr)
+    end
 
     -- Load each file, passing (ADDON_NAME, QR) as varargs
     local loadedCount = 0
@@ -127,12 +80,38 @@ function AddonLoader:Load(MockWoW, options)
 
     -- Store metadata
     self.addonName = addonName
+    self.toc = tocName
+    self.files = files
     self.namespace = QR
     self.loadedCount = loadedCount
     self.totalFiles = #files
     self.failedFiles = failedFiles
 
     return QR
+end
+
+--- The Lua files a TOC lists, in order, with forward slashes.
+-- Skips metadata and comment lines (#), XML files, and Tests\.
+-- @param tocPath string Path to the .toc file
+-- @return table|nil List of relative paths, or nil and an error message
+function AddonLoader:ReadTocFiles(tocPath)
+    local handle = io.open(tocPath, "r")
+    if not handle then
+        return nil, "cannot open TOC " .. tostring(tocPath)
+    end
+    local files = {}
+    for line in handle:lines() do
+        line = line:gsub("\r$", ""):gsub("^%s+", ""):gsub("%s+$", "")
+        if line ~= "" and not line:match("^#") and not line:match("%.xml$")
+            and not line:match("^Tests[\\/]") then
+            files[#files + 1] = (line:gsub("\\", "/"))
+        end
+    end
+    handle:close()
+    if #files == 0 then
+        return nil, "TOC lists no Lua files: " .. tostring(tocPath)
+    end
+    return files
 end
 
 --- Simulate the ADDON_LOADED event (triggers QR:Initialize)
