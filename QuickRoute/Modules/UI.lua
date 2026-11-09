@@ -497,14 +497,18 @@ function UI:CreateContent(parentFrame)
     currencyButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.currencyButton = currencyButton
 
-    local phaseButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["PHASE_TITLE"]), BUTTON_HEIGHT)
-    phaseButton:SetPoint("LEFT", currencyButton, "RIGHT", BUTTON_PADDING, 0)
-    phaseButton:SetText(L["PHASE_TITLE"])
-    phaseButton:SetScript("OnClick", function()
-        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-        if QR.PhasePanel then QR.PhasePanel:Show() end
-    end)
-    frame.phaseButton = phaseButton
+    -- QuickRoute_Camelot.toc does not load PhasePanel: WoW Forever has no
+    -- Zidormi phases, and a button opening an empty window would be noise.
+    if QR.PhasePanel then
+        local phaseButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["PHASE_TITLE"]), BUTTON_HEIGHT)
+        phaseButton:SetPoint("LEFT", currencyButton, "RIGHT", BUTTON_PADDING, 0)
+        phaseButton:SetText(L["PHASE_TITLE"])
+        phaseButton:SetScript("OnClick", function()
+            PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+            if QR.PhasePanel then QR.PhasePanel:Show() end
+        end)
+        frame.phaseButton = phaseButton
+    end
 
     -- Separator line below toolbar
     local separator = frame:CreateTexture(nil, "ARTWORK")
@@ -2077,6 +2081,7 @@ function UI:GenerateDebugInfo()
     table_insert(lines, "|---|---|")
     table_insert(lines, "| QuickRoute | v" .. (QR.version or "?") .. " |")
     table_insert(lines, "| WoW | " .. tostring(wowVersion) .. " (build " .. tostring(wowBuild) .. ", TOC " .. tostring(tocVersion) .. ") |")
+    table_insert(lines, "| Data set | " .. (QR.IsForever and "WoW Forever" or "Retail") .. " |")
     table_insert(lines, "| Locale | " .. tostring(GetLocale()) .. " |")
     table_insert(lines, "| Date | " .. date("%Y-%m-%d %H:%M:%S") .. " |")
     table_insert(lines, "")

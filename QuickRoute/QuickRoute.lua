@@ -12,6 +12,11 @@ local pcall = pcall
 -- Namespace setup
 QR.version = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("QuickRoute", "Version") or "dev"
 QR.debugMode = false
+-- WoW Forever (client game type "camelot"). The client loads QuickRoute_Camelot.toc
+-- there, so the data is already Forever's; this flag is for the few places that
+-- must say or do something different at runtime. A client that does not define
+-- WOW_PROJECT_CAMELOT is not Forever.
+QR.IsForever = WOW_PROJECT_CAMELOT ~= nil and WOW_PROJECT_ID == WOW_PROJECT_CAMELOT
 
 -- Constants
 local DB_VERSION = 1

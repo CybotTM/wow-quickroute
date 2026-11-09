@@ -12,6 +12,7 @@ globals = {
     "QR",
 
     -- WoW API globals
+    "WOW_PROJECT_ID", "WOW_PROJECT_MAINLINE", "WOW_PROJECT_CAMELOT",
     "CreateFrame",
     "CreateVector2D",
     "RegisterStateDriver",

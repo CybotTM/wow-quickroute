@@ -56,6 +56,29 @@ jobs:
           QR_TEST_ORDER: ${{ matrix.order }}
         run: lua tests/run_tests.lua
 
+  tests-forever:
+    # The same runner on a mock of the WoW Forever client: loads the addon
+    # through QuickRoute_Camelot.toc and runs the test_forever_*.lua files.
+    name: Tests (Forever, ${{ matrix.order }} order)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        order: [discovery, reverse]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Lua 5.1
+        uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13.0.0
+        with:
+          luaVersion: "5.1"
+
+      - name: Run tests
+        env:
+          QR_TEST_FLAVOR: forever
+          QR_TEST_ORDER: ${{ matrix.order }}
+        run: lua tests/run_tests.lua
+
   generator:
     # The data generator decides which taxi nodes are flight masters, which
     # zone each belongs to and where in it they sit. None of that is reachable
