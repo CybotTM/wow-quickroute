@@ -33,6 +33,10 @@ local MAX_RECORDS = 3000
 -- Frame delays, movement speed and loading order prevent a fixed yard accuracy.
 local SAMPLE_INTERVAL = 0.5
 local MAX_SAMPLE_AGE = 2
+-- How long a continent map may stand between a loading screen and the zone.
+-- The client resolves the zone within a few seconds; a longer stay on the
+-- continent is a place without a zone, and the crossing after it is unknown.
+local CONTINENT_GRACE = 10
 
 -- Bucket both endpoints. Different arrivals from the same departure location
 -- must remain separate observations. Bucket size is map-relative, not yards.
@@ -97,6 +101,16 @@ local function EndpointKey(endpoint)
         math_floor(endpoint.toX * ENDPOINT_BUCKETS), math_floor(endpoint.toY * ENDPOINT_BUCKETS))
 end
 
+--- True for a continent or world map (UiMap type 0-2).
+-- Right after a loading screen the client can report the continent for a
+-- moment before it resolves the zone; such a map is not where the player landed.
+local function IsContinentMap(mapID)
+    if not (C_Map and C_Map.GetMapInfo) then return false end
+    local ok, info = pcall(C_Map.GetMapInfo, mapID)
+    if not ok or (issecretvalue and issecretvalue(info)) or type(info) ~= "table" then return false end
+    return IsFinite(info.mapType) and info.mapType <= 2
+end
+
 local function CountAdjacent(mapID)
     local adj = QR.ZoneAdjacencies and QR.ZoneAdjacencies[mapID]
     if not adj then return nil end
@@ -135,6 +149,7 @@ end
 local lastMapID = nil
 local loadedSince = false
 local loadingDeparture, loadingArrival
+local continentSince
 
 -- The last sample taken, and the last one taken on a DIFFERENT map. Two are
 -- kept rather than one because the departure point has to be found by map, not
@@ -186,7 +201,8 @@ function ZoneSurvey:SamplePosition()
         previousMapPosition = lastPosition
     end
     lastPosition = position
-    if loadedSince and not loadingArrival and position.mapID ~= lastMapID then
+    if loadedSince and not loadingArrival and position.mapID ~= lastMapID
+        and not IsContinentMap(position.mapID) then
         loadingArrival = position
     end
     return position
@@ -239,6 +255,7 @@ function ZoneSurvey:ForgetArrivalState()
     lastPosition = nil
     previousMapPosition = nil
     loadingDeparture, loadingArrival = nil, nil
+    continentSince = nil
     if self.frame then
         self.frame.captureGeneration = (self.frame.captureGeneration or 0) + 1
         self.frame.pending = false
@@ -295,6 +312,7 @@ local function RecordArrival(store, mapID)
     loadedSince = false
     local departure, arrival = loadingDeparture, loadingArrival
     loadingDeparture, loadingArrival = nil, nil
+    continentSince = nil
 
     if not from or from == mapID then return end
     if hadLoadingScreen and arrival and arrival.mapID ~= mapID then return end
@@ -388,6 +406,19 @@ function ZoneSurvey:Capture()
             and existing.from or nil,
         seen = date("%Y-%m-%d %H:%M:%S"),
     }
+    -- A continent reported between a loading screen and the zone is a moment
+    -- of the landing, not the arrival. Keep the departure and the loading
+    -- screen pending, so the zone that follows records the crossing as loaded
+    -- from where the player left -- instead of as a walk from the continent.
+    if loadedSince and IsFinite(info and info.mapType) and info.mapType <= 2 then
+        continentSince = continentSince or GetTime()
+        return mapID
+    end
+    -- A stay on the continent longer than a landing takes leaves the crossing
+    -- unknown: forget it rather than file it as loaded from where the player left.
+    if loadedSince and continentSince and GetTime() - continentSince > CONTINENT_GRACE then
+        self:ForgetArrivalState()
+    end
     RecordArrival(store, mapID)
     return mapID
 end

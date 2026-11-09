@@ -914,3 +914,130 @@ T:run("ZoneSurvey: live global budgets admit only remaining space and reset on c
     t:assertEqual(1, origins, "clear resets global origin bookkeeping")
     t:assertEqual(1, endpoints, "clear resets global endpoint bookkeeping")
 end)
+
+-------------------------------------------------------------------------------
+-- Arrivals that pass through a continent map
+--
+-- Right after a loading screen the client can report the continent for a
+-- moment before it resolves the zone. A 12.1.5 survey held 41 of 90 loading
+-- arrivals on a continent map, and the zone that followed was counted as a
+-- walk from the continent: eight exits from the Arcantina landed on
+-- Quel'Thalas (2537), Silvermoon (2393) recorded 14 walks from Quel'Thalas and
+-- not one arrival from the Arcantina.
+-------------------------------------------------------------------------------
+
+T:run("ZoneSurvey: a continent seen during the landing is not the arrival", function(t)
+    resetState()
+    MockWoW.config.currentMapID = 84
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4, 0.4
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:SamplePosition()
+    QR.ZoneSurvey:NoteLoadingScreen()
+    -- The client reports the continent first ...
+    MockWoW.config.currentMapID = 13
+    QR.ZoneSurvey:Capture()
+    -- ... and the zone a moment later.
+    MockWoW.config.currentMapID = 37
+    QR.ZoneSurvey:Capture()
+
+    local zone = QR.db.zoneSurvey[37]
+    local entry = zone and zone.from and zone.from[84]
+    t:assertNotNil(entry, "the zone records the arrival from 84, got from=" ..
+        tostring(zone and zone.from and next(zone.from)))
+    if entry then
+        t:assertEqual(1, entry.loaded, "as a loading-screen arrival, loaded=" .. tostring(entry.loaded))
+        t:assertEqual(0, entry.walked, "and not as a walk, walked=" .. tostring(entry.walked))
+    end
+    t:assertNil(zone and zone.from and zone.from[13],
+        "no walk from the continent into the zone")
+    local continent = QR.db.zoneSurvey[13]
+    t:assertNotNil(continent, "the continent map itself is still recorded")
+    t:assertNil(continent and continent.from and continent.from[84],
+        "and carries no arrival from 84")
+end)
+
+T:run("ZoneSurvey: a landing sampled on the continent is not the doorway's far end", function(t)
+    resetState()
+    MockWoW.config.currentMapID = 84
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4, 0.4
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:SamplePosition()
+    QR.ZoneSurvey:NoteLoadingScreen()
+    MockWoW.config.currentMapID = 13
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.47, 0.71
+    QR.ZoneSurvey:SamplePosition()
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = 37
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.42, 0.65
+    QR.ZoneSurvey:SamplePosition()
+    QR.ZoneSurvey:Capture()
+
+    local door = onlyDoorway(t, 37, 84)
+    if not door then return end
+    t:assertEqual(0.42, door.toX, "the landing is the first position on the zone, toX=" .. tostring(door.toX))
+    t:assertEqual(0.4, door.fromX, "the departure is where the player stood, fromX=" .. tostring(door.fromX))
+end)
+
+T:run("ZoneSurvey: a stay on the continent ends the pending loading crossing", function(t)
+    -- Some places have no zone, so the client reports the continent for as long
+    -- as the player stays there. A walk into a zone minutes later is no landing:
+    -- keeping the crossing pending would file it as loaded from where the player
+    -- left, with a doorway from there to the spot where they walked in.
+    resetState()
+    local start = MockWoW.config.baseTime
+    MockWoW.config.currentMapID = 84
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4, 0.4
+    QR.ZoneSurvey:Capture()
+    QR.ZoneSurvey:SamplePosition()
+    QR.ZoneSurvey:NoteLoadingScreen()
+    MockWoW.config.currentMapID = 13
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.baseTime = start + 120
+    MockWoW.config.currentMapID = 37
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.42, 0.65
+    QR.ZoneSurvey:SamplePosition()
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.baseTime = start
+
+    local zone = QR.db.zoneSurvey[37]
+    local entry = zone and zone.from and zone.from[84]
+    t:assertNil(entry, "no crossing from 84 after two minutes on the continent, loaded=" ..
+        tostring(entry and entry.loaded))
+    t:assertNil(zone and zone.from and zone.from[13], "and no walk from the continent")
+
+    -- The survey goes on: the next crossing is recorded as usual.
+    MockWoW.config.currentMapID = 52
+    QR.ZoneSurvey:Capture()
+    local following = QR.db.zoneSurvey[52]
+    local walk = following and following.from and following.from[37]
+    t:assertEqual(1, walk and walk.walked, "the next walk is recorded, walked=" .. tostring(walk and walk.walked))
+end)
+
+T:run("ZoneSurvey: each landing gets its own continent grace", function(t)
+    -- The grace starts with the continent of this landing, not with one an
+    -- earlier landing passed through.
+    resetState()
+    local start = MockWoW.config.baseTime
+    local function land(from, to, at)
+        MockWoW.config.baseTime = at
+        MockWoW.config.currentMapID = from
+        QR.ZoneSurvey:SamplePosition()
+        QR.ZoneSurvey:NoteLoadingScreen()
+        MockWoW.config.currentMapID = 13
+        QR.ZoneSurvey:Capture()
+        MockWoW.config.baseTime = at + 1
+        MockWoW.config.currentMapID = to
+        QR.ZoneSurvey:Capture()
+    end
+    MockWoW.config.currentMapID = 84
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4, 0.4
+    QR.ZoneSurvey:Capture()
+    land(84, 37, start)
+    land(37, 52, start + 60)
+    MockWoW.config.baseTime = start
+
+    local zone = QR.db.zoneSurvey[52]
+    local entry = zone and zone.from and zone.from[37]
+    t:assertEqual(1, entry and entry.loaded,
+        "the second landing is recorded as loaded, loaded=" .. tostring(entry and entry.loaded))
+end)
