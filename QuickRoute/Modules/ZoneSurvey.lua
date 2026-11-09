@@ -33,6 +33,10 @@ local MAX_RECORDS = 3000
 -- Frame delays, movement speed and loading order prevent a fixed yard accuracy.
 local SAMPLE_INTERVAL = 0.5
 local MAX_SAMPLE_AGE = 2
+-- How long a continent map may stand between a loading screen and the zone.
+-- The client resolves the zone within a few seconds; a longer stay on the
+-- continent is a place without a zone, and the crossing after it is unknown.
+local CONTINENT_GRACE = 10
 
 -- Bucket both endpoints. Different arrivals from the same departure location
 -- must remain separate observations. Bucket size is map-relative, not yards.
@@ -145,6 +149,7 @@ end
 local lastMapID = nil
 local loadedSince = false
 local loadingDeparture, loadingArrival
+local continentSince
 
 -- The last sample taken, and the last one taken on a DIFFERENT map. Two are
 -- kept rather than one because the departure point has to be found by map, not
@@ -250,6 +255,7 @@ function ZoneSurvey:ForgetArrivalState()
     lastPosition = nil
     previousMapPosition = nil
     loadingDeparture, loadingArrival = nil, nil
+    continentSince = nil
     if self.frame then
         self.frame.captureGeneration = (self.frame.captureGeneration or 0) + 1
         self.frame.pending = false
@@ -306,6 +312,7 @@ local function RecordArrival(store, mapID)
     loadedSince = false
     local departure, arrival = loadingDeparture, loadingArrival
     loadingDeparture, loadingArrival = nil, nil
+    continentSince = nil
 
     if not from or from == mapID then return end
     if hadLoadingScreen and arrival and arrival.mapID ~= mapID then return end
@@ -404,7 +411,13 @@ function ZoneSurvey:Capture()
     -- screen pending, so the zone that follows records the crossing as loaded
     -- from where the player left -- instead of as a walk from the continent.
     if loadedSince and IsFinite(info and info.mapType) and info.mapType <= 2 then
+        continentSince = continentSince or GetTime()
         return mapID
+    end
+    -- A stay on the continent longer than a landing takes leaves the crossing
+    -- unknown: forget it rather than file it as loaded from where the player left.
+    if loadedSince and continentSince and GetTime() - continentSince > CONTINENT_GRACE then
+        self:ForgetArrivalState()
     end
     RecordArrival(store, mapID)
     return mapID
