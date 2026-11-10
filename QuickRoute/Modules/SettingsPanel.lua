@@ -200,6 +200,14 @@ local function RegisterNativeSettings()
         end)
 
     RegisterCheckbox(category,
+        L["SETTINGS_ZONE_SURVEY"],
+        L["SETTINGS_ZONE_SURVEY_TT"],
+        "zoneSurveyEnabled",
+        function(checked)
+            if QR.ZoneSurvey and QR.ZoneSurvey.SetEnabled then QR.ZoneSurvey:SetEnabled(checked, true) end
+        end)
+
+    RegisterCheckbox(category,
         L["SETTINGS_SAVE_REMINDER"],
         L["SETTINGS_SAVE_REMINDER_TT"],
         "saveReminder",

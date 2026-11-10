@@ -10,7 +10,11 @@ local T, QR, MockWoW = ...
 local function resetState()
     MockWoW:Reset()
     QR.db = QR.db or {}
+    -- A player who switched the survey on: without the marker, the reload
+    -- that some cases simulate with Initialize() would turn it off again,
+    -- because the survey is off unless chosen (survey_choice_cases.lua).
     QR.db.zoneSurveyEnabled = true
+    QR.db.zoneSurveyChoice = true
     QR.db.zoneSurvey = {}
     -- The recorder's own state is module-level and outlives a test. Without
     -- this, one test's last sampled position is the next test's departure

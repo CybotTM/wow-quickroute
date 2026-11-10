@@ -92,7 +92,7 @@ QuickRoute/
     DestinationCatalog.lua → Loads and indexes the generated catalogue
     PhasePanel.lua        → Zidormi phase controls
     Diagnostics.lua       → Diagnostics output
-    ZoneSurvey.lua        → Records observed zone crossings
+    ZoneSurvey.lua        → Records observed zone crossings (off unless the player switches it on)
   Utils/
     Colors.lua            → Color constants (QR.Colors)
     PlayerInfo.lua        → Cached player info (faction, class, engineering)
@@ -103,10 +103,11 @@ tests/
   run_tests.lua           → Standalone test runner entry point
   mock_wow_api.lua        → Full WoW API mock (~2000 lines)
   addon_loader.lua        → Loads addon files in .toc order for tests
-  test_*.lua              → 88 retail test files covering all modules
-  test_forever_*.lua      → 4 WoW Forever test files (QR_TEST_FLAVOR=forever)
+  test_*.lua              → 89 retail test files covering all modules
+  test_forever_*.lua      → 5 WoW Forever test files (QR_TEST_FLAVOR=forever)
   trace_cases.lua         → Diagnostic-trace cases, run by one test file per flavor
   reminder_cases.lua      → Save-reminder cases, run by one test file per flavor
+  survey_choice_cases.lua → Zone-survey default and choice cases, run by one test file per flavor
   make_trace_fixture.lua  → Writes a SavedVariables file with a trace recorded by the
                             addon on the mock client (input of test_export_trace.py)
   test_*.py               → 6 generator, survey-import, trace-export and packaging
@@ -260,6 +261,7 @@ artifacts in a render are simulator defects, not addon defects:
 
 - **SavedVariables**: `QuickRouteDB` (DB_VERSION = 1)
 - **Diagnostic trace** (`Modules/Diagnostics.lua`): setting `diagnosticTrace`, default off, a checkbox at the end of the settings panel. While on, every `QR:Log` line and structured entries go into `QuickRouteDB.trace`: window show/hide/toggle with a `reason` from each call site and a trimmed `debugstack`, waypoint triggers (event or TomTom callback, the tracking state, what was done with it), quest/NPC/zone/travel events (registered only while on, each guarded by `pcall` because the two clients know different events; the ones that failed are listed in the session entry), taxi transitions, asynchronous route requests and results, Lua errors. A ring buffer of `TRACE_CAP` = 20000 entries and an estimated `TRACE_MAX_BYTES` = 6 MiB; QUEST_LOG_UPDATE and QUEST_POI_UPDATE are throttled to one entry per 2 s each, with the hidden count on the next. Measured with `tests/make_trace_fixture.lua retail OUT 20000`: entries the size of a real session reach the byte bound first, at 17,023 entries, and the SavedVariables file is then 5.4 MB (5,384,816 bytes; the estimate runs about 17% above the written size). `/qrdiag clear` deletes it. Window opens pass a reason: give a new call site of `MainFrame:Show/Hide/Toggle`, `UI:Show/Hide/Toggle` or `TeleportPanel:Show/Hide/Toggle` its own reason string. SavedVariables are written on `/reload` or logout only.
+- **Zone survey** (`Modules/ZoneSurvey.lua`): off unless the player switches it on, with the settings checkbox (after the diagnostic trace) or `/qrsurvey on|off`. Both go through `ZoneSurvey:SetEnabled`, which also sets `zoneSurveyChoice = true`; do not write `zoneSurveyEnabled` anywhere else. Releases v1.16.0 to v1.21.2 switched the survey on by themselves when the value was unset, so `ZoneSurvey:MigrateDefault` (run by `Initialize`) turns a stored `true` without `zoneSurveyChoice` off; the recorded `zoneSurvey` data stays. A test that loads the survey through `Initialize` with it on must set the marker too (`tests/test_zonesurvey.lua` does in `resetState`).
 - **Save reminder** (`Diagnostics.Reminder`, same file): while the diagnostic trace or the zone survey is on and something was recorded since login or the last `/reload` (`Diagnostics.unsavedTrace`, `ZoneSurvey.unsavedCaptures`, `ZoneSurvey.unsavedCrossings`), a small window (`QuickRouteSaveReminder`, `CreateStandardWindow`, ESC closes it) offers "Reload now" every `saveReminderMinutes` (default 20, 5-120) and closes itself after `saveReminderTimeout` seconds without the pointer on it (default 30, 10-120); `saveReminder` (default on) switches it off. The interval counts from login, the last reminder or its close. It is never shown in combat (`InCombatLockdown`, `UnitAffectingCombat`), on a taxi (also when `UnitOnTaxi` will not say), during a loading screen, in an instance, during an encounter or while `SecureButtons.pendingReleases` is not empty; a reminder due then waits for the next check (every 5 s, from an `OnUpdate` that only adds elapsed time), and for the end of combat, a loading screen or a taxi ride. It hides when combat starts and comes back after it. The reload button calls `C_UI.Reload`, else `ReloadUI`, and refuses in combat. The window's text is laid out as wrapping lines; `tests/reminder_cases.lua` checks under the mock's 7 px per byte that the Latin-script locales fit (the mock cannot measure Cyrillic, Hangul or Han, which take 2-3 bytes per character).
 - **Interface**: `120105` (WoW 12.1.5). The live retail build is the authority — check https://wago.tools/api/builds, not the wiki, which lags.
 - **WoW Forever**: `QuickRoute_Camelot.toc`, interface `16001` (product `wowf`, build 1.60.1.70862, client game type "camelot"). `QR.IsForever` is `WOW_PROJECT_ID == WOW_PROJECT_CAMELOT`; use it only where code must differ at runtime. Forever UiMap IDs are the Classic set (Stormwind 1453, Orgrimmar 1454), so a retail map ID in `Data/Forever/` is a bug — `tests/test_forever_data.lua` checks every one.

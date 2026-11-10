@@ -622,11 +622,44 @@ Sanitize = function(store)
     return clean, dropped
 end
 
+--- Switch the survey on or off as the player's choice.
+-- Every writer of `zoneSurveyEnabled` goes through here -- the settings
+-- checkbox and /qrsurvey on|off -- so `zoneSurveyChoice` marks a value the
+-- player chose. An open settings panel is told about the change, unless the
+-- change came from that panel's checkbox.
+-- @param enabled boolean
+-- @param fromCheckbox boolean|nil
+function ZoneSurvey:SetEnabled(enabled, fromCheckbox)
+    if not QR.db then return end
+    QR.db.zoneSurveyEnabled = enabled == true
+    QR.db.zoneSurveyChoice = true
+    -- Immediately, not at the next zone change: switching off and back on
+    -- without moving would otherwise keep the stale map.
+    if not enabled then self:ForgetArrivalState() end
+    local panel = QR.SettingsPanel
+    local control = panel and panel.controls and panel.controls.zoneSurveyEnabled
+    local setting = control and control.setting
+    if not fromCheckbox and setting and setting.NotifyUpdate then pcall(setting.NotifyUpdate, setting) end
+end
+
+--- Off unless the player switched it on.
+-- Builds up to this one switched the survey on by themselves whenever the
+-- value was unset, and offered no checkbox, so a stored `true` without the
+-- `zoneSurveyChoice` marker was never a player's choice: it is turned off.
+-- Only SetEnabled writes the value now and it always sets the marker, so an
+-- unmarked `true` cannot come back after the first load of this build. The
+-- recorded data is left as it is.
+function ZoneSurvey:MigrateDefault()
+    if not QR.db then return end
+    if QR.db.zoneSurveyEnabled == true and QR.db.zoneSurveyChoice ~= true then
+        QR.db.zoneSurveyEnabled = false
+        QR:Debug("ZoneSurvey: turned off; it was on by the old default, not by choice")
+    end
+end
+
 function ZoneSurvey:Initialize()
     if QR.db then
-        if QR.db.zoneSurveyEnabled == nil then
-            QR.db.zoneSurveyEnabled = true
-        end
+        self:MigrateDefault()
         local store, dropped = Sanitize(QR.db.zoneSurvey or {})
         QR.db.zoneSurvey = store
         if dropped > 0 then
@@ -697,13 +730,10 @@ SlashCmdList["QRSURVEY"] = function(msg)
         ZoneSurvey:Clear()
         QR:Print("Zone survey cleared.")
     elseif cmd == "off" then
-        if QR.db then QR.db.zoneSurveyEnabled = false end
-        -- Immediately, not at the next zone change: switching off and back on
-        -- without moving would otherwise keep the stale map.
-        ZoneSurvey:ForgetArrivalState()
+        ZoneSurvey:SetEnabled(false)
         QR:Print("Zone survey off.")
     elseif cmd == "on" then
-        if QR.db then QR.db.zoneSurveyEnabled = true end
+        ZoneSurvey:SetEnabled(true)
         QR:Print("Zone survey on.")
     elseif cmd == "here" then
         local mapID = ZoneSurvey:Capture()
