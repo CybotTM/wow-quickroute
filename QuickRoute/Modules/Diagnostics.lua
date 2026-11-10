@@ -399,6 +399,47 @@ local function NpcFields(fields)
     end
 end
 
+-- Events whose entry carries the game map the client put the player on.
+local GAME_MAP_EVENTS = {
+    ZONE_CHANGED = true, ZONE_CHANGED_INDOORS = true, ZONE_CHANGED_NEW_AREA = true,
+    PLAYER_ENTERING_WORLD = true, LOADING_SCREEN_ENABLED = true, LOADING_SCREEN_DISABLED = true,
+}
+
+--- A value the trace can store: not a secret value, and a scalar.
+local function Plain(value)
+    if value == nil or (issecretvalue and issecretvalue(value)) then return nil end
+    local kind = type(value)
+    if kind == "string" or kind == "number" or kind == "boolean" then return value end
+    return nil
+end
+
+--- Which game map the player is on, beside the UI map every entry has.
+-- WoW gives no phase ID for the player. A phase or terrain swap that puts the
+-- player on another game map (a phased copy of a city, an instance) shows up
+-- here as instanceMapID; a phase on the same game map does not show at all.
+-- Each call is guarded; a value the client does not give is left out.
+local function GameMapFields(fields)
+    if GetInstanceInfo then
+        local ok, name, instanceType, difficultyID, _, _, _, _, instanceMapID = pcall(GetInstanceInfo)
+        if ok then
+            fields.instanceName = Plain(name)
+            fields.instanceType = Plain(instanceType)
+            fields.difficultyID = Plain(difficultyID)
+            fields.instanceMapID = Plain(instanceMapID)
+        end
+    end
+    if C_Map and C_Map.GetBestMapForUnit then
+        local ok, best = pcall(C_Map.GetBestMapForUnit, "player")
+        best = ok and Plain(best) or nil
+        fields.bestMap = best
+        if best and C_Map.GetMapInfo then
+            local infoOK, info = pcall(C_Map.GetMapInfo, best)
+            if infoOK and type(info) == "table" then fields.bestMapType = Plain(info.mapType) end
+        end
+    end
+end
+Diagnostics.GameMapFields = GameMapFields
+
 function Diagnostics:OnTraceEvent(event, ...)
     if not self:IsTracing() then return end
     local now = GetTime and GetTime() or 0
@@ -442,6 +483,7 @@ function Diagnostics:OnTraceEvent(event, ...)
         if GetZoneText then fields.zone = GetZoneText() end
         if GetSubZoneText then fields.subzone = GetSubZoneText() end
     end
+    if GAME_MAP_EVENTS[event] then GameMapFields(fields) end
     self:Trace("event", event, fields)
 end
 
@@ -480,6 +522,25 @@ function Diagnostics:ApplyTraceSetting()
     for k, v in pairs(client) do fields[k] = v end
     fields.unregistered = #failed > 0 and table_concat(failed, ",") or nil
     fields.cap = self.TRACE_CAP
+    -- The character, so a connection seen for one race or faction can be told
+    -- from one that is open to all: the race's file token (not its localized
+    -- name), the faction and class tokens, the level. No name, no GUID.
+    if UnitRace then
+        local ok, _, raceFile, raceID = pcall(UnitRace, "player")
+        if ok then fields.race, fields.raceID = Plain(raceFile), Plain(raceID) end
+    end
+    if UnitFactionGroup then
+        local ok, faction = pcall(UnitFactionGroup, "player")
+        if ok then fields.faction = Plain(faction) end
+    end
+    if UnitClass then
+        local ok, _, classFile = pcall(UnitClass, "player")
+        if ok then fields.class = Plain(classFile) end
+    end
+    if UnitLevel then
+        local ok, level = pcall(UnitLevel, "player")
+        if ok then fields.level = Plain(level) end
+    end
     self:Trace("session", "trace started", fields)
 end
 

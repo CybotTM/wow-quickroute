@@ -16,6 +16,7 @@ globals = {
     "UnitOnTaxi",
     "time", "GetQuestID", "GetZoneText", "GetSubZoneText",
     "UnitAffectingCombat", "IsEncounterInProgress", "C_UI", "ReloadUI",
+    "UnitRace", "GetInstanceInfo",
     "CreateFrame",
     "CreateVector2D",
     "RegisterStateDriver",
