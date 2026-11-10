@@ -15,6 +15,10 @@ Two kinds of source, and the files say which one each record comes from:
                  and inn areas exist at all (SpellName, ItemSparse, AreaTable).
   derived        Adjacency for zones the conversion left with no edge, from
                  touching UiMapAssignment rectangles; marked as such.
+  surveyed       Crossings the zone survey saw on the Forever client, from
+                 scripts/data/forever_zone_survey.json (written by
+                 scripts/import_zone_survey.py): walks become adjacency,
+                 loading-screen endpoints refine converted transports.
   converted      Retail coordinates carried over through world space: retail
                  uiMap + (x, y) -> world position via retail UiMapAssignment ->
                  the Forever zone whose UiMapAssignment box contains it. Both
@@ -79,6 +83,16 @@ DERIVED_ADJACENCY_SOURCE = "map_bounds"
 # zone's box contains it (or that flight master's name states one that does),
 # otherwise in the smallest containing box.
 STOP_ANCHOR_YARDS = 1500
+
+# Zone-survey observations (scripts/import_zone_survey.py). A walk is applied
+# when the pair was crossed without a loading screen at least this often, both
+# directions together: one crossing can be a taxi flight passing over the
+# border, which the survey records the same way (see commit 800438b).
+OBSERVATIONS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "data", "forever_zone_survey.json")
+MIN_OBSERVED_WALKS = 2
+SURVEYED = "surveyed"            # QR.Provenance.SURVEYED
+SURVEY_SOURCE = "zone_survey"
 ZEPPELIN_MIN_HEIGHT = 20     # median path height; ships run at sea level (0)
 DEFAULT_TRANSPORT_TIME = {"boat": 180, "zeppelin": 120}
 
@@ -407,6 +421,90 @@ def build_zones(geo, retail, tally):
         "ZoneAdjacencies": adjacencies,
         "CrossContinentTravel": cross,
     }, zone_map
+
+
+def load_observations(path):
+    if not path or not os.path.exists(path):
+        return {"crossings": []}
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def apply_observed_walks(tables, observations, tally):
+    """Walks the zone survey saw become surveyed adjacency, both directions.
+
+    A walk replaces any edge for the pair, a map_bounds estimate included,
+    keeping its travel time; a pair with no edge gets one with the derived
+    default time. Walks on different continents and pairs below
+    MIN_OBSERVED_WALKS are counted and left out.
+    """
+    adjacency = tables["ZoneAdjacencies"]
+    for source in list(adjacency):
+        adjacency[source] = as_list(adjacency[source])
+    continent_of = tables["ZoneToContinent"]
+    walks = collections.Counter()
+    for crossing in observations.get("crossings", []):
+        if crossing.get("walked"):
+            walks[frozenset((crossing["from"], crossing["to"]))] += crossing["walked"]
+    for pair, count in sorted(walks.items(), key=lambda kv: sorted(kv[0])):
+        a, b = sorted(pair)
+        if continent_of.get(a) != continent_of.get(b):
+            tally.add("survey walks", "not applied: different continents")
+            continue
+        if count < MIN_OBSERVED_WALKS:
+            tally.add("survey walks", "not applied: seen once")
+            continue
+        for source, target in ((a, b), (b, a)):
+            edges = adjacency.setdefault(source, [])
+            edge = next((e for e in edges if e["zone"] == target), None)
+            if edge is None:
+                edge = {"zone": target, "travelTime": DERIVED_ADJACENCY_TIME}
+                edges.append(edge)
+                edges.sort(key=lambda e: e["zone"])
+                tally.add("survey walks", "applied: new edge")
+            elif edge.get("source") == DERIVED_ADJACENCY_SOURCE:
+                tally.add("survey walks", "applied: replaced a map_bounds edge")
+            else:
+                tally.add("survey walks", "applied: confirmed an edge")
+            edge["provenance"] = SURVEYED
+            edge["source"] = SURVEY_SOURCE
+            edge["observedWalks"] = count
+    return tables
+
+
+def apply_observed_landings(tables, observations, tally):
+    """Loading-screen crossings refine the ends of converted transports.
+
+    Only entries converted from retail (provenance estimated) are touched; the
+    TaxiPath ones carry the client's own positions. The most often seen
+    endpoint of a crossing between the same two zones replaces both ends.
+    """
+    portals = as_list(tables["StandalonePortals"])
+    tables["StandalonePortals"] = portals
+    for crossing in observations.get("crossings", []):
+        endpoints = crossing.get("endpoints") or []
+        if not endpoints:
+            continue
+        best = sorted(endpoints, key=lambda e: (-e["count"], e["fromX"], e["fromY"],
+                                                e["toX"], e["toY"]))[0]
+        applied = False
+        for portal in portals:
+            if portal.get("provenance") != ESTIMATED:
+                continue
+            ends = (portal["from"]["mapID"], portal["to"]["mapID"])
+            if ends == (crossing["from"], crossing["to"]):
+                start, end = portal["from"], portal["to"]
+            elif ends == (crossing["to"], crossing["from"]):
+                start, end = portal["to"], portal["from"]
+            else:
+                continue
+            start["x"], start["y"] = best["fromX"], best["fromY"]
+            end["x"], end["y"] = best["toX"], best["toY"]
+            portal["provenance"] = SURVEYED
+            applied = True
+        tally.add("survey landings", "applied to a converted transport" if applied
+                  else "not applied: no converted transport between the zones")
+    return tables
 
 
 def boxes_touch(a, b):
@@ -871,6 +969,8 @@ def main():
     parser.add_argument("--toc", default="QuickRoute/QuickRoute.toc",
                         help="retail TOC whose Data\\ files are converted (default: %(default)s)")
     parser.add_argument("--out-dir", default="QuickRoute/Data/Forever")
+    parser.add_argument("--observations", default=OBSERVATIONS,
+                        help="zone-survey observations to apply (default: %(default)s)")
     args = parser.parse_args()
     generate(args)
 
@@ -905,6 +1005,8 @@ def generate(args):
     flight_final = fp.build(fdir, min_zones=30, internal_flag=0)
     world_maps = {r["MapName_lang"] for r in fp.load(fdir, "Map.csv", ("ID", "MapName_lang"))}
     zones, zone_map = build_zones(geo, retail, tally)
+    observations = load_observations(args.observations)
+    apply_observed_walks(zones, observations, tally)
     write_lua(out("ZoneAdjacency.lua"), header("ZoneAdjacency.lua", [
         "Continents and their zone lists come from Forever's UiMap and",
         "UiMapAssignment: every zone-type map, grouped by the world map it is drawn",
@@ -915,6 +1017,8 @@ def generate(args):
         "UiMapAssignment rectangle touches or overlaps its own on the same world",
         "map, both ways, marked provenance = \"estimated\", source = \"map_bounds\":",
         "derived from bounds, never observed, for a surveyed crossing to replace.",
+        "Walks the zone survey saw (scripts/data/forever_zone_survey.json, at least",
+        "twice) are provenance = \"surveyed\", source = \"zone_survey\", both ways.",
     ]), zones)
 
     flight_header = header("FlightPoints.lua", [
@@ -950,7 +1054,11 @@ def generate(args):
         "both. The Deeprun Tram has no taxi path; Forever's Map table has its",
         "map, and the retail tram is converted.",
         "",
-    ] + CONVERTED_NOTE), build_portals(geo, retail, tally, fdir, flight_final, world_maps))
+        "Loading-screen crossings the zone survey saw replace both ends of a",
+        "converted transport between the same zones (provenance = \"surveyed\").",
+        "",
+    ] + CONVERTED_NOTE), apply_observed_landings(
+        build_portals(geo, retail, tally, fdir, flight_final, world_maps), observations, tally))
 
     write_lua(out("DungeonEntrances.lua"), header("DungeonEntrances.lua", [
         "Format as in the retail file: [zoneMapID] = { { journalInstanceID, x, y,",

@@ -6,50 +6,59 @@
 -- parsing Lua in Python. Lua 5.1, no dependencies.
 --
 -- Usage: lua5.1 scripts/export_data_json.lua QuickRoute/QuickRoute.toc
+--        lua5.1 scripts/export_data_json.lua --zone-survey <SavedVariables/QuickRoute.lua>
+--
+-- The second form prints QuickRouteDB.zoneSurvey from a SavedVariables file,
+-- for scripts/import_zone_survey.py. The file is run in an empty environment:
+-- SavedVariables are plain assignments, and nothing in it can reach a global.
 --
 -- JSON objects cannot carry number keys, so every key is written with its Lua
 -- type: "n:84" is the number 84, "s:name" the string "name". The reader in
 -- the generator turns them back.
 
-local tocPath = arg[1]
-if not tocPath then
-    io.stderr:write("usage: lua5.1 export_data_json.lua <path to .toc>\n")
-    os.exit(2)
-end
-local addonDir = tocPath:match("^(.*[/\\])") or "./"
-
-local handle = io.open(tocPath, "r")
-if not handle then
-    io.stderr:write("cannot open " .. tocPath .. "\n")
-    os.exit(2)
-end
-local files = {}
-for line in handle:lines() do
-    line = line:gsub("\r$", "")
-    if line:match("^Data[\\/].+%.lua$") then
-        files[#files + 1] = line:gsub("\\", "/")
-    end
-end
-handle:close()
-if #files == 0 then
-    io.stderr:write("no Data\\ files listed in " .. tocPath .. "\n")
-    os.exit(1)
+local function fail(message, code)
+    io.stderr:write(message .. "\n")
+    os.exit(code or 1)
 end
 
--- The data files only touch QR at load time; nothing they run at file scope
--- calls the WoW API. A missing global would raise here, which is wanted.
-local QR = {}
-for _, rel in ipairs(files) do
-    local chunk, err = loadfile(addonDir .. rel)
-    if not chunk then
-        io.stderr:write("load failed: " .. rel .. ": " .. tostring(err) .. "\n")
-        os.exit(1)
+--- The QR namespace after running every Data\ file the TOC lists.
+local function loadToc(tocPath)
+    local addonDir = tocPath:match("^(.*[/\\])") or "./"
+    local handle = io.open(tocPath, "r")
+    if not handle then fail("cannot open " .. tocPath, 2) end
+    local files = {}
+    for line in handle:lines() do
+        line = line:gsub("\r$", "")
+        if line:match("^Data[\\/].+%.lua$") then
+            files[#files + 1] = line:gsub("\\", "/")
+        end
     end
-    local ok, runErr = pcall(chunk, "QuickRoute", QR)
-    if not ok then
-        io.stderr:write("run failed: " .. rel .. ": " .. tostring(runErr) .. "\n")
-        os.exit(1)
+    handle:close()
+    if #files == 0 then fail("no Data\\ files listed in " .. tocPath) end
+
+    -- The data files only touch QR at load time; nothing they run at file scope
+    -- calls the WoW API. A missing global would raise here, which is wanted.
+    local QR = {}
+    for _, rel in ipairs(files) do
+        local chunk, err = loadfile(addonDir .. rel)
+        if not chunk then fail("load failed: " .. rel .. ": " .. tostring(err)) end
+        local ok, runErr = pcall(chunk, "QuickRoute", QR)
+        if not ok then fail("run failed: " .. rel .. ": " .. tostring(runErr)) end
     end
+    return QR
+end
+
+--- QuickRouteDB.zoneSurvey from a SavedVariables file, or an empty table.
+local function loadZoneSurvey(path)
+    local chunk, err = loadfile(path)
+    if not chunk then fail("cannot load " .. tostring(path) .. ": " .. tostring(err), 2) end
+    local env = {}
+    setfenv(chunk, env)
+    local ok, runErr = pcall(chunk)
+    if not ok then fail("cannot run " .. path .. ": " .. tostring(runErr)) end
+    local db = env.QuickRouteDB
+    local survey = type(db) == "table" and db.zoneSurvey
+    return type(survey) == "table" and survey or {}
 end
 
 local escapes = {
@@ -107,4 +116,13 @@ encode = function(v, seen)
     error("unsupported value type " .. t)
 end
 
-io.write(encode(QR, {}), "\n")
+local result
+if arg[1] == "--zone-survey" then
+    if not arg[2] then fail("usage: lua5.1 export_data_json.lua --zone-survey <file>", 2) end
+    result = loadZoneSurvey(arg[2])
+elseif arg[1] then
+    result = loadToc(arg[1])
+else
+    fail("usage: lua5.1 export_data_json.lua <path to .toc> | --zone-survey <file>", 2)
+end
+io.write(encode(result, {}), "\n")

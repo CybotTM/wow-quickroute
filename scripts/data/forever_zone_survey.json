@@ -1,0 +1,4 @@
+{
+ "about": "Zone-survey crossings between WoW Forever zones, merged by scripts/import_zone_survey.py and applied by scripts/generate_forever_data.py. Counts are the largest seen.",
+ "crossings": []
+}

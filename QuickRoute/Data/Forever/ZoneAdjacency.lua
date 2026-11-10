@@ -13,6 +13,8 @@
 -- UiMapAssignment rectangle touches or overlaps its own on the same world
 -- map, both ways, marked provenance = "estimated", source = "map_bounds":
 -- derived from bounds, never observed, for a surveyed crossing to replace.
+-- Walks the zone survey saw (scripts/data/forever_zone_survey.json, at least
+-- twice) are provenance = "surveyed", source = "zone_survey", both ways.
 local ADDON_NAME, QR = ...
 
 QR.Continents = {

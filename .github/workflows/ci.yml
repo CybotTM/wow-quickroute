@@ -95,5 +95,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The survey import reads SavedVariables and the addon's data through
+      # scripts/export_data_json.lua, so its tests need Lua 5.1.
+      - name: Install Lua 5.1
+        uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13.0.0
+        with:
+          luaVersion: "5.1"
+
       - name: Run generator tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v

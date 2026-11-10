@@ -13,6 +13,7 @@ World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, po
 | `QR_TEST_FLAVOR=forever ~/.local/bin/lua5.1 tests/run_tests.lua` | WoW Forever suite: loads the addon through `QuickRoute_Camelot.toc` on a mock of the Forever client and runs only `test_forever_*.lua`. CI runs it in both orders too | ~2s |
 | `python3 -m unittest discover -s tests` | Generator and packaging tests (`test_*.py`) | ~1s |
 | `python3 scripts/generate_forever_data.py --forever-csv-dir DIR --retail-csv-dir DIR` | Regenerate `QuickRoute/Data/Forever/*.lua`. Inputs and builds are listed in the script's docstring; it prints kept/dropped counts per file | ~5s |
+| `python3 scripts/import_zone_survey.py "/mnt/f/World of Warcraft/_forever_/WTF/Account/<ACCOUNT>/SavedVariables/QuickRoute.lua"` | Merge the Forever client's zone-survey crossings into `scripts/data/forever_zone_survey.json` (reads the SavedVariables file only; counts are maxima, so re-importing is a no-op). Regenerate the Forever data afterwards to apply them; a retail file adds nothing | ~1s |
 | `./scripts/lint.sh` | Luacheck over `QuickRoute/` and `tests/`, native or via Docker. Fails when no linter is available | ~3s |
 | `luacheck QuickRoute/ tests/ --config .luacheckrc` | Lint only, native luacheck 1.2.0 | ~2s |
 | `docker run --rm -v "$(pwd):/src" -w /src ghcr.io/lunarmodules/luacheck:v1.2.0 QuickRoute/ tests/ --config .luacheckrc` | Lint without a native luacheck — same version CI pins | ~5s |
@@ -103,7 +104,7 @@ tests/
   addon_loader.lua        → Loads addon files in .toc order for tests
   test_*.lua              → 86 retail test files covering all modules
   test_forever_*.lua      → 2 WoW Forever test files (QR_TEST_FLAVOR=forever)
-  test_*.py               → 4 generator and packaging tests, run by CI
+  test_*.py               → 5 generator, survey-import and packaging tests, run by CI
                             with python3 -m unittest discover -s tests
 ```
 

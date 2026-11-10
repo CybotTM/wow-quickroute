@@ -17,6 +17,9 @@
 -- both. The Deeprun Tram has no taxi path; Forever's Map table has its
 -- map, and the retail tram is converted.
 --
+-- Loading-screen crossings the zone survey saw replace both ends of a
+-- converted transport between the same zones (provenance = "surveyed").
+--
 -- Positions are retail coordinates converted through world space into the
 -- Forever zone that contains them, and are estimates: Cataclysm changed the
 -- terrain in places. provenance = "estimated" marks them where the schema has
