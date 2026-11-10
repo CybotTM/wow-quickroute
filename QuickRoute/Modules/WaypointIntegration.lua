@@ -189,10 +189,17 @@ local function CheckPortalThroughZone(questID, resolvedMapID)
         return nil
     end
 
+    -- Only portals this character may take, as QR:GetAvailablePortals filters
+    -- them for routing: a portal for the other faction leads nowhere for us.
+    local faction = QR.PlayerInfo and QR.PlayerInfo.GetFaction and QR.PlayerInfo:GetFaction()
     for _, portal in ipairs(QR.StandalonePortals) do
+        local portalFaction = portal.faction or "both"
+        local usable = portalFaction == "both" or not faction or portalFaction == faction
         -- Check portals FROM the resolved zone
         local destMapID = nil
-        if portal.from and portal.from.mapID == resolvedMapID and portal.to then
+        if not usable then
+            destMapID = nil
+        elseif portal.from and portal.from.mapID == resolvedMapID and portal.to then
             destMapID = portal.to.mapID
         elseif portal.bidirectional and portal.to and portal.to.mapID == resolvedMapID and portal.from then
             destMapID = portal.from.mapID
@@ -1325,19 +1332,58 @@ function WaypointIntegration:_ProcessWaypointChange()
         elseif not (QR.db and QR.db.autoDestination) then
             self:TraceTrigger(trigger, "none: window closed, auto-destination off", nil, waypoint, source)
         elseif not waypoint then
-            self:TraceTrigger(trigger, "skip-cleared", zones, waypoint, source)
+            -- A quest still super-tracked but not resolved: its coordinates
+            -- may not have streamed in yet. Look once more when the client
+            -- next reports quest POIs (OnQuestPOIUpdate).
+            local questID = self:GetSuperTrackedQuestIDSafe()
+            if questID then
+                if self._retriedQuestID ~= questID then self._unresolvedQuestID = questID end
+                self:TraceTrigger(trigger, "skip-unresolved", zones, waypoint, source)
+            else
+                self:TraceTrigger(trigger, "skip-cleared", zones, waypoint, source)
+            end
         else
             self:TraceTrigger(trigger, "skip-same-zone", zones, waypoint, source)
         end
     end
 end
 
+--- The super-tracked quest, or nil (none, zero, or a value the client hides).
+function WaypointIntegration:GetSuperTrackedQuestIDSafe()
+    if not (C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID) then return nil end
+    local ok, questID = pcall(C_SuperTrack.GetSuperTrackedQuestID)
+    if not ok or type(questID) ~= "number" or (issecretvalue and issecretvalue(questID))
+        or questID <= 0 then
+        return nil
+    end
+    return questID
+end
+
+--- QUEST_POI_UPDATE: the quest a waypoint change could not resolve is looked
+-- at once more, if it is still the one super-tracked. Once per quest: a quest
+-- that has no coordinates at all does not retry on every POI update.
+function WaypointIntegration:OnQuestPOIUpdate()
+    local questID = self._unresolvedQuestID
+    if not questID then return end
+    self._unresolvedQuestID = nil
+    if self:GetSuperTrackedQuestIDSafe() ~= questID then return end
+    self._retriedQuestID = questID
+    self:OnWaypointChanged("QUEST_POI_UPDATE:retry")
+end
+
 --- The zone a map belongs to and its enclosing zones, up to the continent.
 -- @return table set of map IDs
 local function ZoneChain(mapID)
     local chain, guard = {}, 0
+    local PC = QR.PathCalculator
     while mapID and mapID ~= 0 and guard < 16 do
         chain[mapID] = true
+        -- A map the routing knows is a place of its own, whatever its UiMap
+        -- parent: Undermine (2346) is a child of The Ringing Deeps (2214) and
+        -- is reached only through the Dornogal teleporter, so it is another
+        -- zone. Only a map routing cannot place climbs to its parent, the same
+        -- rule PathCalculator:ResolveMapPosition applies.
+        if PC and PC.IsRoutableMap and PC:IsRoutableMap(mapID) then break end
         local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
         -- A continent or the world is not a zone: two zones on one continent
         -- are not the same place.
@@ -1369,7 +1415,10 @@ function WaypointIntegration:IsInOtherZone(waypoint)
     local playerZone = PC and PC.GetPlayerPosition and PC:GetPlayerPosition() or nil
     if not playerZone and C_Map and C_Map.GetBestMapForUnit then
         local ok, mapID = pcall(C_Map.GetBestMapForUnit, "player")
-        if ok then playerZone = mapID end
+        if ok and type(mapID) == "number" and not (issecretvalue and issecretvalue(mapID))
+            and mapID > 0 and mapID < math.huge and mapID % 1 == 0 then
+            playerZone = mapID
+        end
     end
     if not playerZone then return true, nil, destZone end
     if playerZone == destZone then return false, playerZone, destZone end
@@ -1467,6 +1516,7 @@ function WaypointIntegration:RegisterHooks()
             elseif event == "QUEST_LOG_UPDATE" or event == "QUEST_POI_UPDATE" then
                 -- Objective/turn-in coordinates change without changing questID.
                 WaypointIntegration:ClearQuestCoordCache()
+                if event == "QUEST_POI_UPDATE" then WaypointIntegration:OnQuestPOIUpdate() end
             elseif event == "SUPER_TRACKING_CHANGED" then
                 -- Native QR guidance updates super-tracking as well as the map
                 -- pin. Those internal events must not unlock the final target.

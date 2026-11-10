@@ -98,5 +98,32 @@ class ObservedPortalTest(unittest.TestCase):
         self.assertEqual(["Portal to Stormwind (Dalaran)"], names)
 
 
+class CheckedInDataTest(unittest.TestCase):
+    """The curated file and the generated Data/Forever/Portals.lua agree.
+
+    Editing scripts/data/forever_observed_portals.json without regenerating
+    leaves the addon on the old portal; this fails until both say the same.
+    """
+
+    def test_every_curated_portal_is_in_the_generated_data_as_curated(self):
+        imp = load("import_zone_survey")
+        lua = imp.default_lua()
+        camelot = os.path.join(HERE, "..", "QuickRoute", "QuickRoute_Camelot.toc")
+        generated = {p["name"]: p for p in gen.as_list(imp.run_export(lua, camelot)["StandalonePortals"])}
+        curated = gen.load_observed_portals(gen.OBSERVED_PORTALS)["portals"]
+        self.assertGreater(len(curated), 0)
+        for entry in curated:
+            portal = generated.get(entry["name"])
+            self.assertIsNotNone(portal, f"{entry['name']} is in Data/Forever/Portals.lua")
+            for end in ("from", "to"):
+                self.assertEqual((entry[end]["mapID"], entry[end]["x"], entry[end]["y"]),
+                                 (portal[end]["mapID"], portal[end]["x"], portal[end]["y"]), end)
+            self.assertEqual(entry["faction"], portal["faction"])
+            self.assertEqual(bool(entry.get("bidirectional")), portal["bidirectional"])
+            self.assertEqual(entry["travelTime"], portal["travelTime"])
+            self.assertEqual("portal", portal["type"])
+            self.assertEqual("surveyed", portal["provenance"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1314,6 +1314,34 @@ T:run("GetQuestWaypoint: portal-through resolves to destination zone", function(
     QR.StandalonePortals = origPortals
 end)
 
+T:run("GetQuestWaypoint: portal-through only through a portal for the player's faction", function(t)
+    -- The same Eversong -> Harandar shape, with a portal one faction may use.
+    local origPortals = QR.StandalonePortals
+    local function resolve(portalFaction)
+        resetState()
+        local questID = 86913
+        MockWoW.config.questTitles[questID] = "Behind a faction portal"
+        MockWoW.config.questWaypoints[questID] = { mapID = 2395, x = 0.52, y = 0.25 }
+        MockWoW.config.questsOnMap = MockWoW.config.questsOnMap or {}
+        MockWoW.config.questsOnMap[2413] = { { questID = questID, x = 0.47, y = 0.38 } }
+        QR.StandalonePortals = { {
+            name = "Faction portal to Harandar",
+            from = { mapID = 2395, x = 0.50, y = 0.50 },
+            to = { mapID = 2413, x = 0.50, y = 0.50 },
+            travelTime = 5, type = "portal", faction = portalFaction, bidirectional = false,
+        } }
+        local wp = QR.WaypointIntegration:GetQuestWaypoint(questID)
+        QR.StandalonePortals = origPortals
+        return wp
+    end
+    local player = MockWoW.config.playerFaction
+    local other = player == "Alliance" and "Horde" or "Alliance"
+    local wp = resolve(other)
+    t:assertEqual(2395, wp and wp.mapID, "the other faction's portal: stays on Eversong")
+    wp = resolve(player)
+    t:assertEqual(2413, wp and wp.mapID, "the player's own faction's portal: Harandar")
+end)
+
 T:run("GetQuestWaypoint: portal-through skipped when no quest POI on destination", function(t)
     resetState()
     local questID = 99999
