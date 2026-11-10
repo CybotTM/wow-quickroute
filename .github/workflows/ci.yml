@@ -110,7 +110,9 @@ jobs:
     # commit has passed. main requires no check, so `gh pr merge --auto` would
     # merge at once; this job is the gate instead. `needs` makes it start only
     # after every CI job of this run succeeded, and the API checks below cover
-    # check runs from any other source on the same commit.
+    # check runs from any other source on the same commit. A job added to this
+    # workflow later belongs in `needs` too: one still running when the checks
+    # are read makes this job fail without merging.
     #
     # It runs on pull_request, not workflow_run, because
     # dependabot/fetch-metadata reads the pull_request event payload and fails
