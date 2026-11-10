@@ -182,6 +182,12 @@ T:run("a waypoint change in combat waits for the fight to end", function(t)
         -- never makes it, which is what the test above pins.
         local savedAuto = QR.db.autoDestination
         QR.db.autoDestination = true
+        -- The quests sit in Stormwind (84); the player stands in Elwynn Forest
+        -- (37), because auto-destination opens the window only for a
+        -- destination in another zone.
+        local savedMap, savedSuper = MockWoW.config.currentMapID, MockWoW.config.superTrackedQuestID
+        MockWoW.config.currentMapID = 37
+        MockWoW.config.superTrackedQuestID = 71001   -- and one of them is the destination
         local shows = 0
         local realShow = QR.UI.Show
         QR.UI.Show = function(self, ...) shows = shows + 1; return realShow(self, ...) end
@@ -198,5 +204,6 @@ T:run("a waypoint change in combat waits for the fight to end", function(t)
         t:assertEqual(1, shows, "and the change path is the one that runs")
         QR.UI.Show = realShow
         QR.db.autoDestination = savedAuto
+        MockWoW.config.currentMapID, MockWoW.config.superTrackedQuestID = savedMap, savedSuper
     end)
 end)

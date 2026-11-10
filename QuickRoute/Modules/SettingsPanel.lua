@@ -141,7 +141,7 @@ local function RegisterNativeSettings()
 
     RegisterCheckbox(category,
         L["SETTINGS_AUTO_DEST"] or "Auto-show route on quest tracking",
-        L["SETTINGS_AUTO_DEST_TT"] or "Automatically calculate and show the route when you track a new quest",
+        L["SETTINGS_AUTO_DEST_TT"] or "Open the route window when a tracked quest leads to another zone",
         "autoDestination")
 
     -- Navigation

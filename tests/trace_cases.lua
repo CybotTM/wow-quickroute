@@ -149,10 +149,22 @@ T:run(prefix .. "a waypoint auto-show records its trigger as the reason", functi
         if QR.MainFrame.frame then QR.MainFrame.frame:Hide() end
         QR.MainFrame.isShowing = false
         QR.WaypointIntegration._pendingTriggers = nil
+        -- A quest in another zone than the player's: auto-destination opens
+        -- the window only for those.
+        local cfg = MockWoW.config
+        local savedMap, savedQuest = cfg.currentMapID, cfg.superTrackedQuestID
+        cfg.currentMapID = flavor == "forever" and 1453 or 84
+        cfg.superTrackedQuestID = 77002
+        cfg.questTitles[77002] = "Elsewhere"
+        cfg.questWaypoints[77002] = { mapID = flavor == "forever" and 1454 or 85, x = 0.5, y = 0.5 }
+        QR.WaypointIntegration:ClearQuestCoordCache()
         -- What the SUPER_TRACKING_CHANGED handler in RegisterHooks calls. The
         -- event itself cannot be fired here: MockWoW:Reset() in other files
         -- drops the handler of WaypointIntegration's event frame.
         QR.WaypointIntegration:OnWaypointChanged("SUPER_TRACKING_CHANGED")
+        cfg.currentMapID, cfg.superTrackedQuestID = savedMap, savedQuest
+        cfg.questTitles[77002], cfg.questWaypoints[77002] = nil, nil
+        QR.WaypointIntegration:ClearQuestCoordCache()
         local show = find("window", function(e) return e.f and e.f.action == "show" end)
         t:assertNotNil(show, "the open is traced")
         t:assertEqual("waypoint-auto:SUPER_TRACKING_CHANGED", show and show.f.reason, "with the trigger as reason")

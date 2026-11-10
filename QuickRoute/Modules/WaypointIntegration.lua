@@ -1305,19 +1305,78 @@ function WaypointIntegration:_ProcessWaypointChange()
         QR:Debug("Waypoint cleared")
     end
 
-    -- Auto-show UI when waypoint changes (if auto-destination is enabled)
+    -- Auto-destination opens the window only for a destination in another
+    -- zone. The client changes super-tracking on its own when a quest is
+    -- accepted or turned in, and a WoW Forever trace showed what that does:
+    -- of 28 automatic opens, 11 had no destination left (the quest was just
+    -- turned in, the window opened in the quest giver's dialog) and 13 had
+    -- one in the zone the player stood in. An open route window is still
+    -- refreshed below, whatever the destination.
+    local otherZone, playerZone, destZone = false, nil, nil
+    if waypoint then otherZone, playerZone, destZone = self:IsInOtherZone(waypoint) end
+    local zones = { playerZone = playerZone, destZone = destZone }
     if QR.UI then
-        if QR.db and QR.db.autoDestination then
-            -- Auto-show and route to new waypoint
-            self:TraceTrigger(trigger, "auto-show", nil, waypoint, source)
+        if QR.db and QR.db.autoDestination and otherZone then
+            self:TraceTrigger(trigger, "auto-show", zones, waypoint, source)
             QR.UI:Show("waypoint-auto:" .. trigger)
         elseif QR.MainFrame and QR.MainFrame.isShowing and QR.MainFrame.activeTab == "route" then
             self:TraceTrigger(trigger, "refresh", nil, waypoint, source)
             QR.UI:RefreshRoute()
-        else
+        elseif not (QR.db and QR.db.autoDestination) then
             self:TraceTrigger(trigger, "none: window closed, auto-destination off", nil, waypoint, source)
+        elseif not waypoint then
+            self:TraceTrigger(trigger, "skip-cleared", zones, waypoint, source)
+        else
+            self:TraceTrigger(trigger, "skip-same-zone", zones, waypoint, source)
         end
     end
+end
+
+--- The zone a map belongs to and its enclosing zones, up to the continent.
+-- @return table set of map IDs
+local function ZoneChain(mapID)
+    local chain, guard = {}, 0
+    while mapID and mapID ~= 0 and guard < 16 do
+        chain[mapID] = true
+        local info = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(mapID)
+        -- A continent or the world is not a zone: two zones on one continent
+        -- are not the same place.
+        if not info or (info.mapType and info.mapType <= 2) then break end
+        local parent = info.parentMapID
+        local parentInfo = parent and parent ~= 0 and C_Map.GetMapInfo(parent)
+        if not parentInfo or (parentInfo.mapType and parentInfo.mapType <= 2) then break end
+        mapID = parent
+        guard = guard + 1
+    end
+    return chain
+end
+
+--- Whether a waypoint lies in a zone other than the player's.
+-- Both points are first resolved the way routing resolves them
+-- (PathCalculator:ResolveMapPosition: a continent point to the zone under it,
+-- a microzone or an unknown sub-zone to its parent zone). A destination in a
+-- sub-zone of the player's zone, or the player in a sub-zone of the
+-- destination's zone, counts as the same zone.
+-- @return boolean otherZone (true when the player's zone cannot be read: the
+--   window opens as it always did), number|nil playerZone, number|nil destZone
+function WaypointIntegration:IsInOtherZone(waypoint)
+    if type(waypoint) ~= "table" or not waypoint.mapID then return false, nil, nil end
+    local PC = QR.PathCalculator
+    local destZone = waypoint.mapID
+    if PC and PC.ResolveMapPosition and waypoint.x and waypoint.y then
+        destZone = PC:ResolveMapPosition(waypoint.mapID, waypoint.x, waypoint.y) or destZone
+    end
+    local playerZone = PC and PC.GetPlayerPosition and PC:GetPlayerPosition() or nil
+    if not playerZone and C_Map and C_Map.GetBestMapForUnit then
+        local ok, mapID = pcall(C_Map.GetBestMapForUnit, "player")
+        if ok then playerZone = mapID end
+    end
+    if not playerZone then return true, nil, destZone end
+    if playerZone == destZone then return false, playerZone, destZone end
+    if ZoneChain(destZone)[playerZone] or ZoneChain(playerZone)[destZone] then
+        return false, playerZone, destZone
+    end
+    return true, playerZone, destZone
 end
 
 --- Run whichever waypoint work combat postponed, if any.
