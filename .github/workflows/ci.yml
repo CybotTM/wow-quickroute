@@ -104,3 +104,123 @@ jobs:
 
       - name: Run generator tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+
+  dependabot-automerge:
+    # Merges a Dependabot patch or minor update once every check on its head
+    # commit has passed. main requires no check, so `gh pr merge --auto` would
+    # merge at once; this job is the gate instead. `needs` makes it start only
+    # after every CI job of this run succeeded, and the API checks below cover
+    # check runs from any other source on the same commit. A job added to this
+    # workflow later belongs in `needs` too: one still running when the checks
+    # are read makes this job fail without merging.
+    #
+    # It runs on pull_request, not workflow_run, because
+    # dependabot/fetch-metadata reads the pull_request event payload and fails
+    # without it. Nothing here checks out or runs code from the pull request.
+    #
+    # The author must be Dependabot (checked again by API below and by
+    # fetch-metadata, which also requires a verified Dependabot commit) AND the
+    # actor of the event, so a human push to a Dependabot branch, or a human
+    # reopening the pull request, does not merge unreviewed commits.
+    name: Dependabot auto-merge
+    needs: [luacheck, tests, tests-forever, generator]
+    if: >- # zizmor: ignore[bot-conditions] -- in addition to the author check
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # merge the pull request
+      pull-requests: write  # merge the pull request
+      checks: read          # list the check runs on the head commit
+      statuses: read        # read the commit statuses on the head commit
+      actions: read         # find this run's own check suite
+    steps:
+      - name: Read Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+
+      # Allow-list: anything other than a patch or minor update, an empty or
+      # unknown update type included, is left for a human.
+      - name: Merge after verifying author, head commit and checks
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          # The commit this run tested. GITHUB_SHA is the merge commit of a
+          # pull_request run; the check runs sit on the head commit.
+          TESTED_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_ID: ${{ github.run_id }}
+          OWN_JOB: Dependabot auto-merge
+        run: |
+          set -euo pipefail
+
+          PR_JSON=$(gh api "repos/$REPO/pulls/$PR_NUMBER")
+          AUTHOR=$(jq -r '.user.login' <<<"$PR_JSON")
+          AUTHOR_TYPE=$(jq -r '.user.type' <<<"$PR_JSON")
+          HEAD_SHA=$(jq -r '.head.sha' <<<"$PR_JSON")
+          STATE=$(jq -r '.state' <<<"$PR_JSON")
+
+          if [ "$AUTHOR" != "dependabot[bot]" ] || [ "$AUTHOR_TYPE" != "Bot" ]; then
+            echo "::error::Pull request author is '$AUTHOR' ($AUTHOR_TYPE), not dependabot[bot]; not merging."
+            exit 1
+          fi
+          if [ "$STATE" != "open" ]; then
+            echo "Pull request is $STATE; nothing to merge."
+            exit 0
+          fi
+          if [ "$HEAD_SHA" != "$TESTED_SHA" ]; then
+            echo "::notice::Head moved from $TESTED_SHA to $HEAD_SHA since this run started; the run for the new head decides."
+            exit 0
+          fi
+
+          # Every check run on the head commit except this job itself. Only the
+          # newest run per name counts (filter=latest), so a re-run replaces a
+          # failed attempt.
+          OWN_SUITE=$(gh api "repos/$REPO/actions/runs/$RUN_ID" --jq '.check_suite_id')
+          CHECKS=$(gh api --paginate --slurp \
+            "repos/$REPO/commits/$HEAD_SHA/check-runs?filter=latest&per_page=100" \
+            | jq --arg own "$OWN_JOB" --argjson suite "$OWN_SUITE" \
+                '[.[].check_runs[] | select((.name == $own and .check_suite.id == $suite) | not)]')
+          TOTAL=$(jq 'length' <<<"$CHECKS")
+          NOT_DONE=$(jq -r '[.[] | select(.status != "completed") | .name] | join(", ")' <<<"$CHECKS")
+          NOT_OK=$(jq -r '[.[] | select(.status == "completed" and (.conclusion | IN("success", "skipped") | not)) | "\(.name)=\(.conclusion)"] | join(", ")' <<<"$CHECKS")
+
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "::error::No check runs found on $HEAD_SHA; not merging."
+            exit 1
+          fi
+          if [ -n "$NOT_DONE" ]; then
+            echo "::error::Checks still running on $HEAD_SHA: $NOT_DONE; not merging."
+            exit 1
+          fi
+          if [ -n "$NOT_OK" ]; then
+            echo "::error::Checks not successful on $HEAD_SHA: $NOT_OK; not merging."
+            exit 1
+          fi
+
+          # Commit statuses (the older API). None is the normal case here; any
+          # that exist must all be success.
+          STATUSES=$(gh api --paginate --slurp "repos/$REPO/commits/$HEAD_SHA/statuses?per_page=100" \
+            | jq '[.[][]] | group_by(.context) | map(max_by(.id))')
+          BAD_STATUSES=$(jq -r '[.[] | select(.state != "success") | "\(.context)=\(.state)"] | join(", ")' <<<"$STATUSES")
+          if [ -n "$BAD_STATUSES" ]; then
+            echo "::error::Commit statuses not successful on $HEAD_SHA: $BAD_STATUSES; not merging."
+            exit 1
+          fi
+
+          echo "All $TOTAL check runs on $HEAD_SHA passed; merging with a merge commit."
+          # --match-head-commit makes GitHub refuse the merge if the head moved
+          # after the checks above were read.
+          gh pr merge "$PR_NUMBER" --repo "$REPO" --merge --match-head-commit "$HEAD_SHA"
+
+      - name: Leave a major or unknown update for a human
+        if: >-
+          steps.metadata.outputs.update-type != 'version-update:semver-patch' &&
+          steps.metadata.outputs.update-type != 'version-update:semver-minor'
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        run: echo "::notice::Update type '${UPDATE_TYPE:-unknown}' is not merged automatically; leaving it for a human."
