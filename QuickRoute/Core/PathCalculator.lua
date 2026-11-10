@@ -284,6 +284,18 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
+    -- A zone whose only reason to be in the graph is its flight master. Before
+    -- the island and flight passes, so the node gets its overland edges and
+    -- AddFlightEdges finds an anchor on the map.
+    success, err = pcall(function()
+        self:AddFlightMasterNodes()
+    end)
+    if not success then
+        QR:Error("AddFlightMasterNodes failed: " .. tostring(err))
+        buildSuccess = false
+        buildError = buildError or err
+    end
+
     -- IMPORTANT: Connect all nodes on the same map with walking edges
     -- This ensures teleport destinations connect to portal hubs on the same map
     success, err = pcall(function()
@@ -1876,6 +1888,36 @@ local FLIGHT_ANCHOR_RANK = {
     transport = 5,
 }
 local FLIGHT_ANCHOR_RANK_DEFAULT = 6   -- dungeons and anything unclassified
+
+--- Give every zone with a usable flight master at least one node.
+-- AddFlightEdges attaches flights only to zones that already have a node, and
+-- a zone gets nodes only from a capital, portal, teleport landing, dungeon or
+-- transition. A zone with none of those -- 23 retail flight zones for an
+-- Alliance character, Riverglades on WoW Forever -- had a flight master in the
+-- data and no flight in the graph. The node stands where the flight master
+-- stands; zones that already have a node are left alone.
+function PathCalculator:AddFlightMasterNodes()
+    if not QR.FlightPoints then return end
+    local added = false
+    for uiMapID in pairs(QR.FlightPoints) do
+        local point = self:FlightPointFor(uiMapID)
+        if point and point.node and #self:NodesOnMap(uiMapID) == 0
+            and not self.graph.nodes[point.node] then
+            self.graph:AddNode(point.node, {
+                mapID = uiMapID,
+                x = point.x,
+                y = point.y,
+                nodeType = "flight_master",
+            })
+            added = true
+        end
+    end
+    -- AddDungeonNodes already built the node index; a stale one hides these
+    -- nodes from NodesOnMap, and FlightAnchorForMap then finds no anchor.
+    if added and self.nodeIndex then
+        self:BuildNodeIndex()
+    end
+end
 
 function PathCalculator:FlightAnchorForMap(mapID)
     local candidates = {}
