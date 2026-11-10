@@ -10,9 +10,11 @@ has to know which client it is on.
 Two kinds of source, and the files say which one each record comes from:
 
   authoritative  Forever's own DB2 tables: flight masters (TaxiNodes, TaxiPath),
-                 continents and zone lists (UiMap, UiMapAssignment), and which
-                 spells, items and inn areas exist at all (SpellName, ItemSparse,
-                 AreaTable).
+                 boats and zeppelins (TaxiPath, TaxiPathNode), continents and
+                 zone lists (UiMap, UiMapAssignment), and which spells, items
+                 and inn areas exist at all (SpellName, ItemSparse, AreaTable).
+  derived        Adjacency for zones the conversion left with no edge, from
+                 touching UiMapAssignment rectangles; marked as such.
   converted      Retail coordinates carried over through world space: retail
                  uiMap + (x, y) -> world position via retail UiMapAssignment ->
                  the Forever zone whose UiMapAssignment box contains it. Both
@@ -24,8 +26,9 @@ Two kinds of source, and the files say which one each record comes from:
                  in no Forever zone is dropped.
 
 Inputs:
-  --forever-csv-dir  TaxiNodes TaxiPath UiMap UiMapAssignment SpellName
-                     ItemSparse AreaTable Map  (wago.tools, build 1.60.1.70862)
+  --forever-csv-dir  TaxiNodes TaxiPath TaxiPathNode UiMap UiMapAssignment
+                     SpellName ItemSparse AreaTable Map  (wago.tools, build
+                     1.60.1.70862)
   --retail-csv-dir   UiMap UiMapAssignment JournalInstance  (wago.tools, build
                      12.1.0.69587, the build the retail data files were
                      checked against)
@@ -63,13 +66,21 @@ MIN_ZONE_OVERLAP = 0.5  # share of a retail zone a Forever zone must cover to be
 # would convert cleanly into buildings that have no such NPC on Forever.
 SERVICES_NOT_ON_FOREVER = {"VOID_STORAGE", "CRAFTING_TABLE"}
 
-# Retail transports that convert cleanly but that Forever does not have. The
-# client keeps a taxi node per transport route: retail lists "Transport,
-# Stormwind" (node 300) and "Transport: Thunder Bluff <-> Org (Zep)" (348) on
-# world maps 0 and 1, Forever has neither -- its transport nodes are the
-# Vanilla set (Booty Bay - Ratchet, Orgrimmar zeppelins, Grom'gol - Orgrimmar,
-# Southshore, Menethil ships, Rut'theran - Auberdine, Feathermoon).
-TRANSPORTS_NOT_ON_FOREVER = {"Stormwind to Teldrassil", "Orgrimmar to Thunder Bluff"}
+# Zone adjacency derived from map bounds, for zones the retail conversion left
+# with no edge at all. Rectangles that touch or overlap on the same world map
+# are candidate neighbours: a guess from geometry, not an observed crossing.
+# The time is the one most retail adjacency entries carry.
+DERIVED_ADJACENCY_TIME = 60
+DERIVED_ADJACENCY_SOURCE = "map_bounds"
+
+# Transports come from Forever's own TaxiPath / TaxiPathNode: a ship or
+# zeppelin path is a TaxiPath whose nodes stop (Delay > 0) in two or more
+# zones. A stop is placed in the zone of the nearest flight master when that
+# zone's box contains it (or that flight master's name states one that does),
+# otherwise in the smallest containing box.
+STOP_ANCHOR_YARDS = 1500
+ZEPPELIN_MIN_HEIGHT = 20     # median path height; ships run at sea level (0)
+DEFAULT_TRANSPORT_TIME = {"boat": 180, "zeppelin": 120}
 
 # Continent keys for the world maps Forever's zones sit on. The keys match the
 # retail ones where the continent is the same, because code and tests use them.
@@ -370,10 +381,17 @@ def build_zones(geo, retail, tally):
             else:
                 tally.add("zone adjacency edges", "merged into an existing edge")
             adjacency[source][target] = min(previous or edge["travelTime"], edge["travelTime"])
-    adjacencies = {
-        source: [{"zone": t, "travelTime": time} for t, time in sorted(targets.items())]
-        for source, targets in sorted(adjacency.items())
-    }
+    derived = derive_bounds_adjacency(geo, adjacency, tally)
+    adjacencies = {}
+    for source, targets in sorted(adjacency.items()):
+        edges = []
+        for target, time in sorted(targets.items()):
+            edge = {"zone": target, "travelTime": time}
+            if (source, target) in derived:
+                edge["provenance"] = ESTIMATED
+                edge["source"] = DERIVED_ADJACENCY_SOURCE
+            edges.append(edge)
+        adjacencies[source] = edges
 
     cross = {}
     for a, row in retail["CrossContinentTravel"].items():
@@ -389,6 +407,43 @@ def build_zones(geo, retail, tally):
         "ZoneAdjacencies": adjacencies,
         "CrossContinentTravel": cross,
     }, zone_map
+
+
+def boxes_touch(a, b):
+    """Two (xmin, xmax, ymin, ymax) rectangles overlap or share an edge."""
+    return a[0] <= b[1] and b[0] <= a[1] and a[2] <= b[3] and b[2] <= a[3]
+
+
+def derive_bounds_adjacency(geo, adjacency, tally):
+    """Edges for Forever zones that have none, from touching zone rectangles.
+
+    Only zones with zero edges after the retail conversion get them, in both
+    directions, marked so a surveyed crossing can replace them later. Returns
+    the set of (from, to) pairs added; geo.derived_report lists them with the
+    rectangles they came from.
+    """
+    connected = set(adjacency) | {t for targets in adjacency.values() for t in targets}
+    isolated = sorted(uid for uid in geo.forever_zones if uid not in connected)
+    derived = set()
+    geo.derived_report = []
+    for uid in isolated:
+        info = geo.forever_zones[uid]
+        boxes = geo.forever_boxes.get(info["map"], ())
+        mine = next(box for box, _, other, _ in boxes if other == uid)
+        found = False
+        for box, _, other, _ in sorted(boxes, key=lambda b: b[2]):
+            if other == uid or not boxes_touch(mine, box):
+                continue
+            found = True
+            for a, b in ((uid, other), (other, uid)):
+                if b not in adjacency[a]:
+                    adjacency[a][b] = DERIVED_ADJACENCY_TIME
+                    derived.add((a, b))
+            geo.derived_report.append((uid, other, mine, box))
+            tally.add("zone adjacency edges", "derived from map bounds (pairs)")
+        if not found:
+            tally.add("zones with no edge", f"{info['name']} ({uid}, world map {info['map']})")
+    return derived
 
 
 def teleport_exists(kind, ident, spells, items):
@@ -536,7 +591,102 @@ def mark_estimated(entry):
     return entry
 
 
-def build_portals(geo, retail, tally):
+def stop_zone(geo, anchors, map_id, wx, wy):
+    """A transport stop -> (Forever uiMap, x, y, label), or None."""
+    containing = sorted(((box[1] - box[0]) * (box[3] - box[2]), uid, box_geo)
+                        for box, box_geo, uid, _ in geo.forever_boxes.get(map_id, ())
+                        if box[0] <= wx <= box[1] and box[2] <= wy <= box[3])
+    if not containing:
+        return None
+    by_uid = {uid: g for _, uid, g in containing}
+    chosen, label = containing[0][1], None
+    near = sorted(((((a["wx"] - wx) ** 2 + (a["wy"] - wy) ** 2) ** 0.5, i)
+                   for i, a in enumerate(anchors) if str(a["continent"]) == map_id))
+    if near and near[0][0] <= STOP_ANCHOR_YARDS:
+        anchor = anchors[near[0][1]]
+        place, _, stated = anchor["name"].partition(",")
+        if anchor["uid"] in by_uid:
+            chosen, label = anchor["uid"], place.strip()
+        else:
+            for _, uid, _ in containing:
+                if stated and fp.related(geo.forever_zones[uid]["name"], stated.strip()):
+                    chosen = uid
+                    break
+    ux, uy = fp.project(wx, wy, *by_uid[chosen])
+    return chosen, round(ux, 4), round(uy, 4), label or geo.forever_zones[chosen]["name"]
+
+
+def build_transports(geo, fdir, flight_final, retail, tally):
+    """Boats and zeppelins whose paths are in Forever's TaxiPath tables."""
+    anchors = []
+    for uid, entry in flight_final.items():
+        for point in (entry, entry.get("alt")):
+            if point:
+                anchors.append({"uid": uid, "name": point["name"], "continent": point["continent"],
+                                "wx": point["wx"], "wy": point["wy"]})
+    path_nodes = collections.defaultdict(list)
+    for row in fp.load(fdir, "TaxiPathNode.csv",
+                       ("PathID", "NodeIndex", "ContinentID", "Loc_0", "Loc_1", "Loc_2", "Delay")):
+        path_nodes[row["PathID"]].append(row)
+
+    # Retail time and faction for the same pair of Forever zones, where retail
+    # has that connection; the route itself is Forever's.
+    retail_pairs = {}
+    for portal in as_list(retail["StandalonePortals"]):
+        a, b = geo.zone(portal["from"]["mapID"]), geo.zone(portal["to"]["mapID"])
+        if a and b:
+            retail_pairs.setdefault((frozenset((a, b)), portal["type"]), portal)
+
+    seen = {}
+    transports = []
+    geo.transport_report = []
+    for path_id in sorted(path_nodes, key=int):
+        rows = sorted(path_nodes[path_id], key=lambda r: int(r["NodeIndex"]))
+        stops = []
+        for row in rows:
+            if int(row["Delay"] or 0) <= 0:
+                continue
+            place = stop_zone(geo, anchors, row["ContinentID"], float(row["Loc_0"]), float(row["Loc_1"]))
+            if place is None:
+                tally.add("transport paths", "stop in no Forever zone")
+                continue
+            if not stops or stops[-1][0] != place[0]:
+                stops.append(place)
+        if len(stops) > 2 and stops[0][0] == stops[-1][0]:
+            stops.pop()
+        if len({stop[0] for stop in stops}) < 2:
+            continue
+        heights = sorted(float(r["Loc_2"]) for r in rows)
+        kind = "zeppelin" if heights[len(heights) // 2] > ZEPPELIN_MIN_HEIGHT else "boat"
+        legs = list(zip(stops, stops[1:]))
+        if len(stops) > 2:
+            legs.append((stops[-1], stops[0]))
+        for a, b in legs:
+            key = (frozenset((a[0], b[0])), kind)
+            if key in seen:
+                seen[key]["taxiPathIDs"].append(int(path_id))
+                tally.add("transports", "same leg on another path")
+                continue
+            match = retail_pairs.get(key)
+            entry = {
+                "name": f"{a[3]} to {b[3]}",
+                "from": {"mapID": a[0], "x": a[1], "y": a[2]},
+                "to": {"mapID": b[0], "x": b[1], "y": b[2]},
+                "travelTime": match["travelTime"] if match else DEFAULT_TRANSPORT_TIME[kind],
+                "faction": match["faction"] if match else "both",
+                "type": kind,
+                "bidirectional": True,
+                "taxiPathIDs": [int(path_id)],
+            }
+            seen[key] = entry
+            transports.append(entry)
+            geo.transport_report.append((path_id, entry["name"], kind, a[0], b[0],
+                                         "retail" if match else "default"))
+            tally.add("transports", "kept (from TaxiPath)")
+    return transports
+
+
+def build_portals(geo, retail, tally, fdir=None, flight_final=None, maps=()):
     capitals = {}
     for name, city in sorted(retail["CAPITAL_CITIES"].items()):
         converted = converted_point(geo, tally, "CAPITAL_CITIES", city)
@@ -554,10 +704,14 @@ def build_portals(geo, retail, tally):
     hubs = {}
     tally.add("PortalHubs", "dropped: city portal rooms are post-Vanilla", len(retail["PortalHubs"]))
 
-    standalone = []
+    # Boats and zeppelins: only what Forever's TaxiPath tables prove. The
+    # tram has no taxi path; Forever's Map table has its map ("Deeprun Tram",
+    # 369), so the retail tram is converted. Every other retail transport is
+    # replaced by the Forever paths.
+    standalone = build_transports(geo, fdir, flight_final, retail, tally)
     for portal in as_list(retail["StandalonePortals"]):
-        if portal["name"] in TRANSPORTS_NOT_ON_FOREVER:
-            tally.add("StandalonePortals", "dropped: transport has no Forever taxi node")
+        if portal["type"] != "tram" or "Deeprun Tram" not in maps:
+            tally.add("StandalonePortals (retail)", "dropped: replaced by Forever TaxiPath")
             continue
         source = converted_point(geo, tally, "StandalonePortals", portal["from"])
         target = converted_point(geo, tally, "StandalonePortals", portal["to"]) if source else None
@@ -566,7 +720,7 @@ def build_portals(geo, retail, tally):
         copy = dict(portal)
         copy["from"], copy["to"] = source, target
         standalone.append(mark_estimated(copy))
-        tally.add("StandalonePortals", "kept")
+        tally.add("StandalonePortals (retail)", "kept: tram, converted")
     return {"CAPITAL_CITIES": capitals, "PortalHubs": hubs, "StandalonePortals": standalone}
 
 
@@ -748,6 +902,8 @@ def generate(args):
     def out(name):
         return os.path.join(args.out_dir, name)
 
+    flight_final = fp.build(fdir, min_zones=30, internal_flag=0)
+    world_maps = {r["MapName_lang"] for r in fp.load(fdir, "Map.csv", ("ID", "MapName_lang"))}
     zones, zone_map = build_zones(geo, retail, tally)
     write_lua(out("ZoneAdjacency.lua"), header("ZoneAdjacency.lua", [
         "Continents and their zone lists come from Forever's UiMap and",
@@ -755,10 +911,12 @@ def generate(args):
         "on. Zone adjacency is the retail graph with each retail zone mapped onto",
         "the Forever zone of the same area, the same name, or the one containing",
         "its centre; edges inside one Forever zone and duplicates were folded.",
-        "Zones new on Forever have no adjacency yet unless the mapping produced one.",
+        "A zone left with no edge at all gets edges to every zone whose",
+        "UiMapAssignment rectangle touches or overlaps its own on the same world",
+        "map, both ways, marked provenance = \"estimated\", source = \"map_bounds\":",
+        "derived from bounds, never observed, for a surveyed crossing to replace.",
     ]), zones)
 
-    flight_final = fp.build(fdir, min_zones=30, internal_flag=0)
     flight_header = header("FlightPoints.lua", [
         "Authoritative: Forever's own TaxiNodes and TaxiPath, filtered and placed",
         "by scripts/generate_flight_points.py. That generator's notes on the",
@@ -779,14 +937,20 @@ def generate(args):
     ] + CONVERTED_NOTE), build_teleports(geo, retail, spells, items, tally))
 
     write_lua(out("Portals.lua"), header("Portals.lua", [
-        "Capital cities and standalone connections (boats, zeppelins, the tram)",
-        "from the retail tables, converted. No portal hubs: the converted",
-        "Stormwind and Orgrimmar portal rooms are post-Vanilla and routed trips",
-        "through a portal to Tanaris. Two retail transports with no Forever taxi",
-        "node are left out (Stormwind - Teldrassil, Orgrimmar - Thunder Bluff).",
-        "Whether each kept connection runs as described is checked in game.",
+        "Capital cities from the retail table, converted. No portal hubs: the",
+        "converted Stormwind and Orgrimmar portal rooms are post-Vanilla and",
+        "routed trips through a portal to Tanaris.",
         "",
-    ] + CONVERTED_NOTE), build_portals(geo, retail, tally))
+        "Boats and zeppelins come from Forever's TaxiPath and TaxiPathNode: a",
+        "path whose nodes stop in two or more zones, one entry per leg between",
+        "consecutive stops, stop positions as the table states them. Type by",
+        "path height (ships at sea level). taxiPathIDs names the paths. Travel",
+        "time and faction come from the retail connection between the same two",
+        "zones where there is one, otherwise 180 s (boat) / 120 s (zeppelin) and",
+        "both. The Deeprun Tram has no taxi path; Forever's Map table has its",
+        "map, and the retail tram is converted.",
+        "",
+    ] + CONVERTED_NOTE), build_portals(geo, retail, tally, fdir, flight_final, world_maps))
 
     write_lua(out("DungeonEntrances.lua"), header("DungeonEntrances.lua", [
         "Format as in the retail file: [zoneMapID] = { { journalInstanceID, x, y,",
@@ -827,6 +991,14 @@ def generate(args):
     unmapped = sorted(uid for uid, f in zone_map.items() if f is None)
     print(f"  mapped {sum(1 for f in zone_map.values() if f)}, unmapped {len(unmapped)}",
           file=sys.stderr)
+    print("derived adjacency (zone, neighbour, boxes as xmin xmax ymin ymax):", file=sys.stderr)
+    for uid, other, mine, box in geo.derived_report:
+        print(f"  {uid} {geo.forever_zones[uid]['name']} <-> {other} "
+              f"{geo.forever_zones[other]['name']}: {tuple(round(v) for v in mine)} "
+              f"{tuple(round(v) for v in box)}", file=sys.stderr)
+    print("transports (taxi path, name, type, from, to, time/faction source):", file=sys.stderr)
+    for row in geo.transport_report:
+        print(f"  {row}", file=sys.stderr)
     tally.report()
 
 

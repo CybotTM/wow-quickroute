@@ -9,7 +9,10 @@
 -- on. Zone adjacency is the retail graph with each retail zone mapped onto
 -- the Forever zone of the same area, the same name, or the one containing
 -- its centre; edges inside one Forever zone and duplicates were folded.
--- Zones new on Forever have no adjacency yet unless the mapping produced one.
+-- A zone left with no edge at all gets edges to every zone whose
+-- UiMapAssignment rectangle touches or overlaps its own on the same world
+-- map, both ways, marked provenance = "estimated", source = "map_bounds":
+-- derived from bounds, never observed, for a surveyed crossing to replace.
 local ADDON_NAME, QR = ...
 
 QR.Continents = {
@@ -114,7 +117,11 @@ QR.ContinentNameMapIDs = { EASTERN_KINGDOMS = 1415, KALIMDOR = 1414 }
 
 QR.ZoneAdjacencies = {
     [1411] = { { travelTime = 60, zone = 1413 }, { travelTime = 30, zone = 1454 } },
-    [1412] = { { travelTime = 90, zone = 1413 }, { travelTime = 30, zone = 1456 } },
+    [1412] = {
+        { travelTime = 90, zone = 1413 },
+        { travelTime = 30, zone = 1456 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2652 },
+    },
     [1413] = {
         { travelTime = 60, zone = 1411 },
         { travelTime = 90, zone = 1412 },
@@ -122,24 +129,79 @@ QR.ZoneAdjacencies = {
         { travelTime = 60, zone = 1441 },
         { travelTime = 60, zone = 1442 },
         { travelTime = 60, zone = 1445 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2652 },
     },
-    [1417] = { { travelTime = 60, zone = 1424 }, { travelTime = 60, zone = 1425 }, { travelTime = 60, zone = 1437 } },
-    [1418] = { { travelTime = 60, zone = 1427 }, { travelTime = 60, zone = 1432 } },
+    [1416] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1417 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1420 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1421 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1422 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1424 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1425 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1458 },
+    },
+    [1417] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1416 },
+        { travelTime = 60, zone = 1424 },
+        { travelTime = 60, zone = 1425 },
+        { travelTime = 60, zone = 1437 },
+    },
+    [1418] = {
+        { travelTime = 60, zone = 1427 },
+        { travelTime = 60, zone = 1432 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2548 },
+    },
     [1419] = { { travelTime = 60, zone = 1435 } },
-    [1420] = { { travelTime = 60, zone = 1421 }, { travelTime = 90, zone = 1422 }, { travelTime = 30, zone = 1458 } },
-    [1421] = { { travelTime = 60, zone = 1420 }, { travelTime = 60, zone = 1424 } },
-    [1422] = { { travelTime = 90, zone = 1420 }, { travelTime = 60, zone = 1423 }, { travelTime = 90, zone = 1424 } },
+    [1420] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1416 },
+        { travelTime = 60, zone = 1421 },
+        { travelTime = 90, zone = 1422 },
+        { travelTime = 30, zone = 1458 },
+    },
+    [1421] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1416 },
+        { travelTime = 60, zone = 1420 },
+        { travelTime = 60, zone = 1424 },
+    },
+    [1422] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1416 },
+        { travelTime = 90, zone = 1420 },
+        { travelTime = 60, zone = 1423 },
+        { travelTime = 90, zone = 1424 },
+    },
     [1423] = { { travelTime = 60, zone = 1422 } },
-    [1424] = { { travelTime = 60, zone = 1417 }, { travelTime = 60, zone = 1421 }, { travelTime = 90, zone = 1422 } },
-    [1425] = { { travelTime = 60, zone = 1417 } },
-    [1426] = { { travelTime = 60, zone = 1432 }, { travelTime = 30, zone = 1455 } },
-    [1427] = { { travelTime = 60, zone = 1418 }, { travelTime = 30, zone = 1428 }, { travelTime = 90, zone = 1432 } },
-    [1428] = { { travelTime = 30, zone = 1427 }, { travelTime = 90, zone = 1433 } },
+    [1424] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1416 },
+        { travelTime = 60, zone = 1417 },
+        { travelTime = 60, zone = 1421 },
+        { travelTime = 90, zone = 1422 },
+    },
+    [1425] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1416 },
+        { travelTime = 60, zone = 1417 },
+    },
+    [1426] = {
+        { travelTime = 60, zone = 1432 },
+        { travelTime = 30, zone = 1455 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2548 },
+    },
+    [1427] = {
+        { travelTime = 60, zone = 1418 },
+        { travelTime = 30, zone = 1428 },
+        { travelTime = 90, zone = 1432 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2548 },
+    },
+    [1428] = {
+        { travelTime = 30, zone = 1427 },
+        { travelTime = 90, zone = 1433 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2548 },
+    },
     [1429] = {
         { travelTime = 90, zone = 1431 },
         { travelTime = 60, zone = 1433 },
         { travelTime = 60, zone = 1436 },
         { travelTime = 30, zone = 1453 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2548 },
     },
     [1430] = { { travelTime = 60, zone = 1431 }, { travelTime = 60, zone = 1435 } },
     [1431] = {
@@ -154,9 +216,19 @@ QR.ZoneAdjacencies = {
         { travelTime = 90, zone = 1427 },
         { travelTime = 60, zone = 1437 },
     },
-    [1433] = { { travelTime = 90, zone = 1428 }, { travelTime = 60, zone = 1429 }, { travelTime = 90, zone = 1435 } },
+    [1433] = {
+        { travelTime = 90, zone = 1428 },
+        { travelTime = 60, zone = 1429 },
+        { travelTime = 90, zone = 1435 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2548 },
+    },
     [1434] = { { travelTime = 60, zone = 1431 } },
-    [1435] = { { travelTime = 60, zone = 1419 }, { travelTime = 60, zone = 1430 }, { travelTime = 90, zone = 1433 } },
+    [1435] = {
+        { travelTime = 60, zone = 1419 },
+        { travelTime = 60, zone = 1430 },
+        { travelTime = 90, zone = 1433 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2548 },
+    },
     [1436] = { { travelTime = 60, zone = 1429 }, { travelTime = 60, zone = 1431 } },
     [1437] = { { travelTime = 60, zone = 1417 }, { travelTime = 60, zone = 1432 } },
     [1438] = { { travelTime = 120, zone = 1439 }, { travelTime = 15, zone = 1457 } },
@@ -169,8 +241,17 @@ QR.ZoneAdjacencies = {
     },
     [1441] = { { travelTime = 60, zone = 1413 }, { travelTime = 60, zone = 1444 }, { travelTime = 60, zone = 1446 } },
     [1442] = { { travelTime = 60, zone = 1413 }, { travelTime = 60, zone = 1440 }, { travelTime = 90, zone = 1443 } },
-    [1443] = { { travelTime = 90, zone = 1442 }, { travelTime = 90, zone = 1444 } },
-    [1444] = { { travelTime = 60, zone = 1441 }, { travelTime = 90, zone = 1443 }, { travelTime = 90, zone = 1451 } },
+    [1443] = {
+        { travelTime = 90, zone = 1442 },
+        { travelTime = 90, zone = 1444 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2652 },
+    },
+    [1444] = {
+        { travelTime = 60, zone = 1441 },
+        { travelTime = 90, zone = 1443 },
+        { travelTime = 90, zone = 1451 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 2652 },
+    },
     [1445] = { { travelTime = 60, zone = 1413 } },
     [1446] = { { travelTime = 60, zone = 1441 }, { travelTime = 60, zone = 1449 } },
     [1447] = { { travelTime = 60, zone = 1454 } },
@@ -184,8 +265,26 @@ QR.ZoneAdjacencies = {
     [1455] = { { travelTime = 30, zone = 1426 } },
     [1456] = { { travelTime = 30, zone = 1412 } },
     [1457] = { { travelTime = 15, zone = 1438 } },
-    [1458] = { { travelTime = 30, zone = 1420 } },
+    [1458] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1416 },
+        { travelTime = 30, zone = 1420 },
+    },
     [2482] = { { travelTime = 60, zone = 1450 } },
+    [2548] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1418 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1426 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1427 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1428 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1429 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1433 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1435 },
+    },
+    [2652] = {
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1412 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1413 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1443 },
+        { provenance = "estimated", source = "map_bounds", travelTime = 60, zone = 1444 },
+    },
 }
 
 QR.CrossContinentTravel = { EASTERN_KINGDOMS = { KALIMDOR = 180 }, KALIMDOR = { EASTERN_KINGDOMS = 180 } }

@@ -87,28 +87,104 @@ T:run("Forever routing: Horde from Durotar to Undercity takes the zeppelin to Ti
         if step.type == "zeppelin" then zeppelin = step end
     end
     t:assertNotNil(zeppelin, "a zeppelin step")
-    t:assertEqual(1454, zeppelin and zeppelin.fromMapID, "zeppelin leaves from Orgrimmar 1454")
+    -- The tower stop of taxi path 302 lies outside Classic Orgrimmar's map.
+    t:assertEqual(1411, zeppelin and zeppelin.fromMapID, "zeppelin leaves from Durotar 1411")
     t:assertEqual(1420, zeppelin and zeppelin.destMapID, "zeppelin lands in Tirisfal Glades 1420")
 end)
 
-T:run("Forever routing: Horde from Orgrimmar to the Badlands flies to Kargath", function(t)
-    -- Flight edges need the client to report the taxi nodes as discovered;
-    -- the mock has no taxi map, so every Forever flight master counts as known.
+--- Run fn with every Forever flight master known. Flight edges need the client
+-- to report the taxi nodes as discovered; the mock has no taxi map.
+local function withKnownFlights(fn)
     local known = {}
     for mapID in pairs(QR.FlightPoints) do known[mapID] = true end
     QR.PathCalculator.knownFlightZonesOverride = known
-    local ok, err = pcall(function()
-        resetState("Horde", 1454)  -- Orgrimmar
-        local result = QR.PathCalculator:CalculatePath(1418, 0.5, 0.5)  -- Badlands
-        t:assertNotNil(result, "route from Orgrimmar (1454) to the Badlands (1418)")
-        local flight
-        for _, step in ipairs(result and result.steps or {}) do
-            if step.type == "flight" then flight = step end
-        end
-        t:assertNotNil(flight, "a flight step")
-        t:assertEqual(1418, flight and flight.destMapID, "the flight lands in the Badlands 1418")
-    end)
+    local ok, err = pcall(fn)
     QR.PathCalculator.knownFlightZonesOverride = nil
     QR.PathCalculator.graph, QR.PathCalculator.graphDirty = nil, true
     if not ok then error(err, 0) end
+end
+
+local function stepsOfType(result, kind)
+    local found = {}
+    for _, step in ipairs(result and result.steps or {}) do
+        if step.type == kind then found[#found + 1] = step end
+    end
+    return found
+end
+
+T:run("Forever routing: Horde from Orgrimmar to Felwood flies to Splintertree Post", function(t)
+    withKnownFlights(function()
+        resetState("Horde", 1454)  -- Orgrimmar
+        local result = QR.PathCalculator:CalculatePath(1448, 0.5, 0.5)  -- Felwood
+        t:assertNotNil(result, "route from Orgrimmar (1454) to Felwood (1448)")
+        local flight = stepsOfType(result, "flight")[1]
+        t:assertNotNil(flight, "a flight step")
+        t:assertEqual(1440, flight and flight.destMapID, "the flight lands in Ashenvale 1440")
+    end)
+end)
+
+T:run("Forever routing: a zone whose only node is its flight master gets one", function(t)
+    -- Arathi Highlands has no capital, transport, dungeon or teleport landing;
+    -- its flight master (Hammerfall for the Horde) is the only thing in it.
+    local graph
+    withKnownFlights(function()
+        resetState("Horde", 1411)
+        graph = QR.PathCalculator:BuildGraph()
+    end)
+    local onMap = {}
+    for name, data in pairs(graph and graph.nodes or {}) do
+        if data.mapID == 1417 then onMap[#onMap + 1] = name end
+    end
+    t:assertEqual(1, #onMap, "nodes on Arathi Highlands 1417 (" .. table.concat(onMap, ", ") .. ")")
+    local node = graph and graph.nodes[QR.PathCalculator:FlightPointFor(1417).node]
+    t:assertNotNil(node, "graph node at the Arathi Highlands flight master")
+    t:assertEqual(1417, node and node.mapID, "flight master node map")
+    t:assertEqual("flight_master", node and node.nodeType, "flight master node type")
+    local flights = 0
+    for _, edge in pairs(graph and node and graph.edges[QR.PathCalculator:FlightPointFor(1417).node] or {}) do
+        if edge.edgeType == "flight" then flights = flights + 1 end
+    end
+    t:assertGreaterThan(flights, 0, "flight edges leaving the Arathi Highlands flight master")
+end)
+
+T:run("Forever routing: Riverglades reaches Stormwind over the map-bounds adjacency", function(t)
+    resetState("Alliance", 2548)  -- Riverglades
+    local derived = 0
+    for _, edge in ipairs(QR.ZoneAdjacencies[2548] or {}) do
+        if edge.source == "map_bounds" and edge.provenance == QR.Provenance.ESTIMATED then
+            derived = derived + 1
+        end
+    end
+    t:assertGreaterThan(derived, 0, "Riverglades edges derived from map bounds")
+    local result = QR.PathCalculator:CalculatePath(1453, 0.5, 0.5)  -- Stormwind City
+    t:assertNotNil(result, "route from Riverglades (2548) to Stormwind City (1453)")
+    t:assertEqual(0, #stepsOfType(result, "boat"), "boat steps on the overland route")
+    t:assertEqual(0, #stepsOfType(result, "zeppelin"), "zeppelin steps on the overland route")
+end)
+
+T:run("Forever routing: Mount Hyjal reaches Orgrimmar", function(t)
+    resetState("Horde", 2482)  -- Mount Hyjal
+    local result = QR.PathCalculator:CalculatePath(1454, 0.5, 0.5)  -- Orgrimmar
+    t:assertNotNil(result, "route from Mount Hyjal (2482) to Orgrimmar (1454)")
+    t:assertGreaterThan(result and #result.steps or 0, 0, "route steps")
+end)
+
+T:run("Forever routing: the Zephras Isle zeppelin from Forever's TaxiPath", function(t)
+    resetState("Horde", 1454)  -- Orgrimmar
+    local result = QR.PathCalculator:CalculatePath(2521, 0.5, 0.5)  -- Zephras Isle
+    t:assertNotNil(result, "route from Orgrimmar (1454) to Zephras Isle (2521)")
+    local zeppelins = stepsOfType(result, "zeppelin")
+    local last = zeppelins[#zeppelins]
+    t:assertEqual(2521, last and last.destMapID, "a zeppelin lands on Zephras Isle 2521")
+end)
+
+T:run("Forever routing: the Tanaris boat to Riverglades from Forever's TaxiPath", function(t)
+    local leg
+    for _, portal in ipairs(QR.StandalonePortals) do
+        local a, b = portal.from.mapID, portal.to.mapID
+        if (a == 1446 and b == 2548) or (a == 2548 and b == 1446) then leg = portal end
+    end
+    t:assertNotNil(leg, "transport between Tanaris 1446 and Riverglades 2548")
+    t:assertEqual("boat", leg and leg.type, "transport type")
+    t:assertEqual(11391, leg and leg.taxiPathIDs and leg.taxiPathIDs[1], "taxi path the boat comes from")
 end)

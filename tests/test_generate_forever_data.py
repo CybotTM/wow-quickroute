@@ -132,5 +132,43 @@ class RequirementTest(unittest.TestCase):
         self.assertIsNone(gen.forever_requirements(present, self.PHASES))
 
 
+class DerivedAdjacencyTest(unittest.TestCase):
+    """A zone with no converted edge gets edges to the zones its box touches."""
+
+    def geo(self):
+        # Wetlands and Stormwind City rows from the fixture above, plus Elwynn:
+        # Stormwind's box lies inside Elwynn's; Wetlands touches neither.
+        return geometry()
+
+    def test_touching_boxes(self):
+        self.assertTrue(gen.boxes_touch((0, 10, 0, 10), (10, 20, 0, 10)))   # shared edge
+        self.assertTrue(gen.boxes_touch((0, 10, 0, 10), (5, 6, 5, 6)))      # inside
+        self.assertFalse(gen.boxes_touch((0, 10, 0, 10), (11, 20, 0, 10)))
+
+    def test_zones_that_already_have_an_edge_get_none(self):
+        geo = self.geo()
+        tally = gen.Tally()
+        # Elwynn and Stormwind touch, but each already has an edge (to
+        # Wetlands), so neither is isolated and no edge is derived between them.
+        adjacency = gen.collections.defaultdict(
+            dict, {1429: {1437: 60}, 1453: {1437: 60}, 1437: {1429: 60, 1453: 60}})
+        derived = gen.derive_bounds_adjacency(geo, adjacency, tally)
+        self.assertEqual(set(), derived)
+        self.assertNotIn(1453, adjacency[1429])
+
+    def test_isolated_zone_with_a_touching_neighbour(self):
+        geo = self.geo()
+        tally = gen.Tally()
+        adjacency = gen.collections.defaultdict(dict)
+        derived = gen.derive_bounds_adjacency(geo, adjacency, tally)
+        # Elwynn and Stormwind are both isolated here and their boxes overlap.
+        self.assertIn((1429, 1453), derived)
+        self.assertIn((1453, 1429), derived)
+        self.assertEqual(gen.DERIVED_ADJACENCY_TIME, adjacency[1429][1453])
+        self.assertNotIn(1437, adjacency[1429])
+        # Wetlands touches neither and stays without an edge, reported.
+        self.assertIn("Wetlands (1437, world map 0)", tally.counts["zones with no edge"])
+
+
 if __name__ == "__main__":
     unittest.main()

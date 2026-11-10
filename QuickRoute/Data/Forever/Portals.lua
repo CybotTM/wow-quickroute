@@ -4,12 +4,18 @@
 -- of the same name; defines the same QR tables in the same shape.
 -- Forever tables: build 1.60.1.70862. Retail geometry: build 12.1.0.69587.
 --
--- Capital cities and standalone connections (boats, zeppelins, the tram)
--- from the retail tables, converted. No portal hubs: the converted
--- Stormwind and Orgrimmar portal rooms are post-Vanilla and routed trips
--- through a portal to Tanaris. Two retail transports with no Forever taxi
--- node are left out (Stormwind - Teldrassil, Orgrimmar - Thunder Bluff).
--- Whether each kept connection runs as described is checked in game.
+-- Capital cities from the retail table, converted. No portal hubs: the
+-- converted Stormwind and Orgrimmar portal rooms are post-Vanilla and
+-- routed trips through a portal to Tanaris.
+--
+-- Boats and zeppelins come from Forever's TaxiPath and TaxiPathNode: a
+-- path whose nodes stop in two or more zones, one entry per leg between
+-- consecutive stops, stop positions as the table states them. Type by
+-- path height (ships at sea level). taxiPathIDs names the paths. Travel
+-- time and faction come from the retail connection between the same two
+-- zones where there is one, otherwise 180 s (boat) / 120 s (zeppelin) and
+-- both. The Deeprun Tram has no taxi path; Forever's Map table has its
+-- map, and the retail tram is converted.
 --
 -- Positions are retail coordinates converted through world space into the
 -- Forever zone that contains them, and are estimates: Cataclysm changed the
@@ -31,6 +37,136 @@ QR.PortalHubs = {}
 QR.StandalonePortals = {
     {
         bidirectional = true,
+        faction = "both",
+        from = { mapID = 1413, x = 0.638, y = 0.3875 },
+        name = "Ratchet to Booty Bay",
+        taxiPathIDs = { 241 },
+        to = { mapID = 1434, x = 0.2567, y = 0.7308 },
+        travelTime = 240,
+        type = "boat",
+    },
+    {
+        bidirectional = true,
+        faction = "Horde",
+        from = { mapID = 1434, x = 0.3117, y = 0.3045 },
+        name = "Grom'gol to Orgrimmar",
+        taxiPathIDs = { 285 },
+        to = { mapID = 1454, x = 0.6778, y = 0.9761 },
+        travelTime = 150,
+        type = "zeppelin",
+    },
+    {
+        bidirectional = true,
+        faction = "Alliance",
+        from = { mapID = 1437, x = 0.0474, y = 0.6376 },
+        name = "Menethil Harbor to Theramore",
+        taxiPathIDs = { 292 },
+        to = { mapID = 1445, x = 0.7173, y = 0.5666 },
+        travelTime = 180,
+        type = "boat",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1438, x = 0.5481, y = 0.9722 },
+        name = "Rut'theran Village to Auberdine",
+        taxiPathIDs = { 293 },
+        to = { mapID = 1439, x = 0.3331, y = 0.3982 },
+        travelTime = 180,
+        type = "boat",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1437, x = 0.0449, y = 0.5666 },
+        name = "Menethil Harbor to Auberdine",
+        taxiPathIDs = { 295, 11167 },
+        to = { mapID = 1439, x = 0.3234, y = 0.4413 },
+        travelTime = 180,
+        type = "boat",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1434, x = 0.3148, y = 0.291 },
+        name = "Grom'gol to Tirisfal Glades",
+        taxiPathIDs = { 301 },
+        to = { mapID = 1420, x = 0.6192, y = 0.5892 },
+        travelTime = 120,
+        type = "zeppelin",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1411, x = 0.5098, y = 0.1391 },
+        name = "Durotar to Tirisfal Glades",
+        taxiPathIDs = { 302 },
+        to = { mapID = 1420, x = 0.6064, y = 0.5893 },
+        travelTime = 120,
+        type = "zeppelin",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1437, x = 0.0449, y = 0.5666 },
+        name = "Menethil Harbor to Southshore",
+        taxiPathIDs = { 11167 },
+        to = { mapID = 1424, x = 0.5067, y = 0.7044 },
+        travelTime = 180,
+        type = "boat",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1424, x = 0.5067, y = 0.7044 },
+        name = "Southshore to Auberdine",
+        taxiPathIDs = { 11167 },
+        to = { mapID = 1439, x = 0.3234, y = 0.4413 },
+        travelTime = 180,
+        type = "boat",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1446, x = 0.6858, y = 0.2299 },
+        name = "Gadgetzan to Rog'mar",
+        taxiPathIDs = { 11391 },
+        to = { mapID = 2548, x = 0.806, y = 0.5461 },
+        travelTime = 180,
+        type = "boat",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1416, x = 0.1283, y = 0.5117 },
+        name = "Alterac Mountains to Zephras Isle",
+        taxiPathIDs = { 11398 },
+        to = { mapID = 2521, x = 0.6584, y = 0.8381 },
+        travelTime = 120,
+        type = "zeppelin",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1412, x = 0.3433, y = 0.2605 },
+        name = "Mulgore to Zephras Isle",
+        taxiPathIDs = { 11457 },
+        to = { mapID = 2521, x = 0.5775, y = 0.81 },
+        travelTime = 120,
+        type = "zeppelin",
+    },
+    {
+        bidirectional = true,
+        faction = "both",
+        from = { mapID = 1439, x = 0.3053, y = 0.4088 },
+        name = "Auberdine to Stormwind",
+        taxiPathIDs = { 11616 },
+        to = { mapID = 1453, x = 0.2178, y = 0.5686 },
+        travelTime = 180,
+        type = "boat",
+    },
+    {
+        bidirectional = true,
         faction = "Alliance",
         from = { mapID = 1453, x = 0.64, y = 0.082 },
         name = "Deeprun Tram (Stormwind to Ironforge)",
@@ -38,45 +174,5 @@ QR.StandalonePortals = {
         to = { mapID = 1455, x = 0.768, y = 0.513 },
         travelTime = 60,
         type = "tram",
-    },
-    {
-        bidirectional = true,
-        faction = "Alliance",
-        from = { mapID = 1437, x = 0.05, y = 0.563 },
-        name = "Menethil Harbor to Theramore",
-        provenance = "estimated",
-        to = { mapID = 1445, x = 0.718, y = 0.568 },
-        travelTime = 180,
-        type = "boat",
-    },
-    {
-        bidirectional = true,
-        faction = "Horde",
-        from = { mapID = 1454, x = 0.507, y = 0.4642 },
-        name = "Orgrimmar to Undercity",
-        provenance = "estimated",
-        to = { mapID = 1420, x = 0.621, y = 0.589 },
-        travelTime = 90,
-        type = "zeppelin",
-    },
-    {
-        bidirectional = true,
-        faction = "Horde",
-        from = { mapID = 1454, x = 0.4995, y = 0.4754 },
-        name = "Orgrimmar to Stranglethorn Vale",
-        provenance = "estimated",
-        to = { mapID = 1434, x = 0.3138, y = 0.3003 },
-        travelTime = 150,
-        type = "zeppelin",
-    },
-    {
-        bidirectional = true,
-        faction = "both",
-        from = { mapID = 1413, x = 0.5978, y = 0.1868 },
-        name = "Ratchet to Booty Bay",
-        provenance = "estimated",
-        to = { mapID = 1434, x = 0.247, y = 0.4307 },
-        travelTime = 240,
-        type = "boat",
     },
 }
