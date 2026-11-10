@@ -95,6 +95,22 @@ local OTHER_ZONE = {
     quest = { id = 94946, title = "Die magische Stadt Dalaran", map = ALTERAC, x = 0.1230, y = 0.5630 },
 }
 
+--- Fire a client event through WaypointIntegration's own event handler.
+-- MockWoW:Reset() in other files forgets every frame's handler, so the hooks
+-- are registered again for the call and the mock's frame list put back after,
+-- as tests/test_route_guidance.lua does.
+local function fireWired(event, ...)
+    local savedFrames, savedRegistered = {}, WI.hooksRegistered
+    for i, frame in ipairs(MockWoW.eventFrames) do savedFrames[i] = frame end
+    local ok, err = pcall(function(...)
+        WI.hooksRegistered = false
+        WI:RegisterHooks()
+        MockWoW:FireEvent(event, ...)
+    end, ...)
+    MockWoW.eventFrames, WI.hooksRegistered = savedFrames, savedRegistered
+    if not ok then error(err, 0) end
+end
+
 T:run(prefix .. "a destination in the player's zone does not open the window", function(t)
     local r = change(SAME_ZONE)
     t:assertEqual(0, #r.shows, "no open for quest 93065 on the player's own map")
@@ -272,11 +288,10 @@ T:run(prefix .. "a tracked quest without coordinates yet is retried once", funct
         end
         t:assertEqual("skip-unresolved", first, "traced as unresolved, not cleared")
         MockWoW.config.questWaypoints[94946] = { mapID = ALTERAC, x = 0.1230, y = 0.5630 }
-        WI:ClearQuestCoordCache()   -- what QUEST_POI_UPDATE does first
-        WI:OnQuestPOIUpdate()
+        fireWired("QUEST_POI_UPDATE")
         t:assertEqual(1, #result.shows, "the next QUEST_POI_UPDATE resolves it: opens")
         t:assertEqual("waypoint-auto:QUEST_POI_UPDATE:retry", result.shows[1], "with the retry as reason")
-        WI:OnQuestPOIUpdate()
+        fireWired("QUEST_POI_UPDATE")
         t:assertEqual(1, #result.shows, "and only once")
     end
     change(state)
@@ -286,8 +301,7 @@ T:run(prefix .. "a quest that never resolves is retried only once", function(t)
     local state = { map = ZEPHRAS, x = 0.6662, y = 0.7989,
         quest = { id = 98286, title = "No coordinates", map = ALTERAC, x = 0.5, y = 0.5, later = true } }
     state.after = function(result)
-        WI:ClearQuestCoordCache()
-        WI:OnQuestPOIUpdate()       -- the one retry, still nothing
+        fireWired("QUEST_POI_UPDATE")       -- the one retry, still nothing
         t:assertEqual(0, #result.shows, "still unresolved: no open")
         t:assertNil(WI._unresolvedQuestID, "and no second retry is armed")
     end
@@ -340,10 +354,50 @@ T:run(prefix .. "the retry is dropped when another quest is tracked by then", fu
         MockWoW.config.superTrackedQuestID = 94947
         MockWoW.config.questTitles[94947] = "Another quest"
         MockWoW.config.questWaypoints[94947] = { mapID = ALTERAC, x = 0.3, y = 0.4 }
-        WI:ClearQuestCoordCache()
-        WI:OnQuestPOIUpdate()
+        fireWired("QUEST_POI_UPDATE")
         MockWoW.config.questTitles[94947], MockWoW.config.questWaypoints[94947] = nil, nil
         t:assertEqual(0, #result.shows, "the retry for the old quest does not open the window for the new one")
+        t:assertNil(WI._unresolvedQuestID, "and the dropped retry is spent, not left armed")
+    end
+    change(state)
+end)
+
+-- Review round 2: the retry is spent once the quest is resolved another way.
+-- Quest 94946 is tracked without coordinates (armed); they arrive with a
+-- QUEST_LOG_UPDATE (no retry there); the player clicks the quest, which
+-- resolves it and opens the window; the player closes it; the next objective
+-- progress fires QUEST_POI_UPDATE while the quest is still tracked.
+T:run(prefix .. "a quest resolved another way is not retried later", function(t)
+    local state = { map = ZEPHRAS, x = 0.6662, y = 0.7989,
+        quest = { id = 94946, title = "Die magische Stadt Dalaran", map = ALTERAC, x = 0.1230, y = 0.5630,
+            later = true } }
+    state.after = function(result)
+        t:assertEqual(0, #result.shows, "unresolved: no open")
+        MockWoW.config.questWaypoints[94946] = { mapID = ALTERAC, x = 0.1230, y = 0.5630 }
+        fireWired("QUEST_LOG_UPDATE")
+        t:assertEqual(0, #result.shows, "QUEST_LOG_UPDATE does not retry")
+        fireWired("SUPER_TRACKING_CHANGED")   -- the player clicks the quest
+        t:assertEqual(1, #result.shows, "resolved by the click: opens")
+        -- The player closes the window (UI:Show is stubbed; it was never shown).
+        fireWired("QUEST_POI_UPDATE")
+        t:assertEqual(1, #result.shows, "the old retry does not open it a second time")
+    end
+    change(state)
+end)
+
+T:run(prefix .. "a quest tracked again may be retried once again", function(t)
+    local state = { map = ZEPHRAS, x = 0.6662, y = 0.7989,
+        quest = { id = 98286, title = "No coordinates yet", map = ALTERAC, x = 0.5, y = 0.5, later = true } }
+    state.after = function(result)
+        fireWired("QUEST_POI_UPDATE")              -- the one retry: still nothing
+        t:assertEqual(0, #result.shows, "no coordinates: no open")
+        MockWoW.config.superTrackedQuestID = 0     -- tracked off ...
+        fireWired("SUPER_TRACKING_CHANGED")
+        MockWoW.config.superTrackedQuestID = 98286 -- ... and on again, still unresolved
+        fireWired("SUPER_TRACKING_CHANGED")
+        MockWoW.config.questWaypoints[98286] = { mapID = ALTERAC, x = 0.5, y = 0.5 }
+        fireWired("QUEST_POI_UPDATE")
+        t:assertEqual(1, #result.shows, "the new spell of tracking gets its own retry")
     end
     change(state)
 end)

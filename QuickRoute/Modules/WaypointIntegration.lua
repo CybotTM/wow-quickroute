@@ -190,11 +190,15 @@ local function CheckPortalThroughZone(questID, resolvedMapID)
     end
 
     -- Only portals this character may take, as QR:GetAvailablePortals filters
-    -- them for routing: a portal for the other faction leads nowhere for us.
+    -- them for routing: a portal for the other faction or another class leads
+    -- nowhere for us.
     local faction = QR.PlayerInfo and QR.PlayerInfo.GetFaction and QR.PlayerInfo:GetFaction()
     for _, portal in ipairs(QR.StandalonePortals) do
         local portalFaction = portal.faction or "both"
         local usable = portalFaction == "both" or not faction or portalFaction == faction
+        if usable and portal.class and QR.PlayerInfo and QR.PlayerInfo.IsClass then
+            usable = QR.PlayerInfo:IsClass(portal.class) and true or false
+        end
         -- Check portals FROM the resolved zone
         local destMapID = nil
         if not usable then
@@ -1293,6 +1297,16 @@ function WaypointIntegration:_ProcessWaypointChange()
     end
     self._waypointChangePending = false
     self._pendingTriggers = nil
+    -- A retry belongs to one unresolved spell of one tracked quest. Whatever
+    -- this change decides, an earlier arming is spent: only the
+    -- skip-unresolved branch below arms it again. A newly tracked quest may be
+    -- retried once more, even one that was retried before.
+    self._unresolvedQuestID = nil
+    local tracked = self:GetSuperTrackedQuestIDSafe()
+    if tracked ~= self._trackedQuestID then
+        self._trackedQuestID = tracked
+        self._retriedQuestID = nil
+    end
 
     local waypoint, source = self:GetActiveWaypoint()
 

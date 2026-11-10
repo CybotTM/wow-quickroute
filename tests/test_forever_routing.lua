@@ -230,3 +230,30 @@ T:run("Forever routing: the Dalaran portal goes one way only", function(t)
     t:assertNotNil(result, "route from Stormwind City back to Dalaran")
     t:assertEqual(0, #stepsOfType(result, "portal"), "no portal back: nobody has seen one")
 end)
+
+-- A quest whose first coordinates are in Dalaran but whose objectives are in
+-- Stormwind follows the Dalaran portal only for a character who may take it
+-- (WaypointIntegration's portal-through check, against the real Forever data).
+local function questBehindTheDalaranPortal(faction)
+    resetState(faction, 1416)
+    local questID = 94950
+    MockWoW.config.questTitles[questID] = "Behind the Dalaran portal"
+    MockWoW.config.questWaypoints[questID] = { mapID = 1416, x = 0.12, y = 0.56 }
+    MockWoW.config.questsOnMap = MockWoW.config.questsOnMap or {}
+    MockWoW.config.questsOnMap[1453] = { { questID = questID, x = 0.62, y = 0.71 } }
+    QR.WaypointIntegration:ClearQuestCoordCache()
+    local wp = QR.WaypointIntegration:GetQuestWaypoint(questID)
+    MockWoW.config.questsOnMap[1453] = nil
+    QR.WaypointIntegration:ClearQuestCoordCache()
+    return wp
+end
+
+T:run("Forever routing: portal-through takes the Dalaran portal for the Alliance", function(t)
+    local wp = questBehindTheDalaranPortal("Alliance")
+    t:assertEqual(1453, wp and wp.mapID, "the objective in Stormwind City, through the portal")
+end)
+
+T:run("Forever routing: portal-through does not take the Dalaran portal for the Horde", function(t)
+    local wp = questBehindTheDalaranPortal("Horde")
+    t:assertEqual(1416, wp and wp.mapID, "stays in Dalaran (Alterac Mountains): the portal is Alliance-only")
+end)

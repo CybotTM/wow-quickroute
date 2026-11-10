@@ -1342,6 +1342,31 @@ T:run("GetQuestWaypoint: portal-through only through a portal for the player's f
     t:assertEqual(2413, wp and wp.mapID, "the player's own faction's portal: Harandar")
 end)
 
+T:run("GetQuestWaypoint: portal-through only through a portal for the player's class", function(t)
+    local origPortals = QR.StandalonePortals
+    local function resolve(portalClass)
+        resetState()
+        local questID = 86914
+        MockWoW.config.questTitles[questID] = "Behind a class portal"
+        MockWoW.config.questWaypoints[questID] = { mapID = 2395, x = 0.52, y = 0.25 }
+        MockWoW.config.questsOnMap = MockWoW.config.questsOnMap or {}
+        MockWoW.config.questsOnMap[2413] = { { questID = questID, x = 0.47, y = 0.38 } }
+        QR.StandalonePortals = { {
+            name = "Class portal to Harandar",
+            from = { mapID = 2395, x = 0.50, y = 0.50 },
+            to = { mapID = 2413, x = 0.50, y = 0.50 },
+            travelTime = 5, type = "portal", faction = "both", class = portalClass, bidirectional = false,
+        } }
+        local wp = QR.WaypointIntegration:GetQuestWaypoint(questID)
+        QR.StandalonePortals = origPortals
+        return wp
+    end
+    local player = MockWoW.config.playerClass
+    local other = player == "DRUID" and "MAGE" or "DRUID"
+    t:assertEqual(2395, (resolve(other) or {}).mapID, "another class's portal: stays on Eversong")
+    t:assertEqual(2413, (resolve(player) or {}).mapID, "the player's own class's portal: Harandar")
+end)
+
 T:run("GetQuestWaypoint: portal-through skipped when no quest POI on destination", function(t)
     resetState()
     local questID = 99999
