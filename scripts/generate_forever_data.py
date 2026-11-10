@@ -91,6 +91,10 @@ STOP_ANCHOR_YARDS = 1500
 OBSERVATIONS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "data", "forever_zone_survey.json")
 MIN_OBSERVED_WALKS = 2
+# Portals someone saw in the game that the client's tables do not list, curated
+# by hand (see apply_observed_portals).
+OBSERVED_PORTALS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                "data", "forever_observed_portals.json")
 SURVEYED = "surveyed"            # QR.Provenance.SURVEYED
 # How far an observed loading-screen endpoint may lie from the converted end of
 # a transport and still be taken for it. The survey buckets endpoints to 1/200
@@ -550,6 +554,58 @@ def apply_observed_landings(tables, observations, tally, map_yards):
             tally.add("survey landings", "applied to a converted transport")
         elif applied is False:
             tally.add("survey landings", "not applied: no converted transport between the zones")
+    return tables
+
+
+def load_observed_portals(path):
+    if not path or not os.path.exists(path):
+        return {"portals": []}
+    with open(path, encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def apply_observed_portals(tables, curated, observations, tally, map_yards):
+    """Add the hand-curated portals that the zone survey backs.
+
+    A curated portal is someone's statement that it exists; the survey is the
+    record of it being used. Each one is added only while the observations hold
+    a loading-screen crossing between the same two zones, in the same
+    direction, with an endpoint whose both ends lie within
+    MAX_LANDING_SHIFT_YARDS of the portal's. One direction, the faction and the
+    travel time are as curated; nothing is added for the way back.
+    """
+    portals = as_list(tables["StandalonePortals"])
+    tables["StandalonePortals"] = portals
+    for entry in curated.get("portals", []):
+        start, end = entry["from"], entry["to"]
+        backed = False
+        for crossing in observations.get("crossings", []):
+            if (crossing["from"], crossing["to"]) != (start["mapID"], end["mapID"]):
+                continue
+            if not crossing.get("loaded"):
+                continue
+            for endpoint in crossing.get("endpoints") or []:
+                shifts = [yards_between(map_yards, start["mapID"], start["x"], start["y"],
+                                        endpoint["fromX"], endpoint["fromY"]),
+                          yards_between(map_yards, end["mapID"], end["x"], end["y"],
+                                        endpoint["toX"], endpoint["toY"])]
+                if all(d is not None and d <= MAX_LANDING_SHIFT_YARDS for d in shifts):
+                    backed = True
+        if not backed:
+            tally.add("observed portals", "not added: no matching loading-screen crossing in the survey")
+            continue
+        portals.append({
+            "name": entry["name"],
+            "from": {"mapID": start["mapID"], "x": start["x"], "y": start["y"]},
+            "to": {"mapID": end["mapID"], "x": end["x"], "y": end["y"]},
+            "faction": entry["faction"],
+            "bidirectional": bool(entry.get("bidirectional")),
+            "travelTime": entry["travelTime"],
+            "type": "portal",
+            "provenance": SURVEYED,
+            "source": "observed_portal",
+        })
+        tally.add("observed portals", "added")
     return tables
 
 
@@ -1017,6 +1073,8 @@ def main():
     parser.add_argument("--out-dir", default="QuickRoute/Data/Forever")
     parser.add_argument("--observations", default=OBSERVATIONS,
                         help="zone-survey observations to apply (default: %(default)s)")
+    parser.add_argument("--observed-portals", default=OBSERVED_PORTALS,
+                        help="hand-curated portals to add when the survey backs them (default: %(default)s)")
     args = parser.parse_args()
     generate(args)
 
@@ -1104,9 +1162,15 @@ def generate(args):
         "converted transport between the same zones (provenance = \"surveyed\")",
         "when each end lies within 50 yd of the converted one.",
         "",
-    ] + CONVERTED_NOTE), apply_observed_landings(
+        "Portals the client's tables do not list come from the hand-curated",
+        "scripts/data/forever_observed_portals.json (provenance = \"surveyed\",",
+        "source = \"observed_portal\"), each only while the zone survey holds a",
+        "loading-screen crossing in its direction with both ends within 50 yd.",
+        "",
+    ] + CONVERTED_NOTE), apply_observed_portals(apply_observed_landings(
         build_portals(geo, retail, tally, fdir, flight_final, world_maps), observations, tally,
-        map_yards_from_boxes(geo)))
+        map_yards_from_boxes(geo)), load_observed_portals(getattr(args, "observed_portals", None)),
+        observations, tally, map_yards_from_boxes(geo)))
 
     write_lua(out("DungeonEntrances.lua"), header("DungeonEntrances.lua", [
         "Format as in the retail file: [zoneMapID] = { { journalInstanceID, x, y,",

@@ -149,10 +149,22 @@ T:run(prefix .. "a waypoint auto-show records its trigger as the reason", functi
         if QR.MainFrame.frame then QR.MainFrame.frame:Hide() end
         QR.MainFrame.isShowing = false
         QR.WaypointIntegration._pendingTriggers = nil
+        -- A quest in another zone than the player's: auto-destination opens
+        -- the window only for those.
+        local cfg = MockWoW.config
+        local savedMap, savedQuest = cfg.currentMapID, cfg.superTrackedQuestID
+        cfg.currentMapID = flavor == "forever" and 1453 or 84
+        cfg.superTrackedQuestID = 77002
+        cfg.questTitles[77002] = "Elsewhere"
+        cfg.questWaypoints[77002] = { mapID = flavor == "forever" and 1454 or 85, x = 0.5, y = 0.5 }
+        QR.WaypointIntegration:ClearQuestCoordCache()
         -- What the SUPER_TRACKING_CHANGED handler in RegisterHooks calls. The
         -- event itself cannot be fired here: MockWoW:Reset() in other files
         -- drops the handler of WaypointIntegration's event frame.
         QR.WaypointIntegration:OnWaypointChanged("SUPER_TRACKING_CHANGED")
+        cfg.currentMapID, cfg.superTrackedQuestID = savedMap, savedQuest
+        cfg.questTitles[77002], cfg.questWaypoints[77002] = nil, nil
+        QR.WaypointIntegration:ClearQuestCoordCache()
         local show = find("window", function(e) return e.f and e.f.action == "show" end)
         t:assertNotNil(show, "the open is traced")
         t:assertEqual("waypoint-auto:SUPER_TRACKING_CHANGED", show and show.f.reason, "with the trigger as reason")
@@ -257,4 +269,107 @@ T:run(prefix .. "a quest whose coordinates arrive during the debounce is routed 
     t:assertNotNil(off.route, "trace off: a route is found")
     t:assertEqual(questMap, on.waypoint and on.waypoint.mapID, "trace on: the quest is the waypoint too")
     t:assertNotNil(on.route, "trace on: a route is found too")
+end)
+
+-- Which game map the player was on: WoW gives no phase ID, but a phase that
+-- puts the player on another game map (a phased Dalaran, 2980 "Dalaran City"
+-- on Forever, or the instanced 2959) shows up as GetInstanceInfo's 8th value.
+local GAME_MAP_EVENTS = { "ZONE_CHANGED", "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA",
+    "PLAYER_ENTERING_WORLD", "LOADING_SCREEN_ENABLED", "LOADING_SCREEN_DISABLED" }
+
+local function lastEvent(name)
+    local last
+    for _, e in ipairs(D:GetTraceEntries()) do
+        if e.c == "event" and e.m == name then last = e end
+    end
+    return last
+end
+
+T:run(prefix .. "zone and loading entries name the game map", function(t)
+    local cfg = MockWoW.config
+    local saved = { cfg.instanceName, cfg.instanceType, cfg.instanceMapID, cfg.currentMapID }
+    withTrace(true, function()
+        cfg.instanceName, cfg.instanceType, cfg.instanceMapID = "Dalaran City", "none", 2980
+        cfg.currentMapID = flavor == "forever" and 1453 or 84
+        for _, event in ipairs(GAME_MAP_EVENTS) do
+            MockWoW:FireEvent(event)
+            local e = lastEvent(event)
+            local f = e and e.f or {}
+            t:assertEqual(2980, f.instanceMapID, event .. ": the game map")
+            t:assertEqual("Dalaran City", f.instanceName, event .. ": its name")
+            t:assertEqual("none", f.instanceType, event .. ": the instance type")
+            t:assertEqual(0, f.difficultyID, event .. ": the difficulty")
+            t:assertEqual(cfg.currentMapID, f.bestMap, event .. ": the best map")
+            t:assertEqual(3, f.bestMapType, event .. ": and its type")
+        end
+        MockWoW:FireEvent("QUEST_ACCEPTED", 1)
+        local other = lastEvent("QUEST_ACCEPTED")
+        t:assertNil(other and other.f and other.f.instanceMapID, "other events carry no game map")
+    end)
+    cfg.instanceName, cfg.instanceType, cfg.instanceMapID, cfg.currentMapID = saved[1], saved[2], saved[3], saved[4]
+end)
+
+T:run(prefix .. "without the map APIs the entries are written without those fields", function(t)
+    local savedInfo, savedBest, savedSecret = _G.GetInstanceInfo, C_Map.GetBestMapForUnit, _G.issecretvalue
+    withTrace(true, function()
+        _G.GetInstanceInfo, C_Map.GetBestMapForUnit = nil, nil
+        D.lastTraceError = nil
+        MockWoW:FireEvent("PLAYER_ENTERING_WORLD")
+        local e = lastEvent("PLAYER_ENTERING_WORLD")
+        t:assertNotNil(e, "the entry is written")
+        t:assertNil(e and e.f and e.f.instanceMapID, "no game map")
+        t:assertNil(e and e.f and e.f.bestMap, "no best map")
+        t:assertNil(D.lastTraceError, "and no error")
+        -- An API that raises (a client in a restricted state) is no worse.
+        _G.GetInstanceInfo = function() error("restricted") end
+        C_Map.GetBestMapForUnit = function() error("restricted") end
+        MockWoW:FireEvent("ZONE_CHANGED")
+        e = lastEvent("ZONE_CHANGED")
+        t:assertNotNil(e, "the entry is written when the APIs raise")
+        t:assertNil(e and e.f and e.f.instanceMapID, "with no game map")
+        t:assertNil(D.lastTraceError, "and no error")
+        _G.GetInstanceInfo, C_Map.GetBestMapForUnit = savedInfo, savedBest
+        -- A value the client keeps secret is left out, the others stay.
+        _G.issecretvalue = function(v) return v == 2980 end
+        local cfg = MockWoW.config
+        local savedMapID = cfg.instanceMapID
+        cfg.instanceMapID = 2980
+        MockWoW:FireEvent("LOADING_SCREEN_DISABLED")
+        e = lastEvent("LOADING_SCREEN_DISABLED")
+        t:assertNil(e and e.f and e.f.instanceMapID, "a secret game map is left out")
+        t:assertNotNil(e and e.f and e.f.instanceType, "the rest is kept")
+        cfg.instanceMapID = savedMapID
+    end)
+    _G.GetInstanceInfo, C_Map.GetBestMapForUnit, _G.issecretvalue = savedInfo, savedBest, savedSecret
+end)
+
+T:run(prefix .. "the session entry names the character's race, faction, class and level", function(t)
+    local savedRace = _G.UnitRace
+    _G.UnitRace = function(unit)
+        if unit == "player" then return "Mensch", "Human", 1 end
+    end
+    withTrace(true, function()
+        local session = find("session")
+        local f = session and session.f or {}
+        t:assertEqual("Human", f.race, "the race's file token, not its localized name")
+        t:assertEqual(1, f.raceID, "and its ID")
+        t:assertEqual(MockWoW.config.playerFaction, f.faction, "the faction")
+        t:assertEqual(MockWoW.config.playerClass, f.class, "the class token")
+        t:assertEqual(MockWoW.config.playerLevel, f.level, "the level")
+        t:assertNil(f.name, "no name")
+    end)
+    _G.UnitRace = nil
+    withTrace(true, function()
+        local f = (find("session") or {}).f or {}
+        t:assertNil(f.race, "without UnitRace: no race")
+        t:assertEqual(MockWoW.config.playerFaction, f.faction, "and the rest still there")
+    end)
+    _G.UnitRace = function() error("restricted") end
+    withTrace(true, function()
+        local f = (find("session") or {}).f or {}
+        t:assertNotNil(find("session"), "a raising UnitRace still leaves the session entry")
+        t:assertNil(f.race, "without a race")
+        t:assertEqual(MockWoW.config.playerFaction, f.faction, "and with the rest")
+    end)
+    _G.UnitRace = savedRace
 end)

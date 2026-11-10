@@ -65,10 +65,11 @@ T:run("Auto-dest: OnWaypointChanged auto-shows UI when enabled", function(t)
     resetState()
     QR.db.autoDestination = true
 
-    -- Set up a quest waypoint so GetActiveWaypoint returns something
+    -- A quest waypoint in another zone than the player's (Stormwind, 84):
+    -- auto-destination opens the window only for those.
     MockWoW.config.superTrackedQuestID = 500
     MockWoW.config.questTitles[500] = "Test Quest"
-    MockWoW.config.questWaypoints[500] = { mapID = 84, x = 0.5, y = 0.5 }
+    MockWoW.config.questWaypoints[500] = { mapID = 85, x = 0.5, y = 0.5 }
 
     -- Track if UI:Show was called
     local showCalled = false

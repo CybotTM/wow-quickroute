@@ -45,6 +45,12 @@ AddonLoader:FirePlayerLogin(MockWoW)
 
 local cfg = MockWoW.config
 cfg.baseTime = 1000
+-- A tracked quest in another zone than the player's: auto-destination opens
+-- the window only for those.
+cfg.currentMapID = flavor == "forever" and 1453 or 84
+cfg.superTrackedQuestID = 4711
+cfg.questTitles[4711] = "Elsewhere"
+cfg.questWaypoints[4711] = { mapID = flavor == "forever" and 1454 or 85, x = 0.5, y = 0.5 }
 
 -- What the settings checkbox does.
 QR.db.diagnosticTrace = true

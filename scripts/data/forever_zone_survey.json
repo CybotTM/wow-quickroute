@@ -1,4 +1,31 @@
 {
  "about": "Zone-survey crossings between WoW Forever zones, merged by scripts/import_zone_survey.py and applied by scripts/generate_forever_data.py. Counts are the largest seen.",
- "crossings": []
+ "crossings": [
+  {
+   "endpoints": [
+    {
+     "count": 1,
+     "fromX": 0.1209,
+     "fromY": 0.5641,
+     "toX": 0.4987,
+     "toY": 0.8667
+    }
+   ],
+   "flown": 0,
+   "from": 1416,
+   "loaded": 1,
+   "to": 1453,
+   "unverifiedWalks": 0,
+   "walked": 0
+  },
+  {
+   "endpoints": [],
+   "flown": 0,
+   "from": 1424,
+   "loaded": 0,
+   "to": 1416,
+   "unverifiedWalks": 0,
+   "walked": 1
+  }
+ ]
 }

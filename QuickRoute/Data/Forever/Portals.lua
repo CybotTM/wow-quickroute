@@ -21,6 +21,11 @@
 -- converted transport between the same zones (provenance = "surveyed")
 -- when each end lies within 50 yd of the converted one.
 --
+-- Portals the client's tables do not list come from the hand-curated
+-- scripts/data/forever_observed_portals.json (provenance = "surveyed",
+-- source = "observed_portal"), each only while the zone survey holds a
+-- loading-screen crossing in its direction with both ends within 50 yd.
+--
 -- Positions are retail coordinates converted through world space into the
 -- Forever zone that contains them, and are estimates: Cataclysm changed the
 -- terrain in places. provenance = "estimated" marks them where the schema has
@@ -178,5 +183,16 @@ QR.StandalonePortals = {
         to = { mapID = 1455, x = 0.768, y = 0.513 },
         travelTime = 60,
         type = "tram",
+    },
+    {
+        bidirectional = false,
+        faction = "Alliance",
+        from = { mapID = 1416, x = 0.1209, y = 0.5641 },
+        name = "Portal to Stormwind (Dalaran)",
+        provenance = "surveyed",
+        source = "observed_portal",
+        to = { mapID = 1453, x = 0.4987, y = 0.8667 },
+        travelTime = 5,
+        type = "portal",
     },
 }

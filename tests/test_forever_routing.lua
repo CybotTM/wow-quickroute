@@ -188,3 +188,72 @@ T:run("Forever routing: the Tanaris boat to Riverglades from Forever's TaxiPath"
     t:assertEqual("boat", leg and leg.type, "transport type")
     t:assertEqual(11391, leg and leg.taxiPathIDs and leg.taxiPathIDs[1], "taxi path the boat comes from")
 end)
+
+-- The owner's trip: from the start zone (Zephras Isle) by zeppelin to Dalaran,
+-- then through the portal in Dalaran to Stormwind's Mage Sanctum. The portal
+-- is not in Forever's tables; it comes from scripts/data/forever_observed_portals.json,
+-- backed by the zone survey's loading-screen crossing 1416 -> 1453.
+local function fromZephrasToStormwind(faction)
+    resetState(faction, 2521)
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.6623, 0.7659
+    return QR.PathCalculator:CalculatePath(1453, 0.5, 0.6)  -- Stormwind City
+end
+
+T:run("Forever routing: Alliance from Zephras Isle takes the zeppelin and the Dalaran portal", function(t)
+    local result = fromZephrasToStormwind("Alliance")
+    t:assertNotNil(result, "route from Zephras Isle (2521) to Stormwind City (1453)")
+    if not result then return end
+    local zeppelins, portals = stepsOfType(result, "zeppelin"), stepsOfType(result, "portal")
+    t:assertEqual(1, #zeppelins, "one zeppelin")
+    t:assertEqual(1416, zeppelins[1] and zeppelins[1].destMapID, "to Dalaran in Alterac Mountains")
+    t:assertEqual(1, #portals, "one portal")
+    t:assertEqual(1453, portals[1] and portals[1].destMapID, "to Stormwind City")
+    local zeppelinAt, portalAt
+    for i, step in ipairs(result.steps) do
+        if step == zeppelins[1] then zeppelinAt = i end
+        if step == portals[1] then portalAt = i end
+    end
+    t:assert(zeppelinAt and portalAt and zeppelinAt < portalAt, "the zeppelin first, then the portal ("
+        .. tostring(zeppelinAt) .. ", " .. tostring(portalAt) .. ")")
+end)
+
+T:run("Forever routing: a Horde character does not get the Dalaran portal", function(t)
+    local result = fromZephrasToStormwind("Horde")
+    t:assertNotNil(result, "route from Zephras Isle (2521) to Stormwind City (1453)")
+    t:assertEqual(0, #stepsOfType(result, "portal"), "no portal step for the Horde")
+end)
+
+T:run("Forever routing: the Dalaran portal goes one way only", function(t)
+    resetState("Alliance", 1453)
+    MockWoW.config.playerX, MockWoW.config.playerY = 0.4987, 0.8667   -- the portal's arrival point
+    local result = QR.PathCalculator:CalculatePath(1416, 0.1209, 0.5641)   -- its departure point
+    t:assertNotNil(result, "route from Stormwind City back to Dalaran")
+    t:assertEqual(0, #stepsOfType(result, "portal"), "no portal back: nobody has seen one")
+end)
+
+-- A quest whose first coordinates are in Dalaran but whose objectives are in
+-- Stormwind follows the Dalaran portal only for a character who may take it
+-- (WaypointIntegration's portal-through check, against the real Forever data).
+local function questBehindTheDalaranPortal(faction)
+    resetState(faction, 1416)
+    local questID = 94950
+    MockWoW.config.questTitles[questID] = "Behind the Dalaran portal"
+    MockWoW.config.questWaypoints[questID] = { mapID = 1416, x = 0.12, y = 0.56 }
+    MockWoW.config.questsOnMap = MockWoW.config.questsOnMap or {}
+    MockWoW.config.questsOnMap[1453] = { { questID = questID, x = 0.62, y = 0.71 } }
+    QR.WaypointIntegration:ClearQuestCoordCache()
+    local wp = QR.WaypointIntegration:GetQuestWaypoint(questID)
+    MockWoW.config.questsOnMap[1453] = nil
+    QR.WaypointIntegration:ClearQuestCoordCache()
+    return wp
+end
+
+T:run("Forever routing: portal-through takes the Dalaran portal for the Alliance", function(t)
+    local wp = questBehindTheDalaranPortal("Alliance")
+    t:assertEqual(1453, wp and wp.mapID, "the objective in Stormwind City, through the portal")
+end)
+
+T:run("Forever routing: portal-through does not take the Dalaran portal for the Horde", function(t)
+    local wp = questBehindTheDalaranPortal("Horde")
+    t:assertEqual(1416, wp and wp.mapID, "stays in Dalaran (Alterac Mountains): the portal is Alliance-only")
+end)
