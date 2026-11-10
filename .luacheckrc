@@ -15,6 +15,7 @@ globals = {
     "WOW_PROJECT_ID", "WOW_PROJECT_MAINLINE", "WOW_PROJECT_CAMELOT",
     "UnitOnTaxi",
     "time", "GetQuestID", "GetZoneText", "GetSubZoneText",
+    "UnitAffectingCombat", "IsEncounterInProgress", "C_UI", "ReloadUI",
     "CreateFrame",
     "CreateVector2D",
     "RegisterStateDriver",

@@ -360,6 +360,8 @@ local function RecordArrival(store, mapID, onTaxi)
         if onTaxi == false then entry.afoot = Increment(entry.afoot) end
     end
     record.from[from] = entry
+    -- Crossings counted since this login or /reload (the save reminder).
+    ZoneSurvey.unsavedCrossings = (ZoneSurvey.unsavedCrossings or 0) + 1
 end
 
 --- true on a taxi, false when not, nil when the client does not say.
@@ -427,6 +429,8 @@ function ZoneSurvey:Capture()
             and existing.from or nil,
         seen = date("%Y-%m-%d %H:%M:%S"),
     }
+    -- Records written since this login or /reload (the save reminder).
+    self.unsavedCaptures = (self.unsavedCaptures or 0) + 1
     -- A continent reported between a loading screen and the zone is a moment
     -- of the landing, not the arrival. Keep the departure and the loading
     -- screen pending, so the zone that follows records the crossing as loaded

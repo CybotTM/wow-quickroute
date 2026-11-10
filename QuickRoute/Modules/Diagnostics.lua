@@ -261,6 +261,8 @@ local function Push(s, entry)
     s.e[((s.first - 1 + s.n) % s.cap) + 1] = entry
     s.n = s.n + 1
     s.bytes = s.bytes + size
+    -- Entries written since this login or /reload: what a reload would save.
+    Diagnostics.unsavedTrace = (Diagnostics.unsavedTrace or 0) + 1
 end
 
 --- Trace entries in chronological order (empty when there are none).
@@ -540,8 +542,331 @@ function Diagnostics:Initialize()
     end
 
     self:ApplyTraceSetting()
+    self.Reminder:Initialize()
 
     QR:Debug("Diagnostics initialized")
+end
+
+-------------------------------------------------------------------------------
+-- Save reminder
+--
+-- WoW writes SavedVariables only on /reload or logout, so a crash or a
+-- disconnect loses whatever the diagnostic trace and the zone survey recorded
+-- since. While either is on and something is unsaved, a small window offers a
+-- reload every `saveReminderMinutes`, never at a moment where a reload would
+-- cost the player something (combat, a taxi, a loading screen, an instance or
+-- encounter, a secure button QuickRoute still has to release). A reminder that
+-- falls due at such a moment waits for the next check: every
+-- REMINDER_CHECK_SECONDS, and at once when combat ends, a loading screen
+-- finishes or the player regains control.
+-------------------------------------------------------------------------------
+
+local Reminder = {
+    sinceLast = 0,       -- seconds since login, the last reminder or its close
+    checkElapsed = 0,
+    due = false,         -- due, but the last check found an unsafe moment
+    loading = false,
+}
+Diagnostics.Reminder = Reminder
+Diagnostics.REMINDER_CHECK_SECONDS = 5
+local REMINDER_WIDTH = 400
+local REMINDER_PAD = 12
+local REMINDER_BAR_HEIGHT = 6
+
+--- Whether reminders apply now: the setting is on and something records.
+function Reminder:Active()
+    local db = QR.db
+    if not db or db.saveReminder == false then return false end
+    return db.diagnosticTrace == true or db.zoneSurveyEnabled == true
+end
+
+function Reminder:IntervalSeconds()
+    return ((QR.db and tonumber(QR.db.saveReminderMinutes)) or 20) * 60
+end
+
+function Reminder:TimeoutSeconds()
+    return (QR.db and tonumber(QR.db.saveReminderTimeout)) or 30
+end
+
+--- Unsaved counts of the recorders that are on.
+-- @return number total, number traceEntries, number surveyCaptures, number surveyCrossings
+function Reminder:Unsaved()
+    local db = QR.db or {}
+    local trace = db.diagnosticTrace == true and (Diagnostics.unsavedTrace or 0) or 0
+    local survey = QR.ZoneSurvey
+    local captures, crossings = 0, 0
+    if db.zoneSurveyEnabled == true and survey then
+        captures = survey.unsavedCaptures or 0
+        crossings = survey.unsavedCrossings or 0
+    end
+    return trace + captures, trace, captures, crossings
+end
+
+--- Fill level of the trace buffer: the higher of entries/cap and bytes/byte cap.
+-- @return number percent (0-100), number n, number bytes
+function Reminder:TraceFill()
+    local store = QR.db and QR.db.trace
+    if not ValidStore(store) then return 0, 0, 0 end
+    local byEntries = store.n / Diagnostics.TRACE_CAP
+    local byBytes = (tonumber(store.bytes) or 0) / Diagnostics.TRACE_MAX_BYTES
+    local fill = math.min(1, math.max(byEntries, byBytes))
+    return math.floor(fill * 100 + 0.5), store.n, tonumber(store.bytes) or 0
+end
+
+--- Whether a reload now would cost the player nothing.
+-- @return boolean safe, string|nil the reason it is not
+function Reminder:IsSafeMoment()
+    if InCombatLockdown and InCombatLockdown() then return false, "combat" end
+    if UnitAffectingCombat and UnitAffectingCombat("player") then return false, "combat" end
+    if UnitOnTaxi then
+        local ok, onTaxi = pcall(UnitOnTaxi, "player")
+        -- A state the client will not tell is treated as a taxi: wait.
+        if not ok or (issecretvalue and issecretvalue(onTaxi)) or onTaxi then return false, "taxi" end
+    end
+    if self.loading then return false, "loading" end
+    if IsInInstance then
+        local ok, inInstance = pcall(IsInInstance)
+        if not ok or inInstance then return false, "instance" end
+    end
+    if IsEncounterInProgress and IsEncounterInProgress() then return false, "encounter" end
+    local secure = QR.SecureButtons
+    if secure and secure.pendingReleases and #secure.pendingReleases > 0 then
+        return false, "secure-pending"
+    end
+    return true, nil
+end
+
+local function SetLine(fs, text, color)
+    fs:SetText(text or "")
+    if color then fs:SetTextColor(color[1], color[2], color[3]) end
+end
+
+--- Build the window once; the text is filled in by Populate on every show.
+function Reminder:CreatePopup()
+    if self.popup then return self.popup end
+    local L = QR.L
+    local frame = QR.CreateStandardWindow({
+        name = "QuickRouteSaveReminder",
+        title = L["SAVE_REMINDER_TITLE"],
+        width = REMINDER_WIDTH,
+        height = 200,
+        defaultPoint = "TOP",
+        defaultY = -120,
+        onClose = function() Reminder:Close("close") end,
+        -- ESC hides the window without the close button: the interval counts
+        -- from that close too. (Combat hides it as well; OnCombatEnter marks
+        -- it owed again after the hide.)
+        onHide = function() Reminder.sinceLast = 0 end,
+    })
+    local inner = REMINDER_WIDTH - 2 * REMINDER_PAD
+    frame.lines = {}
+    for _, key in ipairs({ "active", "why", "unsaved", "fill", "fillDetail", "fullNote", "survey" }) do
+        local fs = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        fs:SetWidth(inner)
+        fs:SetJustifyH("LEFT")
+        fs:SetWordWrap(true)
+        frame.lines[key] = fs
+    end
+    local barBg = frame:CreateTexture(nil, "ARTWORK")
+    barBg:SetColorTexture(0.2, 0.2, 0.22, 1)
+    barBg:SetSize(inner, REMINDER_BAR_HEIGHT)
+    local bar = frame:CreateTexture(nil, "OVERLAY")
+    bar:SetColorTexture(QR.Colors.BRAND_R, QR.Colors.BRAND_G, QR.Colors.BRAND_B, QR.Colors.BRAND_A)
+    bar:SetHeight(REMINDER_BAR_HEIGHT)
+    frame.barBg, frame.bar = barBg, bar
+
+    local reload = QR.CreateModernButton(frame, 130, 22)
+    reload:SetText(L["SAVE_REMINDER_RELOAD"])
+    reload:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        Reminder:OnReloadClick()
+    end)
+    local close = QR.CreateModernButton(frame, 100, 22)
+    close:SetText(L["SAVE_REMINDER_CLOSE"])
+    close:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_CLOSE)
+        Reminder:Close("close")
+    end)
+    frame.reloadButton, frame.dismissButton = reload, close
+
+    -- Hovering or dragging is interaction: the timeout waits for it.
+    if frame.HookScript then
+        frame:HookScript("OnEnter", function() frame.hovered = true end)
+        frame:HookScript("OnLeave", function() frame.hovered = false end)
+    end
+    frame:SetScript("OnUpdate", function(self, elapsed)
+        if self.hovered or (self.IsMouseOver and self:IsMouseOver()) then return end
+        self.shownFor = (self.shownFor or 0) + elapsed
+        if self.shownFor >= Reminder:TimeoutSeconds() then
+            Reminder:Close("timeout")
+        end
+    end)
+    self.popup = frame
+    return frame
+end
+
+--- Fill the window with the current counts and size it to its text.
+function Reminder:Populate()
+    local frame = self:CreatePopup()
+    local L = QR.L
+    local db = QR.db or {}
+    local names = {}
+    if db.diagnosticTrace == true then names[#names + 1] = L["SAVE_REMINDER_TRACE_NAME"] end
+    if db.zoneSurveyEnabled == true then names[#names + 1] = L["SAVE_REMINDER_SURVEY_NAME"] end
+    local total, _, _, crossings = self:Unsaved()
+    local lines = frame.lines
+    frame.titleText:SetText(L["SAVE_REMINDER_TITLE"])
+    SetLine(lines.active, string_format(L["SAVE_REMINDER_ACTIVE"], table_concat(names, " + ")))
+    SetLine(lines.why, L["SAVE_REMINDER_WHY"], { 0.8, 0.8, 0.8 })
+    SetLine(lines.unsaved, string_format(L["SAVE_REMINDER_UNSAVED"], total), { 1, 0.82, 0 })
+
+    local showTrace = db.diagnosticTrace == true
+    local percent, n, bytes = self:TraceFill()
+    SetLine(lines.fill, showTrace and string_format(L["SAVE_REMINDER_TRACE_FILL"], percent) or "")
+    SetLine(lines.fillDetail, showTrace and string_format(L["SAVE_REMINDER_TRACE_FILL_DETAIL"],
+        n, Diagnostics.TRACE_CAP, math.floor(bytes / 1024 + 0.5),
+        math.floor(Diagnostics.TRACE_MAX_BYTES / 1024 + 0.5)) or "", { 0.8, 0.8, 0.8 })
+    SetLine(lines.fullNote, showTrace and L["SAVE_REMINDER_TRACE_FULL_NOTE"] or "", { 0.8, 0.8, 0.8 })
+    SetLine(lines.survey, db.zoneSurveyEnabled == true
+        and string_format(L["SAVE_REMINDER_SURVEY_NEW"], crossings) or "")
+
+    -- Stack the lines from the top; empty ones take no room.
+    local inner = REMINDER_WIDTH - 2 * REMINDER_PAD
+    local y = -36
+    local order = { "active", "why", "unsaved", "fill", "bar", "fillDetail", "fullNote", "survey" }
+    for _, key in ipairs(order) do
+        if key == "bar" then
+            frame.barBg:ClearAllPoints()
+            frame.bar:ClearAllPoints()
+            frame.barBg:SetShown(showTrace)
+            frame.bar:SetShown(showTrace)
+            if showTrace then
+                frame.barBg:SetPoint("TOPLEFT", frame, "TOPLEFT", REMINDER_PAD, y)
+                frame.bar:SetPoint("TOPLEFT", frame, "TOPLEFT", REMINDER_PAD, y)
+                frame.barWidth = math.max(1, inner * percent / 100)
+                frame.bar:SetWidth(frame.barWidth)
+                y = y - REMINDER_BAR_HEIGHT - 4
+            end
+        else
+            local fs = lines[key]
+            fs:ClearAllPoints()
+            local text = fs:GetText() or ""
+            fs:SetShown(text ~= "")
+            if text ~= "" then
+                fs:SetPoint("TOPLEFT", frame, "TOPLEFT", REMINDER_PAD, y)
+                y = y - (fs:GetStringHeight() or 12) - 4
+            end
+        end
+    end
+    -- Buttons sized to their label, so a long translation is not cut.
+    local reload, close = frame.reloadButton, frame.dismissButton
+    for _, button in ipairs({ reload, close }) do
+        local label = button.GetFontString and button:GetFontString()
+        local width = label and label.GetStringWidth and label:GetStringWidth() or 0
+        button:SetWidth(math.max(100, width + 24))
+    end
+    y = y - 6
+    reload:ClearAllPoints()
+    reload:SetPoint("TOPLEFT", frame, "TOPLEFT", REMINDER_PAD, y)
+    close:ClearAllPoints()
+    close:SetPoint("LEFT", reload, "RIGHT", 8, 0)
+    frame:SetHeight(-y + 22 + REMINDER_PAD)
+    return frame
+end
+
+function Reminder:ShowPopup()
+    local frame = self:Populate()
+    frame.shownFor = 0
+    frame.hovered = false
+    frame:Show()
+    local _, trace, captures, crossings = self:Unsaved()
+    Diagnostics:Trace("reminder", "save reminder shown",
+        { trace = trace, captures = captures, crossings = crossings })
+end
+
+--- Close or time out: the next reminder comes a full interval later.
+function Reminder:Close(reason)
+    if self.popup then self.popup:Hide() end
+    self.sinceLast = 0
+    self.due = false
+    Diagnostics:Trace("reminder", "save reminder " .. tostring(reason))
+end
+
+--- The reload button. A hardware click, so the reload is allowed; combat is
+-- checked again because the window may have stayed open into a fight.
+function Reminder:OnReloadClick()
+    if (InCombatLockdown and InCombatLockdown())
+        or (UnitAffectingCombat and UnitAffectingCombat("player")) then
+        QR:Print(QR.L["SAVE_REMINDER_IN_COMBAT"])
+        return false
+    end
+    local reload = (C_UI and C_UI.Reload) or ReloadUI
+    if not reload then return false end
+    Diagnostics:Trace("reminder", "save reminder: reload")
+    reload()
+    return true
+end
+
+--- Show the reminder if it is due, something is unsaved and the moment is safe.
+-- @return boolean shown, string|nil why not
+function Reminder:Check()
+    if not self:Active() then return false, "inactive" end
+    if self.popup and self.popup:IsShown() then return false, "shown" end
+    if not self.due and self.sinceLast < self:IntervalSeconds() then return false, "not-due" end
+    if self:Unsaved() <= 0 then return false, "nothing-unsaved" end
+    local safe, why = self:IsSafeMoment()
+    if not safe then
+        self.due = true
+        return false, why
+    end
+    self.due = false
+    self.sinceLast = 0
+    self:ShowPopup()
+    return true
+end
+
+function Reminder:OnTick(elapsed)
+    if not self:Active() then return end
+    self.sinceLast = self.sinceLast + elapsed
+    self.checkElapsed = self.checkElapsed + elapsed
+    if self.checkElapsed < Diagnostics.REMINDER_CHECK_SECONDS then return end
+    self.checkElapsed = 0
+    self:Check()
+end
+
+function Reminder:Initialize()
+    if self.ticker or not CreateFrame then return end
+    local ticker = CreateFrame("Frame")
+    ticker:SetScript("OnUpdate", function(_, elapsed) Reminder:OnTick(elapsed) end)
+    for _, event in ipairs({ "LOADING_SCREEN_ENABLED", "LOADING_SCREEN_DISABLED",
+        "PLAYER_CONTROL_GAINED", "ZONE_CHANGED_NEW_AREA" }) do
+        pcall(ticker.RegisterEvent, ticker, event)
+    end
+    ticker:SetScript("OnEvent", function(_, event)
+        if event == "LOADING_SCREEN_ENABLED" then
+            Reminder.loading = true
+            return
+        end
+        if event == "LOADING_SCREEN_DISABLED" then Reminder.loading = false end
+        if Reminder.due then Reminder:Check() end
+    end)
+    self.ticker = ticker
+    if QR.RegisterCombatCallback then
+        QR:RegisterCombatCallback(function() Reminder:OnCombatEnter() end,
+            function() Reminder:OnCombatLeave() end)
+    end
+end
+
+--- Never on screen in a fight; owed again once it ends.
+function Reminder:OnCombatEnter()
+    if self.popup and self.popup:IsShown() then
+        self.popup:Hide()
+        self.due = true
+    end
+end
+
+function Reminder:OnCombatLeave()
+    if self.due then self:Check() end
 end
 
 SLASH_QRDIAG1 = "/qrdiag"

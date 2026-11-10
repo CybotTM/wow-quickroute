@@ -199,6 +199,25 @@ local function RegisterNativeSettings()
             end
         end)
 
+    RegisterCheckbox(category,
+        L["SETTINGS_SAVE_REMINDER"],
+        L["SETTINGS_SAVE_REMINDER_TT"],
+        "saveReminder",
+        function(checked)
+            local reminder = QR.Diagnostics and QR.Diagnostics.Reminder
+            if not checked and reminder and reminder.popup then reminder.popup:Hide() end
+        end)
+
+    RegisterSlider(category,
+        L["SETTINGS_SAVE_REMINDER_MINUTES"],
+        L["SETTINGS_SAVE_REMINDER_MINUTES_TT"],
+        "saveReminderMinutes", 5, 120, 5)
+
+    RegisterSlider(category,
+        L["SETTINGS_SAVE_REMINDER_TIMEOUT"],
+        L["SETTINGS_SAVE_REMINDER_TIMEOUT_TT"],
+        "saveReminderTimeout", 10, 120, 5)
+
     Settings.RegisterAddOnCategory(category)
     return category
 end

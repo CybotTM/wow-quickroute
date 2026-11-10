@@ -168,6 +168,9 @@ function QR:Initialize()
         currencyVendors = {},         -- Verified merchant observations, partitioned by character
         hearthstoneBinds = {},        -- Observed inn bindings, partitioned by character
         diagnosticTrace = false,      -- Persist a diagnostic trace (Modules/Diagnostics.lua)
+        saveReminder = true,          -- Offer a reload while trace/survey data is unsaved
+        saveReminderMinutes = 20,     -- Minutes between save reminders
+        saveReminderTimeout = 30,     -- Seconds a save reminder stays without interaction
     }
     for k, v in pairs(defaults) do
         if QuickRouteDB[k] == nil or type(QuickRouteDB[k]) ~= type(v) then
@@ -181,6 +184,8 @@ function QR:Initialize()
         windowScale = { 0.75, 1.5 },
         loadingScreenTime = { 0, 30 },
         maxCooldownHours = { 1, 24 },
+        saveReminderMinutes = { 5, 120 },
+        saveReminderTimeout = { 10, 120 },
     }
     for key, range in pairs(ranges) do
         local value = QuickRouteDB[key]
