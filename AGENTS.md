@@ -111,8 +111,8 @@ tests/
   autoshow_cases.lua      → Auto-destination by zone, from a Forever trace; run by one test file per flavor
   make_trace_fixture.lua  → Writes a SavedVariables file with a trace recorded by the
                             addon on the mock client (input of test_export_trace.py)
-  test_*.py               → 6 generator, survey-import, trace-export and packaging
-                            tests, run by CI with python3 -m unittest discover -s tests
+  test_*.py               → 7 generator, survey-import, observed-portal, trace-export
+                            and packaging tests, run by CI with python3 -m unittest discover -s tests
 ```
 
 ## Architecture
@@ -222,6 +222,7 @@ artifacts in a render are simulator defects, not addon defects:
 |------|----|
 | Adding a teleport | Add to `TeleportItems.lua`, add `DEST_*` to all 10 locales in `Localization.lua`, add `DEST_L_KEYS` mapping in `TeleportPanel.lua` if needed |
 | Adding a module | Add to `QuickRoute.toc` and `QuickRoute_Camelot.toc` in the correct section, create a test file. `tests/addon_loader.lua` reads the TOC, so no list to update there |
+| Adding a portal seen in WoW Forever that its tables do not list | Add it to `scripts/data/forever_observed_portals.json` (one direction, the faction it was seen for, a `source` saying who saw it) and regenerate; never edit `Data/Forever/`. The generator adds it only while `scripts/data/forever_zone_survey.json` holds a loading-screen crossing in that direction with both ends within 50 yd, so import the survey first |
 | Changing a retail data file | Regenerate `Data/Forever/` with `scripts/generate_forever_data.py` when the change should reach WoW Forever too; a new QR table needs a Forever definition, or `tests/test_flavor_tocs.lua` fails |
 | Showing tooltip | `QR.AddTooltipBranding(GameTooltip)` before `Show()`, suppress `ShoppingTooltip1`/`ShoppingTooltip2` for items |
 | Hiding tooltip | Always `GameTooltip_Hide()` (global function), never `GameTooltip:Hide()` |

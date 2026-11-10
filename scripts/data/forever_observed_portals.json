@@ -1,0 +1,14 @@
+{
+  "about": "Portals in WoW Forever that the client's tables do not list, curated by hand. scripts/generate_forever_data.py adds each one to StandalonePortals in QuickRoute/Data/Forever/Portals.lua, but only while scripts/data/forever_zone_survey.json holds a loading-screen crossing between the same two zones with both endpoints within 50 yd of the portal's. Add only what someone saw in the game; a direction, a return portal or the other faction's portal that nobody saw is unknown, not implied.",
+  "portals": [
+    {
+      "name": "Portal to Stormwind (Dalaran)",
+      "from": {"mapID": 1416, "x": 0.1209, "y": 0.5641},
+      "to": {"mapID": 1453, "x": 0.4987, "y": 0.8667},
+      "faction": "Alliance",
+      "bidirectional": false,
+      "travelTime": 5,
+      "source": "The owner took this portal from Dalaran (Alterac Mountains) to the Mage Sanctum in Stormwind on an Alliance character and confirmed it in person; the zone survey recorded one loading-screen crossing 1416 -> 1453 with these endpoints (scripts/data/forever_zone_survey.json). The loading screen took about 5 s. Unknown: a return portal from Stormwind, and a Horde portal from Dalaran."
+    }
+  ]
+}
