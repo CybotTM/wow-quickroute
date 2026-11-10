@@ -34,7 +34,21 @@ package.path = scriptDir .. "?.lua;"
 -- Load and install the mock API
 -------------------------------------------------------------------------------
 
+-- QR_TEST_FLAVOR=forever loads the addon through QuickRoute_Camelot.toc on a
+-- mock of the WoW Forever client and runs only the test_forever_*.lua files;
+-- the default (retail) runs every other file through QuickRoute.toc. The two
+-- data sets use different map IDs, so neither flavor's tests can run on the
+-- other's data.
+local flavor = os.getenv("QR_TEST_FLAVOR") or "retail"
+if flavor ~= "retail" and flavor ~= "forever" then
+    print("[RUNNER] Unknown QR_TEST_FLAVOR '" .. flavor .. "'")
+    os.exit(1)
+end
+
 local MockWoW = require("mock_wow_api")
+if flavor == "forever" then
+    MockWoW:UseForever()
+end
 MockWoW:Install()
 
 print("==========================================================")
@@ -48,10 +62,13 @@ print("")
 
 local AddonLoader = require("addon_loader")
 
+local tocName = flavor == "forever" and "QuickRoute_Camelot.toc" or "QuickRoute.toc"
+print("[RUNNER] Flavor: " .. flavor .. " (" .. tocName .. ")")
 print("[RUNNER] Loading addon files...")
 local QR = AddonLoader:Load(MockWoW, {
     addonDir = projectRoot .. "QuickRoute/",
     quiet = true,
+    toc = tocName,
 })
 
 -- A file that fails to load makes every assertion about it meaningless, so the
@@ -216,7 +233,10 @@ local testFiles = {}
 local handle = io.popen("LC_ALL=C ls " .. scriptDir .. "test_*.lua 2>/dev/null")
 if handle then
     for line in handle:lines() do
-        testFiles[#testFiles + 1] = line
+        local isForeverTest = line:match("/test_forever_[^/]*%.lua$") ~= nil
+        if isForeverTest == (flavor == "forever") then
+            testFiles[#testFiles + 1] = line
+        end
     end
     handle:close()
 end

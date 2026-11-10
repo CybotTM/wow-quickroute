@@ -10,7 +10,11 @@ local T, QR, MockWoW = ...
 local function resetState()
     MockWoW:Reset()
     QR.db = QR.db or {}
+    -- A player who switched the survey on: without the marker, the reload
+    -- that some cases simulate with Initialize() would turn it off again,
+    -- because the survey is off unless chosen (survey_choice_cases.lua).
     QR.db.zoneSurveyEnabled = true
+    QR.db.zoneSurveyChoice = true
     QR.db.zoneSurvey = {}
     -- The recorder's own state is module-level and outlives a test. Without
     -- this, one test's last sampled position is the next test's departure
@@ -1040,4 +1044,75 @@ T:run("ZoneSurvey: each landing gets its own continent grace", function(t)
     local entry = zone and zone.from and zone.from[37]
     t:assertEqual(1, entry and entry.loaded,
         "the second landing is recorded as loaded, loaded=" .. tostring(entry and entry.loaded))
+end)
+
+-------------------------------------------------------------------------------
+-- Taxi flights. A flight over a border used to be recorded as a walk, and the
+-- Forever importer promotes walks to surveyed adjacency. A crossing made on a
+-- taxi is now counted as flown; one made on foot as walked and afoot. An entry
+-- without afoot comes from a build that could not tell the two apart.
+-------------------------------------------------------------------------------
+
+local function crossOnce(fromMap, toMap)
+    MockWoW.config.currentMapID = fromMap
+    QR.ZoneSurvey:Capture()
+    MockWoW.config.currentMapID = toMap
+    QR.ZoneSurvey:Capture()
+    local record = QR.db.zoneSurvey[toMap]
+    return record and record.from and record.from[fromMap]
+end
+
+T:run("ZoneSurvey: a crossing on a taxi is flown, not walked", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+    MockWoW.config.onTaxi = true
+    local entry = crossOnce(63, 77)
+    t:assertNotNil(entry, "the crossing is recorded")
+    t:assertEqual(1, entry and entry.flown, "counted as flown")
+    t:assertEqual(0, entry and entry.walked, "and not as walked")
+    t:assertEqual(0, entry and entry.afoot, "and not as on foot")
+    t:assertEqual(0, entry and entry.loaded, "and not as a portal")
+    MockWoW.config.onTaxi = false
+end)
+
+T:run("ZoneSurvey: a crossing off a taxi is walked and on foot", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+    local entry = crossOnce(63, 77)
+    t:assertEqual(1, entry and entry.walked, "counted as walked")
+    t:assertEqual(1, entry and entry.afoot, "and as on foot")
+    t:assertEqual(0, entry and entry.flown, "and not as flown")
+end)
+
+T:run("ZoneSurvey: an unreadable taxi state counts as walked only", function(t)
+    resetState()
+    QR.ZoneSurvey:Clear()
+    local saved = _G.UnitOnTaxi
+    _G.UnitOnTaxi = nil
+    local ok, err = pcall(function()
+        local entry = crossOnce(63, 77)
+        t:assertEqual(1, entry and entry.walked, "counted as walked")
+        t:assertEqual(0, entry and entry.afoot, "but not as on foot")
+        t:assertEqual(0, entry and entry.flown, "and not as flown")
+    end)
+    _G.UnitOnTaxi = saved
+    if not ok then error(err, 0) end
+end)
+
+T:run("ZoneSurvey: an entry from before the taxi check keeps its walks apart", function(t)
+    resetState()
+    QR.db.zoneSurvey = { [77] = { name = "Felwood", visits = 1,
+        from = { [63] = { walked = 3, loaded = 0 } } } }
+    QR.ZoneSurvey:Initialize()
+    local loaded = QR.db.zoneSurvey[77].from[63]
+    t:assertNil(loaded.afoot, "the old entry gets no on-foot count when loaded")
+    t:assertNil(loaded.flown, "and no flown count")
+    t:assertEqual(3, loaded.walked, "and keeps its walks")
+    QR.ZoneSurvey:ForgetArrivalState()
+    local entry = crossOnce(63, 77)
+    t:assertEqual(4, entry and entry.walked, "a new walk adds to walked")
+    t:assertEqual(1, entry and entry.afoot, "and only the new one is on foot")
+    local report = QR.ZoneSurvey:Render()
+    t:assert(report:find("| 77 | 63 | 4 | 1 | 0 | 0 |", 1, true) ~= nil,
+        "the report shows walked 4, on foot 1, flown 0, loaded 0")
 end)

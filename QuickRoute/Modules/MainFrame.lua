@@ -115,6 +115,12 @@ function MainFrame:CreateFrame()
         if self:IsShown() then
             return
         end
+        -- ESC and anything else that hides the frame directly bypass Hide(),
+        -- so the trace records the close here; a Hide() call names itself.
+        if QR.Diagnostics and QR.Diagnostics.TraceWindow then
+            QR.Diagnostics:TraceWindow("onhide", nil, MainFrame._hideReason or "frame-hidden")
+        end
+        MainFrame._hideReason = nil
         MainFrame.isShowing = false
         MainFrame.closeCount = MainFrame.closeCount + 1
         MainFrame:ReleaseTabContent()
@@ -168,7 +174,7 @@ function MainFrame:CreateFrame()
 
     closeButton:SetScript("OnClick", function()
         PlaySound(SOUNDKIT.IG_MAINMENU_CLOSE)
-        MainFrame:Hide()
+        MainFrame:Hide("close-button")
     end)
 
     -- Tab bar at bottom
@@ -258,7 +264,11 @@ end
 
 --- Show the main frame, optionally switching to a specific tab
 -- @param tabName string|nil "route" or "teleports" (nil = use last active)
-function MainFrame:Show(tabName)
+-- @param reason string|nil Who asked, for the diagnostic trace
+function MainFrame:Show(tabName, reason)
+    if QR.Diagnostics and QR.Diagnostics.TraceWindow then
+        QR.Diagnostics:TraceWindow("show", tabName, reason)
+    end
     if not self.initialized then
         self:Initialize()
     end
@@ -305,9 +315,15 @@ function MainFrame:ClosedSince(count)
 end
 
 --- Hide the main frame
-function MainFrame:Hide()
+-- @param reason string|nil Who asked, for the diagnostic trace
+function MainFrame:Hide(reason)
+    if QR.Diagnostics and QR.Diagnostics.TraceWindow then
+        QR.Diagnostics:TraceWindow("hide", nil, reason)
+    end
     if self.frame then
+        self._hideReason = reason or "unspecified"
         self.frame:Hide()
+        self._hideReason = nil
     end
     self.isShowing = false
     self.wasShowingBeforeCombat = false
@@ -315,16 +331,20 @@ end
 
 --- Toggle the main frame, optionally targeting a specific tab
 -- @param tabName string|nil "route" or "teleports"
-function MainFrame:Toggle(tabName)
+-- @param reason string|nil Who asked, for the diagnostic trace
+function MainFrame:Toggle(tabName, reason)
     if self.isShowing then
         -- If showing the same tab, hide; if different tab, switch
         if tabName and tabName ~= self.activeTab then
+            if QR.Diagnostics and QR.Diagnostics.TraceWindow then
+                QR.Diagnostics:TraceWindow("switch", tabName, reason)
+            end
             self:SetActiveTab(tabName)  -- SetActiveTab handles content refresh + subtitle
         else
-            self:Hide()
+            self:Hide(reason)
         end
     else
-        self:Show(tabName)
+        self:Show(tabName, reason)
     end
 end
 
@@ -355,14 +375,14 @@ function MainFrame:Initialize()
     QR:RegisterCombatCallback(
         function()  -- enter combat
             if MainFrame.isShowing then
-                MainFrame:Hide()
+                MainFrame:Hide("combat-enter")
                 MainFrame.wasShowingBeforeCombat = true  -- Set after Hide() since Hide() resets this
             end
         end,
         function()  -- leave combat
             if MainFrame.wasShowingBeforeCombat then
                 MainFrame.wasShowingBeforeCombat = false
-                MainFrame:Show()
+                MainFrame:Show(nil, "combat-leave")
             end
         end
     )

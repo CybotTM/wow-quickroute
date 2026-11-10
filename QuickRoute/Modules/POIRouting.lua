@@ -103,7 +103,7 @@ function POIRouting:RouteToMapPosition(mapID, x, y, closes)
                 result.waypointSource = "map_click"
                 QR.UI._pendingPOIRoute = result
             end
-            QR.UI:Show()
+            QR.UI:Show("poi-routing")
         end
     end, { consumer = QR.ROUTE_CONSUMER.ROUTE_PANEL })
 end

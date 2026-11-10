@@ -30,6 +30,7 @@ MockWoW.config = {
 
     -- Player capabilities
     isFlyableArea = true,
+    onTaxi = false,                -- UnitOnTaxi("player")
     inCombatLockdown = false,
 
     -- Items the player has in bags: { [itemID] = { bagID, slot, count } }
@@ -285,6 +286,67 @@ MockWoW.mapDatabase = {
     [2472] = { mapID = 2472, name = "Tazavesh", mapType = 3 },
 }
 
+-- WoW Forever map database, merged in by MockWoW:UseForever(). Generated from
+-- Forever's own UiMap table (build 1.60.1.70862): every map of type 1-3 in map
+-- system 0, with its name and parent as the client states them. The Classic
+-- IDs do not overlap the retail entries above.
+MockWoW.foreverMapDatabase = {
+    [947] = { mapID = 947, name = "Azeroth", mapType = 1 },
+    [1411] = { mapID = 1411, name = "Durotar", mapType = 3, parentMapID = 1414 },
+    [1412] = { mapID = 1412, name = "Mulgore", mapType = 3, parentMapID = 1414 },
+    [1413] = { mapID = 1413, name = "The Barrens", mapType = 3, parentMapID = 1414 },
+    [1414] = { mapID = 1414, name = "Kalimdor", mapType = 2, parentMapID = 947 },
+    [1415] = { mapID = 1415, name = "Eastern Kingdoms", mapType = 2, parentMapID = 947 },
+    [1416] = { mapID = 1416, name = "Alterac Mountains", mapType = 3, parentMapID = 1415 },
+    [1417] = { mapID = 1417, name = "Arathi Highlands", mapType = 3, parentMapID = 1415 },
+    [1418] = { mapID = 1418, name = "Badlands", mapType = 3, parentMapID = 1415 },
+    [1419] = { mapID = 1419, name = "Blasted Lands", mapType = 3, parentMapID = 1415 },
+    [1420] = { mapID = 1420, name = "Tirisfal Glades", mapType = 3, parentMapID = 1415 },
+    [1421] = { mapID = 1421, name = "Silverpine Forest", mapType = 3, parentMapID = 1415 },
+    [1422] = { mapID = 1422, name = "Western Plaguelands", mapType = 3, parentMapID = 1415 },
+    [1423] = { mapID = 1423, name = "Eastern Plaguelands", mapType = 3, parentMapID = 1415 },
+    [1424] = { mapID = 1424, name = "Hillsbrad Foothills", mapType = 3, parentMapID = 1415 },
+    [1425] = { mapID = 1425, name = "The Hinterlands", mapType = 3, parentMapID = 1415 },
+    [1426] = { mapID = 1426, name = "Dun Morogh", mapType = 3, parentMapID = 1415 },
+    [1427] = { mapID = 1427, name = "Searing Gorge", mapType = 3, parentMapID = 1415 },
+    [1428] = { mapID = 1428, name = "Burning Steppes", mapType = 3, parentMapID = 1415 },
+    [1429] = { mapID = 1429, name = "Elwynn Forest", mapType = 3, parentMapID = 1415 },
+    [1430] = { mapID = 1430, name = "Deadwind Pass", mapType = 3, parentMapID = 1415 },
+    [1431] = { mapID = 1431, name = "Duskwood", mapType = 3, parentMapID = 1415 },
+    [1432] = { mapID = 1432, name = "Loch Modan", mapType = 3, parentMapID = 1415 },
+    [1433] = { mapID = 1433, name = "Redridge Mountains", mapType = 3, parentMapID = 1415 },
+    [1434] = { mapID = 1434, name = "Stranglethorn Vale", mapType = 3, parentMapID = 1415 },
+    [1435] = { mapID = 1435, name = "Swamp of Sorrows", mapType = 3, parentMapID = 1415 },
+    [1436] = { mapID = 1436, name = "Westfall", mapType = 3, parentMapID = 1415 },
+    [1437] = { mapID = 1437, name = "Wetlands", mapType = 3, parentMapID = 1415 },
+    [1438] = { mapID = 1438, name = "Teldrassil", mapType = 3, parentMapID = 1414 },
+    [1439] = { mapID = 1439, name = "Darkshore", mapType = 3, parentMapID = 1414 },
+    [1440] = { mapID = 1440, name = "Ashenvale", mapType = 3, parentMapID = 1414 },
+    [1441] = { mapID = 1441, name = "Thousand Needles", mapType = 3, parentMapID = 1414 },
+    [1442] = { mapID = 1442, name = "Stonetalon Mountains", mapType = 3, parentMapID = 1414 },
+    [1443] = { mapID = 1443, name = "Desolace", mapType = 3, parentMapID = 1414 },
+    [1444] = { mapID = 1444, name = "Feralas", mapType = 3, parentMapID = 1414 },
+    [1445] = { mapID = 1445, name = "Dustwallow Marsh", mapType = 3, parentMapID = 1414 },
+    [1446] = { mapID = 1446, name = "Tanaris", mapType = 3, parentMapID = 1414 },
+    [1447] = { mapID = 1447, name = "Azshara", mapType = 3, parentMapID = 1414 },
+    [1448] = { mapID = 1448, name = "Felwood", mapType = 3, parentMapID = 1414 },
+    [1449] = { mapID = 1449, name = "Un'Goro Crater", mapType = 3, parentMapID = 1414 },
+    [1450] = { mapID = 1450, name = "Moonglade", mapType = 3, parentMapID = 1414 },
+    [1451] = { mapID = 1451, name = "Silithus", mapType = 3, parentMapID = 1414 },
+    [1452] = { mapID = 1452, name = "Winterspring", mapType = 3, parentMapID = 1414 },
+    [1453] = { mapID = 1453, name = "Stormwind City", mapType = 3, parentMapID = 1415 },
+    [1454] = { mapID = 1454, name = "Orgrimmar", mapType = 3, parentMapID = 1414 },
+    [1455] = { mapID = 1455, name = "Ironforge", mapType = 3, parentMapID = 1415 },
+    [1456] = { mapID = 1456, name = "Thunder Bluff", mapType = 3, parentMapID = 1414 },
+    [1457] = { mapID = 1457, name = "Darnassus", mapType = 3, parentMapID = 1414 },
+    [1458] = { mapID = 1458, name = "Undercity", mapType = 3, parentMapID = 1415 },
+    [2482] = { mapID = 2482, name = "Mount Hyjal", mapType = 3, parentMapID = 1414 },
+    [2521] = { mapID = 2521, name = "Zephras Isle", mapType = 3, parentMapID = 947 },
+    [2548] = { mapID = 2548, name = "Riverglades", mapType = 3, parentMapID = 1415 },
+    [2652] = { mapID = 2652, name = "Shen'dralas", mapType = 3, parentMapID = 1414 },
+}
+
+
 -------------------------------------------------------------------------------
 -- Event System
 -- Tracks registered events per frame and allows firing them.
@@ -316,18 +378,35 @@ function MockWoW:GetFramesForEvent(event)
     return frames
 end
 
+--- Simulate the WoW Forever client (game type "camelot").
+-- Call before Install() and before loading the addon through
+-- QuickRoute_Camelot.toc. The numeric value of WOW_PROJECT_CAMELOT is not known
+-- from any source read for this; only its equality with WOW_PROJECT_ID matters.
+function MockWoW:UseForever()
+    self.forever = true
+    _G.WOW_PROJECT_CAMELOT = 99
+    _G.WOW_PROJECT_ID = _G.WOW_PROJECT_CAMELOT
+    for mapID, info in pairs(self.foreverMapDatabase) do
+        self.mapDatabase[mapID] = info
+    end
+    self.defaultMapID = 1453   -- Stormwind City on Forever
+    self.config.currentMapID = self.defaultMapID
+    self.config.playerLevel = 60
+end
+
 --- Reset all mock state to defaults
 function MockWoW:Reset()
     self.config.playerFaction = "Alliance"
     self.config.playerClass = "MAGE"
     self.config.playerClassName = "Mage"
     self.config.playerName = "Testplayer"
-    self.config.playerLevel = 80
-    self.config.currentMapID = 84
+    self.config.playerLevel = self.forever and 60 or 80
+    self.config.currentMapID = self.defaultMapID or 84
     self.config.playerX = 0.5
     self.config.playerY = 0.5
     self.config.locale = "enUS"
     self.config.isFlyableArea = true
+    self.config.onTaxi = false
     self.config.inCombatLockdown = false
     self.config.bagItems = {}
     self.config.ownedToys = {}
@@ -838,8 +917,18 @@ function MockWoW:Install()
     end
     -- luacheck: pop
 
+    -- Game flavor. Retail defines WOW_PROJECT_MAINLINE; whether it also defines
+    -- WOW_PROJECT_CAMELOT is not known, so the retail mock leaves it nil and the
+    -- addon has to cope. MockWoW:UseForever() switches to the Forever values.
+    _G.WOW_PROJECT_MAINLINE = 1
+    if not self.forever then
+        _G.WOW_PROJECT_ID = _G.WOW_PROJECT_MAINLINE
+    end
+
     -- date (WoW exposes os.date as global 'date')
     _G.date = os.date
+    -- time(): Unix seconds, as the client's global of the same name
+    _G.time = os.time
 
     -- strsplit (WoW global)
     _G.strsplit = function(delimiter, str, pieces)
@@ -957,6 +1046,10 @@ function MockWoW:Install()
 
     _G.IsFlyableArea = function()
         return cfg.isFlyableArea
+    end
+
+    _G.UnitOnTaxi = function(unit)
+        return unit == "player" and cfg.onTaxi == true
     end
 
     _G.InCombatLockdown = function()

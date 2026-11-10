@@ -105,3 +105,25 @@ T:run("Flight networks: neutral endpoints use the current faction's connectivity
         t:assertTrue(hasFlight(), "Horde retains the connection between the same neutral endpoints")
     end)
 end)
+
+-- A flight zone with no other graph node used to get no flight edge at all:
+-- AddFlightEdges attaches only to zones that already have a node. Redridge
+-- Mountains (49) has a flight master (Lakeshire) and nothing else in the graph.
+T:run("Flight networks: a zone whose only node is its flight master gets one", function(t)
+    isolated(function(replace)
+        local pc = calculator(replace, "Alliance")
+        local known = {}
+        for mapID in pairs(QR.FlightPoints) do known[mapID] = true end
+        pc.knownFlightZonesOverride = known
+        local graph = pc:BuildGraph()
+        local point = pc:FlightPointFor(49)
+        local node = graph and point and graph.nodes[point.node]
+        t:assertNotNil(node, "graph node at the Redridge Mountains flight master")
+        t:assertEqual("flight_master", node and node.nodeType, "node type")
+        local flights = 0
+        for _, edge in pairs(graph and point and graph.edges[point.node] or {}) do
+            if edge.edgeType == "flight" then flights = flights + 1 end
+        end
+        t:assertGreaterThan(flights, 0, "flight edges leaving the Redridge flight master")
+    end)
+end)

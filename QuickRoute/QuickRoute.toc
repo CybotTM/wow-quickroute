@@ -36,6 +36,7 @@ Data\ServicePOIs.lua
 Data\Provenance.lua
 Data\HearthstoneLocations.lua
 Data\DestinationCatalog.lua
+Data\DataAccess.lua
 
 # Core
 Core\Graph.lua

@@ -244,7 +244,7 @@ function MapTeleportButton:UpdateForMap(mapID)
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
         if button == "RightButton" then
             if QR.UI then
-                QR.UI:Show()
+                QR.UI:Show("map-teleport-button")
             end
         end
     end)

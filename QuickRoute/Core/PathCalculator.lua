@@ -206,48 +206,6 @@ local function GetLocalizedNodeDisplayName(nodeName, mapID)
 end
 
 -------------------------------------------------------------------------------
--- Node Location Data
--- Major cities and hubs with their map coordinates
--------------------------------------------------------------------------------
-
-local CAPITAL_CITIES = {
-    -- Alliance capitals
-    ["Stormwind City"] = {mapID = 84, x = 0.4965, y = 0.8725, faction = "Alliance"},
-    ["Ironforge"] = {mapID = 87, x = 0.2730, y = 0.7330, faction = "Alliance"},
-    ["Darnassus"] = {mapID = 89, x = 0.4100, y = 0.4710, faction = "Alliance"},
-    ["Exodar"] = {mapID = 103, x = 0.3970, y = 0.6247, faction = "Alliance"},
-    ["Boralus"] = {mapID = 1161, x = 0.7025, y = 0.1725, faction = "Alliance"},
-
-    -- Horde capitals
-    ["Orgrimmar"] = {mapID = 85, x = 0.4690, y = 0.3870, faction = "Horde"},
-    ["Undercity"] = {mapID = 90, x = 0.6549, y = 0.4161, faction = "Horde"},
-    ["Thunder Bluff"] = {mapID = 88, x = 0.2920, y = 0.2740, faction = "Horde"},
-    ["Dazar'alor"] = {mapID = 1165, x = 0.5020, y = 0.4080, faction = "Horde"},
-
-    -- Neutral hubs
-    -- Midnight Silvermoon is a shared hub with a Horde-only enclave inside it,
-    -- so faction access belongs to the service, not to the whole map: the city
-    -- node is reachable by both factions and ServicePOIs.lua keeps the enclave
-    -- entries Horde-only. The coordinate is the shared district surveyed by
-    -- Tayder (2026-02-26), not the unverified map 110 value the portal records
-    -- still carry. Map 2393 like Portals, ServicePOIs and the mage teleport;
-    -- leaving this at 110 made the destination search offer a Silvermoon on a
-    -- different map than the one the portals land on.
-    -- https://news.blizzard.com/en-us/article/24243213/welcome-to-silvermoon-city
-    ["Silvermoon City"] = {mapID = 2393, x = 0.5028, y = 0.7486, faction = "both",
-        provenance = "surveyed"},
-    ["Dalaran (Northrend)"] = {mapID = 125, x = 0.4947, y = 0.4709, faction = "both"},
-    ["Dalaran (Broken Isles)"] = {mapID = 627, x = 0.5044, y = 0.5313, faction = "both"},
-    ["Shattrath City"] = {mapID = 111, x = 0.5410, y = 0.4120, faction = "both"},
-    ["Oribos"] = {mapID = 1670, x = 0.4483, y = 0.6466, faction = "both"},
-    ["Valdrakken"] = {mapID = 2112, x = 0.5835, y = 0.3535, faction = "both"},
-    ["Dornogal"] = {mapID = 2339, x = 0.4850, y = 0.5520, faction = "both"},
-}
-
--- Expose for DestinationSearch module
-QR.CAPITAL_CITIES = CAPITAL_CITIES
-
--------------------------------------------------------------------------------
 -- Graph Building Methods
 -------------------------------------------------------------------------------
 
@@ -322,6 +280,18 @@ function PathCalculator:BuildGraph()
     end)
     if not success then
         QR:Error("AddDungeonTeleportEdges failed: " .. tostring(err))
+        buildSuccess = false
+        buildError = buildError or err
+    end
+
+    -- A zone whose only reason to be in the graph is its flight master. Before
+    -- the island and flight passes, so the node gets its overland edges and
+    -- AddFlightEdges finds an anchor on the map.
+    success, err = pcall(function()
+        self:AddFlightMasterNodes()
+    end)
+    if not success then
+        QR:Error("AddFlightMasterNodes failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
@@ -518,7 +488,7 @@ end
 function PathCalculator:AddZoneNodes()
     local playerFaction = QR.PlayerInfo:GetFaction()
 
-    for nodeName, nodeData in pairs(CAPITAL_CITIES) do
+    for nodeName, nodeData in pairs(QR.CAPITAL_CITIES or {}) do
         -- Check faction compatibility
         local factionMatch = nodeData.faction == "both" or nodeData.faction == playerFaction
 
@@ -1283,6 +1253,13 @@ function PathCalculator:CalculatePathAsync(destMapID, destX, destY, destTitle, c
         args = { destMapID, destX, destY, destTitle },
         callback = callback,
     }
+    if QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
+        QR.Diagnostics:Trace("route", "route requested", {
+            destMap = destMapID, destX = destX, destY = destY, destTitle = destTitle,
+            consumer = tostring(consumer), generation = generation,
+            queued = #self.asyncQueue, running = self.asyncRunning ~= nil,
+        })
+    end
     if not self.asyncRunning then self:StepAsync() end
     return generation
 end
@@ -1298,6 +1275,7 @@ function PathCalculator:StepAsync()
     -- Baseline. CalculatePath raises it again if it rebuilds the graph itself,
     -- so only a rebuild by somebody else leaves the two apart.
     pending.graphBuild = self.graphBuild or 0
+    pending.startedAt = GetTime and GetTime() or nil
     pending.thread = coroutine.create(function()
         return self:CalculatePath(pending.args[1], pending.args[2], pending.args[3], pending.args[4])
     end)
@@ -1352,6 +1330,18 @@ function PathCalculator:ResumeAsync()
     -- The callback is guarded. It belongs to whoever asked, and with a queue
     -- behind it a raising callback would strand every request waiting on the
     -- calculator until somebody happened to ask again.
+    if QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
+        local args = running.args or {}
+        QR.Diagnostics:Trace("route", route and "route found" or "no route", {
+            destMap = args[1], destX = args[2], destY = args[3], destTitle = args[4],
+            consumer = tostring(running.consumer), generation = running.generation,
+            seconds = running.startedAt and GetTime and (GetTime() - running.startedAt) or nil,
+            steps = route and route.steps and #route.steps or nil,
+            totalTime = route and route.totalTime or nil,
+            failure = failure and tostring(failure.reason) or nil,
+            superseded = running.superseded and true or false,
+        })
+    end
     if not running.superseded and type(running.callback) == "function" then
         local delivered, err = pcall(running.callback, route, failure)
         if not delivered then
@@ -1918,6 +1908,36 @@ local FLIGHT_ANCHOR_RANK = {
     transport = 5,
 }
 local FLIGHT_ANCHOR_RANK_DEFAULT = 6   -- dungeons and anything unclassified
+
+--- Give every zone with a usable flight master at least one node.
+-- AddFlightEdges attaches flights only to zones that already have a node, and
+-- a zone gets nodes only from a capital, portal, teleport landing, dungeon or
+-- transition. A zone with none of those -- 23 retail flight zones for an
+-- Alliance character, Riverglades on WoW Forever -- had a flight master in the
+-- data and no flight in the graph. The node stands where the flight master
+-- stands; zones that already have a node are left alone.
+function PathCalculator:AddFlightMasterNodes()
+    if not QR.FlightPoints then return end
+    local added = false
+    for uiMapID in pairs(QR.FlightPoints) do
+        local point = self:FlightPointFor(uiMapID)
+        if point and point.node and #self:NodesOnMap(uiMapID) == 0
+            and not self.graph.nodes[point.node] then
+            self.graph:AddNode(point.node, {
+                mapID = uiMapID,
+                x = point.x,
+                y = point.y,
+                nodeType = "flight_master",
+            })
+            added = true
+        end
+    end
+    -- AddDungeonNodes already built the node index; a stale one hides these
+    -- nodes from NodesOnMap, and FlightAnchorForMap then finds no anchor.
+    if added and self.nodeIndex then
+        self:BuildNodeIndex()
+    end
+end
 
 function PathCalculator:FlightAnchorForMap(mapID)
     local candidates = {}

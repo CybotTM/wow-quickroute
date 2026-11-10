@@ -55,5 +55,20 @@ class PackageAddonTests(unittest.TestCase):
         self.assertFalse((self.root / "dist/QuickRoute-package-test.zip").exists())
 
 
+    def test_missing_forever_data_blocks_packaging(self):
+        (self.addon / "Data/Forever/FlightPoints.lua").unlink()
+        result = self.package()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("QuickRoute_Camelot.toc references Data\\Forever\\FlightPoints.lua", result.stdout)
+        self.assertFalse((self.root / "dist/QuickRoute-package-test.zip").exists())
+
+    def test_missing_camelot_toc_blocks_packaging(self):
+        (self.addon / "QuickRoute_Camelot.toc").unlink()
+        result = self.package()
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("QuickRoute_Camelot.toc is missing", result.stdout)
+        self.assertFalse((self.root / "dist/QuickRoute-package-test.zip").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

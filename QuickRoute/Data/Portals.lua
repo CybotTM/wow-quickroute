@@ -2,10 +2,45 @@
 -- Database of portal hub locations and standalone travel connections
 local ADDON_NAME, QR = ...
 
--- Cache frequently-used globals for performance
-local pairs = pairs
-local ipairs = ipairs
-local table_insert = table.insert
+-------------------------------------------------------------------------------
+-- Node Location Data
+-- Major cities and hubs with their map coordinates. PathCalculator adds them
+-- as graph nodes; DestinationSearch offers them as destinations.
+-------------------------------------------------------------------------------
+
+QR.CAPITAL_CITIES = {
+    -- Alliance capitals
+    ["Stormwind City"] = {mapID = 84, x = 0.4965, y = 0.8725, faction = "Alliance"},
+    ["Ironforge"] = {mapID = 87, x = 0.2730, y = 0.7330, faction = "Alliance"},
+    ["Darnassus"] = {mapID = 89, x = 0.4100, y = 0.4710, faction = "Alliance"},
+    ["Exodar"] = {mapID = 103, x = 0.3970, y = 0.6247, faction = "Alliance"},
+    ["Boralus"] = {mapID = 1161, x = 0.7025, y = 0.1725, faction = "Alliance"},
+
+    -- Horde capitals
+    ["Orgrimmar"] = {mapID = 85, x = 0.4690, y = 0.3870, faction = "Horde"},
+    ["Undercity"] = {mapID = 90, x = 0.6549, y = 0.4161, faction = "Horde"},
+    ["Thunder Bluff"] = {mapID = 88, x = 0.2920, y = 0.2740, faction = "Horde"},
+    ["Dazar'alor"] = {mapID = 1165, x = 0.5020, y = 0.4080, faction = "Horde"},
+
+    -- Neutral hubs
+    -- Midnight Silvermoon is a shared hub with a Horde-only enclave inside it,
+    -- so faction access belongs to the service, not to the whole map: the city
+    -- node is reachable by both factions and ServicePOIs.lua keeps the enclave
+    -- entries Horde-only. The coordinate is the shared district surveyed by
+    -- Tayder (2026-02-26), not the unverified map 110 value the portal records
+    -- still carry. Map 2393 like Portals, ServicePOIs and the mage teleport;
+    -- leaving this at 110 made the destination search offer a Silvermoon on a
+    -- different map than the one the portals land on.
+    -- https://news.blizzard.com/en-us/article/24243213/welcome-to-silvermoon-city
+    ["Silvermoon City"] = {mapID = 2393, x = 0.5028, y = 0.7486, faction = "both",
+        provenance = "surveyed"},
+    ["Dalaran (Northrend)"] = {mapID = 125, x = 0.4947, y = 0.4709, faction = "both"},
+    ["Dalaran (Broken Isles)"] = {mapID = 627, x = 0.5044, y = 0.5313, faction = "both"},
+    ["Shattrath City"] = {mapID = 111, x = 0.5410, y = 0.4120, faction = "both"},
+    ["Oribos"] = {mapID = 1670, x = 0.4483, y = 0.6466, faction = "both"},
+    ["Valdrakken"] = {mapID = 2112, x = 0.5835, y = 0.3535, faction = "both"},
+    ["Dornogal"] = {mapID = 2339, x = 0.4850, y = 0.5520, faction = "both"},
+}
 
 -------------------------------------------------------------------------------
 -- Portal Hubs
@@ -593,130 +628,3 @@ QR.StandalonePortals = {
         bidirectional = true,
     },
 }
-
---- Get all available portals for the current player
--- Filters by player faction and class
--- @return table {hubs = {}, standalone = {}} filtered portal data
-function QR:GetAvailablePortals()
-    local playerFaction = QR.PlayerInfo:GetFaction()
-    local result = {
-        hubs = {},
-        standalone = {},
-    }
-
-    -- Filter portal hubs
-    for hubName, hubData in pairs(QR.PortalHubs) do
-        -- Check if hub is accessible by player faction
-        if hubData.faction == "both" or hubData.faction == playerFaction then
-            local filteredHub = {
-                mapID = hubData.mapID,
-                x = hubData.x,
-                y = hubData.y,
-                faction = hubData.faction,
-                portals = {},
-            }
-
-            -- Filter portals within the hub by faction
-            for _, portal in ipairs(hubData.portals) do
-                local portalFaction = portal.faction or "both"
-                if portalFaction == "both" or portalFaction == playerFaction then
-                    table_insert(filteredHub.portals, portal)
-                end
-            end
-
-            -- Only add hub if it has accessible portals
-            if #filteredHub.portals > 0 then
-                result.hubs[hubName] = filteredHub
-            end
-        end
-    end
-
-    -- Filter standalone portals
-    for _, portal in ipairs(QR.StandalonePortals) do
-        local factionMatch = portal.faction == "both" or portal.faction == playerFaction
-        local classMatch = true
-
-        -- Check class restriction if present
-        if portal.class then
-            classMatch = QR.PlayerInfo:IsClass(portal.class)
-        end
-
-        if factionMatch and classMatch then
-            table_insert(result.standalone, portal)
-        end
-    end
-
-    return result
-end
-
---- Get a specific portal hub by name
--- @param hubName string The name of the portal hub
--- @return table|nil The hub data or nil if not found
-function QR:GetPortalHub(hubName)
-    return QR.PortalHubs[hubName]
-end
-
---- Get all portals leading to a specific mapID
--- Useful for pathfinding to find which portals can reach a destination
--- @param mapID number The destination map ID
--- @return table List of portals that go to the specified map
-function QR:GetPortalsToMap(mapID)
-    local portals = {}
-
-    -- Check hub portals
-    for hubName, hubData in pairs(QR.PortalHubs) do
-        for _, portal in ipairs(hubData.portals) do
-            if portal.mapID == mapID then
-                table_insert(portals, {
-                    hubName = hubName,
-                    hubMapID = hubData.mapID,
-                    hubX = hubData.x,
-                    hubY = hubData.y,
-                    destination = portal.destination,
-                    destMapID = portal.mapID,
-                    destX = portal.x,
-                    destY = portal.y,
-                    faction = portal.faction or hubData.faction,
-                    type = "hub_portal",
-                })
-            end
-        end
-    end
-
-    -- Check standalone portals (both from and to)
-    for _, portal in ipairs(QR.StandalonePortals) do
-        if portal.to.mapID == mapID then
-            table_insert(portals, {
-                name = portal.name,
-                fromMapID = portal.from.mapID,
-                fromX = portal.from.x,
-                fromY = portal.from.y,
-                toMapID = portal.to.mapID,
-                toX = portal.to.x,
-                toY = portal.to.y,
-                travelTime = portal.travelTime,
-                faction = portal.faction,
-                type = portal.type,
-                class = portal.class,
-            })
-        end
-        -- Check if bidirectional and destination is the "from" side
-        if portal.bidirectional and portal.from.mapID == mapID then
-            table_insert(portals, {
-                name = portal.name .. " (Return)",
-                fromMapID = portal.to.mapID,
-                fromX = portal.to.x,
-                fromY = portal.to.y,
-                toMapID = portal.from.mapID,
-                toX = portal.from.x,
-                toY = portal.from.y,
-                travelTime = portal.travelTime,
-                faction = portal.faction,
-                type = portal.type,
-                class = portal.class,
-            })
-        end
-    end
-
-    return portals
-end

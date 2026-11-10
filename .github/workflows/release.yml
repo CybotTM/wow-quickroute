@@ -81,11 +81,13 @@ jobs:
           if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
               raise SystemExit("Invalid stable release tag")
           version = tag[1:]
-          versions = [line.split(":", 1)[1].strip()
-                      for line in Path("QuickRoute/QuickRoute.toc").read_text().splitlines()
-                      if line.startswith("## Version:")]
-          if versions != [version]:
-              raise SystemExit("Release tag does not match the TOC version")
+          # Both TOCs ship in the one archive: retail and WoW Forever.
+          for toc in ("QuickRoute/QuickRoute.toc", "QuickRoute/QuickRoute_Camelot.toc"):
+              versions = [line.split(":", 1)[1].strip()
+                          for line in Path(toc).read_text().splitlines()
+                          if line.startswith("## Version:")]
+              if versions != [version]:
+                  raise SystemExit("Release tag does not match the version in " + toc)
           with open(os.environ["GITHUB_OUTPUT"], "a") as output:
               output.write("version=" + version + "\n")
           PY
@@ -112,7 +114,7 @@ jobs:
             echo ""
             echo "### Installation"
             echo "1. Download \`QuickRoute-${VERSION}.zip\`"
-            echo "2. Extract to \`World of Warcraft/_retail_/Interface/AddOns/\`"
+            echo "2. Extract to \`World of Warcraft/_retail_/Interface/AddOns/\` (WoW Forever: \`World of Warcraft/_forever_/Interface/AddOns/\`)"
             echo "3. Restart WoW or \`/reload\`"
           } > /tmp/release-notes.md
       - name: Package addon
@@ -154,7 +156,7 @@ jobs:
           for img in screenshots/*.png screenshots/*.jpg screenshots/*.webp; do
             gh release upload "$REF_NAME" "$img" --clobber || true
           done
-      - name: Derive the retail patch string from the TOC
+      - name: Derive the retail and Forever patch strings from the TOCs
         id: patch
         run: |
           set -o pipefail
@@ -165,6 +167,14 @@ jobs:
           echo "toc_api=${TOC_API}" >> "$GITHUB_OUTPUT"
           echo "retail_patch=${MAJOR}.${MINOR}.${PATCH}" >> "$GITHUB_OUTPUT"
           echo "TOC Interface ${TOC_API} -> retail patch ${MAJOR}.${MINOR}.${PATCH}"
+          # WoW Forever: interface 16001 is patch 1.60.1, the same arithmetic the
+          # BigWigs packager uses for every flavor.
+          FOREVER_API=$(grep -oP '## Interface:\s*\K\d+' QuickRoute/QuickRoute_Camelot.toc)
+          F_MAJOR=$((FOREVER_API / 10000))
+          F_MINOR=$(( (FOREVER_API % 10000) / 100 ))
+          F_PATCH=$((FOREVER_API % 100))
+          echo "forever_patch=${F_MAJOR}.${F_MINOR}.${F_PATCH}" >> "$GITHUB_OUTPUT"
+          echo "Camelot TOC Interface ${FOREVER_API} -> Forever patch ${F_MAJOR}.${F_MINOR}.${F_PATCH}"
       - name: Upload localization to CurseForge
         id: localization
         continue-on-error: true
@@ -179,15 +189,17 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           TOC_API: ${{ steps.patch.outputs.toc_api }}
           RETAIL_PATCH: ${{ steps.patch.outputs.retail_patch }}
+          FOREVER_PATCH: ${{ steps.patch.outputs.forever_patch }}
         run: |
           set -o pipefail
+          curl -sS --fail-with-body -H "X-Api-Token: ${CF_API_KEY}" \
+            "https://wow.curseforge.com/api/game/versions" > /tmp/cf-versions.json
           # Match the game version on either the dotted name (12.1.0) or the
           # apiVersion field, whichever the API actually carries, and fail
           # loudly rather than silently publishing against the newest retail id.
-          GAME_VERSION_ID=$(curl -sS --fail-with-body -H "X-Api-Token: ${CF_API_KEY}" \
-            "https://wow.curseforge.com/api/game/versions" | python3 -c '
+          GAME_VERSION_ID=$(python3 -c '
           import json, os, sys
-          versions = json.load(sys.stdin)
+          versions = json.load(open("/tmp/cf-versions.json"))
           toc_api = os.environ["TOC_API"]
           target = os.environ["RETAIL_PATCH"]
           for pick in (lambda v: v.get("name") == target,
@@ -200,13 +212,35 @@ jobs:
               sys.exit("No CurseForge game version matches %s / %s" % (target, toc_api))
           ')
           echo "CurseForge game version ID: ${GAME_VERSION_ID}"
-          METADATA=$(GAME_VERSION_ID="$GAME_VERSION_ID" VERSION="$VERSION" python3 -c '
+          # WoW Forever versions carry gameVersionTypeID 88568 -- the value the
+          # BigWigs packager (release.sh, upload_curseforge) uses for its
+          # "forever" flavor. The packager reads /api/game/wow/versions; whether
+          # this endpoint carries the same field is not verified. A miss must not
+          # cost the retail upload, so it is a warning and the file is tagged for
+          # retail only. The log line that says the assumption failed:
+          #   "No CurseForge WoW Forever game version named 1.60.1"
+          FOREVER_VERSION_ID=$(python3 -c '
+          import json, os, sys
+          versions = json.load(open("/tmp/cf-versions.json"))
+          target = os.environ["FOREVER_PATCH"]
+          match = [v for v in versions if v.get("gameVersionTypeID") == 88568 and v.get("name") == target]
+          print(match[0]["id"] if match else "")
+          ')
+          if [ -n "$FOREVER_VERSION_ID" ]; then
+            echo "CurseForge WoW Forever game version ID: ${FOREVER_VERSION_ID}"
+          else
+            echo "::warning::No CurseForge WoW Forever game version named ${FOREVER_PATCH}; uploading for retail only"
+          fi
+          METADATA=$(GAME_VERSION_ID="$GAME_VERSION_ID" FOREVER_VERSION_ID="$FOREVER_VERSION_ID" VERSION="$VERSION" python3 -c '
           import json, os
+          ids = [int(os.environ["GAME_VERSION_ID"])]
+          if os.environ["FOREVER_VERSION_ID"]:
+              ids.append(int(os.environ["FOREVER_VERSION_ID"]))
           print(json.dumps({
               "changelog": open("/tmp/release-notes.md").read(),
               "changelogType": "markdown",
               "displayName": "QuickRoute v" + os.environ["VERSION"],
-              "gameVersions": [int(os.environ["GAME_VERSION_ID"])],
+              "gameVersions": ids,
               "releaseType": "release",
           }))
           ')
@@ -226,25 +260,51 @@ jobs:
           WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
           RETAIL_PATCH: ${{ steps.patch.outputs.retail_patch }}
+          FOREVER_PATCH: ${{ steps.patch.outputs.forever_patch }}
         run: |
           set -o pipefail
           echo "Retail patch version: ${RETAIL_PATCH}"
-          METADATA=$(python3 -c '
+          echo "WoW Forever patch version: ${FOREVER_PATCH}"
+          # Wago lists Forever patches under "forever" in
+          # https://addons.wago.io/api/data/game (["1.60.1"] on 2026-11-10); the
+          # BigWigs packager sends them as supported_forever_patches. That field
+          # next to the singular supported_retail_patch this workflow has always
+          # sent is not verified against Wago. If Wago rejects the upload with a
+          # validation status (HTTP 400 or 422), it is repeated once for retail
+          # only.
+          metadata() {
+            WITH_FOREVER="$1" python3 -c '
           import json, os
-          print(json.dumps({
+          meta = {
               "label": os.environ["VERSION"],
               "stability": "stable",
               "changelog": open("/tmp/release-notes.md").read(),
               "supported_retail_patch": os.environ["RETAIL_PATCH"],
-          }))
-          ')
-          HTTP_CODE=$(curl -sS -o /tmp/wago-response.json -w '%{http_code}' \
-            -X POST "https://addons.wago.io/api/projects/Q6aRgaKW/version" \
-            -H "Authorization: Bearer ${WAGO_API_TOKEN}" \
-            -H "Accept: application/json" \
-            -F "metadata=${METADATA}" \
-            -F "file=@dist/QuickRoute-${VERSION}.zip")
+          }
+          if os.environ["WITH_FOREVER"] == "1":
+              meta["supported_forever_patches"] = [os.environ["FOREVER_PATCH"]]
+          print(json.dumps(meta))
+          '
+          }
+          upload() {
+            curl -sS -o /tmp/wago-response.json -w '%{http_code}' \
+              -X POST "https://addons.wago.io/api/projects/Q6aRgaKW/version" \
+              -H "Authorization: Bearer ${WAGO_API_TOKEN}" \
+              -H "Accept: application/json" \
+              -F "metadata=$1" \
+              -F "file=@dist/QuickRoute-${VERSION}.zip"
+          }
+          HTTP_CODE=$(upload "$(metadata 1)")
           echo "Wago response (HTTP ${HTTP_CODE}): $(cat /tmp/wago-response.json)"
+          # Retry on any validation status: Wago's wording for a rejected
+          # supported_forever_patches has never been seen, so the body is not
+          # matched. Anything else (401, 403, other 4xx, 5xx) is reported as it is,
+          # with no retry.
+          if [ "$HTTP_CODE" = "400" ] || [ "$HTTP_CODE" = "422" ]; then
+            echo "::warning::Wago rejected the upload with the Forever patch (HTTP ${HTTP_CODE}); uploading for retail only"
+            HTTP_CODE=$(upload "$(metadata 0)")
+            echo "Wago response, retail only (HTTP ${HTTP_CODE}): $(cat /tmp/wago-response.json)"
+          fi
           echo "http_code=${HTTP_CODE}" >> "$GITHUB_OUTPUT"
           [[ "$HTTP_CODE" =~ ^2[0-9][0-9]$ ]]
       # The GitHub release is already published at this point, so the store
@@ -286,5 +346,10 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
+      # The survey import tests run scripts/export_data_json.lua.
+      - name: Install Lua 5.1
+        uses: leafo/gh-actions-lua@6919171ccf181b826f44b9bca76307b577217377 # v13.0.0
+        with:
+          luaVersion: "5.1"
       - name: Run generator tests
         run: python3 -m unittest discover -s tests -p 'test_*.py' -v

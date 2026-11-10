@@ -86,13 +86,13 @@ function MinimapButton:Create()
             if QR.MainFrame then
                 local isOpen = QR.MainFrame.isShowing and QR.MainFrame.activeTab == "teleports"
                 PlaySound(isOpen and SOUNDKIT.IG_MAINMENU_CLOSE or SOUNDKIT.IG_MAINMENU_OPEN)
-                QR.MainFrame:Toggle("teleports")
+                QR.MainFrame:Toggle("teleports", "minimap-right")
             end
         else
             if QR.MainFrame then
                 local isOpen = QR.MainFrame.isShowing and QR.MainFrame.activeTab == "route"
                 PlaySound(isOpen and SOUNDKIT.IG_MAINMENU_CLOSE or SOUNDKIT.IG_MAINMENU_OPEN)
-                QR.MainFrame:Toggle("route")
+                QR.MainFrame:Toggle("route", "minimap-left")
             end
         end
     end)

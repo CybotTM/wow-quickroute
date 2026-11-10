@@ -173,7 +173,20 @@ def flight_networks(nodes, paths, masters):
     return result
 
 
-def build(csv_dir):
+def build(csv_dir, min_zones=None, internal_flag=None):
+    """Both parameters default to what fits retail.
+
+    min_zones guards against truncated input. internal_flag is the Flags bit
+    that marks a scripted or internal node; the WoW Forever tables set 0x400
+    on 99 of their 101 nodes, flight masters included, so that client passes
+    0 and relies on the faction bits alone.
+    """
+    # Read at call time, not bound as defaults, so the module constants stay
+    # the single place the retail values live.
+    if min_zones is None:
+        min_zones = MIN_ZONES
+    if internal_flag is None:
+        internal_flag = FLAG_INTERNAL
     nodes = load(csv_dir, "TaxiNodes.csv",
                  ("Name_lang", "Pos_0", "Pos_1", "ID", "ContinentID", "Flags"))
     paths = load(csv_dir, "TaxiPath.csv", ("FromTaxiNode", "ToTaxiNode"))
@@ -205,7 +218,7 @@ def build(csv_dir):
             flags = int(node["Flags"])
         except (KeyError, ValueError):
             flags = 0
-        return not (flags & FLAG_INTERNAL) and bool(flags & FLAG_FACTIONS)
+        return not (flags & internal_flag) and bool(flags & FLAG_FACTIONS)
 
     # Keep masters that fail zone assignment: they can still be intermediate
     # hops. Internal/scripted nodes never connect the player taxi network.
@@ -262,7 +275,7 @@ def build(csv_dir):
         # "shown to nobody" and "internal" are different claims and a future
         # table could separate them, and it is covered by a test of its own
         # rather than left as an untested assertion.
-        if flags & FLAG_INTERNAL or not flags & FLAG_FACTIONS:
+        if flags & internal_flag or not flags & FLAG_FACTIONS:
             tally["dropped: not shown to players"] += 1
             continue
 
@@ -422,8 +435,8 @@ def build(csv_dir):
     print(f"{'zones with a flight master':<38}: {len(final)}", file=sys.stderr)
     # Exit status is what a script or CI reads, and a truncated TaxiPath.csv
     # makes every degree 0 -- which produced an empty data file and exit 0.
-    if len(final) < MIN_ZONES:
-        sys.exit(f"only {len(final)} zones resolved, expected at least {MIN_ZONES}; "
+    if len(final) < min_zones:
+        sys.exit(f"only {len(final)} zones resolved, expected at least {min_zones}; "
                  "the inputs look truncated -- nothing was written")
     return final
 
@@ -486,8 +499,8 @@ local ADDON_NAME, QR = ...
 QR.FlightPoints = {'''
 
 
-def emit(final, out_path):
-    lines = [HEADER]
+def emit(final, out_path, header=HEADER):
+    lines = [header]
     current = None
     for uid, entry in sorted(final.items(), key=lambda kv: (kv[1]["continent"], kv[0])):
         if entry["continent"] != current:

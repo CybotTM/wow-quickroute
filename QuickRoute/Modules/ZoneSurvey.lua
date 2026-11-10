@@ -303,9 +303,17 @@ end
 -- tables it claims 148 pairs that are not neighbours, Durotar to Mulgore among
 -- them. A player crossing from one zone to the next can.
 --
--- The legacy `walked` field means no loading screen was observed. It can also
--- represent a taxi or scripted flight; neither category proves adjacency.
-local function RecordArrival(store, mapID)
+-- The legacy `walked` field means no loading screen was observed. Builds before
+-- the taxi check counted taxi flights in it too, so on an old record it says
+-- nothing about walking. Since then a crossing made on a taxi is counted in
+-- `flown` and not in `walked`, and a crossing made on foot (not on a taxi, no
+-- loading screen) is counted in `walked` AND in `afoot`. `afoot` is the marker:
+-- an entry that has it was written by a build that checks the taxi, and its
+-- `afoot` count is free of taxi flights; `walked` minus `afoot` is what older
+-- builds recorded. A taxi state the client will not tell (a secret value) counts
+-- as `walked` only, like the old builds did. Scripted flights that are not a
+-- taxi still look like a walk.
+local function RecordArrival(store, mapID, onTaxi)
     local from = lastMapID
     lastMapID = mapID
     local hadLoadingScreen = loadedSince
@@ -336,6 +344,8 @@ local function RecordArrival(store, mapID)
     if type(entry) ~= "table" then entry = {} end
     entry.walked = Counter(entry.walked)
     entry.loaded = Counter(entry.loaded)
+    entry.afoot = Counter(entry.afoot)
+    entry.flown = Counter(entry.flown)
     if hadLoadingScreen then
         entry.loaded = Increment(entry.loaded)
         -- Endpoints are observations of loading-screen transport only.
@@ -343,10 +353,23 @@ local function RecordArrival(store, mapID)
             RecordEndpoints(entry, departure, arrival and arrival.mapID == mapID and arrival
                 or { mapID = mapID, x = record.x, y = record.y })
         end
+    elseif onTaxi == true then
+        entry.flown = Increment(entry.flown)
     else
         entry.walked = Increment(entry.walked)
+        if onTaxi == false then entry.afoot = Increment(entry.afoot) end
     end
     record.from[from] = entry
+    -- Crossings counted since this login or /reload (the save reminder).
+    ZoneSurvey.unsavedCrossings = (ZoneSurvey.unsavedCrossings or 0) + 1
+end
+
+--- true on a taxi, false when not, nil when the client does not say.
+local function TaxiState()
+    if not UnitOnTaxi then return nil end
+    local ok, onTaxi = pcall(UnitOnTaxi, "player")
+    if not ok or (issecretvalue and issecretvalue(onTaxi)) then return nil end
+    return onTaxi and true or false
 end
 
 --- Capture the current map, if there is one to capture.
@@ -406,6 +429,8 @@ function ZoneSurvey:Capture()
             and existing.from or nil,
         seen = date("%Y-%m-%d %H:%M:%S"),
     }
+    -- Records written since this login or /reload (the save reminder).
+    self.unsavedCaptures = (self.unsavedCaptures or 0) + 1
     -- A continent reported between a loading screen and the zone is a moment
     -- of the landing, not the arrival. Keep the departure and the loading
     -- screen pending, so the zone that follows records the crossing as loaded
@@ -419,7 +444,7 @@ function ZoneSurvey:Capture()
     if loadedSince and continentSince and GetTime() - continentSince > CONTINENT_GRACE then
         self:ForgetArrivalState()
     end
-    RecordArrival(store, mapID)
+    RecordArrival(store, mapID, TaxiState())
     return mapID
 end
 
@@ -468,10 +493,10 @@ function ZoneSurvey:Render()
     lines[#lines + 1] = ""
     lines[#lines + 1] = "### Observed crossings"
     lines[#lines + 1] = ""
-    lines[#lines + 1] = "Walked means no loading screen was observed; it may include taxi or scripted flights. These counts do not prove that zones border each other."
+    lines[#lines + 1] = "Walked means no loading screen was observed. On foot is the part of it recorded while the client said the player was not on a taxi; flown was on a taxi. Older records have walked only, which may include taxi flights. These counts do not prove that zones border each other."
     lines[#lines + 1] = ""
-    lines[#lines + 1] = "| into | from | walked | loaded |"
-    lines[#lines + 1] = "|---|---|---|---|"
+    lines[#lines + 1] = "| into | from | walked | on foot | flown | loaded |"
+    lines[#lines + 1] = "|---|---|---|---|---|---|"
     local any = false
     for _, mapID in ipairs(ids) do
         local r = QR.db.zoneSurvey[mapID]
@@ -480,13 +505,14 @@ function ZoneSurvey:Render()
         table_sort(froms)
         for _, f in ipairs(froms) do
             local e = r.from[f]
-            lines[#lines + 1] = string_format("| %d | %d | %d | %d |",
-                mapID, f, e.walked or 0, e.loaded or 0)
+            lines[#lines + 1] = string_format("| %d | %d | %d | %s | %d | %d |",
+                mapID, f, e.walked or 0, e.afoot and tostring(e.afoot) or "-",
+                e.flown or 0, e.loaded or 0)
             any = true
         end
     end
     if not any then
-        lines[#lines + 1] = "| - | - | - | - |"
+        lines[#lines + 1] = "| - | - | - | - | - | - |"
     end
 
     -- Loading-screen endpoint candidates require transport identification
@@ -552,6 +578,10 @@ Sanitize = function(store)
                         dropped = dropped + 1
                     else
                         local arrival = { walked = Counter(entry.walked), loaded = Counter(entry.loaded) }
+                        -- Absent on records from builds without the taxi check;
+                        -- kept absent, because its absence is what says so.
+                        if entry.afoot ~= nil then arrival.afoot = Counter(entry.afoot) end
+                        if entry.flown ~= nil then arrival.flown = Counter(entry.flown) end
                         if type(entry.endpoints) == "table" then
                             arrival.endpoints = {}
                             local endpoints = 0
@@ -592,11 +622,48 @@ Sanitize = function(store)
     return clean, dropped
 end
 
+--- Switch the survey on or off as the player's choice.
+-- Every writer of `zoneSurveyEnabled` goes through here -- the settings
+-- checkbox and /qrsurvey on|off -- so `zoneSurveyChoice` marks a value the
+-- player chose. An open settings panel is told about the change, unless the
+-- change came from that panel's checkbox.
+-- @param enabled boolean
+-- @param fromCheckbox boolean|nil
+function ZoneSurvey:SetEnabled(enabled, fromCheckbox)
+    if not QR.db then return end
+    QR.db.zoneSurveyEnabled = enabled == true
+    QR.db.zoneSurveyChoice = true
+    -- Immediately, not at the next zone change: switching off and back on
+    -- without moving would otherwise keep the stale map.
+    if not enabled then self:ForgetArrivalState() end
+    local panel = QR.SettingsPanel
+    local control = panel and panel.controls and panel.controls.zoneSurveyEnabled
+    local setting = control and control.setting
+    if not fromCheckbox and setting and setting.NotifyUpdate then pcall(setting.NotifyUpdate, setting) end
+    local reminder = QR.Diagnostics and QR.Diagnostics.Reminder
+    if reminder and reminder.Refresh then reminder:Refresh() end
+end
+
+--- Off unless the player switched it on.
+-- Builds up to this one switched the survey on by themselves whenever the
+-- value was unset, and offered no checkbox, so a stored `true` without the
+-- `zoneSurveyChoice` marker was never a player's choice: it is turned off.
+-- Only SetEnabled writes the value now and it always sets the marker, so an
+-- unmarked `true` cannot come back after the first load of this build. The
+-- recorded data is left as it is.
+function ZoneSurvey:MigrateDefault()
+    if not QR.db then return end
+    if QR.db.zoneSurveyEnabled == true and QR.db.zoneSurveyChoice ~= true then
+        QR.db.zoneSurveyEnabled = false
+        QR:Debug("ZoneSurvey: turned off; it was on by the old default, not by choice")
+        -- Once: the next load finds an unmarked false and does nothing.
+        QR:Print(QR.L["ZONE_SURVEY_NOW_OFF"])
+    end
+end
+
 function ZoneSurvey:Initialize()
     if QR.db then
-        if QR.db.zoneSurveyEnabled == nil then
-            QR.db.zoneSurveyEnabled = true
-        end
+        self:MigrateDefault()
         local store, dropped = Sanitize(QR.db.zoneSurvey or {})
         QR.db.zoneSurvey = store
         if dropped > 0 then
@@ -667,13 +734,10 @@ SlashCmdList["QRSURVEY"] = function(msg)
         ZoneSurvey:Clear()
         QR:Print("Zone survey cleared.")
     elseif cmd == "off" then
-        if QR.db then QR.db.zoneSurveyEnabled = false end
-        -- Immediately, not at the next zone change: switching off and back on
-        -- without moving would otherwise keep the stale map.
-        ZoneSurvey:ForgetArrivalState()
+        ZoneSurvey:SetEnabled(false)
         QR:Print("Zone survey off.")
     elseif cmd == "on" then
-        if QR.db then QR.db.zoneSurveyEnabled = true end
+        ZoneSurvey:SetEnabled(true)
         QR:Print("Zone survey on.")
     elseif cmd == "here" then
         local mapID = ZoneSurvey:Capture()

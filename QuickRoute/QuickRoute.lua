@@ -12,6 +12,11 @@ local pcall = pcall
 -- Namespace setup
 QR.version = C_AddOns and C_AddOns.GetAddOnMetadata and C_AddOns.GetAddOnMetadata("QuickRoute", "Version") or "dev"
 QR.debugMode = false
+-- WoW Forever (client game type "camelot"). The client loads QuickRoute_Camelot.toc
+-- there, so the data is already Forever's; this flag is for the few places that
+-- must say or do something different at runtime. A client that does not define
+-- WOW_PROJECT_CAMELOT is not Forever.
+QR.IsForever = WOW_PROJECT_CAMELOT ~= nil and WOW_PROJECT_ID == WOW_PROJECT_CAMELOT
 
 -- Constants
 local DB_VERSION = 1
@@ -41,6 +46,12 @@ function QR:Log(level, msg)
     end
     if logCount < LOG_MAX_ENTRIES then
         logCount = logCount + 1
+    end
+    -- With the diagnostic trace on, the line is also kept in SavedVariables.
+    -- Trace never logs, so this cannot recurse.
+    local diagnostics = self.Diagnostics
+    if self.db and self.db.diagnosticTrace and diagnostics and diagnostics.Trace then
+        diagnostics:Trace("log", msg, nil, level)
     end
 end
 
@@ -156,6 +167,10 @@ function QR:Initialize()
         multiRouteTrips = {},        -- Pending trips, partitioned by character
         currencyVendors = {},         -- Verified merchant observations, partitioned by character
         hearthstoneBinds = {},        -- Observed inn bindings, partitioned by character
+        diagnosticTrace = false,      -- Persist a diagnostic trace (Modules/Diagnostics.lua)
+        saveReminder = true,          -- Offer a reload while trace/survey data is unsaved
+        saveReminderMinutes = 20,     -- Minutes between save reminders
+        saveReminderTimeout = 30,     -- Seconds a save reminder stays without interaction
     }
     for k, v in pairs(defaults) do
         if QuickRouteDB[k] == nil or type(QuickRouteDB[k]) ~= type(v) then
@@ -169,6 +184,8 @@ function QR:Initialize()
         windowScale = { 0.75, 1.5 },
         loadingScreenTime = { 0, 30 },
         maxCooldownHours = { 1, 24 },
+        saveReminderMinutes = { 5, 120 },
+        saveReminderTimeout = { 10, 120 },
     }
     for key, range in pairs(ranges) do
         local value = QuickRouteDB[key]
@@ -410,11 +427,11 @@ SlashCmdList["QRHELP"] = PrintHelp
 function QuickRoute_OnAddonCompartmentClick(addonName, buttonName)
     if buttonName == "RightButton" then
         if QR.MainFrame then
-            QR.MainFrame:Toggle("teleports")
+            QR.MainFrame:Toggle("teleports", "addon-compartment-right")
         end
     else
         if QR.MainFrame then
-            QR.MainFrame:Toggle("route")
+            QR.MainFrame:Toggle("route", "addon-compartment-left")
         end
     end
 end

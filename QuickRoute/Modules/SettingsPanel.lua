@@ -188,6 +188,45 @@ local function RegisterNativeSettings()
             if QR.UI and QR.UI.UpdateAllButtonStyles then QR.UI:UpdateAllButtonStyles() end
         end)
 
+    -- Diagnostics
+    RegisterCheckbox(category,
+        L["SETTINGS_DIAGNOSTIC_TRACE"],
+        L["SETTINGS_DIAGNOSTIC_TRACE_TT"],
+        "diagnosticTrace",
+        function(checked)
+            if QR.Diagnostics and QR.Diagnostics.ApplyTraceSetting then
+                QR.Diagnostics:ApplyTraceSetting()
+            end
+        end)
+
+    RegisterCheckbox(category,
+        L["SETTINGS_ZONE_SURVEY"],
+        L["SETTINGS_ZONE_SURVEY_TT"],
+        "zoneSurveyEnabled",
+        function(checked)
+            if QR.ZoneSurvey and QR.ZoneSurvey.SetEnabled then QR.ZoneSurvey:SetEnabled(checked, true) end
+        end)
+
+    RegisterCheckbox(category,
+        L["SETTINGS_SAVE_REMINDER"],
+        L["SETTINGS_SAVE_REMINDER_TT"],
+        "saveReminder",
+        function(checked)
+            local reminder = QR.Diagnostics and QR.Diagnostics.Reminder
+            if not checked and reminder and reminder.popup then reminder.popup:Hide() end
+            if reminder and reminder.Refresh then reminder:Refresh() end
+        end)
+
+    RegisterSlider(category,
+        L["SETTINGS_SAVE_REMINDER_MINUTES"],
+        L["SETTINGS_SAVE_REMINDER_MINUTES_TT"],
+        "saveReminderMinutes", 5, 120, 5)
+
+    RegisterSlider(category,
+        L["SETTINGS_SAVE_REMINDER_TIMEOUT"],
+        L["SETTINGS_SAVE_REMINDER_TIMEOUT_TT"],
+        "saveReminderTimeout", 10, 120, 5)
+
     Settings.RegisterAddOnCategory(category)
     return category
 end
