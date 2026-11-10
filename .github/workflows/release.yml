@@ -269,8 +269,8 @@ jobs:
           # https://addons.wago.io/api/data/game (["1.60.1"] on 2026-11-10); the
           # BigWigs packager sends them as supported_forever_patches. That field
           # next to the singular supported_retail_patch this workflow has always
-          # sent is not verified against Wago. If Wago rejects it (HTTP 4xx), the
-          # upload is repeated once for retail only, with a warning that names it.
+          # sent is not verified against Wago. If Wago rejects it (HTTP 400/422
+          # naming the field), the upload is repeated once for retail only.
           metadata() {
             WITH_FOREVER="$1" python3 -c '
           import json, os
@@ -295,7 +295,11 @@ jobs:
           }
           HTTP_CODE=$(upload "$(metadata 1)")
           echo "Wago response (HTTP ${HTTP_CODE}): $(cat /tmp/wago-response.json)"
-          if [[ "$HTTP_CODE" =~ ^4[0-9][0-9]$ ]]; then
+          # Retry only when the rejection plausibly concerns the Forever field:
+          # a validation status whose body names it. Anything else (401, 403,
+          # 5xx, a 4xx about something else) is reported as it is.
+          if { [ "$HTTP_CODE" = "400" ] || [ "$HTTP_CODE" = "422" ]; } \
+              && grep -qi "forever" /tmp/wago-response.json; then
             echo "::warning::Wago rejected supported_forever_patches (HTTP ${HTTP_CODE}); uploading for retail only"
             HTTP_CODE=$(upload "$(metadata 0)")
             echo "Wago response, retail only (HTTP ${HTTP_CODE}): $(cat /tmp/wago-response.json)"

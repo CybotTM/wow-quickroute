@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Pre-push hook: verify pushed tags match QuickRoute.toc version
+# Pre-push hook: verify pushed tags match the version in both TOCs
+# (QuickRoute.toc for retail, QuickRoute_Camelot.toc for WoW Forever). The
+# release workflow checks the same, so a tag that fails here fails there too.
+# A tag on a commit from before the Camelot TOC existed is checked against
+# QuickRoute.toc alone.
 
-TOC_FILE="QuickRoute/QuickRoute.toc"
+TOC_FILES=("QuickRoute/QuickRoute.toc" "QuickRoute/QuickRoute_Camelot.toc")
 
 while read local_ref local_sha remote_ref remote_sha; do
     # Only check tag pushes
@@ -12,21 +16,31 @@ while read local_ref local_sha remote_ref remote_sha; do
     tag="${local_ref#refs/tags/}"
     tag_version="${tag#v}"
 
-    # Read version from TOC at the tagged commit
-    toc_version=$(git show "${local_sha}:${TOC_FILE}" 2>/dev/null | grep -oP '## Version: \K.*')
+    for toc_file in "${TOC_FILES[@]}"; do
+        if ! git cat-file -e "${local_sha}:${toc_file}" 2>/dev/null; then
+            if [ "$toc_file" = "${TOC_FILES[0]}" ]; then
+                echo "ERROR: ${toc_file} does not exist at ${tag}"
+                exit 1
+            fi
+            continue
+        fi
 
-    if [ -z "$toc_version" ]; then
-        echo "ERROR: Cannot read version from ${TOC_FILE} at ${tag}"
-        exit 1
-    fi
+        # Read version from TOC at the tagged commit
+        toc_version=$(git show "${local_sha}:${toc_file}" 2>/dev/null | grep -oP '## Version: \K.*')
 
-    if [ "$tag_version" != "$toc_version" ]; then
-        echo "ERROR: Tag ${tag} (${tag_version}) does not match ${TOC_FILE} version (${toc_version})"
-        echo "  Update '## Version:' in ${TOC_FILE} to ${tag_version} before tagging."
-        exit 1
-    fi
+        if [ -z "$toc_version" ]; then
+            echo "ERROR: Cannot read version from ${toc_file} at ${tag}"
+            exit 1
+        fi
 
-    echo "Tag ${tag} matches ${TOC_FILE} version ${toc_version}"
+        if [ "$tag_version" != "$toc_version" ]; then
+            echo "ERROR: Tag ${tag} (${tag_version}) does not match ${toc_file} version (${toc_version})"
+            echo "  Update '## Version:' in both TOCs to ${tag_version} before tagging."
+            exit 1
+        fi
+
+        echo "Tag ${tag} matches ${toc_file} version ${toc_version}"
+    done
 done
 
 exit 0
