@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.22.0] - 2026-11-10
+
+### Added
+- Load on WoW Forever (interface 16001) through `QuickRoute_Camelot.toc`, with a Forever data set: flight points, flight paths, ships and zeppelins from the Forever client's own tables, and zone neighbours, inns, dungeon entrances and service points converted from the retail positions. Forever routes never use retail data. Neighbours of Alterac Mountains, the Riverglades and Shen'dralas are estimated from the map outlines until crossings are observed.
+- Optional diagnostic trace (setting "Diagnostic trace"). While on, it keeps window opens with their cause, waypoint changes, quest, NPC and travel events in SavedVariables, at most about 17,000 entries or 6 MiB.
+- A reminder that offers a reload while the diagnostic trace or the zone survey has unsaved data, because WoW writes addon data only on `/reload` or logout. It never appears in combat, on a flight, in a loading screen or in an instance, and it closes itself after 30 seconds. It can be switched off, and its interval set, in the settings.
+- A settings checkbox for the zone survey.
+
+### Changed
+- The zone survey is off unless switched on. Versions 1.16.0 to 1.21.2 switched it on by themselves, so this version turns that automatic setting off once and says so in chat. Recorded crossings are kept.
+- The zone survey records a crossing during a taxi flight separately from a crossing on foot.
+
+### Fixed
+- Route through a flight master in a zone that has no other route node, such as Redridge Mountains or Loch Modan. Before, such a flight master was not used.
+
 ## [1.21.2] - 2026-11-09
 
 ### Fixed
