@@ -27,7 +27,7 @@ local function change(state)
         auto = QR.db.autoDestination, showing = QR.MainFrame.isShowing, tab = QR.MainFrame.activeTab,
         show = QR.UI.Show, refresh = QR.UI.RefreshRoute, combat = cfg.inCombatLockdown,
         trace = QR.db.diagnosticTrace, store = QR.db.trace, pending = WI._pendingTriggers,
-        unresolved = WI._unresolvedQuestID, retried = WI._retriedQuestID,
+        unresolved = WI._unresolvedQuestID, retried = WI._retriedQuestID, tracked = WI._trackedQuestID,
         hasPin = cfg.hasUserWaypoint, pin = cfg.userWaypoint, priority = QR.db.waypointPriority,
     }
     local result = { shows = {}, refreshes = 0 }
@@ -77,6 +77,7 @@ local function change(state)
     QR.db.autoDestination, QR.MainFrame.isShowing, QR.MainFrame.activeTab = saved.auto, saved.showing, saved.tab
     QR.db.diagnosticTrace, QR.db.trace, WI._pendingTriggers = saved.trace, saved.store, saved.pending
     WI._unresolvedQuestID, WI._retriedQuestID = saved.unresolved, saved.retried
+    WI._trackedQuestID = saved.tracked
     WI:ClearQuestCoordCache()
     if not ok then error(err, 0) end
     return result
