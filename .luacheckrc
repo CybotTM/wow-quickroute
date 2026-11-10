@@ -13,6 +13,7 @@ globals = {
 
     -- WoW API globals
     "WOW_PROJECT_ID", "WOW_PROJECT_MAINLINE", "WOW_PROJECT_CAMELOT",
+    "UnitOnTaxi",
     "CreateFrame",
     "CreateVector2D",
     "RegisterStateDriver",

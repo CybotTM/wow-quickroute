@@ -92,6 +92,14 @@ OBSERVATIONS = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "data", "forever_zone_survey.json")
 MIN_OBSERVED_WALKS = 2
 SURVEYED = "surveyed"            # QR.Provenance.SURVEYED
+# How far an observed loading-screen endpoint may lie from the converted end of
+# a transport and still be taken for it. The survey buckets endpoints to 1/200
+# of a map (8.7 yd on Stormwind City, the larger of the tram's two maps), samples
+# every 0.5 s (about 7 yd on a ground mount) and the conversion is good to 0.42
+# yd: under 20 yd together. The nearest other landing on those maps is the mage
+# teleport, 408 yd from the tram's Ironforge end and 949 yd from its Stormwind
+# end, so 50 yd keeps the tram and rejects a teleport with room to spare.
+MAX_LANDING_SHIFT_YARDS = 50
 SURVEY_SOURCE = "zone_survey"
 ZEPPELIN_MIN_HEIGHT = 20     # median path height; ships run at sea level (0)
 DEFAULT_TRANSPORT_TIME = {"boat": 180, "zeppelin": 120}
@@ -431,7 +439,11 @@ def load_observations(path):
 
 
 def apply_observed_walks(tables, observations, tally):
-    """Walks the zone survey saw become surveyed adjacency, both directions.
+    """Walks the zone survey saw on foot become surveyed adjacency, both directions.
+
+    Only `walked`, which the importer fills from the survey's taxi-checked
+    `afoot` count; walks from builds without the taxi check (`unverifiedWalks`)
+    and taxi crossings (`flown`) are counted and never applied.
 
     A walk replaces any edge for the pair, a map_bounds estimate included,
     keeping its travel time; a pair with no edge gets one with the derived
@@ -446,6 +458,11 @@ def apply_observed_walks(tables, observations, tally):
     for crossing in observations.get("crossings", []):
         if crossing.get("walked"):
             walks[frozenset((crossing["from"], crossing["to"]))] += crossing["walked"]
+        # Recorded by a build that counted taxi flights as walks, or flown.
+        if crossing.get("unverifiedWalks"):
+            tally.add("survey walks", "not applied: recorded before the taxi check")
+        if crossing.get("flown"):
+            tally.add("survey walks", "not applied: flown on a taxi")
     for pair, count in sorted(walks.items(), key=lambda kv: sorted(kv[0])):
         a, b = sorted(pair)
         if continent_of.get(a) != continent_of.get(b):
@@ -472,12 +489,30 @@ def apply_observed_walks(tables, observations, tally):
     return tables
 
 
-def apply_observed_landings(tables, observations, tally):
+def map_yards_from_boxes(geo):
+    """uiMap -> (yards per unit of map x, yards per unit of map y).
+
+    Map x runs along world Y and map y along world X (see fp.project).
+    """
+    return {uid: (box[3] - box[2], box[1] - box[0])
+            for boxes in geo.forever_boxes.values() for box, _, uid, _ in boxes}
+
+
+def yards_between(map_yards, uid, ax, ay, bx, by):
+    span = map_yards.get(uid)
+    if not span:
+        return None
+    return (((ax - bx) * span[0]) ** 2 + ((ay - by) * span[1]) ** 2) ** 0.5
+
+
+def apply_observed_landings(tables, observations, tally, map_yards):
     """Loading-screen crossings refine the ends of converted transports.
 
     Only entries converted from retail (provenance estimated) are touched; the
     TaxiPath ones carry the client's own positions. The most often seen
-    endpoint of a crossing between the same two zones replaces both ends.
+    endpoint of a crossing between the same two zones replaces both ends, but
+    only when each end lies within MAX_LANDING_SHIFT_YARDS of the converted one:
+    a mage teleport between the same two cities is the same kind of record.
     """
     portals = as_list(tables["StandalonePortals"])
     tables["StandalonePortals"] = portals
@@ -498,12 +533,23 @@ def apply_observed_landings(tables, observations, tally):
                 start, end = portal["to"], portal["from"]
             else:
                 continue
+            shifts = [yards_between(map_yards, start["mapID"], start["x"], start["y"],
+                                    best["fromX"], best["fromY"]),
+                      yards_between(map_yards, end["mapID"], end["x"], end["y"],
+                                    best["toX"], best["toY"])]
+            if any(d is None or d > MAX_LANDING_SHIFT_YARDS for d in shifts):
+                tally.add("survey landings",
+                          f"not applied: farther than {MAX_LANDING_SHIFT_YARDS} yd from the converted end")
+                applied = None
+                continue
             start["x"], start["y"] = best["fromX"], best["fromY"]
             end["x"], end["y"] = best["toX"], best["toY"]
             portal["provenance"] = SURVEYED
             applied = True
-        tally.add("survey landings", "applied to a converted transport" if applied
-                  else "not applied: no converted transport between the zones")
+        if applied is True:
+            tally.add("survey landings", "applied to a converted transport")
+        elif applied is False:
+            tally.add("survey landings", "not applied: no converted transport between the zones")
     return tables
 
 
@@ -1055,10 +1101,12 @@ def generate(args):
         "map, and the retail tram is converted.",
         "",
         "Loading-screen crossings the zone survey saw replace both ends of a",
-        "converted transport between the same zones (provenance = \"surveyed\").",
+        "converted transport between the same zones (provenance = \"surveyed\")",
+        "when each end lies within 50 yd of the converted one.",
         "",
     ] + CONVERTED_NOTE), apply_observed_landings(
-        build_portals(geo, retail, tally, fdir, flight_final, world_maps), observations, tally))
+        build_portals(geo, retail, tally, fdir, flight_final, world_maps), observations, tally,
+        map_yards_from_boxes(geo)))
 
     write_lua(out("DungeonEntrances.lua"), header("DungeonEntrances.lua", [
         "Format as in the retail file: [zoneMapID] = { { journalInstanceID, x, y,",

@@ -30,6 +30,7 @@ MockWoW.config = {
 
     -- Player capabilities
     isFlyableArea = true,
+    onTaxi = false,                -- UnitOnTaxi("player")
     inCombatLockdown = false,
 
     -- Items the player has in bags: { [itemID] = { bagID, slot, count } }
@@ -405,6 +406,7 @@ function MockWoW:Reset()
     self.config.playerY = 0.5
     self.config.locale = "enUS"
     self.config.isFlyableArea = true
+    self.config.onTaxi = false
     self.config.inCombatLockdown = false
     self.config.bagItems = {}
     self.config.ownedToys = {}
@@ -1042,6 +1044,10 @@ function MockWoW:Install()
 
     _G.IsFlyableArea = function()
         return cfg.isFlyableArea
+    end
+
+    _G.UnitOnTaxi = function(unit)
+        return unit == "player" and cfg.onTaxi == true
     end
 
     _G.InCombatLockdown = function()

@@ -18,7 +18,8 @@
 -- map, and the retail tram is converted.
 --
 -- Loading-screen crossings the zone survey saw replace both ends of a
--- converted transport between the same zones (provenance = "surveyed").
+-- converted transport between the same zones (provenance = "surveyed")
+-- when each end lies within 50 yd of the converted one.
 --
 -- Positions are retail coordinates converted through world space into the
 -- Forever zone that contains them, and are estimates: Cataclysm changed the

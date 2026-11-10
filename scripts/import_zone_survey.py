@@ -3,7 +3,9 @@
 
 The zone survey (QuickRoute/Modules/ZoneSurvey.lua) records, per map the player
 arrives on, where they came from: `walked` counts arrivals without a loading
-screen, `loaded` arrivals with one, and `endpoints` the departure and arrival
+screen, `afoot` the part of those made while the client said the player was not
+on a taxi, `flown` those made on a taxi, `loaded` arrivals with a loading
+screen, and `endpoints` the departure and arrival
 positions of loading-screen crossings. This script reads that table from a
 SavedVariables file and merges the crossings between Forever zones into the
 checked-in observations file. scripts/generate_forever_data.py applies the
@@ -12,6 +14,12 @@ file when it writes QuickRoute/Data/Forever/, so a regeneration keeps them.
 Only crossings whose both maps are Forever zones are kept; everything else is
 counted as rejected. Retail map IDs are not Forever zones, so a retail
 SavedVariables file adds nothing.
+
+Walks are split by what the recording build could tell. An entry with `afoot`
+comes from a build that checks the taxi: `afoot` is stored as `walked` (on foot),
+the rest of its `walked` as `unverifiedWalks`. An entry without `afoot` comes
+from an older build that counted taxi flights as walks: all of its `walked` is
+`unverifiedWalks`. The generator applies `walked` only.
 
 Merging takes the larger count per crossing and per endpoint, never the sum:
 the survey's counts only grow, so importing the same or a later file again
@@ -109,9 +117,18 @@ def merge(observations, survey, zones, tally):
                 tally["rejected: not a Forever zone"] += 1
                 continue
             crossing = by_pair.setdefault((from_map, to_map), {
-                "from": from_map, "to": to_map, "walked": 0, "loaded": 0, "endpoints": []})
-            crossing["walked"] = max(crossing["walked"], int(entry.get("walked") or 0))
-            crossing["loaded"] = max(crossing["loaded"], int(entry.get("loaded") or 0))
+                "from": from_map, "to": to_map, "walked": 0, "unverifiedWalks": 0,
+                "flown": 0, "loaded": 0, "endpoints": []})
+            walked = int(entry.get("walked") or 0)
+            if "afoot" in entry:
+                afoot = int(entry.get("afoot") or 0)
+                counts = {"walked": afoot, "unverifiedWalks": max(0, walked - afoot)}
+            else:
+                counts = {"walked": 0, "unverifiedWalks": walked}
+            counts["flown"] = int(entry.get("flown") or 0)
+            counts["loaded"] = int(entry.get("loaded") or 0)
+            for field, value in counts.items():
+                crossing[field] = max(crossing.get(field, 0), value)
             known = {endpoint_key(e): e for e in crossing["endpoints"]}
             for door in (entry.get("endpoints") or {}).values():
                 if not all(isinstance(door.get(f), (int, float))
