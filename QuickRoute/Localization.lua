@@ -340,6 +340,8 @@ L["SETTINGS_COMMANDS_HINT"] = "/qr - Route window | /qrteleports - Inventory | /
 -- Icon buttons
 L["SETTINGS_ICON_BUTTONS"] = "Use Icon Buttons"
 L["SETTINGS_ICON_BUTTONS_TT"] = "Replace text labels on buttons with icons for a more compact UI"
+L["SETTINGS_DIAGNOSTIC_TRACE"] = "Diagnostic trace (for bug reports)"
+L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "Keep a detailed log of window opens, waypoint changes, quest and travel events in SavedVariables. Written on /reload or logout; export with scripts/export_trace.py. Off by default."
 L["SETTINGS_HEADER_SUBTITLE"] = "Shortest way to your destination, via teleports, portals and spells."
 L["SETTINGS_VERSION"] = "Version"
 L["SETTINGS_TOMTOM"] = "TomTom"
@@ -894,6 +896,8 @@ if GetLocale() == "deDE" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "Symbol-Buttons verwenden"
     L["SETTINGS_ICON_BUTTONS_TT"] = "Textbeschriftungen auf Buttons durch Symbole ersetzen für eine kompaktere Oberfläche"
+    L["SETTINGS_DIAGNOSTIC_TRACE"] = "Diagnose-Protokoll (für Fehlerberichte)"
+    L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "Protokolliert Fensteröffnungen, Wegpunktänderungen, Quest- und Reiseereignisse ausführlich in den SavedVariables. Gespeichert bei /reload oder Abmelden; Export mit scripts/export_trace.py. Standardmäßig aus."
     L["SETTINGS_HEADER_SUBTITLE"] = "Kürzester Weg zum Ziel, über Teleports, Portale und Zauber."
     L["SETTINGS_VERSION"] = "Version"
     L["SETTINGS_TOMTOM"] = "TomTom"
@@ -1220,6 +1224,8 @@ if GetLocale() == "frFR" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "Utiliser les boutons icônes"
     L["SETTINGS_ICON_BUTTONS_TT"] = "Remplacer les libellés texte par des icônes pour une interface plus compacte"
+    L["SETTINGS_DIAGNOSTIC_TRACE"] = "Trace de diagnostic (pour rapports de bogue)"
+    L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "Enregistre en détail les ouvertures de fenêtre, changements de point de passage, événements de quête et de voyage dans les SavedVariables. Écrit lors d'un /reload ou de la déconnexion ; export avec scripts/export_trace.py. Désactivé par défaut."
 
     -- Map teleport button
     L["MAP_BTN_LEFT_CLICK"] = "Clic gauche : Utiliser le téléport"
@@ -1539,6 +1545,8 @@ if esLocale == "esES" or esLocale == "esMX" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "Usar botones de icono"
     L["SETTINGS_ICON_BUTTONS_TT"] = "Reemplazar etiquetas de texto con iconos para una interfaz más compacta"
+    L["SETTINGS_DIAGNOSTIC_TRACE"] = "Registro de diagnóstico (para informes de errores)"
+    L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "Guarda un registro detallado de aperturas de ventana, cambios de punto de ruta y eventos de misión y viaje en las SavedVariables. Se escribe con /reload o al salir; exportar con scripts/export_trace.py. Desactivado por defecto."
 
     -- Map teleport button
     L["MAP_BTN_LEFT_CLICK"] = "Clic izquierdo: Usar teletransporte"
@@ -1857,6 +1865,8 @@ if GetLocale() == "ptBR" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "Usar botões de ícone"
     L["SETTINGS_ICON_BUTTONS_TT"] = "Substituir rótulos de texto por ícones para uma interface mais compacta"
+    L["SETTINGS_DIAGNOSTIC_TRACE"] = "Registro de diagnóstico (para relatórios de erro)"
+    L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "Guarda um registro detalhado de aberturas de janela, mudanças de ponto de navegação e eventos de missão e viagem nas SavedVariables. Gravado no /reload ou ao sair; exportar com scripts/export_trace.py. Desativado por padrão."
 
     -- Map teleport button
     L["MAP_BTN_LEFT_CLICK"] = "Clique esquerdo: Usar teletransporte"
@@ -2175,6 +2185,8 @@ if GetLocale() == "ruRU" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "Кнопки-значки"
     L["SETTINGS_ICON_BUTTONS_TT"] = "Заменить текстовые подписи на значки для более компактного интерфейса"
+    L["SETTINGS_DIAGNOSTIC_TRACE"] = "Диагностический журнал (для отчётов об ошибках)"
+    L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "Подробно записывает открытия окна, смены путевых точек, события заданий и перемещений в SavedVariables. Сохраняется при /reload или выходе; экспорт через scripts/export_trace.py. По умолчанию выключено."
 
     -- Map teleport button
     L["MAP_BTN_LEFT_CLICK"] = "Левый клик: Использовать телепорт"
@@ -2493,6 +2505,8 @@ if GetLocale() == "koKR" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "아이콘 버튼 사용"
     L["SETTINGS_ICON_BUTTONS_TT"] = "더 컴팩트한 UI를 위해 버튼의 텍스트 라벨을 아이콘으로 교체"
+    L["SETTINGS_DIAGNOSTIC_TRACE"] = "진단 기록 (버그 보고용)"
+    L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "창 열림, 웨이포인트 변경, 퀘스트 및 이동 이벤트를 SavedVariables에 자세히 기록합니다. /reload 또는 로그아웃 시 저장되며 scripts/export_trace.py로 내보냅니다. 기본값은 꺼짐입니다."
 
     -- Map teleport button
     L["MAP_BTN_LEFT_CLICK"] = "좌클릭: 텔레포트 사용"
@@ -2811,6 +2825,8 @@ if GetLocale() == "zhCN" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "使用图标按钮"
     L["SETTINGS_ICON_BUTTONS_TT"] = "用图标替换按钮上的文字标签，使界面更紧凑"
+    L["SETTINGS_DIAGNOSTIC_TRACE"] = "诊断记录（用于错误报告）"
+    L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "在 SavedVariables 中详细记录窗口打开、路点变化、任务和旅行事件。在 /reload 或登出时写入；使用 scripts/export_trace.py 导出。默认关闭。"
 
     -- Map teleport button
     L["MAP_BTN_LEFT_CLICK"] = "左键点击：使用传送"
@@ -3129,6 +3145,8 @@ if GetLocale() == "zhTW" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "使用圖示按鈕"
     L["SETTINGS_ICON_BUTTONS_TT"] = "用圖示取代按鈕上的文字標籤，使介面更緊湊"
+    L["SETTINGS_DIAGNOSTIC_TRACE"] = "診斷記錄（用於錯誤回報）"
+    L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "在 SavedVariables 中詳細記錄視窗開啟、路徑點變更、任務與旅行事件。於 /reload 或登出時寫入；使用 scripts/export_trace.py 匯出。預設關閉。"
 
     -- Map teleport button
     L["MAP_BTN_LEFT_CLICK"] = "左鍵點擊：使用傳送"
@@ -3447,6 +3465,8 @@ if GetLocale() == "itIT" then
     -- Icon buttons
     L["SETTINGS_ICON_BUTTONS"] = "Usa pulsanti icona"
     L["SETTINGS_ICON_BUTTONS_TT"] = "Sostituisci le etichette di testo con icone per un'interfaccia più compatta"
+    L["SETTINGS_DIAGNOSTIC_TRACE"] = "Traccia diagnostica (per segnalazioni di bug)"
+    L["SETTINGS_DIAGNOSTIC_TRACE_TT"] = "Registra in dettaglio aperture della finestra, cambi di waypoint, eventi di missione e di viaggio nelle SavedVariables. Scritta con /reload o all'uscita; esporta con scripts/export_trace.py. Disattivata per impostazione predefinita."
 
     -- Map teleport button
     L["MAP_BTN_LEFT_CLICK"] = "Clic sinistro: Usa teletrasporto"

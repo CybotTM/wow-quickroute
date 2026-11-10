@@ -721,7 +721,7 @@ end)
 SLASH_QRINV1 = "/qrinv"
 SlashCmdList["QRINV"] = function(msg)
     if QR.MainFrame then
-        QR.MainFrame:Toggle("teleports")
+        QR.MainFrame:Toggle("teleports", "slash-qrinv")
     else
         PlayerInventory:ScanAll()
         PlayerInventory:PrintDebug()

@@ -2713,23 +2713,23 @@ end
 -------------------------------------------------------------------------------
 
 --- Show the teleport panel (delegates to MainFrame)
-function TeleportPanel:Show()
+function TeleportPanel:Show(reason)
     if QR.MainFrame then
-        QR.MainFrame:Show("teleports")
+        QR.MainFrame:Show("teleports", reason or "teleport-panel-show")
     end
 end
 
 --- Hide the teleport panel (delegates to MainFrame)
-function TeleportPanel:Hide()
+function TeleportPanel:Hide(reason)
     if QR.MainFrame then
-        QR.MainFrame:Hide()
+        QR.MainFrame:Hide(reason or "teleport-panel-hide")
     end
 end
 
 --- Toggle the teleport panel (delegates to MainFrame)
-function TeleportPanel:Toggle()
+function TeleportPanel:Toggle(reason)
     if QR.MainFrame then
-        QR.MainFrame:Toggle("teleports")
+        QR.MainFrame:Toggle("teleports", reason or "teleport-panel-toggle")
     end
 end
 
@@ -2806,5 +2806,5 @@ end
 
 SLASH_QRTELEPORTS1 = "/qrteleports"
 SlashCmdList["QRTELEPORTS"] = function(msg)
-    TeleportPanel:Toggle()
+    TeleportPanel:Toggle("slash-qrteleports")
 end

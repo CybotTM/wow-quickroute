@@ -14,6 +14,7 @@ World of Warcraft addon (Lua 5.1) for optimal travel routing using teleports, po
 | `python3 -m unittest discover -s tests` | Generator and packaging tests (`test_*.py`) | ~1s |
 | `python3 scripts/generate_forever_data.py --forever-csv-dir DIR --retail-csv-dir DIR` | Regenerate `QuickRoute/Data/Forever/*.lua`. Inputs and builds are listed in the script's docstring; it prints kept/dropped counts per file | ~5s |
 | `python3 scripts/import_zone_survey.py "/mnt/f/World of Warcraft/_forever_/WTF/Account/<ACCOUNT>/SavedVariables/QuickRoute.lua"` | Merge the Forever client's zone-survey crossings into `scripts/data/forever_zone_survey.json` (reads the SavedVariables file only; counts are maxima, so re-importing is a no-op). Regenerate the Forever data afterwards to apply them; a retail file adds nothing | ~1s |
+| `python3 scripts/export_trace.py -o trace.jsonl "/mnt/f/World of Warcraft/_retail_/WTF/Account/<ACCOUNT>/SavedVariables/QuickRoute.lua" "/mnt/f/World of Warcraft/_forever_/WTF/Account/<ACCOUNT>/SavedVariables/QuickRoute.lua"` | Export the diagnostic trace (setting "Diagnostic trace") of one or both clients as JSONL, each record tagged `retail` or `forever`, and print a summary: entries per category, and for every window open its reason, stack and the entries of the 2 s before it. Reads the SavedVariables only; never point `-o` under `/mnt/f` | ~1s |
 | `./scripts/lint.sh` | Luacheck over `QuickRoute/` and `tests/`, native or via Docker. Fails when no linter is available | ~3s |
 | `luacheck QuickRoute/ tests/ --config .luacheckrc` | Lint only, native luacheck 1.2.0 | ~2s |
 | `docker run --rm -v "$(pwd):/src" -w /src ghcr.io/lunarmodules/luacheck:v1.2.0 QuickRoute/ tests/ --config .luacheckrc` | Lint without a native luacheck — same version CI pins | ~5s |
@@ -102,10 +103,13 @@ tests/
   run_tests.lua           → Standalone test runner entry point
   mock_wow_api.lua        → Full WoW API mock (~2000 lines)
   addon_loader.lua        → Loads addon files in .toc order for tests
-  test_*.lua              → 86 retail test files covering all modules
-  test_forever_*.lua      → 2 WoW Forever test files (QR_TEST_FLAVOR=forever)
-  test_*.py               → 5 generator, survey-import and packaging tests, run by CI
-                            with python3 -m unittest discover -s tests
+  test_*.lua              → 87 retail test files covering all modules
+  test_forever_*.lua      → 3 WoW Forever test files (QR_TEST_FLAVOR=forever)
+  trace_cases.lua         → Diagnostic-trace cases, run by one test file per flavor
+  make_trace_fixture.lua  → Writes a SavedVariables file with a trace recorded by the
+                            addon on the mock client (input of test_export_trace.py)
+  test_*.py               → 6 generator, survey-import, trace-export and packaging
+                            tests, run by CI with python3 -m unittest discover -s tests
 ```
 
 ## Architecture
@@ -254,6 +258,7 @@ artifacts in a render are simulator defects, not addon defects:
 ## Codebase State
 
 - **SavedVariables**: `QuickRouteDB` (DB_VERSION = 1)
+- **Diagnostic trace** (`Modules/Diagnostics.lua`): setting `diagnosticTrace`, default off, a checkbox at the end of the settings panel. While on, every `QR:Log` line and structured entries go into `QuickRouteDB.trace`: window show/hide/toggle with a `reason` from each call site and a trimmed `debugstack`, waypoint triggers (event or TomTom callback, the tracking state, what was done with it), quest/NPC/zone/travel events (registered only while on, each guarded by `pcall` because the two clients know different events; the ones that failed are listed in the session entry), taxi transitions, asynchronous route requests and results, Lua errors. A ring buffer of `TRACE_CAP` = 20000 entries and an estimated `TRACE_MAX_BYTES` = 6 MiB; QUEST_LOG_UPDATE and QUEST_POI_UPDATE are throttled to one entry per 2 s each, with the hidden count on the next. Measured with `tests/make_trace_fixture.lua retail OUT 20000`: entries the size of a real session reach the byte bound first, at 17,023 entries, and the SavedVariables file is then 5.4 MB (5,384,816 bytes; the estimate runs about 17% above the written size). `/qrdiag clear` deletes it. Window opens pass a reason: give a new call site of `MainFrame:Show/Hide/Toggle`, `UI:Show/Hide/Toggle` or `TeleportPanel:Show/Hide/Toggle` its own reason string. SavedVariables are written on `/reload` or logout only.
 - **Interface**: `120105` (WoW 12.1.5). The live retail build is the authority — check https://wago.tools/api/builds, not the wiki, which lags.
 - **WoW Forever**: `QuickRoute_Camelot.toc`, interface `16001` (product `wowf`, build 1.60.1.70862, client game type "camelot"). `QR.IsForever` is `WOW_PROJECT_ID == WOW_PROJECT_CAMELOT`; use it only where code must differ at runtime. Forever UiMap IDs are the Classic set (Stormwind 1453, Orgrimmar 1454), so a retail map ID in `Data/Forever/` is a bug — `tests/test_forever_data.lua` checks every one.
 - **Release version**: a release bump sets `## Version:` in BOTH `QuickRoute/QuickRoute.toc` and `QuickRoute/QuickRoute_Camelot.toc` (plus the CHANGELOG section). `.github/workflows/release.yml` and `scripts/hooks/pre-push` reject a tag that does not match either TOC, and `tests/test_flavor_tocs.lua` fails when the two TOCs' metadata differ.

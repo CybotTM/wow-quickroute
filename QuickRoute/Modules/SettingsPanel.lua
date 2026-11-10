@@ -188,6 +188,17 @@ local function RegisterNativeSettings()
             if QR.UI and QR.UI.UpdateAllButtonStyles then QR.UI:UpdateAllButtonStyles() end
         end)
 
+    -- Diagnostics
+    RegisterCheckbox(category,
+        L["SETTINGS_DIAGNOSTIC_TRACE"],
+        L["SETTINGS_DIAGNOSTIC_TRACE_TT"],
+        "diagnosticTrace",
+        function(checked)
+            if QR.Diagnostics and QR.Diagnostics.ApplyTraceSetting then
+                QR.Diagnostics:ApplyTraceSetting()
+            end
+        end)
+
     Settings.RegisterAddOnCategory(category)
     return category
 end

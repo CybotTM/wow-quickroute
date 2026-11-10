@@ -47,6 +47,12 @@ function QR:Log(level, msg)
     if logCount < LOG_MAX_ENTRIES then
         logCount = logCount + 1
     end
+    -- With the diagnostic trace on, the line is also kept in SavedVariables.
+    -- Trace never logs, so this cannot recurse.
+    local diagnostics = self.Diagnostics
+    if self.db and self.db.diagnosticTrace and diagnostics and diagnostics.Trace then
+        diagnostics:Trace("log", msg, nil, level)
+    end
 end
 
 --- Get all log entries in chronological order
@@ -161,6 +167,7 @@ function QR:Initialize()
         multiRouteTrips = {},        -- Pending trips, partitioned by character
         currencyVendors = {},         -- Verified merchant observations, partitioned by character
         hearthstoneBinds = {},        -- Observed inn bindings, partitioned by character
+        diagnosticTrace = false,      -- Persist a diagnostic trace (Modules/Diagnostics.lua)
     }
     for k, v in pairs(defaults) do
         if QuickRouteDB[k] == nil or type(QuickRouteDB[k]) ~= type(v) then
@@ -415,11 +422,11 @@ SlashCmdList["QRHELP"] = PrintHelp
 function QuickRoute_OnAddonCompartmentClick(addonName, buttonName)
     if buttonName == "RightButton" then
         if QR.MainFrame then
-            QR.MainFrame:Toggle("teleports")
+            QR.MainFrame:Toggle("teleports", "addon-compartment-right")
         end
     else
         if QR.MainFrame then
-            QR.MainFrame:Toggle("route")
+            QR.MainFrame:Toggle("route", "addon-compartment-left")
         end
     end
 end

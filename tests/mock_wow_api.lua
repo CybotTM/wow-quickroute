@@ -927,6 +927,8 @@ function MockWoW:Install()
 
     -- date (WoW exposes os.date as global 'date')
     _G.date = os.date
+    -- time(): Unix seconds, as the client's global of the same name
+    _G.time = os.time
 
     -- strsplit (WoW global)
     _G.strsplit = function(delimiter, str, pieces)

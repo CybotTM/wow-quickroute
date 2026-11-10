@@ -100,7 +100,7 @@ function QuickRouteSettingsHeaderMixin:OnLoad()
     button:SetText(QR.L["TAB_ROUTE"] .. "  /qr")
     button:SetScript("OnClick", function()
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-        if QR.MainFrame then QR.MainFrame:Show("route") end
+        if QR.MainFrame then QR.MainFrame:Show("route", "settings-header") end
     end)
     button:SetScript("OnEnter", function(owner)
         GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")

@@ -552,23 +552,24 @@ end
 -------------------------------------------------------------------------------
 
 --- Show the UI (delegates to MainFrame)
-function UI:Show()
+-- @param reason string|nil Who asked, for the diagnostic trace
+function UI:Show(reason)
     if QR.MainFrame then
-        QR.MainFrame:Show("route")
+        QR.MainFrame:Show("route", reason or "ui-show")
     end
 end
 
 --- Hide the UI (delegates to MainFrame)
-function UI:Hide()
+function UI:Hide(reason)
     if QR.MainFrame then
-        QR.MainFrame:Hide()
+        QR.MainFrame:Hide(reason or "ui-hide")
     end
 end
 
 --- Toggle the UI (delegates to MainFrame)
-function UI:Toggle()
+function UI:Toggle(reason)
     if QR.MainFrame then
-        QR.MainFrame:Toggle("route")
+        QR.MainFrame:Toggle("route", reason or "ui-toggle")
     end
 end
 
@@ -2443,9 +2444,9 @@ SlashCmdList["QR"] = function(msg)
     if not QR.db then QR:Error("Not initialized yet"); return end
 
     if cmd == "show" then
-        if QR.MainFrame then QR.MainFrame:Show("route") end
+        if QR.MainFrame then QR.MainFrame:Show("route", "slash-qr-show") end
     elseif cmd == "hide" then
-        if QR.MainFrame then QR.MainFrame:Hide() end
+        if QR.MainFrame then QR.MainFrame:Hide("slash-qr-hide") end
     elseif cmd == "debug" then
         QR.debugMode = not QR.debugMode
         QR:Print(QR.debugMode and L["DEBUG_MODE_ENABLED"] or L["DEBUG_MODE_DISABLED"])
@@ -2496,11 +2497,11 @@ SlashCmdList["QR"] = function(msg)
             if serviceType then
                 QR.ServiceRouter:RouteToNearest(serviceType)
                 -- Open the route tab to show results
-                if QR.MainFrame then QR.MainFrame:Show("route") end
+                if QR.MainFrame then QR.MainFrame:Show("route", "slash-qr-service") end
             end
         end
     elseif cmd == "" then
-        if QR.MainFrame then QR.MainFrame:Toggle("route") end
+        if QR.MainFrame then QR.MainFrame:Toggle("route", "slash-qr") end
     else
         -- Show help
         print("|cFF00FF00QuickRoute|r commands:")
@@ -2531,11 +2532,11 @@ local function TakeScreenshotOfPanel(panel)
     if not QR.MainFrame then return end
 
     if panel == "route" then
-        QR.MainFrame:Show("route")
+        QR.MainFrame:Show("route", "screenshot")
     elseif panel == "teleport" then
-        QR.MainFrame:Show("teleports")
+        QR.MainFrame:Show("teleports", "screenshot")
     elseif panel == "search" then
-        QR.MainFrame:Show("teleports")
+        QR.MainFrame:Show("teleports", "screenshot")
         -- Open search dropdown if available
         if QR.TeleportPanel and QR.TeleportPanel.searchBox then
             QR.TeleportPanel.searchBox:SetFocus()

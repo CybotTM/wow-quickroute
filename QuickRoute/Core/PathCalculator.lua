@@ -1253,6 +1253,13 @@ function PathCalculator:CalculatePathAsync(destMapID, destX, destY, destTitle, c
         args = { destMapID, destX, destY, destTitle },
         callback = callback,
     }
+    if QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
+        QR.Diagnostics:Trace("route", "route requested", {
+            destMap = destMapID, destX = destX, destY = destY, destTitle = destTitle,
+            consumer = tostring(consumer), generation = generation,
+            queued = #self.asyncQueue, running = self.asyncRunning ~= nil,
+        })
+    end
     if not self.asyncRunning then self:StepAsync() end
     return generation
 end
@@ -1268,6 +1275,7 @@ function PathCalculator:StepAsync()
     -- Baseline. CalculatePath raises it again if it rebuilds the graph itself,
     -- so only a rebuild by somebody else leaves the two apart.
     pending.graphBuild = self.graphBuild or 0
+    pending.startedAt = GetTime and GetTime() or nil
     pending.thread = coroutine.create(function()
         return self:CalculatePath(pending.args[1], pending.args[2], pending.args[3], pending.args[4])
     end)
@@ -1322,6 +1330,18 @@ function PathCalculator:ResumeAsync()
     -- The callback is guarded. It belongs to whoever asked, and with a queue
     -- behind it a raising callback would strand every request waiting on the
     -- calculator until somebody happened to ask again.
+    if QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
+        local args = running.args or {}
+        QR.Diagnostics:Trace("route", route and "route found" or "no route", {
+            destMap = args[1], destX = args[2], destY = args[3], destTitle = args[4],
+            consumer = tostring(running.consumer), generation = running.generation,
+            seconds = running.startedAt and GetTime and (GetTime() - running.startedAt) or nil,
+            steps = route and route.steps and #route.steps or nil,
+            totalTime = route and route.totalTime or nil,
+            failure = failure and tostring(failure.reason) or nil,
+            superseded = running.superseded and true or false,
+        })
+    end
     if not running.superseded and type(running.callback) == "function" then
         local delivered, err = pcall(running.callback, route, failure)
         if not delivered then

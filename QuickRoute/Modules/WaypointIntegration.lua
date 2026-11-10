@@ -1175,9 +1175,93 @@ end
 -- Event Handling and Hooks
 -------------------------------------------------------------------------------
 
+-------------------------------------------------------------------------------
+-- Diagnostic trace of waypoint triggers
+-------------------------------------------------------------------------------
+
+local MAX_PENDING_TRIGGERS = 8
+
+--- The tracking state at this moment, as scalar fields for the trace.
+-- Every API is guarded: the two clients do not offer the same ones.
+function WaypointIntegration:CollectTraceContext()
+    local f = {
+        settingWaypoint = self._settingWaypoint and true or false,
+        autoDestination = QR.db and QR.db.autoDestination and true or false,
+        destinationLocked = QR.db and QR.db.destinationLocked and true or false,
+    }
+    -- Resolving the waypoint can scan quest data; not mid-fight, for the
+    -- same reason _ProcessWaypointChange waits.
+    local ok, waypoint, source = true, nil, nil
+    if InCombatLockdown and InCombatLockdown() then
+        f.wpSkipped = "combat"
+    else
+        ok, waypoint, source = pcall(self.GetActiveWaypoint, self)
+    end
+    if ok and type(waypoint) == "table" then
+        f.source = source
+        f.wpMap = waypoint.mapID
+        f.wpX = type(waypoint.x) == "number" and math.floor(waypoint.x * 10000 + 0.5) / 10000 or nil
+        f.wpY = type(waypoint.y) == "number" and math.floor(waypoint.y * 10000 + 0.5) / 10000 or nil
+        f.wpTitle = waypoint.title
+    elseif not ok then
+        f.wpError = tostring(waypoint)
+    end
+    if C_SuperTrack then
+        if C_SuperTrack.GetSuperTrackedQuestID then
+            local sok, questID = pcall(C_SuperTrack.GetSuperTrackedQuestID)
+            if sok then f.superQuestID = questID end
+        end
+        if C_SuperTrack.GetHighestPrioritySuperTrackingType then
+            local sok, kind = pcall(C_SuperTrack.GetHighestPrioritySuperTrackingType)
+            if sok then f.superType = kind end
+        end
+        if C_SuperTrack.IsSuperTrackingUserWaypoint then
+            local sok, on = pcall(C_SuperTrack.IsSuperTrackingUserWaypoint)
+            if sok then f.superUserWaypoint = on and true or false end
+        end
+        if C_SuperTrack.GetSuperTrackedMapPin then
+            local sok, pinType, pinID = pcall(C_SuperTrack.GetSuperTrackedMapPin)
+            if sok then f.superPinType, f.superPinID = pinType, pinID end
+        end
+    end
+    if C_Map and C_Map.HasUserWaypoint then
+        local hok, has = pcall(C_Map.HasUserWaypoint)
+        if hok then f.hasUserWaypoint = has and true or false end
+    end
+    if self:HasTomTom() and TomTom.GetClosestWaypoint then
+        local tok, uid = pcall(TomTom.GetClosestWaypoint, TomTom)
+        if tok and type(uid) == "table" then
+            f.tomtomTitle = uid.title
+            f.tomtomMap = uid[1]
+        elseif tok and uid ~= nil then
+            f.tomtomUid = tostring(uid)
+        end
+    end
+    return f
+end
+
+--- Trace one waypoint trigger and what was done with it. No-op when off.
+function WaypointIntegration:TraceTrigger(trigger, outcome, extra)
+    local diagnostics = QR.Diagnostics
+    if not (diagnostics and diagnostics.IsTracing and diagnostics:IsTracing()) then return end
+    local fields = self:CollectTraceContext()
+    fields.trigger = trigger
+    fields.outcome = outcome
+    for k, v in pairs(extra or {}) do fields[k] = v end
+    diagnostics:Trace("waypoint", tostring(trigger) .. " -> " .. tostring(outcome), fields)
+end
+
 --- Called when a waypoint changes (from any source)
 -- Debounced to prevent rapid-fire recalculations when quests cycle
-function WaypointIntegration:OnWaypointChanged()
+-- @param trigger string|nil The event or callback that reported the change.
+--   Every trigger in a debounce window is kept: the first may be the cause.
+-- @param extra table|nil Callback arguments, for the trace
+function WaypointIntegration:OnWaypointChanged(trigger, extra)
+    trigger = trigger or "unspecified"
+    local pending = self._pendingTriggers or {}
+    if #pending < MAX_PENDING_TRIGGERS then pending[#pending + 1] = trigger end
+    self._pendingTriggers = pending
+    self:TraceTrigger(trigger, "debounce", extra)
     if waypointChangedTimer then
         waypointChangedTimer:Cancel()
     end
@@ -1194,11 +1278,15 @@ function WaypointIntegration:_ProcessWaypointChange()
     -- cannot act on until the fight ends is not urgent. Remembered rather than
     -- dropped -- the leave-combat callback registered in RegisterHooks runs it
     -- once, against the state the player is actually in by then.
+    local triggers = self._pendingTriggers
+    local trigger = triggers and #triggers > 0 and table.concat(triggers, "+") or "direct"
     if InCombatLockdown() then
         self._waypointChangePending = "changed"
+        self:TraceTrigger(trigger, "deferred: combat")
         return
     end
     self._waypointChangePending = false
+    self._pendingTriggers = nil
 
     local waypoint, source = self:GetActiveWaypoint()
 
@@ -1222,9 +1310,13 @@ function WaypointIntegration:_ProcessWaypointChange()
     if QR.UI then
         if QR.db and QR.db.autoDestination then
             -- Auto-show and route to new waypoint
-            QR.UI:Show()
+            self:TraceTrigger(trigger, "auto-show")
+            QR.UI:Show("waypoint-auto:" .. trigger)
         elseif QR.MainFrame and QR.MainFrame.isShowing and QR.MainFrame.activeTab == "route" then
+            self:TraceTrigger(trigger, "refresh")
             QR.UI:RefreshRoute()
+        else
+            self:TraceTrigger(trigger, "none: window closed, auto-destination off")
         end
     end
 end
@@ -1236,15 +1328,20 @@ function WaypointIntegration:ResumeDeferredWaypointWork()
     local pending = self._waypointChangePending
     self._waypointChangePending = false
     if pending == "cleared" then
-        self:OnWaypointCleared()
+        self:OnWaypointCleared("combat-resume")
     elseif pending then
+        local triggers = self._pendingTriggers or {}
+        triggers[#triggers + 1] = "combat-resume"
+        self._pendingTriggers = triggers
         self:_ProcessWaypointChange()
     end
 end
 
 --- Called when waypoint is cleared
-function WaypointIntegration:OnWaypointCleared()
+-- @param trigger string|nil The event that reported it, for the trace
+function WaypointIntegration:OnWaypointCleared(trigger)
     QR:Debug("Waypoint cleared")
+    self:TraceTrigger(trigger or "unspecified", InCombatLockdown() and "cleared: deferred, combat" or "cleared")
 
     -- Redrawing the route costs the same graph search as computing one, so it
     -- waits for the fight to end like every other route work. The flag records
@@ -1297,14 +1394,17 @@ function WaypointIntegration:RegisterHooks()
         local ok, err = pcall(function()
             if event == "USER_WAYPOINT_UPDATED" then
                 -- Skip if QuickRoute itself is setting the waypoint (auto-waypoint / POI routing)
-                if WaypointIntegration._settingWaypoint then return end
+                if WaypointIntegration._settingWaypoint then
+                    WaypointIntegration:TraceTrigger(event, "skipped: settingWaypoint")
+                    return
+                end
                 -- User manually placed/removed a map pin: unlock any locked destination
                 if QR.db then QR.db.destinationLocked = false end
                 -- Map pin added/removed
                 if C_Map and C_Map.HasUserWaypoint and C_Map.HasUserWaypoint() then
-                    WaypointIntegration:OnWaypointChanged()
+                    WaypointIntegration:OnWaypointChanged(event)
                 else
-                    WaypointIntegration:OnWaypointCleared()
+                    WaypointIntegration:OnWaypointCleared(event)
                 end
             elseif event == "QUEST_LOG_UPDATE" or event == "QUEST_POI_UPDATE" then
                 -- Objective/turn-in coordinates change without changing questID.
@@ -1312,13 +1412,16 @@ function WaypointIntegration:RegisterHooks()
             elseif event == "SUPER_TRACKING_CHANGED" then
                 -- Native QR guidance updates super-tracking as well as the map
                 -- pin. Those internal events must not unlock the final target.
-                if WaypointIntegration._settingWaypoint then return end
+                if WaypointIntegration._settingWaypoint then
+                    WaypointIntegration:TraceTrigger(event, "skipped: settingWaypoint")
+                    return
+                end
                 -- Don't wipe questCoordCache here — per-questID entries are already
                 -- keyed correctly and wiping destroys negative-result caching, causing
                 -- expensive repeated zone scans when quests cycle rapidly.
                 -- Unlock any locked destination so the new quest's waypoint takes effect
                 if QR.db then QR.db.destinationLocked = false end
-                WaypointIntegration:OnWaypointChanged()
+                WaypointIntegration:OnWaypointChanged(event)
             end
         end)
         if not ok then
@@ -1332,9 +1435,16 @@ function WaypointIntegration:RegisterHooks()
             -- TomTom fires callbacks when waypoints change
             if TomTom.RegisterCallback then
                 TomTom:RegisterCallback("Waypoint", function(event, uid, mapID, x, y, title)
+                    local args = {
+                        ttEvent = tostring(event), ttUid = tostring(uid), ttMap = mapID,
+                        ttX = type(x) == "number" and x or nil, ttY = type(y) == "number" and y or nil,
+                        ttTitle = type(title) == "string" and title or nil,
+                    }
                     -- Skip if QuickRoute itself is setting the waypoint (prevents feedback loop)
                     if not WaypointIntegration._settingWaypoint then
-                        WaypointIntegration:OnWaypointChanged()
+                        WaypointIntegration:OnWaypointChanged("TomTom:Waypoint", args)
+                    else
+                        WaypointIntegration:TraceTrigger("TomTom:Waypoint", "skipped: settingWaypoint", args)
                     end
                 end)
             end
@@ -1344,7 +1454,9 @@ function WaypointIntegration:RegisterHooks()
                 -- Use hooksecurefunc for safe hooking that doesn't overwrite other addons' hooks
                 hooksecurefunc(TomTom, "SetClosestWaypoint", function()
                     if not WaypointIntegration._settingWaypoint then
-                        WaypointIntegration:OnWaypointChanged()
+                        WaypointIntegration:OnWaypointChanged("TomTom:SetClosestWaypoint")
+                    else
+                        WaypointIntegration:TraceTrigger("TomTom:SetClosestWaypoint", "skipped: settingWaypoint")
                     end
                 end)
             end
@@ -1798,7 +1910,7 @@ SlashCmdList["QRWP"] = function(msg)
             print("  Set a waypoint using: Map pin, TomTom, or quest tracking")
             -- Also show UI with error
             if QR.UI then
-                QR.UI:Show()
+                QR.UI:Show("slash-qrwpcost")
             end
             return
         end
@@ -1813,7 +1925,7 @@ SlashCmdList["QRWP"] = function(msg)
         local closes = QR.MainFrame and QR.MainFrame.closeCount
         WaypointIntegration:CalculatePathToWaypointAsync(function(result)
             if QR.UI and not (QR.MainFrame and QR.MainFrame:ClosedSince(closes)) then
-                QR.UI:Show()
+                QR.UI:Show("slash-qrwpcost")
                 if result then
                     QR.UI:UpdateRoute(result)
                 else

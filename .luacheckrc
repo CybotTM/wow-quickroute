@@ -14,6 +14,7 @@ globals = {
     -- WoW API globals
     "WOW_PROJECT_ID", "WOW_PROJECT_MAINLINE", "WOW_PROJECT_CAMELOT",
     "UnitOnTaxi",
+    "time", "GetQuestID", "GetZoneText", "GetSubZoneText",
     "CreateFrame",
     "CreateVector2D",
     "RegisterStateDriver",

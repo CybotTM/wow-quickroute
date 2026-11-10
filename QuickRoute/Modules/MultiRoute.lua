@@ -532,7 +532,7 @@ function MR:DisplayRoute(stop, result)
     result.waypoint, result.waypointSource = waypoint, "map_click"
     if QR.UI then
         QR.UI._pendingPOIRoute = result
-        QR.UI:Show()
+        QR.UI:Show("multiroute")
     end
 end
 
