@@ -461,6 +461,7 @@ function Diagnostics:ApplyTraceSetting()
     local frame = self.traceFrame
     frame:UnregisterAllEvents()
     self.traceEventsRegistered = false
+    if self.Reminder and self.Reminder.Refresh then self.Reminder:Refresh() end
     if not self:IsTracing() then return end
 
     local failed = {}
@@ -851,10 +852,19 @@ function Reminder:Initialize()
         if Reminder.due then Reminder:Check() end
     end)
     self.ticker = ticker
+    self:Refresh()
     if QR.RegisterCombatCallback then
         QR:RegisterCombatCallback(function() Reminder:OnCombatEnter() end,
             function() Reminder:OnCombatLeave() end)
     end
+end
+
+--- Show the ticker only while reminders apply, so its OnUpdate does not run
+-- every frame for a player who records nothing. Called on load and whenever
+-- the trace, the survey or the reminder setting changes.
+function Reminder:Refresh()
+    if not self.ticker then return end
+    if self:Active() then self.ticker:Show() else self.ticker:Hide() end
 end
 
 --- Never on screen in a fight; owed again once it ends.

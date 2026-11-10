@@ -12,7 +12,7 @@ local ZS = QR.ZoneSurvey
 local prefix = "Save reminder (" .. flavor .. "): "
 
 local DB_KEYS = { "saveReminder", "saveReminderMinutes", "saveReminderTimeout",
-    "diagnosticTrace", "zoneSurveyEnabled", "trace" }
+    "diagnosticTrace", "zoneSurveyEnabled", "zoneSurveyChoice", "trace" }
 local CFG_KEYS = { "inCombatLockdown", "onTaxi", "inInstance", "instanceType" }
 
 --- Run a case with every piece of state it touches saved and put back.
@@ -48,6 +48,9 @@ local function withReminder(fn)
 
     if R.popup then R.popup:Hide() end
     for _, k in ipairs(DB_KEYS) do QR.db[k] = saved.db[k] end
+    -- Trace events and the ticker back to what the restored settings say.
+    D:ApplyTraceSetting()
+    QR.db.trace = saved.db.trace
     for _, k in ipairs(CFG_KEYS) do MockWoW.config[k] = saved.cfg[k] end
     D.unsavedTrace = saved.unsavedTrace
     ZS.unsavedCaptures, ZS.unsavedCrossings = saved.captures, saved.crossings
@@ -349,5 +352,28 @@ T:run(prefix .. "the zone survey counts captures and crossings", function(t)
         t:assertEqual(1, ZS.unsavedCrossings, "one crossing between them")
         local total = R:Unsaved()
         t:assertEqual(2, total, "the reminder counts the captures")
+    end)
+end)
+
+T:run(prefix .. "the ticker runs only while reminders apply", function(t)
+    withReminder(function()
+        QR.db.diagnosticTrace = false
+        QR.db.zoneSurveyEnabled = false
+        D:ApplyTraceSetting()
+        t:assertFalse(R.ticker:IsShown(), "trace and survey off: the ticker is hidden")
+        QR.db.diagnosticTrace = true
+        D:ApplyTraceSetting()   -- what the trace checkbox calls
+        t:assertTrue(R.ticker:IsShown(), "trace on: shown")
+        QR.db.diagnosticTrace = false
+        D:ApplyTraceSetting()
+        t:assertFalse(R.ticker:IsShown(), "trace off again: hidden")
+        ZS:SetEnabled(true)     -- the survey checkbox or /qrsurvey on
+        t:assertTrue(R.ticker:IsShown(), "survey on: shown")
+        QR.SettingsPanel.controls.saveReminder.setting._setValue(false)
+        t:assertFalse(R.ticker:IsShown(), "reminders switched off: hidden")
+        QR.SettingsPanel.controls.saveReminder.setting._setValue(true)
+        t:assertTrue(R.ticker:IsShown(), "and on again: shown")
+        ZS:SetEnabled(false)
+        t:assertFalse(R.ticker:IsShown(), "survey off: hidden")
     end)
 end)

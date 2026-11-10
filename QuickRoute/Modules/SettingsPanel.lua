@@ -214,6 +214,7 @@ local function RegisterNativeSettings()
         function(checked)
             local reminder = QR.Diagnostics and QR.Diagnostics.Reminder
             if not checked and reminder and reminder.popup then reminder.popup:Hide() end
+            if reminder and reminder.Refresh then reminder:Refresh() end
         end)
 
     RegisterSlider(category,

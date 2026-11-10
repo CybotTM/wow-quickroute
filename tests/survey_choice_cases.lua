@@ -49,11 +49,25 @@ local function control()
     return QR.SettingsPanel.controls.zoneSurveyEnabled
 end
 
+--- Count QR:Print lines carrying the migration notice during fn.
+local function noticesDuring(fn)
+    local notices = 0
+    local realPrint = QR.Print
+    QR.Print = function(self, msg)
+        if msg == QR.L["ZONE_SURVEY_NOW_OFF"] then notices = notices + 1 end
+    end
+    local ok, err = pcall(fn)
+    QR.Print = realPrint
+    if not ok then error(err, 0) end
+    return notices
+end
+
 local RECORD = { name = "Somewhere", visits = 4, seen = "2026-11-01 10:00:00" }
 
 T:run(prefix .. "a fresh install has the survey off and records nothing", function(t)
     withSurveyState({}, function()
-        ZS:Initialize()   -- what the first login runs
+        local notices = noticesDuring(function() ZS:Initialize() end)   -- what the first login runs
+        t:assertEqual(0, notices, "a fresh install gets no notice")
         t:assertFalse(QR.db.zoneSurveyEnabled == true, "off after the first load (got "
             .. tostring(QR.db.zoneSurveyEnabled) .. ")")
         t:assertFalse(control().setting._getValue(), "and the checkbox says so")
@@ -86,7 +100,9 @@ end)
 
 T:run(prefix .. "the old automatic on is turned off once and the data kept", function(t)
     withSurveyState({ zoneSurveyEnabled = true, zoneSurvey = { [63] = RECORD } }, function()
-        ZS:Initialize()   -- first load of this build
+        local first = noticesDuring(function() ZS:Initialize() end)   -- first load of this build
+        t:assertEqual(1, first, "the player is told once in the chat")
+        t:assertEqual(0, noticesDuring(function() ZS:Initialize() end), "and not again on the next load")
         t:assertFalse(QR.db.zoneSurveyEnabled, "an unmarked true is turned off")
         t:assertNil(QR.db.zoneSurveyChoice, "and not recorded as a choice")
         t:assertNotNil(QR.db.zoneSurvey[63], "the recorded map is still there")

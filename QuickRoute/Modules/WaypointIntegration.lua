@@ -1183,28 +1183,26 @@ local MAX_PENDING_TRIGGERS = 8
 
 --- The tracking state at this moment, as scalar fields for the trace.
 -- Every API is guarded: the two clients do not offer the same ones.
-function WaypointIntegration:CollectTraceContext()
+--
+-- Only state the client reports is read here. The waypoint itself is never
+-- resolved for the trace: resolving a quest whose coordinates are not loaded
+-- yet caches "not found" for that quest, so tracing at trigger time would
+-- change what the debounced change finds. The waypoint is passed in by
+-- _ProcessWaypointChange, which resolves it anyway.
+-- @param waypoint table|nil The waypoint already resolved by the caller
+-- @param source string|nil Its source
+function WaypointIntegration:CollectTraceContext(waypoint, source)
     local f = {
         settingWaypoint = self._settingWaypoint and true or false,
         autoDestination = QR.db and QR.db.autoDestination and true or false,
         destinationLocked = QR.db and QR.db.destinationLocked and true or false,
     }
-    -- Resolving the waypoint can scan quest data; not mid-fight, for the
-    -- same reason _ProcessWaypointChange waits.
-    local ok, waypoint, source = true, nil, nil
-    if InCombatLockdown and InCombatLockdown() then
-        f.wpSkipped = "combat"
-    else
-        ok, waypoint, source = pcall(self.GetActiveWaypoint, self)
-    end
-    if ok and type(waypoint) == "table" then
+    if type(waypoint) == "table" then
         f.source = source
         f.wpMap = waypoint.mapID
         f.wpX = type(waypoint.x) == "number" and math.floor(waypoint.x * 10000 + 0.5) / 10000 or nil
         f.wpY = type(waypoint.y) == "number" and math.floor(waypoint.y * 10000 + 0.5) / 10000 or nil
         f.wpTitle = waypoint.title
-    elseif not ok then
-        f.wpError = tostring(waypoint)
     end
     if C_SuperTrack then
         if C_SuperTrack.GetSuperTrackedQuestID then
@@ -1241,10 +1239,11 @@ function WaypointIntegration:CollectTraceContext()
 end
 
 --- Trace one waypoint trigger and what was done with it. No-op when off.
-function WaypointIntegration:TraceTrigger(trigger, outcome, extra)
+-- @param waypoint table|nil,source string|nil Only where already resolved
+function WaypointIntegration:TraceTrigger(trigger, outcome, extra, waypoint, source)
     local diagnostics = QR.Diagnostics
     if not (diagnostics and diagnostics.IsTracing and diagnostics:IsTracing()) then return end
-    local fields = self:CollectTraceContext()
+    local fields = self:CollectTraceContext(waypoint, source)
     fields.trigger = trigger
     fields.outcome = outcome
     for k, v in pairs(extra or {}) do fields[k] = v end
@@ -1310,13 +1309,13 @@ function WaypointIntegration:_ProcessWaypointChange()
     if QR.UI then
         if QR.db and QR.db.autoDestination then
             -- Auto-show and route to new waypoint
-            self:TraceTrigger(trigger, "auto-show")
+            self:TraceTrigger(trigger, "auto-show", nil, waypoint, source)
             QR.UI:Show("waypoint-auto:" .. trigger)
         elseif QR.MainFrame and QR.MainFrame.isShowing and QR.MainFrame.activeTab == "route" then
-            self:TraceTrigger(trigger, "refresh")
+            self:TraceTrigger(trigger, "refresh", nil, waypoint, source)
             QR.UI:RefreshRoute()
         else
-            self:TraceTrigger(trigger, "none: window closed, auto-destination off")
+            self:TraceTrigger(trigger, "none: window closed, auto-destination off", nil, waypoint, source)
         end
     end
 end
@@ -1435,11 +1434,15 @@ function WaypointIntegration:RegisterHooks()
             -- TomTom fires callbacks when waypoints change
             if TomTom.RegisterCallback then
                 TomTom:RegisterCallback("Waypoint", function(event, uid, mapID, x, y, title)
-                    local args = {
-                        ttEvent = tostring(event), ttUid = tostring(uid), ttMap = mapID,
-                        ttX = type(x) == "number" and x or nil, ttY = type(y) == "number" and y or nil,
-                        ttTitle = type(title) == "string" and title or nil,
-                    }
+                    -- The callback's arguments, for the trace only.
+                    local args
+                    if QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
+                        args = {
+                            ttEvent = tostring(event), ttUid = tostring(uid), ttMap = mapID,
+                            ttX = type(x) == "number" and x or nil, ttY = type(y) == "number" and y or nil,
+                            ttTitle = type(title) == "string" and title or nil,
+                        }
+                    end
                     -- Skip if QuickRoute itself is setting the waypoint (prevents feedback loop)
                     if not WaypointIntegration._settingWaypoint then
                         WaypointIntegration:OnWaypointChanged("TomTom:Waypoint", args)

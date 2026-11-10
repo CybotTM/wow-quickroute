@@ -203,3 +203,58 @@ T:run(prefix .. "a waypoint entry keeps all of its fields", function(t)
         t:assertNil(e and e.f._truncated, "and none dropped")
     end)
 end)
+
+-- A quest tracked a moment ago may have no coordinates yet when the trigger
+-- fires, and have them by the time the debounced change runs. Resolving the
+-- waypoint at trigger time caches "not found" for that quest for 30 s, so the
+-- trace must not do it: with the trace on, the debounced change has to find
+-- the same route as with it off.
+local QUEST = 77001
+local questMap = flavor == "forever" and 1453 or 84
+
+local function questArrivesDuringDebounce()
+    local WI = QR.WaypointIntegration
+    local cfg = MockWoW.config
+    local saved = {
+        newTimer = C_Timer.NewTimer, show = QR.UI.Show,
+        quest = cfg.superTrackedQuestID, title = cfg.questTitles[QUEST], wp = cfg.questWaypoints[QUEST],
+        auto = QR.db.autoDestination, pending = WI._pendingTriggers, combat = cfg.inCombatLockdown,
+    }
+    local queued = {}
+    C_Timer.NewTimer = function(_, callback)
+        queued[#queued + 1] = callback
+        return { Cancel = function() end }
+    end
+    QR.UI.Show = function() end
+    local ok, result = pcall(function()
+        cfg.inCombatLockdown = false
+        QR.db.autoDestination = true
+        WI._pendingTriggers = nil
+        WI:ClearQuestCoordCache()
+        cfg.superTrackedQuestID = QUEST
+        cfg.questTitles[QUEST] = "A quest just accepted"
+        cfg.questWaypoints[QUEST] = nil                       -- not loaded yet
+        WI:OnWaypointChanged("SUPER_TRACKING_CHANGED")
+        cfg.questWaypoints[QUEST] = { mapID = questMap, x = 0.3, y = 0.6 }   -- loaded now
+        for _, callback in ipairs(queued) do callback() end
+        local waypoint = WI:GetActiveWaypoint()
+        local route = waypoint and QR.PathCalculator:CalculatePath(waypoint.mapID, waypoint.x, waypoint.y)
+        return { waypoint = waypoint, route = route }
+    end)
+    C_Timer.NewTimer, QR.UI.Show = saved.newTimer, saved.show
+    cfg.superTrackedQuestID, cfg.questTitles[QUEST], cfg.questWaypoints[QUEST] = saved.quest, saved.title, saved.wp
+    QR.db.autoDestination, WI._pendingTriggers, cfg.inCombatLockdown = saved.auto, saved.pending, saved.combat
+    WI:ClearQuestCoordCache()
+    if not ok then error(result, 0) end
+    return result
+end
+
+T:run(prefix .. "a quest whose coordinates arrive during the debounce is routed with the trace on", function(t)
+    local off, on
+    withTrace(false, function() off = questArrivesDuringDebounce() end)
+    withTrace(true, function() on = questArrivesDuringDebounce() end)
+    t:assertEqual(questMap, off.waypoint and off.waypoint.mapID, "trace off: the quest is the waypoint")
+    t:assertNotNil(off.route, "trace off: a route is found")
+    t:assertEqual(questMap, on.waypoint and on.waypoint.mapID, "trace on: the quest is the waypoint too")
+    t:assertNotNil(on.route, "trace on: a route is found too")
+end)

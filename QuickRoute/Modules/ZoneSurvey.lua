@@ -640,6 +640,8 @@ function ZoneSurvey:SetEnabled(enabled, fromCheckbox)
     local control = panel and panel.controls and panel.controls.zoneSurveyEnabled
     local setting = control and control.setting
     if not fromCheckbox and setting and setting.NotifyUpdate then pcall(setting.NotifyUpdate, setting) end
+    local reminder = QR.Diagnostics and QR.Diagnostics.Reminder
+    if reminder and reminder.Refresh then reminder:Refresh() end
 end
 
 --- Off unless the player switched it on.
@@ -654,6 +656,8 @@ function ZoneSurvey:MigrateDefault()
     if QR.db.zoneSurveyEnabled == true and QR.db.zoneSurveyChoice ~= true then
         QR.db.zoneSurveyEnabled = false
         QR:Debug("ZoneSurvey: turned off; it was on by the old default, not by choice")
+        -- Once: the next load finds an unmarked false and does nothing.
+        QR:Print(QR.L["ZONE_SURVEY_NOW_OFF"])
     end
 end
 
