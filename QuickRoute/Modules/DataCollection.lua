@@ -28,7 +28,7 @@ local ADDON_NAME, QR = ...
 -- Cache frequently-used globals
 local pairs, ipairs, pcall, tostring, tonumber, type = pairs, ipairs, pcall, tostring, tonumber, type
 local string_format = string.format
-local math_floor, math_huge, math_sqrt, math_min = math.floor, math.huge, math.sqrt, math.min
+local math_floor, math_huge, math_sqrt, math_min, math_max = math.floor, math.huge, math.sqrt, math.min, math.max
 local table_remove, table_concat = table.remove, table.concat
 local coroutine_running = coroutine.running
 local date, GetTime = date, GetTime
@@ -48,6 +48,7 @@ local CAPS = {
     calcTimes = 50,
 }
 local ORDER = { "landings", "unknownTeleports", "noRoute", "stepTimes", "rejectedSteps", "calcTimes" }
+DataCollection.CAPS = CAPS
 local MAX_COUNTER = 1000000000
 
 -- A known teleport's loading screen, or the map change it causes, has to begin
@@ -73,6 +74,10 @@ local MISMATCH_DISTANCE = 0.02
 local ARRIVAL_RADIUS = 0.02
 -- A route that has not arrived after this long is dropped, not recorded.
 local MAX_FOLLOW = 7200
+-- A route that takes this many times its estimate was abandoned, not
+-- followed slowly: it is dropped, not recorded. Never less than FOLLOW_FLOOR.
+local FOLLOW_FACTOR = 5
+local FOLLOW_FLOOR = 300
 local SAMPLE_INTERVAL = 1
 
 -------------------------------------------------------------------------------
@@ -227,6 +232,7 @@ function DataCollection:SetEnabled(enabled)
     if not QR.db then return end
     QR.db.dataCollection = enabled == true
     if not QR.db.dataCollection then self:Forget() end
+    self:ApplySetting()
     local reminder = QR.Diagnostics and QR.Diagnostics.Reminder
     if reminder and reminder.Refresh then reminder:Refresh() end
 end
@@ -384,7 +390,11 @@ function DataCollection:RecordLanding(pending, landing)
         local key = string_format("%d:%d:%.3f:%.3f", teleport.id, landing.mapID, landing.x, landing.y)
         return self:Push("landings", entry, key)
     end
-    local entry = { spellID = pending.spellID, name = SpellName(pending.spellID), faction = Faction() }
+    -- A spell of the player's own (a mount, a combat spell cast just before a
+    -- portal) is not a teleport candidate. It is still written, flagged, so a
+    -- portal whose click the client reports as a player spell is not lost.
+    local entry = { spellID = pending.spellID, name = SpellName(pending.spellID), faction = Faction(),
+        playerSpell = pending.playerSpell or nil }
     Point("from", entry, pending.from)
     Point("to", entry, landing)
     -- The game maps on both sides: a portal between two phased or instanced
@@ -429,7 +439,12 @@ function DataCollection:TryLanding()
             and C_Timer and C_Timer.NewTimer then
             pending.attempts = pending.attempts + 1
             C_Timer.NewTimer(RETRY_DELAY, function()
-                if self.pendingCast == pending then self:TryLanding() end
+                if self.pendingCast ~= pending then return end
+                local ok, err = pcall(self.TryLanding, self)
+                if not ok then
+                    self.pendingCast = nil
+                    QR:Debug("DataCollection: " .. tostring(err))
+                end
             end)
         end
         return
@@ -456,7 +471,14 @@ function DataCollection:OnSpellSucceeded(unit, spellID)
     local from = PlayerPoint()
     if not from then self.pendingCast = nil; return end
     local teleport = self:FindTeleport(spellID)
+    local playerSpell = false
+    local isPlayerSpell = _G.IsPlayerSpell
+    if not teleport and type(isPlayerSpell) == "function" then
+        local ok, known = pcall(isPlayerSpell, spellID)
+        playerSpell = ok and Public(known) and known == true
+    end
     self.pendingCast = {
+        playerSpell = playerSpell,
         spellID = spellID,
         teleport = teleport,
         from = from,
@@ -496,6 +518,7 @@ end
 -------------------------------------------------------------------------------
 
 local requestClock = {}
+DataCollection.requestClock = requestClock
 local requestCount = 0
 
 local function InAsyncSearch(PC)
@@ -551,8 +574,12 @@ function DataCollection:InstallRouteHooks()
     self.routeHooksInstalled = true
 
     local calculate = PC.CalculatePath
+    -- Only the live calculator is recorded. A route context (the multi-stop
+    -- planner's matrix, MultiRoute:OptimizeTour) calls the same function from
+    -- other starts than the player's; its legs are neither failures nor
+    -- timings of a route anybody asked for.
     PC.CalculatePath = function(calc, destMapID, destX, destY, destTitle)
-        if not IsOn() then return calculate(calc, destMapID, destX, destY, destTitle) end
+        if calc ~= PC or not IsOn() then return calculate(calc, destMapID, destX, destY, destTitle) end
         local started = Clock()
         local route, failure = calculate(calc, destMapID, destX, destY, destTitle)
         pcall(DataCollection.AfterCalculation, DataCollection, calc, started, route, failure,
@@ -562,10 +589,13 @@ function DataCollection:InstallRouteHooks()
 
     local async = PC.CalculatePathAsync
     PC.CalculatePathAsync = function(calc, ...)
-        if IsOn() then
+        if calc == PC and IsOn() then
             -- The generation this request is about to get. Remembered by
             -- generation because the queue entry does not exist yet.
-            if requestCount > 64 then requestClock, requestCount = {}, 0 end
+            if requestCount > 64 then
+                requestClock, requestCount = {}, 0
+                DataCollection.requestClock = requestClock
+            end
             requestClock[(calc.asyncGeneration or 0) + 1] = Clock()
             requestCount = requestCount + 1
         end
@@ -574,7 +604,7 @@ function DataCollection:InstallRouteHooks()
 
     local resume = PC.ResumeAsync
     PC.ResumeAsync = function(calc, ...)
-        local running = calc.asyncRunning
+        local running = calc == PC and calc.asyncRunning or nil
         if running and IsOn() then
             running.dcSlices = (running.dcSlices or 0) + 1
             if not running.dcStarted then
@@ -651,16 +681,32 @@ local function DestinationKey(waypoint)
     return string_format("%d:%.3f:%.3f", waypoint.mapID, waypoint.x, waypoint.y)
 end
 
+--- Stop timing: the route is gone, cleared or abandoned. One last sample
+-- first, so an arrival that happened since the last tick is still recorded.
+function DataCollection:EndFollow()
+    if not self.follow then return end
+    pcall(self.SampleRoute, self)
+    self.follow = nil
+end
+
+local function WindowCloses()
+    return QR.MainFrame and QR.MainFrame.closeCount or nil
+end
+
 function DataCollection:OnRouteShown(result)
     if not IsOn() or type(result) ~= "table" then return end
     local waypoint = result.waypoint
     if type(waypoint) ~= "table" or not IsID(waypoint.mapID)
-        or not IsCoordinate(waypoint.x) or not IsCoordinate(waypoint.y) then return end
-    if type(result.steps) ~= "table" or #result.steps == 0 then return end
+        or not IsCoordinate(waypoint.x) or not IsCoordinate(waypoint.y)
+        or type(result.steps) ~= "table" or #result.steps == 0 then
+        -- No route on screen any more: nothing to follow.
+        self:EndFollow()
+        return
+    end
     local key = DestinationKey(waypoint)
     local now = GetTime()
     local follow = self.follow
-    if follow and follow.key == key and now - follow.startedAt <= MAX_FOLLOW then return end
+    if follow and follow.key == key and now - follow.startedAt <= follow.limit then return end
     local here = PlayerPoint()
     if not here then self.follow = nil; return end
     local steps = {}
@@ -669,11 +715,18 @@ function DataCollection:OnRouteShown(result)
         steps[i] = { type = tostring(step.type), time = IsFinite(step.time) and step.time or 0,
             destMapID = step.destMapID }
     end
+    local estimate = IsFinite(result.totalTime) and result.totalTime > 0 and result.totalTime or nil
+    local source = result.waypointSource
+    if not (Public(source) and type(source) == "string") then source = waypoint.source end
     self.follow = {
         key = key,
         dest = { mapID = waypoint.mapID, x = waypoint.x, y = waypoint.y },
-        source = waypoint.source,
-        estimate = IsFinite(result.totalTime) and result.totalTime or nil,
+        -- WaypointIntegration and the route panel put the source on the
+        -- result; a waypoint carries it only for saved and locked targets.
+        source = Public(source) and type(source) == "string" and source or nil,
+        estimate = estimate,
+        limit = estimate and math_min(MAX_FOLLOW, math_max(FOLLOW_FLOOR, estimate * FOLLOW_FACTOR)) or MAX_FOLLOW,
+        closes = WindowCloses(),
         startedAt = now,
         legStart = now,
         legMap = here.mapID,
@@ -711,7 +764,9 @@ function DataCollection:SampleRoute()
     if not follow then return end
     if not IsOn() then self.follow = nil; return end
     local now = GetTime()
-    if now - follow.startedAt > MAX_FOLLOW then self.follow = nil; return end
+    if now - follow.startedAt > follow.limit then self.follow = nil; return end
+    -- The route window was closed since the route was shown: abandoned.
+    if follow.closes and WindowCloses() ~= follow.closes then self.follow = nil; return end
     local here = PlayerPoint()
     if not here then return end
 
@@ -793,31 +848,57 @@ function DataCollection:Initialize()
         end)
         self.uiHookInstalled = true
     end
-    if self.frame then return end
-    local frame = CreateFrame("Frame")
-    for _, event in ipairs({ "UNIT_SPELLCAST_SUCCEEDED", "LOADING_SCREEN_ENABLED",
-        "LOADING_SCREEN_DISABLED", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED",
-        "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "GET_ITEM_INFO_RECEIVED" }) do
-        frame:RegisterEvent(event)
+    if hooksecurefunc and QR.UI and QR.UI.ClearRoute and not self.clearHookInstalled then
+        -- The waypoint was cleared: the route on screen is gone.
+        hooksecurefunc(QR.UI, "ClearRoute", function()
+            pcall(DataCollection.EndFollow, DataCollection)
+        end)
+        self.clearHookInstalled = true
     end
-    frame:SetScript("OnEvent", function(_, event, ...)
-        local ok, err = pcall(DataCollection.OnEvent, DataCollection, event, ...)
-        if not ok then QR:Debug("DataCollection: " .. tostring(err)) end
-    end)
-    frame.sampleElapsed = 0
-    frame:SetScript("OnUpdate", function(f, elapsed)
-        if not DataCollection.follow then return end
-        f.sampleElapsed = f.sampleElapsed + (elapsed or 0)
-        if f.sampleElapsed < SAMPLE_INTERVAL then return end
-        f.sampleElapsed = 0
-        local ok, err = pcall(DataCollection.SampleRoute, DataCollection)
-        if not ok then
-            DataCollection.follow = nil
-            QR:Debug("DataCollection: " .. tostring(err))
-        end
-    end)
-    self.frame = frame
+    if not self.frame and CreateFrame then
+        local frame = CreateFrame("Frame")
+        frame:SetScript("OnEvent", function(_, event, ...)
+            local ok, err = pcall(DataCollection.OnEvent, DataCollection, event, ...)
+            if not ok then QR:Debug("DataCollection: " .. tostring(err)) end
+        end)
+        frame.sampleElapsed = 0
+        self.frame = frame
+    end
+    self:ApplySetting()
     QR:Debug("DataCollection initialized")
+end
+
+local EVENTS = { "UNIT_SPELLCAST_SUCCEEDED", "LOADING_SCREEN_ENABLED",
+    "LOADING_SCREEN_DISABLED", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED",
+    "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "GET_ITEM_INFO_RECEIVED" }
+DataCollection.EVENTS = EVENTS
+
+local function OnUpdate(f, elapsed)
+    if not DataCollection.follow then return end
+    f.sampleElapsed = f.sampleElapsed + (elapsed or 0)
+    if f.sampleElapsed < SAMPLE_INTERVAL then return end
+    f.sampleElapsed = 0
+    local ok, err = pcall(DataCollection.SampleRoute, DataCollection)
+    if not ok then
+        DataCollection.follow = nil
+        QR:Debug("DataCollection: " .. tostring(err))
+    end
+end
+
+--- Events and the sampling OnUpdate only while the switch is on, as the
+-- diagnostic trace does: a player who records nothing pays nothing per frame.
+-- RegisterEvent is guarded, the two clients do not know the same events.
+function DataCollection:ApplySetting()
+    local frame = self.frame
+    if not frame then return end
+    if IsOn() then
+        for _, event in ipairs(EVENTS) do pcall(frame.RegisterEvent, frame, event) end
+        frame.sampleElapsed = 0
+        frame:SetScript("OnUpdate", OnUpdate)
+    else
+        if frame.UnregisterAllEvents then frame:UnregisterAllEvents() end
+        frame:SetScript("OnUpdate", nil)
+    end
 end
 
 -------------------------------------------------------------------------------

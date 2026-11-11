@@ -68,6 +68,7 @@ local function restore(saved)
     DC.unsavedCount = saved.unsaved
     ZS.unsavedCaptures, ZS.unsavedCrossings = saved.captures, saved.crossings
     ZS:ForgetArrivalState()
+    DC:ApplySetting()
     local reminder = QR.Diagnostics and QR.Diagnostics.Reminder
     if reminder and reminder.Refresh then reminder:Refresh() end
 end
@@ -570,9 +571,12 @@ end)
 -- (d) Estimated against measured time
 -------------------------------------------------------------------------------
 
+-- The source sits on the result, where WaypointIntegration puts it
+-- (result.waypointSource), not on the waypoint.
 local function ironforgeRoute()
     return {
-        waypoint = { mapID = F.ironforge, x = 0.3, y = 0.7, title = "Ironforge", source = "test" },
+        waypoint = { mapID = F.ironforge, x = 0.3, y = 0.7, title = "Ironforge" },
+        waypointSource = "test",
         totalTime = 100,
         steps = {
             { type = "walk", time = 20, fromMapID = F.stormwind, destMapID = F.stormwind },
@@ -607,6 +611,7 @@ T:run(prefix .. "a followed route records each leg and the whole trip", function
         t:assertEqual("walk", last.types, "the last leg is the walk")
         t:assertEqual(25, last.measured, "measured 25")
         t:assertEqual("route", trip.kind, "then the trip")
+        t:assertEqual("test", trip.source, "with the source the result carries, got " .. tostring(trip.source))
         t:assertEqual(100, trip.estimated, "against the route's estimate")
         t:assertEqual(65, trip.measured, "measured start to arrival")
         t:assertNil(trip.diverged, "on plan")
@@ -803,5 +808,207 @@ T:run(prefix .. "every write counts as unsaved, a clear resets the count", funct
         PC:CalculatePath(0, 0.5, 0.5)
         DC:Push("noRoute", { reason = "test" }, "k1")
         t:assertEqual(0, DC.unsavedCount, "nothing counted while off, got " .. tostring(DC.unsavedCount))
+    end)
+end)
+
+-------------------------------------------------------------------------------
+-- Review round 1
+-------------------------------------------------------------------------------
+
+T:run(prefix .. "the multi-stop planner's legs are not recorded", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        local context = PC:CreateRouteContext({ excludeCooldowns = true })
+        t:assertNotNil(context, "a route context like MultiRoute:OptimizeTour builds")
+        if not context then return end
+        context:CalculatePathFrom(F.ironforge, 0.5, 0.5, 0, 0.5, 0.5, { excludeCooldowns = true })
+        local leg = context:CalculatePathFrom(F.ironforge, 0.5, 0.5, F.ironforge, 0.6, 0.6,
+            { excludeCooldowns = true })
+        t:assertNotNil(leg, "the planner's leg still gets its route")
+        t:assertEqual(0, #list("noRoute"), "a failed leg is no route failure, got " .. #list("noRoute"))
+        t:assertEqual(0, #list("calcTimes"), "legs are not timed, got " .. #list("calcTimes"))
+        PC:CalculatePath(0, 0.5, 0.5)
+        t:assertEqual(1, #list("noRoute"), "the live calculator still records")
+    end)
+end)
+
+T:run(prefix .. "the calculation wrapper does nothing while switched off", function(t)
+    withCollection(false, function()
+        local calls = 0
+        local saved = DC.AfterCalculation
+        DC.AfterCalculation = function(...) calls = calls + 1; return saved(...) end
+        local ok, err = pcall(function()
+            at(F.stormwind, 0.5, 0.5)
+            PC:CalculatePath(F.stormwind, 0.6, 0.6)
+            t:assertEqual(0, calls, "off: the recording step is not reached, got " .. calls)
+            QR.db.dataCollection = true
+            PC:CalculatePath(F.stormwind, 0.6, 0.6)
+            t:assertEqual(1, calls, "on: it is, got " .. calls)
+        end)
+        DC.AfterCalculation = saved
+        t:assertTrue(ok, "ran: " .. tostring(err))
+    end)
+end)
+
+T:run(prefix .. "an asynchronous request leaves no clock reading while switched off", function(t)
+    withCollection(false, function()
+        for k in pairs(DC.requestClock) do DC.requestClock[k] = nil end
+        at(F.stormwind, 0.5, 0.5)
+        PC:CalculatePathAsync(F.stormwind, 0.6, 0.6, nil, function() end, { consumer = QR.ROUTE_CONSUMER.API })
+        t:assertNil(next(DC.requestClock), "no request clock while off")
+    end)
+end)
+
+T:run(prefix .. "every list keeps only its cap, newest last", function(t)
+    withCollection(true, function()
+        for name, cap in pairs(DC.CAPS) do
+            for i = 1, cap + 5 do DC:Push(name, { n = i }) end
+            local entries = list(name)
+            t:assertEqual(cap, #entries, name .. " is cut to " .. cap .. ", got " .. #entries)
+            t:assertEqual(6, entries[1] and entries[1].n, name .. " dropped the five oldest")
+            t:assertEqual(cap + 5, entries[#entries] and entries[#entries].n, name .. " kept the newest")
+        end
+    end)
+end)
+
+T:run(prefix .. "a second loading screen before the landing drops the cast", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", IRONFORGE)
+        event("LOADING_SCREEN_ENABLED")
+        event("LOADING_SCREEN_ENABLED")
+        t:assertNil(DC.pendingCast, "the cast is dropped")
+        at(F.ironforge, 0.2750, 0.7350)
+        event("LOADING_SCREEN_DISABLED")
+        t:assertEqual(0, #list("landings"), "and nothing is filed as its landing")
+    end)
+end)
+
+T:run(prefix .. "a cast during the loading screen does not replace the teleport", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", IRONFORGE)
+        event("LOADING_SCREEN_ENABLED")
+        event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-2", 990002)
+        at(F.ironforge, 0.2750, 0.7350)
+        event("LOADING_SCREEN_DISABLED")
+        local e = list("landings")[1]
+        t:assertEqual(IRONFORGE, e and e.id, "the landing belongs to the teleport, got " .. tostring(e and e.id))
+        t:assertEqual(F.stormwind, e and e.fromMapID, "cast from Stormwind")
+        t:assertEqual(0, #list("unknownTeleports"), "the later cast is no unknown teleport")
+    end)
+end)
+
+T:run(prefix .. "a player spell before a loading screen is flagged, not dropped", function(t)
+    local saved = _G.IsPlayerSpell
+    _G.IsPlayerSpell = function(id) return id == 990005 end
+    local ok, err = pcall(withCollection, true, function()
+        local to = F.unknownTo
+        castAndLand(990005, to.mapID, to.x, to.y, F.unknownFrom)
+        castAndLand(990006, to.mapID, to.x, to.y, F.unknownFrom)
+        local entries = list("unknownTeleports")
+        t:assertEqual(2, #entries, "both are kept, got " .. #entries)
+        t:assertTrue(entries[1] and entries[1].playerSpell, "the player's own spell is flagged")
+        t:assertNil(entries[2] and entries[2].playerSpell, "another spell is not")
+    end)
+    _G.IsPlayerSpell = saved
+    t:assertTrue(ok, "ran: " .. tostring(err))
+end)
+
+T:run(prefix .. "a failing landing retry does not raise from the timer", function(t)
+    withCollection(true, function()
+        local savedTimer, savedTry = C_Timer.NewTimer, DC.TryLanding
+        local queued
+        C_Timer.NewTimer = function(_, fn) queued = fn; return { Cancel = function() end } end
+        local ok, err = pcall(function()
+            castAndLand(IRONFORGE, F.continent, 0.5, 0.5)
+            t:assertNotNil(queued, "the continent schedules a retry")
+            DC.TryLanding = function() error("retry failed") end
+            local fired = pcall(queued)
+            t:assertTrue(fired, "the timer callback does not raise")
+            t:assertNil(DC.pendingCast, "and drops the cast")
+        end)
+        C_Timer.NewTimer, DC.TryLanding = savedTimer, savedTry
+        t:assertTrue(ok, "ran: " .. tostring(err))
+    end)
+end)
+
+T:run(prefix .. "events and sampling are registered only while switched on", function(t)
+    withCollection(false, function()
+        local frame = DC.frame
+        t:assertNotNil(frame, "the frame exists")
+        if not frame then return end
+        DC:SetEnabled(false)
+        for _, name in ipairs(DC.EVENTS) do
+            t:assertFalse(frame:IsEventRegistered(name), "off: " .. name .. " is not registered")
+        end
+        t:assertNil(frame:GetScript("OnUpdate"), "off: no OnUpdate")
+        DC:SetEnabled(true)
+        for _, name in ipairs(DC.EVENTS) do
+            t:assertTrue(frame:IsEventRegistered(name), "on: " .. name .. " is registered")
+        end
+        t:assertNotNil(frame:GetScript("OnUpdate"), "on: OnUpdate samples the route")
+        DC:SetEnabled(false)
+        t:assertFalse(frame:IsEventRegistered("UNIT_SPELLCAST_SUCCEEDED"), "off again: unregistered")
+    end)
+end)
+
+local function arrive()
+    at(F.ironforge, 0.3, 0.7)
+    DC:SampleRoute()
+end
+
+T:run(prefix .. "a cleared route is no longer timed", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(ironforgeRoute())
+        t:assertNotNil(DC.follow, "followed")
+        local savedFrame = QR.UI.frame
+        QR.UI.frame = nil   -- ClearRoute returns at once; the hook still runs
+        QR.UI:ClearRoute()
+        QR.UI.frame = savedFrame
+        t:assertNil(DC.follow, "dropped when the waypoint is cleared")
+        arrive()
+        t:assertEqual(0, #list("stepTimes"), "nothing recorded afterwards")
+    end)
+end)
+
+T:run(prefix .. "a closed route window ends the timing", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(ironforgeRoute())
+        QR.MainFrame.closeCount = (QR.MainFrame.closeCount or 0) + 1
+        arrive()
+        t:assertNil(DC.follow, "dropped")
+        t:assertEqual(0, #list("stepTimes"), "nothing recorded, got " .. #list("stepTimes"))
+    end)
+end)
+
+T:run(prefix .. "a route shown without steps ends the timing", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(ironforgeRoute())
+        DC:OnRouteShown({ waypoint = ironforgeRoute().waypoint, steps = {} })
+        t:assertNil(DC.follow, "dropped")
+        arrive()
+        t:assertEqual(0, #list("stepTimes"), "nothing recorded")
+    end)
+end)
+
+T:run(prefix .. "a trip far beyond its estimate is dropped, not recorded", function(t)
+    withCollection(true, function()
+        -- Estimate 100 s: the limit is 5 x 100 = 500 s.
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(ironforgeRoute())
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 499
+        arrive()
+        t:assertEqual(3, #list("stepTimes"), "499 s is still recorded, got " .. #list("stepTimes"))
+        QR.db.observations = nil
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(ironforgeRoute())
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 501
+        arrive()
+        t:assertEqual(0, #list("stepTimes"), "501 s is abandoned, got " .. #list("stepTimes"))
+        t:assertNil(DC.follow, "and no longer followed")
     end)
 end)
