@@ -681,16 +681,18 @@ local function DestinationKey(waypoint)
     return string_format("%d:%.3f:%.3f", waypoint.mapID, waypoint.x, waypoint.y)
 end
 
---- Stop timing: the route is gone, cleared or abandoned. One last sample
--- first, so an arrival that happened since the last tick is still recorded.
+--- Stop timing: the route is gone, cleared, replaced or abandoned. One last
+-- sample first, so an arrival that happened since the last tick is still
+-- recorded.
+--
+-- Abandonment is decided by the waypoint, never by the route window: the
+-- window hides itself when combat starts, and travelling with it closed on
+-- TomTom's arrow is supported. A route ends on UI:ClearRoute, on a route for
+-- another destination, on a route without steps, or past its time limit.
 function DataCollection:EndFollow()
     if not self.follow then return end
     pcall(self.SampleRoute, self)
     self.follow = nil
-end
-
-local function WindowCloses()
-    return QR.MainFrame and QR.MainFrame.closeCount or nil
 end
 
 function DataCollection:OnRouteShown(result)
@@ -707,6 +709,8 @@ function DataCollection:OnRouteShown(result)
     local now = GetTime()
     local follow = self.follow
     if follow and follow.key == key and now - follow.startedAt <= follow.limit then return end
+    -- Another destination: the old one may just have been reached.
+    self:EndFollow()
     local here = PlayerPoint()
     if not here then self.follow = nil; return end
     local steps = {}
@@ -726,7 +730,6 @@ function DataCollection:OnRouteShown(result)
         source = Public(source) and type(source) == "string" and source or nil,
         estimate = estimate,
         limit = estimate and math_min(MAX_FOLLOW, math_max(FOLLOW_FLOOR, estimate * FOLLOW_FACTOR)) or MAX_FOLLOW,
-        closes = WindowCloses(),
         startedAt = now,
         legStart = now,
         legMap = here.mapID,
@@ -765,8 +768,6 @@ function DataCollection:SampleRoute()
     if not IsOn() then self.follow = nil; return end
     local now = GetTime()
     if now - follow.startedAt > follow.limit then self.follow = nil; return end
-    -- The route window was closed since the route was shown: abandoned.
-    if follow.closes and WindowCloses() ~= follow.closes then self.follow = nil; return end
     local here = PlayerPoint()
     if not here then return end
 

@@ -54,6 +54,8 @@ local function snapshot()
         unsaved = DC.unsavedCount,
         captures = ZS.unsavedCaptures,
         crossings = ZS.unsavedCrossings,
+        closeCount = QR.MainFrame and QR.MainFrame.closeCount,
+        isShowing = QR.MainFrame and QR.MainFrame.isShowing,
     }
 end
 
@@ -67,6 +69,9 @@ local function restore(saved)
     DC.follow = saved.follow
     DC.unsavedCount = saved.unsaved
     ZS.unsavedCaptures, ZS.unsavedCrossings = saved.captures, saved.crossings
+    if QR.MainFrame then
+        QR.MainFrame.closeCount, QR.MainFrame.isShowing = saved.closeCount, saved.isShowing
+    end
     ZS:ForgetArrivalState()
     DC:ApplySetting()
     local reminder = QR.Diagnostics and QR.Diagnostics.Reminder
@@ -973,11 +978,30 @@ T:run(prefix .. "a cleared route is no longer timed", function(t)
     end)
 end)
 
-T:run(prefix .. "a closed route window ends the timing", function(t)
+-- Abandonment is decided by the waypoint, not by the window: MainFrame hides
+-- itself when combat starts, and travelling with it closed is supported.
+T:run(prefix .. "a closed route window, a combat hide included, keeps the timing", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(ironforgeRoute())
+        QR.MainFrame.closeCount = (QR.MainFrame.closeCount or 0) + 1   -- ESC or the close button
+        pcall(QR.MainFrame.Hide, QR.MainFrame, "combat")                -- the combat-enter hide
+        DC:SampleRoute()
+        t:assertNotNil(DC.follow, "still followed with the window closed")
+        arrive()
+        t:assertEqual(3, #list("stepTimes"), "both legs and the trip recorded, got " .. #list("stepTimes"))
+    end)
+end)
+
+T:run(prefix .. "a cleared waypoint still ends the timing with the window closed", function(t)
     withCollection(true, function()
         at(F.stormwind, 0.5, 0.5)
         DC:OnRouteShown(ironforgeRoute())
         QR.MainFrame.closeCount = (QR.MainFrame.closeCount or 0) + 1
+        local savedFrame = QR.UI.frame
+        QR.UI.frame = nil
+        QR.UI:ClearRoute()
+        QR.UI.frame = savedFrame
         arrive()
         t:assertNil(DC.follow, "dropped")
         t:assertEqual(0, #list("stepTimes"), "nothing recorded, got " .. #list("stepTimes"))
@@ -1010,5 +1034,84 @@ T:run(prefix .. "a trip far beyond its estimate is dropped, not recorded", funct
         arrive()
         t:assertEqual(0, #list("stepTimes"), "501 s is abandoned, got " .. #list("stepTimes"))
         t:assertNil(DC.follow, "and no longer followed")
+    end)
+end)
+
+-------------------------------------------------------------------------------
+-- Review round 2
+-------------------------------------------------------------------------------
+
+T:run(prefix .. "a /reload with the switch on registers events and sampling again", function(t)
+    withCollection(true, function()
+        local frame = DC.frame
+        t:assertNotNil(frame, "the frame exists")
+        if not frame then return end
+        frame:UnregisterAllEvents()
+        frame:SetScript("OnUpdate", nil)
+        DC:Initialize()
+        for _, name in ipairs(DC.EVENTS) do
+            t:assertTrue(frame:IsEventRegistered(name), "after Initialize " .. name .. " is registered")
+        end
+        t:assertNotNil(frame:GetScript("OnUpdate"), "and the sampling OnUpdate is set")
+    end)
+end)
+
+local function routeWithEstimate(seconds)
+    local route = ironforgeRoute()
+    route.totalTime = seconds
+    return route
+end
+
+T:run(prefix .. "a short trip gets at least 300 s", function(t)
+    withCollection(true, function()
+        -- Estimate 20 s: 5 x 20 = 100 s, raised to the 300 s floor.
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(routeWithEstimate(20))
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 299
+        arrive()
+        t:assertEqual(3, #list("stepTimes"), "299 s is still recorded, got " .. #list("stepTimes"))
+    end)
+end)
+
+T:run(prefix .. "no trip is timed past 7200 s", function(t)
+    withCollection(true, function()
+        -- Estimate 2000 s: 5 x 2000 = 10000 s, capped at 7200 s.
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(routeWithEstimate(2000))
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 7201
+        arrive()
+        t:assertEqual(0, #list("stepTimes"), "7201 s is dropped, got " .. #list("stepTimes"))
+        t:assertNil(DC.follow, "and no longer followed")
+    end)
+end)
+
+T:run(prefix .. "an arrival just before the route is cleared is still recorded", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(ironforgeRoute())
+        at(F.ironforge, 0.3, 0.7)   -- arrived; no sample since
+        local savedFrame = QR.UI.frame
+        QR.UI.frame = nil
+        QR.UI:ClearRoute()
+        QR.UI.frame = savedFrame
+        local trip = list("stepTimes")[#list("stepTimes")]
+        t:assertEqual("route", trip and trip.kind, "the trip is recorded by the last sample")
+        t:assertNil(DC.follow, "and the route is no longer followed")
+    end)
+end)
+
+T:run(prefix .. "an arrival just before a new route is shown is still recorded", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        DC:OnRouteShown(ironforgeRoute())
+        at(F.ironforge, 0.3, 0.7)   -- arrived; no sample since
+        local nextRoute = ironforgeRoute()
+        nextRoute.waypoint = { mapID = F.stormwind, x = 0.6, y = 0.6, title = "next" }
+        nextRoute.steps = { { type = "portal", time = 10, fromMapID = F.ironforge, destMapID = F.stormwind } }
+        DC:OnRouteShown(nextRoute)
+        local trips = 0
+        for _, e in ipairs(list("stepTimes")) do if e.kind == "route" then trips = trips + 1 end end
+        t:assertEqual(1, trips, "the first trip is recorded, got " .. trips)
+        t:assertEqual(F.stormwind, DC.follow and DC.follow.dest.mapID, "and the new route is followed")
     end)
 end)
