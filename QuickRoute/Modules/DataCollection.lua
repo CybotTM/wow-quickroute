@@ -697,18 +697,22 @@ function DataCollection:EndFollow()
     self.follow = nil
 end
 
--- What a waypoint signal does to a followed route mirrors what the panel does
--- on its next refresh (UI:RefreshRoute):
---   * A locked destination (sources "locked" and "map_click": a map click, a
---     multi-stop leg) is routed to while QR.db.destinationLocked is set. A map
---     pin or super-tracking event clears the lock before WaypointIntegration is
---     told, so after those the route is judged like any other.
+-- What a waypoint signal, and a later sample, does to a followed route is
+-- judged against what the panel would show on its next refresh
+-- (UI:RefreshRoute):
+--   * While QR.db.destinationLocked is set and QR.db.lastDestination is valid,
+--     the panel routes to lastDestination whatever the quest or pin does. A
+--     follow for that destination is kept; a follow for any other is ended,
+--     also without a waypoint event (a map click or a multi-stop leg chosen
+--     with the window closed only saves and locks). A map pin or
+--     super-tracking event clears the lock before WaypointIntegration is told.
 --   * Without a waypoint, a super-tracked quest or a map pin, the panel falls
---     back to QR.db.lastDestination. When that is the followed destination the
---     route goes on, now as "saved".
---   * "saved" and "dungeon_offer" are not ended by any waypoint signal (owner's
---     decision); only the panel (ClearRoute, UpdateRoute) or the time limit
---     ends them.
+--     back to lastDestination. When that is the followed destination the route
+--     goes on with its own source, marked `fallback`; the next event is judged
+--     the same way again.
+--   * Routes the panel showed as "saved" and the dungeon offer's route are not
+--     ended by a waypoint signal (owner's decision); only the panel
+--     (ClearRoute, UpdateRoute) or the time limit ends them.
 local LOCKABLE = { locked = true, map_click = true }
 local EXEMPT = { saved = true, dungeon_offer = true }
 
@@ -717,7 +721,20 @@ local function Locked()
 end
 
 local function Exempt(follow)
-    return EXEMPT[follow.source] or (LOCKABLE[follow.source] and Locked()) or false
+    return EXEMPT[follow.source] or false
+end
+
+local function ValidDestination(dest)
+    return type(dest) == "table" and IsID(dest.mapID) and IsCoordinate(dest.x) and IsCoordinate(dest.y)
+end
+
+--- The destination key the panel is locked to, or nil when it is not locked
+-- (RefreshRoute uses the lock only with a usable lastDestination).
+local function LockedKey()
+    if not Locked() then return nil end
+    local dest = QR.db.lastDestination
+    if not ValidDestination(dest) then return nil end
+    return DestinationKey(dest)
 end
 
 --- True when the panel would fall back to the followed destination: nothing
@@ -726,8 +743,7 @@ end
 -- the panel would route to first); never GetActiveWaypoint.
 local function PanelFallsBackTo(follow)
     local dest = QR.db and QR.db.lastDestination
-    if type(dest) ~= "table" or not IsID(dest.mapID) or not IsCoordinate(dest.x)
-        or not IsCoordinate(dest.y) or DestinationKey(dest) ~= follow.key then
+    if not ValidDestination(dest) or DestinationKey(dest) ~= follow.key then
         return false
     end
     if C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
@@ -749,7 +765,7 @@ end
 --- End the route, unless the panel falls back to the same destination.
 local function EndUnlessFallback(self, follow)
     if PanelFallsBackTo(follow) then
-        follow.source = "saved"
+        follow.fallback = true
         return
     end
     self:EndFollow()
@@ -763,7 +779,7 @@ function DataCollection:OnWaypointCleared()
     local follow = self.follow
     if not follow or not IsOn() then return end
     local source = follow.source
-    if source ~= "mappin" and not (LOCKABLE[source] and not Locked()) then return end
+    if source ~= "mappin" and not (LOCKABLE[source] and not LockedKey()) then return end
     EndUnlessFallback(self, follow)
 end
 
@@ -773,8 +789,13 @@ end
 function DataCollection:OnWaypointResolved(waypoint)
     local follow = self.follow
     if not follow or not IsOn() or Exempt(follow) then return end
-    if type(waypoint) == "table" and IsID(waypoint.mapID)
-        and IsCoordinate(waypoint.x) and IsCoordinate(waypoint.y) then
+    -- Locked: the panel routes to lastDestination, not to the waypoint.
+    local locked = LockedKey()
+    if locked then
+        if locked ~= follow.key then self:EndFollow() end
+        return
+    end
+    if ValidDestination(waypoint) then
         if DestinationKey(waypoint) ~= follow.key then self:EndFollow() end
         return
     end
@@ -885,10 +906,17 @@ function DataCollection:SampleRoute()
             estimated = Round(follow.estimate, 1),
             measured = Round(now - follow.startedAt, 1),
             diverged = follow.diverged or nil,
+            fallback = follow.fallback or nil,
         }
         self.follow = nil
         self:Push("stepTimes", entry)
+        return
     end
+
+    -- A destination locked meanwhile without any waypoint event (a map click
+    -- or a multi-stop leg with the window closed): the panel now routes there.
+    local locked = LockedKey()
+    if locked and locked ~= follow.key and not Exempt(follow) then self.follow = nil end
 end
 
 -------------------------------------------------------------------------------
