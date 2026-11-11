@@ -177,6 +177,25 @@ T:run("QuestTeleportButtons: RefreshButtons creates button for tracked quest wit
     t:assertNotNil(QR.QuestTeleportButtons.activeButtons[12345], "Button exists for quest 12345")
 end)
 
+-- The travel observations tell the buttons' background searches from a route
+-- the player asked for by this tag.
+T:run("QuestTeleportButtons: the route search runs under the quest-buttons tag", function(t)
+    reinitialize()
+    QR.QuestTeleportButtons:Initialize()
+    setupTestTeleports()
+    local stub = QR.PathCalculator.CalculatePath
+    local tags = {}
+    QR.PathCalculator.CalculatePath = function(...)
+        tags[#tags + 1] = tostring(QR.DataCollection and QR.DataCollection.syncTag)
+        return stub(...)
+    end
+    setupTrackedQuest(12346, 84, "Tagged Quest")
+    QR.QuestTeleportButtons:RefreshButtons()
+    t:assertGreaterThan(#tags, 0, "the button searched a route")
+    t:assertEqual("quest-buttons", tags[1], "under its tag, got " .. tostring(tags[1]))
+    t:assertNil(QR.DataCollection and QR.DataCollection.syncTag, "and the tag is put back")
+end)
+
 T:run("QuestTeleportButtons: button configured correctly for spell", function(t)
     reinitialize()
     QR.QuestTeleportButtons:Initialize()

@@ -78,6 +78,7 @@ Modules\RoutingAPI.lua
 Modules\DungeonTravelOffer.lua
 Modules\ZoneSurvey.lua
 Modules\Diagnostics.lua
+Modules\DataCollection.lua
 
 # Main
 QuickRoute.lua

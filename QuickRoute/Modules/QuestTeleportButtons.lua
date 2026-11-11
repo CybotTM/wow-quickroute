@@ -201,7 +201,13 @@ local function FindBestTeleportForQuest(questID, waypoint)
     end
     if not waypoint then return nil, nil, true end
 
-    local route = QR.PathCalculator:CalculatePath(waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
+    local route
+    local DC = QR.DataCollection
+    if DC and DC.CalculateTagged then
+        route = DC:CalculateTagged("quest-buttons", waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
+    else
+        route = QR.PathCalculator:CalculatePath(waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
+    end
     if not route then return nil, nil, true end
     local step = route and route.steps and route.steps[1]
     if not step or step.type ~= "teleport" or not step.teleportID then

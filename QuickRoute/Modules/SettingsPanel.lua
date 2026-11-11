@@ -208,6 +208,14 @@ local function RegisterNativeSettings()
         end)
 
     RegisterCheckbox(category,
+        L["SETTINGS_DATA_COLLECTION"],
+        L["SETTINGS_DATA_COLLECTION_TT"],
+        "dataCollection",
+        function(checked)
+            if QR.DataCollection and QR.DataCollection.SetEnabled then QR.DataCollection:SetEnabled(checked) end
+        end)
+
+    RegisterCheckbox(category,
         L["SETTINGS_SAVE_REMINDER"],
         L["SETTINGS_SAVE_REMINDER_TT"],
         "saveReminder",
