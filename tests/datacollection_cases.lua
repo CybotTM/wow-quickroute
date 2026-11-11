@@ -57,6 +57,7 @@ local function snapshot()
         closeCount = QR.MainFrame and QR.MainFrame.closeCount,
         isShowing = QR.MainFrame and QR.MainFrame.isShowing,
         locked = QR.db.destinationLocked,
+        lastDestination = QR.db.lastDestination,
         autoDestination = QR.db.autoDestination,
         priority = QR.db.waypointPriority,
     }
@@ -76,6 +77,7 @@ local function restore(saved)
         QR.MainFrame.closeCount, QR.MainFrame.isShowing = saved.closeCount, saved.isShowing
     end
     QR.db.destinationLocked, QR.db.autoDestination = saved.locked, saved.autoDestination
+    QR.db.lastDestination = saved.lastDestination
     QR.db.waypointPriority = saved.priority
     ZS:ForgetArrivalState()
     DC:ApplySetting()
@@ -1035,12 +1037,46 @@ local function sourcedRoute(source)
     return route
 end
 
-T:run(prefix .. "a waypoint cleared with the window closed ends the timing", function(t)
+--- Fire a client event through WaypointIntegration's own handler, the way
+-- the client delivers it (the handler unlocks a locked destination on a pin
+-- or super-tracking event before it reports the change). MockWoW:Reset drops
+-- handlers, so the hooks are registered again for the call.
+local function fireWired(event, ...)
+    local WI = QR.WaypointIntegration
+    local savedFrames, savedRegistered = {}, WI.hooksRegistered
+    for i, frame in ipairs(MockWoW.eventFrames) do savedFrames[i] = frame end
+    local ok, err = pcall(function(...)
+        WI.hooksRegistered = false
+        WI:RegisterHooks()
+        MockWoW:FireEvent(event, ...)
+    end, ...)
+    MockWoW.eventFrames, WI.hooksRegistered = savedFrames, savedRegistered
+    if not ok then error(err, 0) end
+end
+
+local function removePin()
+    MockWoW.config.hasUserWaypoint, MockWoW.config.userWaypoint = false, nil
+end
+
+--- Run fn with a super-tracked quest whose objective is at `quest`.
+local function withQuest(quest, fn)
+    local cfg = MockWoW.config
+    local savedSuper, savedWps = cfg.superTrackedQuestID, cfg.questWaypoints
+    cfg.superTrackedQuestID = 4242
+    cfg.questWaypoints = { [4242] = quest }
+    local ok, err = pcall(fn)
+    cfg.superTrackedQuestID, cfg.questWaypoints = savedSuper, savedWps
+    if not ok then error(err, 0) end
+end
+
+T:run(prefix .. "a map pin removed with the window closed ends a route to it", function(t)
     withCollection(true, function()
-        withWindowClosed(function(WI, calls)
+        withWindowClosed(function(_, calls)
             at(F.stormwind, 0.5, 0.5)
-            DC:OnRouteShown(ironforgeRoute())
-            WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
+            placePin(F.ironforge, 0.3, 0.7)
+            DC:OnRouteShown(sourcedRoute("mappin"))
+            removePin()
+            fireWired("USER_WAYPOINT_UPDATED")
             t:assertEqual(0, calls.refresh, "the closed panel is not refreshed")
             t:assertNil(DC.follow, "the follow ends on the waypoint signal")
             arrive()
@@ -1049,13 +1085,15 @@ T:run(prefix .. "a waypoint cleared with the window closed ends the timing", fun
     end)
 end)
 
-T:run(prefix .. "a waypoint cleared in combat ends the timing before the deferral", function(t)
+T:run(prefix .. "a map pin removed in combat ends the route before the deferral", function(t)
     withCollection(true, function()
         withWindowClosed(function(WI)
             at(F.stormwind, 0.5, 0.5)
-            DC:OnRouteShown(ironforgeRoute())
+            placePin(F.ironforge, 0.3, 0.7)
+            DC:OnRouteShown(sourcedRoute("mappin"))
             MockWoW.config.inCombatLockdown = true
-            WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
+            removePin()
+            fireWired("USER_WAYPOINT_UPDATED")
             MockWoW.config.inCombatLockdown = false
             t:assertNil(DC.follow, "ended in combat")
             WI._waypointChangePending = false
@@ -1065,13 +1103,59 @@ end)
 
 T:run(prefix .. "a pin that clears on arrival still records the trip", function(t)
     withCollection(true, function()
-        withWindowClosed(function(WI)
+        withWindowClosed(function()
             at(F.stormwind, 0.5, 0.5)
-            DC:OnRouteShown(ironforgeRoute())
+            placePin(F.ironforge, 0.3, 0.7)
+            DC:OnRouteShown(sourcedRoute("mappin"))
             at(F.ironforge, 0.3, 0.7)   -- arrived; no sample since
-            WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
+            removePin()
+            fireWired("USER_WAYPOINT_UPDATED")
             local trip = list("stepTimes")[#list("stepTimes")]
             t:assertEqual("route", trip and trip.kind, "the trip is recorded by the last sample")
+        end)
+    end)
+end)
+
+-- A pin that is not the destination: removing it changes nothing the route
+-- depends on.
+for _, priority in ipairs({ "quest", "mappin" }) do
+    T:run(prefix .. "an unrelated pin removed keeps a quest route (priority " .. priority .. ")", function(t)
+        withCollection(true, function()
+            QR.db.autoDestination = false
+            QR.db.waypointPriority = priority
+            withQuest({ mapID = F.ironforge, x = 0.3, y = 0.7 }, function()
+                withWindowClosed(function()
+                    at(F.stormwind, 0.5, 0.5)
+                    DC:OnRouteShown(sourcedRoute("quest"))
+                    removePin()
+                    fireWired("USER_WAYPOINT_UPDATED")
+                    t:assertEqual("quest", DC.follow and DC.follow.source, "the quest route is still followed")
+                end)
+            end)
+        end)
+    end)
+end
+
+T:run(prefix .. "QuickRoute's own step pin cleared on arrival keeps the quest route", function(t)
+    withCollection(true, function()
+        QR.db.autoDestination = false
+        QR.db.waypointPriority = nil
+        withQuest({ mapID = F.ironforge, x = 0.3, y = 0.7 }, function()
+            withWindowClosed(function(WI)
+                at(F.stormwind, 0.5, 0.5)
+                -- The step pin SetTomTomWaypoint's native fallback leaves.
+                placePin(F.stormwind, 0.6, 0.6)
+                WI._lastWpNative, WI._lastWpMapID, WI._lastWpX, WI._lastWpY = true, F.stormwind, 0.6, 0.6
+                local _, source = WI:GetActiveWaypoint()
+                t:assertEqual("quest", source, "the own pin is not the active waypoint")
+                DC:OnRouteShown(sourcedRoute(source))
+                at(F.stormwind, 0.6, 0.6)
+                removePin()
+                local ok, err = pcall(fireWired, "USER_WAYPOINT_UPDATED")
+                WI._lastWpNative, WI._lastWpMapID, WI._lastWpX, WI._lastWpY = nil, nil, nil, nil
+                t:assertTrue(ok, "ran: " .. tostring(err))
+                t:assertEqual("quest", DC.follow and DC.follow.source, "the quest route is still followed")
+            end)
         end)
     end)
 end)
@@ -1080,11 +1164,11 @@ T:run(prefix .. "a new pin in the player's zone with the window closed ends the 
     withCollection(true, function()
         QR.db.autoDestination = true
         QR.db.waypointPriority = "mappin"
-        withWindowClosed(function(WI, calls)
+        withWindowClosed(function(_, calls)
             at(F.stormwind, 0.5, 0.5)
             DC:OnRouteShown(sourcedRoute("mappin"))
             placePin(F.stormwind, 0.7, 0.7)
-            WI:OnWaypointChanged("USER_WAYPOINT_UPDATED")
+            fireWired("USER_WAYPOINT_UPDATED")
             t:assertEqual(0, calls.show + calls.refresh, "same zone, window closed: the panel is not reached")
             t:assertNil(DC.follow, "the old trip ends")
         end)
@@ -1105,39 +1189,131 @@ T:run(prefix .. "the same destination reported again keeps the trip", function(t
     end)
 end)
 
-for _, source in ipairs({ "locked", "saved", "dungeon_offer" }) do
-    T:run(prefix .. "a " .. source .. " route is not ended by a quest or pin change", function(t)
+-- A locked destination (map click, multi-stop leg; "locked" once the window
+-- routes to it again) stays only while the lock does. The real events unlock
+-- it first; then the new waypoint, or none, decides.
+for _, source in ipairs({ "locked", "map_click" }) do
+    T:run(prefix .. "a " .. source .. " route ends once a pin or quest change unlocks it", function(t)
+        for _, case in ipairs({ "pin placed", "super-tracking", "pin removed" }) do
+            withCollection(true, function()
+                QR.db.autoDestination = false
+                QR.db.waypointPriority = "mappin"
+                QR.db.lastDestination = { mapID = F.ironforge, x = 0.3, y = 0.7, title = "Ironforge" }
+                withQuest({ mapID = F.stormwind, x = 0.7, y = 0.7 }, function()
+                    withWindowClosed(function()
+                        at(F.stormwind, 0.5, 0.5)
+                        QR.db.destinationLocked = true
+                        DC:OnRouteShown(sourcedRoute(source))
+                        if case == "pin placed" then
+                            placePin(F.stormwind, 0.7, 0.7)
+                            fireWired("USER_WAYPOINT_UPDATED")
+                        elseif case == "super-tracking" then
+                            fireWired("SUPER_TRACKING_CHANGED")
+                        else
+                            removePin()
+                            fireWired("USER_WAYPOINT_UPDATED")
+                        end
+                        t:assertFalse(QR.db.destinationLocked, case .. ": the event unlocked it")
+                        t:assertNil(DC.follow, source .. ", " .. case .. ": ended once unlocked")
+                    end)
+                end)
+            end)
+        end
+    end)
+
+    T:run(prefix .. "a " .. source .. " route is kept while it stays locked", function(t)
         withCollection(true, function()
             QR.db.autoDestination = false
             QR.db.waypointPriority = "mappin"
             withWindowClosed(function(WI)
                 at(F.stormwind, 0.5, 0.5)
+                QR.db.destinationLocked = true
                 DC:OnRouteShown(sourcedRoute(source))
                 placePin(F.stormwind, 0.7, 0.7)
-                WI:OnWaypointChanged("TomTom:Waypoint")
-                t:assertNotNil(DC.follow, source .. ": kept on a pin change")
-                MockWoW.config.hasUserWaypoint, MockWoW.config.userWaypoint = false, nil
-                WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
-                t:assertNotNil(DC.follow, source .. ": kept when the pin is cleared")
+                WI:OnWaypointChanged("TomTom:Waypoint")   -- a change that does not unlock
+                t:assertNotNil(DC.follow, source .. ": kept while locked")
             end)
         end)
     end)
 end
 
-T:run(prefix .. "a map-click route is kept only while it is locked", function(t)
+-- After the pin is removed with nothing else to route to, the panel falls
+-- back to lastDestination: the same destination, so the trip goes on.
+T:run(prefix .. "a locked route whose pin goes, with nothing else tracked, goes on as saved", function(t)
     withCollection(true, function()
-        withWindowClosed(function(WI)
+        QR.db.autoDestination = false
+        QR.db.lastDestination = { mapID = F.ironforge, x = 0.3, y = 0.7, title = "Ironforge" }
+        withWindowClosed(function()
             at(F.stormwind, 0.5, 0.5)
             QR.db.destinationLocked = true
             DC:OnRouteShown(sourcedRoute("map_click"))
-            WI:OnWaypointCleared("TomTom:Waypoint")
-            t:assertNotNil(DC.follow, "locked: kept")
-            QR.db.destinationLocked = false   -- what a pin or super-tracking change does
-            WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
-            t:assertNil(DC.follow, "unlocked: ended")
+            removePin()
+            fireWired("USER_WAYPOINT_UPDATED")
+            t:assertFalse(QR.db.destinationLocked, "unlocked by the event")
+            t:assertEqual("saved", DC.follow and DC.follow.source, "followed on as the panel's saved destination")
+            arrive()
+            local trip = list("stepTimes")[#list("stepTimes")]
+            t:assertEqual("route", trip and trip.kind, "and the trip is recorded")
         end)
     end)
 end)
+
+T:run(prefix .. "a cleared quest with nothing else tracked keeps the saved destination", function(t)
+    withCollection(true, function()
+        QR.db.autoDestination = false
+        QR.db.lastDestination = { mapID = F.ironforge, x = 0.3, y = 0.7, title = "Ironforge" }
+        withWindowClosed(function()
+            at(F.stormwind, 0.5, 0.5)
+            DC:OnRouteShown(sourcedRoute("quest"))
+            fireWired("SUPER_TRACKING_CHANGED")   -- nothing super-tracked, no pin
+            t:assertEqual("saved", DC.follow and DC.follow.source,
+                "the panel falls back to the same destination; got " .. tostring(DC.follow and DC.follow.source))
+        end)
+    end)
+end)
+
+-- RefreshRoute falls back only when C_Map.HasUserWaypoint is false, and that
+-- counts QuickRoute's own step pin, which the active waypoint leaves out. With
+-- that pin still on the map the panel clears its route instead.
+T:run(prefix .. "QuickRoute's own pin on the map stops the saved fallback", function(t)
+    withCollection(true, function()
+        QR.db.autoDestination = false
+        QR.db.lastDestination = { mapID = F.ironforge, x = 0.3, y = 0.7, title = "Ironforge" }
+        withWindowClosed(function(WI)
+            at(F.stormwind, 0.5, 0.5)
+            DC:OnRouteShown(sourcedRoute("quest"))
+            placePin(F.stormwind, 0.6, 0.6)
+            WI._lastWpNative, WI._lastWpMapID, WI._lastWpX, WI._lastWpY = true, F.stormwind, 0.6, 0.6
+            local ok, err = pcall(fireWired, "SUPER_TRACKING_CHANGED")
+            WI._lastWpNative, WI._lastWpMapID, WI._lastWpX, WI._lastWpY = nil, nil, nil, nil
+            t:assertTrue(ok, "ran: " .. tostring(err))
+            t:assertNil(DC.follow, "a pin is on the map: no fallback, the route ends")
+        end)
+    end)
+end)
+
+for _, source in ipairs({ "saved", "dungeon_offer" }) do
+    T:run(prefix .. "a " .. source .. " route is not ended by any waypoint event", function(t)
+        withCollection(true, function()
+            QR.db.autoDestination = false
+            QR.db.waypointPriority = "mappin"
+            withQuest({ mapID = F.stormwind, x = 0.7, y = 0.7 }, function()
+                withWindowClosed(function()
+                    at(F.stormwind, 0.5, 0.5)
+                    DC:OnRouteShown(sourcedRoute(source))
+                    placePin(F.stormwind, 0.7, 0.7)
+                    fireWired("USER_WAYPOINT_UPDATED")
+                    t:assertNotNil(DC.follow, source .. ": kept on a pin change")
+                    fireWired("SUPER_TRACKING_CHANGED")
+                    t:assertNotNil(DC.follow, source .. ": kept on a super-tracking change")
+                    removePin()
+                    fireWired("USER_WAYPOINT_UPDATED")
+                    t:assertNotNil(DC.follow, source .. ": kept when the pin is removed")
+                end)
+            end)
+        end)
+    end)
+end
 
 T:run(prefix .. "a route shown without steps ends the timing", function(t)
     withCollection(true, function()

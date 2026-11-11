@@ -697,35 +697,88 @@ function DataCollection:EndFollow()
     self.follow = nil
 end
 
--- Routes the panel keeps whatever the quest or map pin does: a locked or
--- saved destination and the dungeon offer's route; a map click or a
--- multi-stop leg only while it is still locked (a pin or super-tracking
--- change unlocks it before WaypointIntegration is told).
-local KEPT_SOURCES = { locked = true, saved = true, dungeon_offer = true }
+-- What a waypoint signal does to a followed route mirrors what the panel does
+-- on its next refresh (UI:RefreshRoute):
+--   * A locked destination (sources "locked" and "map_click": a map click, a
+--     multi-stop leg) is routed to while QR.db.destinationLocked is set. A map
+--     pin or super-tracking event clears the lock before WaypointIntegration is
+--     told, so after those the route is judged like any other.
+--   * Without a waypoint, a super-tracked quest or a map pin, the panel falls
+--     back to QR.db.lastDestination. When that is the followed destination the
+--     route goes on, now as "saved".
+--   * "saved" and "dungeon_offer" are not ended by any waypoint signal (owner's
+--     decision); only the panel (ClearRoute, UpdateRoute) or the time limit
+--     ends them.
+local LOCKABLE = { locked = true, map_click = true }
+local EXEMPT = { saved = true, dungeon_offer = true }
 
-local function KeptByPanel(follow)
-    if KEPT_SOURCES[follow.source] then return true end
-    return follow.source == "map_click" and QR.db ~= nil and QR.db.destinationLocked == true
+local function Locked()
+    return QR.db ~= nil and QR.db.destinationLocked == true
 end
 
---- WaypointIntegration: the quest or pin waypoint went away.
-function DataCollection:OnWaypointCleared()
-    local follow = self.follow
-    if not follow or not IsOn() or KeptByPanel(follow) then return end
-    self:EndFollow()
+local function Exempt(follow)
+    return EXEMPT[follow.source] or (LOCKABLE[follow.source] and Locked()) or false
 end
 
---- WaypointIntegration resolved the active waypoint after a change. Another
--- destination, or none, ends the followed route; the same one keeps it.
-function DataCollection:OnWaypointResolved(waypoint)
-    local follow = self.follow
-    if not follow or not IsOn() or KeptByPanel(follow) then return end
-    if type(waypoint) == "table" and IsID(waypoint.mapID)
-        and IsCoordinate(waypoint.x) and IsCoordinate(waypoint.y)
-        and DestinationKey(waypoint) == follow.key then
+--- True when the panel would fall back to the followed destination: nothing
+-- else to route to and QR.db.lastDestination is that destination. Reads only
+-- what RefreshRoute reads for its fallback, plus TomTom's own waypoint (which
+-- the panel would route to first); never GetActiveWaypoint.
+local function PanelFallsBackTo(follow)
+    local dest = QR.db and QR.db.lastDestination
+    if type(dest) ~= "table" or not IsID(dest.mapID) or not IsCoordinate(dest.x)
+        or not IsCoordinate(dest.y) or DestinationKey(dest) ~= follow.key then
+        return false
+    end
+    if C_SuperTrack and C_SuperTrack.GetSuperTrackedQuestID then
+        local ok, quest = pcall(C_SuperTrack.GetSuperTrackedQuestID)
+        if not ok or not Public(quest) or quest ~= 0 then return false end
+    end
+    if C_Map and C_Map.HasUserWaypoint then
+        local ok, pin = pcall(C_Map.HasUserWaypoint)
+        if not ok or not Public(pin) or pin then return false end
+    end
+    local WI = QR.WaypointIntegration
+    if WI and WI.HasTomTom and WI.GetTomTomWaypoint then
+        local ok, tomtom = pcall(function() return WI:HasTomTom() and WI:GetTomTomWaypoint() end)
+        if not ok or tomtom then return false end
+    end
+    return true
+end
+
+--- End the route, unless the panel falls back to the same destination.
+local function EndUnlessFallback(self, follow)
+    if PanelFallsBackTo(follow) then
+        follow.source = "saved"
         return
     end
     self:EndFollow()
+end
+
+--- WaypointIntegration: the native map pin went away (USER_WAYPOINT_UPDATED
+-- without a pin). Only a route to that pin, or a locked one the event has
+-- just unlocked, is affected: a quest or TomTom route does not depend on the
+-- pin, and a later change, if any, is judged by OnWaypointResolved.
+function DataCollection:OnWaypointCleared()
+    local follow = self.follow
+    if not follow or not IsOn() then return end
+    local source = follow.source
+    if source ~= "mappin" and not (LOCKABLE[source] and not Locked()) then return end
+    EndUnlessFallback(self, follow)
+end
+
+--- WaypointIntegration resolved the active waypoint after a change. The same
+-- destination keeps the followed route; another ends it; none ends it unless
+-- the panel falls back to the same destination.
+function DataCollection:OnWaypointResolved(waypoint)
+    local follow = self.follow
+    if not follow or not IsOn() or Exempt(follow) then return end
+    if type(waypoint) == "table" and IsID(waypoint.mapID)
+        and IsCoordinate(waypoint.x) and IsCoordinate(waypoint.y) then
+        if DestinationKey(waypoint) ~= follow.key then self:EndFollow() end
+        return
+    end
+    EndUnlessFallback(self, follow)
 end
 
 function DataCollection:OnRouteShown(result)
