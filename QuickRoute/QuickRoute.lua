@@ -168,7 +168,8 @@ function QR:Initialize()
         currencyVendors = {},         -- Verified merchant observations, partitioned by character
         hearthstoneBinds = {},        -- Observed inn bindings, partitioned by character
         diagnosticTrace = false,      -- Persist a diagnostic trace (Modules/Diagnostics.lua)
-        saveReminder = true,          -- Offer a reload while trace/survey data is unsaved
+        dataCollection = false,       -- Opt-in: record observations into SavedVariables
+        saveReminder = true,          -- Offer a reload while trace/survey/observation data is unsaved
         saveReminderMinutes = 20,     -- Minutes between save reminders
         saveReminderTimeout = 30,     -- Seconds a save reminder stays without interaction
     }
@@ -261,6 +262,7 @@ function QR:OnPlayerLogin()
             { "SettingsPanel",      function() QR.SettingsPanel:Initialize() end },
             { "ZoneSurvey",         function() QR.ZoneSurvey:Initialize() end },
             { "Diagnostics",        function() QR.Diagnostics:Initialize() end },
+            { "DataCollection",     function() QR.DataCollection:Initialize() end },
         }
         for _, step in ipairs(steps) do
             local ok, err = pcall(step[2])
@@ -411,6 +413,7 @@ local function PrintHelp()
     print("  /qr craft - Route to nearest Crafting Table")
     QR:Print("  /qr currency <ID or name> - Route to fastest known currency vendor")
     QR:Print("  /qr multi - Plan a trip through pasted or TomTom waypoints")
+    print("  /qrdata [on|off|clear] - Local travel observations (stay on this computer)")
     print("  /qrscreenshot [all|route|teleport|search|mini] - Take UI screenshots")
     print("  /qrextract [zones|quests|portals|continent] - Extract data for development")
     QR:Print(QR.L["QUEST_ROUTE_USAGE"])

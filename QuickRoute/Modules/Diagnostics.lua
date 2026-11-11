@@ -613,8 +613,9 @@ end
 -- Save reminder
 --
 -- WoW writes SavedVariables only on /reload or logout, so a crash or a
--- disconnect loses whatever the diagnostic trace and the zone survey recorded
--- since. While either is on and something is unsaved, a small window offers a
+-- disconnect loses whatever the diagnostic trace, the zone survey and the
+-- observations (DataCollection.lua) recorded since. While one of them is on and
+-- something is unsaved, a small window offers a
 -- reload every `saveReminderMinutes`, never at a moment where a reload would
 -- cost the player something (combat, a taxi, a loading screen, an instance or
 -- encounter, a secure button QuickRoute still has to release). A reminder that
@@ -639,7 +640,7 @@ local REMINDER_BAR_HEIGHT = 6
 function Reminder:Active()
     local db = QR.db
     if not db or db.saveReminder == false then return false end
-    return db.diagnosticTrace == true or db.zoneSurveyEnabled == true
+    return db.diagnosticTrace == true or db.zoneSurveyEnabled == true or db.dataCollection == true
 end
 
 function Reminder:IntervalSeconds()
@@ -651,7 +652,8 @@ function Reminder:TimeoutSeconds()
 end
 
 --- Unsaved counts of the recorders that are on.
--- @return number total, number traceEntries, number surveyCaptures, number surveyCrossings
+-- @return number total, number traceEntries, number surveyCaptures, number surveyCrossings,
+--   number observations
 function Reminder:Unsaved()
     local db = QR.db or {}
     local trace = db.diagnosticTrace == true and (Diagnostics.unsavedTrace or 0) or 0
@@ -661,7 +663,9 @@ function Reminder:Unsaved()
         captures = survey.unsavedCaptures or 0
         crossings = survey.unsavedCrossings or 0
     end
-    return trace + captures, trace, captures, crossings
+    local collection = QR.DataCollection
+    local observations = db.dataCollection == true and collection and (collection.unsavedCount or 0) or 0
+    return trace + captures + observations, trace, captures, crossings, observations
 end
 
 --- Fill level of the trace buffer: the higher of entries/cap and bytes/byte cap.
@@ -722,7 +726,8 @@ function Reminder:CreatePopup()
     })
     local inner = REMINDER_WIDTH - 2 * REMINDER_PAD
     frame.lines = {}
-    for _, key in ipairs({ "active", "why", "unsaved", "fill", "fillDetail", "fullNote", "survey" }) do
+    for _, key in ipairs({ "active", "why", "unsaved", "fill", "fillDetail", "fullNote", "survey",
+        "observations" }) do
         local fs = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
         fs:SetWidth(inner)
         fs:SetJustifyH("LEFT")
@@ -775,7 +780,8 @@ function Reminder:Populate()
     local names = {}
     if db.diagnosticTrace == true then names[#names + 1] = L["SAVE_REMINDER_TRACE_NAME"] end
     if db.zoneSurveyEnabled == true then names[#names + 1] = L["SAVE_REMINDER_SURVEY_NAME"] end
-    local total, _, _, crossings = self:Unsaved()
+    if db.dataCollection == true then names[#names + 1] = L["SAVE_REMINDER_OBSERVATIONS_NAME"] end
+    local total, _, _, crossings, observations = self:Unsaved()
     local lines = frame.lines
     frame.titleText:SetText(L["SAVE_REMINDER_TITLE"])
     SetLine(lines.active, string_format(L["SAVE_REMINDER_ACTIVE"], table_concat(names, " + ")))
@@ -791,11 +797,14 @@ function Reminder:Populate()
     SetLine(lines.fullNote, showTrace and L["SAVE_REMINDER_TRACE_FULL_NOTE"] or "", { 0.8, 0.8, 0.8 })
     SetLine(lines.survey, db.zoneSurveyEnabled == true
         and string_format(L["SAVE_REMINDER_SURVEY_NEW"], crossings) or "")
+    SetLine(lines.observations, db.dataCollection == true
+        and string_format(L["SAVE_REMINDER_OBSERVATIONS_NEW"], observations) or "")
 
     -- Stack the lines from the top; empty ones take no room.
     local inner = REMINDER_WIDTH - 2 * REMINDER_PAD
     local y = -36
-    local order = { "active", "why", "unsaved", "fill", "bar", "fillDetail", "fullNote", "survey" }
+    local order = { "active", "why", "unsaved", "fill", "bar", "fillDetail", "fullNote", "survey",
+        "observations" }
     for _, key in ipairs(order) do
         if key == "bar" then
             frame.barBg:ClearAllPoints()
@@ -841,9 +850,9 @@ function Reminder:ShowPopup()
     frame.shownFor = 0
     frame.hovered = false
     frame:Show()
-    local _, trace, captures, crossings = self:Unsaved()
+    local _, trace, captures, crossings, observations = self:Unsaved()
     Diagnostics:Trace("reminder", "save reminder shown",
-        { trace = trace, captures = captures, crossings = crossings })
+        { trace = trace, captures = captures, crossings = crossings, observations = observations })
 end
 
 --- Close or time out: the next reminder comes a full interval later.
@@ -922,7 +931,7 @@ end
 
 --- Show the ticker only while reminders apply, so its OnUpdate does not run
 -- every frame for a player who records nothing. Called on load and whenever
--- the trace, the survey or the reminder setting changes.
+-- the trace, the survey, the observations or the reminder setting changes.
 function Reminder:Refresh()
     if not self.ticker then return end
     if self:Active() then self.ticker:Show() else self.ticker:Hide() end
