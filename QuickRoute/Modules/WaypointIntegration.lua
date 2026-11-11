@@ -1479,12 +1479,13 @@ function WaypointIntegration:OnWaypointCleared(trigger)
     -- waits for the fight to end like every other route work. The flag records
     -- WHICH work is owed, because the two are not interchangeable: a clear only
     -- ever refreshes a window that is already open, while a change may open one
-    -- when auto-destination is on. Resuming a clear through the change path
-    -- would pop the route window up after every fight in which the player
-    -- removed their map pin.
+    -- when auto-destination is on. A clear on its own is therefore resumed as a
+    -- clear: through the change path it would pop the route window up after
+    -- every fight in which the player removed their map pin. A change followed
+    -- by a clear in the same fight is resumed as the change, as it would run
+    -- out of combat: the change re-resolves everything the clear would, and a
+    -- clear after it must not hide the new destination.
     if InCombatLockdown() then
-        -- A change already owed stays owed: it re-resolves everything a clear
-        -- would, and a clear after it must not hide the new destination.
         if self._waypointChangePending ~= "changed" then
             self._waypointChangePending = "cleared"
         end

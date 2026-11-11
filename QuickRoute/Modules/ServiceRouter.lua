@@ -32,7 +32,13 @@ function SR:FindNearestLocation(locations)
     local bestLoc, bestCost, bestResult
     for _, loc in ipairs(locations) do
         if QR.PathCalculator and IsPosition(loc) then
-            local ok, result = pcall(QR.PathCalculator.CalculatePath, QR.PathCalculator, loc.mapID, loc.x, loc.y)
+            local DC = QR.DataCollection
+            local ok, result
+            if DC and DC.CalculateTagged then
+                ok, result = pcall(DC.CalculateTagged, DC, "service-router", loc.mapID, loc.x, loc.y)
+            else
+                ok, result = pcall(QR.PathCalculator.CalculatePath, QR.PathCalculator, loc.mapID, loc.x, loc.y)
+            end
             if ok and type(result) == "table" and IsFinite(result.totalTime) and result.totalTime >= 0
                 and (not bestCost or result.totalTime < bestCost) then
                 bestLoc, bestCost, bestResult = loc, result.totalTime, result

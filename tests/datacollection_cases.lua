@@ -1611,3 +1611,62 @@ T:run(prefix .. "an arrival just before a new route is shown is still recorded",
         t:assertEqual(F.stormwind, DC.follow and DC.follow.dest.mapID, "and the new route is followed")
     end)
 end)
+
+-------------------------------------------------------------------------------
+-- Review round 7
+-------------------------------------------------------------------------------
+
+T:run(prefix .. "a synchronous calculation names its caller", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        PC:CalculatePath(F.stormwind, 0.6, 0.6)
+        DC:CalculateTagged("quest-buttons", F.stormwind, 0.6, 0.6)
+        DC:CalculateTagged("quest-buttons", 0, 0.5, 0.5)
+        local times = list("calcTimes")
+        t:assertEqual("direct", times[1] and times[1].consumer, "an untagged call is direct")
+        t:assertEqual("quest-buttons", times[2] and times[2].consumer, "a tagged call names its caller")
+        t:assertEqual("quest-buttons", list("noRoute")[1] and list("noRoute")[1].source,
+            "and so does its failure")
+        t:assertNil(DC.syncTag, "the tag is put back")
+    end)
+end)
+
+T:run(prefix .. "a raising tagged calculation puts the tag back", function(t)
+    withCollection(true, function()
+        local saved = PC.CalculatePath
+        PC.CalculatePath = function() error("search failed") end
+        local ok = pcall(DC.CalculateTagged, DC, "service-router", F.stormwind, 0.6, 0.6)
+        PC.CalculatePath = saved
+        t:assertFalse(ok, "the error reaches the caller")
+        t:assertNil(DC.syncTag, "and the tag is gone")
+    end)
+end)
+
+T:run(prefix .. "the service router tags its candidates", function(t)
+    withCollection(true, function()
+        at(F.stormwind, 0.5, 0.5)
+        QR.ServiceRouter:FindNearestLocation({ { mapID = F.stormwind, x = 0.6, y = 0.6 } })
+        local e = list("calcTimes")[1]
+        t:assertEqual("service-router", e and e.consumer, "got " .. tostring(e and e.consumer))
+    end)
+end)
+
+-- A single | starts an escape in WoW's text (|c a colour); || prints one.
+T:run(prefix .. "player-visible strings of the observations escape their pipes", function(t)
+    local scriptDir = debug.getinfo(1, "S").source:gsub("^@", ""):match("(.*/)")
+    local chunk = loadfile(scriptDir .. "../QuickRoute/Localization.lua")
+    local savedLocale = MockWoW.config.locale
+    for _, locale in ipairs({ "enUS", "deDE", "frFR", "esES", "ptBR", "ruRU", "koKR", "zhCN", "zhTW", "itIT" }) do
+        MockWoW.config.locale = locale
+        pcall(chunk, "QuickRoute", QR)
+        local text = QR.L["DATA_COLLECTION_COUNTS"]:gsub("||", "")
+        t:assertNil(text:find("|", 1, true), locale .. " counts line has no single pipe: " .. QR.L["DATA_COLLECTION_COUNTS"])
+    end
+    MockWoW.config.locale = "enUS"
+    pcall(chunk, "QuickRoute", QR)
+    MockWoW.config.locale = savedLocale
+    local source = io.open(scriptDir .. "../QuickRoute/QuickRoute.lua"):read("*a")
+    local line = source:match('print%("  /qrdata[^\n]*')
+    t:assertNotNil(line, "the help line exists")
+    t:assertNil(line and line:gsub("||", ""):find("|", 1, true), "the /qrdata help line has no single pipe: " .. tostring(line))
+end)

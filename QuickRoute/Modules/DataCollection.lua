@@ -551,8 +551,10 @@ function DataCollection:AfterCalculation(PC, started, route, failure, destMapID,
         running.dcFound = route ~= nil
         running.dcPathNodes = route and type(route.path) == "table" and #route.path or nil
     end
+    -- A synchronous caller that tagged itself (CalculateTagged), else "direct".
+    local consumer = running and running.consumer or self.syncTag or "direct"
     if not route then
-        self:RecordNoRoute(failure, destMapID, destX, destY, running and running.consumer or "direct")
+        self:RecordNoRoute(failure, destMapID, destX, destY, consumer)
     end
     -- Asynchronous searches are timed by ResumeAsync, from request to result.
     if not running and started then
@@ -561,11 +563,25 @@ function DataCollection:AfterCalculation(PC, started, route, failure, destMapID,
             self:Push("calcTimes", {
                 ms = Round(finished - started, 1),
                 async = false,
+                consumer = consumer,
                 found = route ~= nil,
                 pathNodes = route and type(route.path) == "table" and #route.path or nil,
             })
         end
     end
+end
+
+--- A synchronous CalculatePath under a caller's tag, so the observations
+-- can tell a background caller (quest buttons, the service router) from a
+-- route anybody asked for. The tag is put back even when the search raises.
+function DataCollection:CalculateTagged(tag, destMapID, destX, destY, destTitle)
+    local PC = QR.PathCalculator
+    local previous = self.syncTag
+    self.syncTag = tag
+    local ok, route, failure = pcall(PC.CalculatePath, PC, destMapID, destX, destY, destTitle)
+    self.syncTag = previous
+    if not ok then error(route, 0) end
+    return route, failure
 end
 
 function DataCollection:InstallRouteHooks()
