@@ -1483,7 +1483,11 @@ function WaypointIntegration:OnWaypointCleared(trigger)
     -- would pop the route window up after every fight in which the player
     -- removed their map pin.
     if InCombatLockdown() then
-        self._waypointChangePending = "cleared"
+        -- A change already owed stays owed: it re-resolves everything a clear
+        -- would, and a clear after it must not hide the new destination.
+        if self._waypointChangePending ~= "changed" then
+            self._waypointChangePending = "cleared"
+        end
         return
     end
     self._waypointChangePending = false

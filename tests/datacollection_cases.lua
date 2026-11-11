@@ -1365,6 +1365,81 @@ T:run(prefix .. "a postponed clear keeps a route that is locked again", function
     end)
 end)
 
+-- Review round 6: a change and a clear in one fight. Combat defers both;
+-- the clear must not replace the owed change, or the new quest is never
+-- resolved after the fight.
+T:run(prefix .. "a quest change and a pin clear in one fight end the old quest route", function(t)
+    withCollection(true, function()
+        QR.db.autoDestination = false
+        QR.db.waypointPriority = nil
+        withQuest({ mapID = F.ironforge, x = 0.3, y = 0.7 }, function()
+            withWindowClosed(function(WI)
+                at(F.stormwind, 0.5, 0.5)
+                DC:OnRouteShown(sourcedRoute("quest"))
+                MockWoW.config.inCombatLockdown = true
+                local ok, err = pcall(function()
+                    MockWoW.config.questWaypoints[4243] = { mapID = F.stormwind, x = 0.8, y = 0.2 }
+                    MockWoW.config.superTrackedQuestID = 4243   -- the next quest
+                    fireWired("SUPER_TRACKING_CHANGED")
+                    removePin()
+                    fireWired("USER_WAYPOINT_UPDATED")
+                    t:assertEqual("changed", WI._waypointChangePending, "the change is still owed")
+                end)
+                MockWoW.config.inCombatLockdown = false
+                t:assertTrue(ok, "ran: " .. tostring(err))
+                t:assertNotNil(DC.follow, "in the fight nothing is resolved yet")
+                WI:ResumeDeferredWaypointWork()   -- what leaving combat calls
+                t:assertNil(DC.follow, "after the fight the new quest ends the old route")
+            end)
+        end)
+    end)
+end)
+
+T:run(prefix .. "a pin clear alone in a fight is still resumed as a clear", function(t)
+    withCollection(true, function()
+        withWindowClosed(function(WI)
+            WI._waypointChangePending = false
+            MockWoW.config.inCombatLockdown = true
+            removePin()
+            local ok, err = pcall(fireWired, "USER_WAYPOINT_UPDATED")
+            MockWoW.config.inCombatLockdown = false
+            t:assertTrue(ok, "ran: " .. tostring(err))
+            t:assertEqual("cleared", WI._waypointChangePending, "a clear is owed")
+            WI._waypointChangePending = false
+        end)
+    end)
+end)
+
+-- The panel: with the window open, a change and a clear in one fight still
+-- end in one refresh after it, and nothing is shown that was not.
+T:run(prefix .. "the open panel after a change and a clear in one fight", function(t)
+    withCollection(true, function()
+        QR.db.autoDestination = false
+        withQuest({ mapID = F.stormwind, x = 0.8, y = 0.2 }, function()
+            withWindowClosed(function(WI, calls)
+                local savedTab = QR.MainFrame.activeTab
+                QR.MainFrame.isShowing, QR.MainFrame.activeTab = true, "route"
+                t:assertNotNil(QR.UI.frame, "the route panel exists")
+                if QR.UI.frame then QR.UI.frame:Show() end   -- withWindowClosed hides it again afterwards
+                MockWoW.config.inCombatLockdown = true
+                local ok, err = pcall(function()
+                    fireWired("SUPER_TRACKING_CHANGED")
+                    removePin()
+                    fireWired("USER_WAYPOINT_UPDATED")
+                end)
+                MockWoW.config.inCombatLockdown = false
+                t:assertTrue(ok, "ran: " .. tostring(err))
+                t:assertEqual(0, calls.refresh + calls.show, "nothing during the fight")
+                WI:ResumeDeferredWaypointWork()
+                t:assertEqual(1, calls.refresh, "one refresh after it, got " .. calls.refresh)
+                t:assertEqual(0, calls.show, "and no window opened")
+                QR.MainFrame.activeTab = savedTab
+                if QR.UI.frame then QR.UI.frame:Hide() end
+            end)
+        end)
+    end)
+end)
+
 T:run(prefix .. "a change while locked elsewhere ends the route", function(t)
     withCollection(true, function()
         QR.db.autoDestination = false

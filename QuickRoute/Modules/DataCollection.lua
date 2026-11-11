@@ -710,9 +710,11 @@ end
 --     back to lastDestination. When that is the followed destination the route
 --     goes on with its own source, marked `fallback`; the next event is judged
 --     the same way again.
---   * Routes the panel showed as "saved" and the dungeon offer's route are not
---     ended by a waypoint signal (owner's decision); only the panel
---     (ClearRoute, UpdateRoute) or the time limit ends them.
+--   * Routes first shown as "saved" (the source OnRouteShown received when it
+--     started the follow; a later route for the same destination does not
+--     change it) and the dungeon offer's route are not ended by a waypoint
+--     signal (owner's decision); only the panel (ClearRoute, UpdateRoute) or
+--     the time limit ends them.
 local LOCKABLE = { locked = true, map_click = true }
 local EXEMPT = { saved = true, dungeon_offer = true }
 
