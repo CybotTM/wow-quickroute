@@ -687,12 +687,45 @@ end
 --
 -- Abandonment is decided by the waypoint, never by the route window: the
 -- window hides itself when combat starts, and travelling with it closed on
--- TomTom's arrow is supported. A route ends on UI:ClearRoute, on a route for
--- another destination, on a route without steps, or past its time limit.
+-- TomTom's arrow is supported. A route ends when WaypointIntegration reports
+-- the waypoint cleared (OnWaypointCleared) or resolved to another destination
+-- (OnWaypointResolved), on UI:ClearRoute, on a route for another destination
+-- or without steps on the panel, or past its time limit.
 function DataCollection:EndFollow()
     if not self.follow then return end
     pcall(self.SampleRoute, self)
     self.follow = nil
+end
+
+-- Routes the panel keeps whatever the quest or map pin does: a locked or
+-- saved destination and the dungeon offer's route; a map click or a
+-- multi-stop leg only while it is still locked (a pin or super-tracking
+-- change unlocks it before WaypointIntegration is told).
+local KEPT_SOURCES = { locked = true, saved = true, dungeon_offer = true }
+
+local function KeptByPanel(follow)
+    if KEPT_SOURCES[follow.source] then return true end
+    return follow.source == "map_click" and QR.db ~= nil and QR.db.destinationLocked == true
+end
+
+--- WaypointIntegration: the quest or pin waypoint went away.
+function DataCollection:OnWaypointCleared()
+    local follow = self.follow
+    if not follow or not IsOn() or KeptByPanel(follow) then return end
+    self:EndFollow()
+end
+
+--- WaypointIntegration resolved the active waypoint after a change. Another
+-- destination, or none, ends the followed route; the same one keeps it.
+function DataCollection:OnWaypointResolved(waypoint)
+    local follow = self.follow
+    if not follow or not IsOn() or KeptByPanel(follow) then return end
+    if type(waypoint) == "table" and IsID(waypoint.mapID)
+        and IsCoordinate(waypoint.x) and IsCoordinate(waypoint.y)
+        and DestinationKey(waypoint) == follow.key then
+        return
+    end
+    self:EndFollow()
 end
 
 function DataCollection:OnRouteShown(result)

@@ -1310,6 +1310,13 @@ function WaypointIntegration:_ProcessWaypointChange()
 
     local waypoint, source = self:GetActiveWaypoint()
 
+    -- The travel observations time a route until its waypoint goes away. With
+    -- the route window closed nothing below reaches the panel, so they are
+    -- told here, from the waypoint itself.
+    if QR.DataCollection and QR.DataCollection.OnWaypointResolved then
+        pcall(QR.DataCollection.OnWaypointResolved, QR.DataCollection, waypoint)
+    end
+
     if waypoint then
         QR:Log("INFO", string_format("Waypoint changed (%s) -> %s at map %d (%.2f, %.2f)",
             source or "?", waypoint.title or "?", waypoint.mapID or 0, waypoint.x or 0, waypoint.y or 0))
@@ -1463,6 +1470,10 @@ end
 function WaypointIntegration:OnWaypointCleared(trigger)
     QR:Debug("Waypoint cleared")
     self:TraceTrigger(trigger or "unspecified", InCombatLockdown() and "cleared: deferred, combat" or "cleared")
+    -- Not deferred like the redraw below: the trip ends now, in combat too.
+    if QR.DataCollection and QR.DataCollection.OnWaypointCleared then
+        pcall(QR.DataCollection.OnWaypointCleared, QR.DataCollection)
+    end
 
     -- Redrawing the route costs the same graph search as computing one, so it
     -- waits for the fight to end like every other route work. The flag records

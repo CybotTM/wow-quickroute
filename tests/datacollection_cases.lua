@@ -56,6 +56,9 @@ local function snapshot()
         crossings = ZS.unsavedCrossings,
         closeCount = QR.MainFrame and QR.MainFrame.closeCount,
         isShowing = QR.MainFrame and QR.MainFrame.isShowing,
+        locked = QR.db.destinationLocked,
+        autoDestination = QR.db.autoDestination,
+        priority = QR.db.waypointPriority,
     }
 end
 
@@ -72,6 +75,8 @@ local function restore(saved)
     if QR.MainFrame then
         QR.MainFrame.closeCount, QR.MainFrame.isShowing = saved.closeCount, saved.isShowing
     end
+    QR.db.destinationLocked, QR.db.autoDestination = saved.locked, saved.autoDestination
+    QR.db.waypointPriority = saved.priority
     ZS:ForgetArrivalState()
     DC:ApplySetting()
     local reminder = QR.Diagnostics and QR.Diagnostics.Reminder
@@ -993,18 +998,144 @@ T:run(prefix .. "a closed route window, a combat hide included, keeps the timing
     end)
 end)
 
-T:run(prefix .. "a cleared waypoint still ends the timing with the window closed", function(t)
+--- Run fn with the route window closed the way production has it: the
+-- frame hidden, MainFrame not showing. WaypointIntegration then does not
+-- reach the panel, and the panel's own methods are counted, not run.
+local function withWindowClosed(fn)
+    local WI = QR.WaypointIntegration
+    local frame = QR.UI.frame
+    local wasShown = frame and frame:IsShown()
+    local savedShow, savedRefresh = QR.UI.Show, QR.UI.RefreshRoute
+    local savedPending, savedTimer = WI._pendingTriggers, C_Timer.NewTimer
+    local calls = { show = 0, refresh = 0 }
+    QR.UI.Show = function() calls.show = calls.show + 1 end
+    QR.UI.RefreshRoute = function() calls.refresh = calls.refresh + 1 end
+    -- The debounce runs at once.
+    C_Timer.NewTimer = function(_, cb) cb(); return { Cancel = function() end } end
+    if frame then frame:Hide() end
+    QR.MainFrame.isShowing = false
+    local ok, err = pcall(fn, WI, calls)
+    QR.UI.Show, QR.UI.RefreshRoute = savedShow, savedRefresh
+    C_Timer.NewTimer = savedTimer
+    WI._pendingTriggers = savedPending
+    WI:ClearQuestCoordCache()
+    if frame and wasShown then frame:Show() end
+    if not ok then error(err, 0) end
+end
+
+local function placePin(mapID, x, y)
+    MockWoW.config.hasUserWaypoint = true
+    MockWoW.config.userWaypoint = { uiMapID = mapID,
+        position = { x = x, y = y, GetXY = function() return x, y end } }
+end
+
+local function sourcedRoute(source)
+    local route = ironforgeRoute()
+    route.waypointSource = source
+    return route
+end
+
+T:run(prefix .. "a waypoint cleared with the window closed ends the timing", function(t)
     withCollection(true, function()
-        at(F.stormwind, 0.5, 0.5)
-        DC:OnRouteShown(ironforgeRoute())
-        QR.MainFrame.closeCount = (QR.MainFrame.closeCount or 0) + 1
-        local savedFrame = QR.UI.frame
-        QR.UI.frame = nil
-        QR.UI:ClearRoute()
-        QR.UI.frame = savedFrame
-        arrive()
-        t:assertNil(DC.follow, "dropped")
-        t:assertEqual(0, #list("stepTimes"), "nothing recorded, got " .. #list("stepTimes"))
+        withWindowClosed(function(WI, calls)
+            at(F.stormwind, 0.5, 0.5)
+            DC:OnRouteShown(ironforgeRoute())
+            WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
+            t:assertEqual(0, calls.refresh, "the closed panel is not refreshed")
+            t:assertNil(DC.follow, "the follow ends on the waypoint signal")
+            arrive()
+            t:assertEqual(0, #list("stepTimes"), "nothing recorded afterwards, got " .. #list("stepTimes"))
+        end)
+    end)
+end)
+
+T:run(prefix .. "a waypoint cleared in combat ends the timing before the deferral", function(t)
+    withCollection(true, function()
+        withWindowClosed(function(WI)
+            at(F.stormwind, 0.5, 0.5)
+            DC:OnRouteShown(ironforgeRoute())
+            MockWoW.config.inCombatLockdown = true
+            WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
+            MockWoW.config.inCombatLockdown = false
+            t:assertNil(DC.follow, "ended in combat")
+            WI._waypointChangePending = false
+        end)
+    end)
+end)
+
+T:run(prefix .. "a pin that clears on arrival still records the trip", function(t)
+    withCollection(true, function()
+        withWindowClosed(function(WI)
+            at(F.stormwind, 0.5, 0.5)
+            DC:OnRouteShown(ironforgeRoute())
+            at(F.ironforge, 0.3, 0.7)   -- arrived; no sample since
+            WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
+            local trip = list("stepTimes")[#list("stepTimes")]
+            t:assertEqual("route", trip and trip.kind, "the trip is recorded by the last sample")
+        end)
+    end)
+end)
+
+T:run(prefix .. "a new pin in the player's zone with the window closed ends the old trip", function(t)
+    withCollection(true, function()
+        QR.db.autoDestination = true
+        QR.db.waypointPriority = "mappin"
+        withWindowClosed(function(WI, calls)
+            at(F.stormwind, 0.5, 0.5)
+            DC:OnRouteShown(sourcedRoute("mappin"))
+            placePin(F.stormwind, 0.7, 0.7)
+            WI:OnWaypointChanged("USER_WAYPOINT_UPDATED")
+            t:assertEqual(0, calls.show + calls.refresh, "same zone, window closed: the panel is not reached")
+            t:assertNil(DC.follow, "the old trip ends")
+        end)
+    end)
+end)
+
+T:run(prefix .. "the same destination reported again keeps the trip", function(t)
+    withCollection(true, function()
+        QR.db.autoDestination = false
+        QR.db.waypointPriority = "mappin"
+        withWindowClosed(function(WI)
+            at(F.stormwind, 0.5, 0.5)
+            DC:OnRouteShown(sourcedRoute("mappin"))
+            placePin(F.ironforge, 0.3, 0.7)
+            WI:OnWaypointChanged("TomTom:Waypoint")
+            t:assertNotNil(DC.follow, "kept: the waypoint still leads to the same place")
+        end)
+    end)
+end)
+
+for _, source in ipairs({ "locked", "saved", "dungeon_offer" }) do
+    T:run(prefix .. "a " .. source .. " route is not ended by a quest or pin change", function(t)
+        withCollection(true, function()
+            QR.db.autoDestination = false
+            QR.db.waypointPriority = "mappin"
+            withWindowClosed(function(WI)
+                at(F.stormwind, 0.5, 0.5)
+                DC:OnRouteShown(sourcedRoute(source))
+                placePin(F.stormwind, 0.7, 0.7)
+                WI:OnWaypointChanged("TomTom:Waypoint")
+                t:assertNotNil(DC.follow, source .. ": kept on a pin change")
+                MockWoW.config.hasUserWaypoint, MockWoW.config.userWaypoint = false, nil
+                WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
+                t:assertNotNil(DC.follow, source .. ": kept when the pin is cleared")
+            end)
+        end)
+    end)
+end
+
+T:run(prefix .. "a map-click route is kept only while it is locked", function(t)
+    withCollection(true, function()
+        withWindowClosed(function(WI)
+            at(F.stormwind, 0.5, 0.5)
+            QR.db.destinationLocked = true
+            DC:OnRouteShown(sourcedRoute("map_click"))
+            WI:OnWaypointCleared("TomTom:Waypoint")
+            t:assertNotNil(DC.follow, "locked: kept")
+            QR.db.destinationLocked = false   -- what a pin or super-tracking change does
+            WI:OnWaypointCleared("USER_WAYPOINT_UPDATED")
+            t:assertNil(DC.follow, "unlocked: ended")
+        end)
     end)
 end)
 
