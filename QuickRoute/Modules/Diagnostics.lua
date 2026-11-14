@@ -109,7 +109,8 @@ end
 -- entries within days. Every entry carries `q`, a sequence number across both
 -- rings, so the two read back in the order they were written. A log line
 -- that repeats an earlier one with the same level and text within
--- TRACE_REPEAT_SECONDS of that one's first occurrence takes no slot: the
+-- TRACE_REPEAT_SECONDS of that one's first occurrence, with no barrier entry
+-- (see Folding below) written since its last occurrence, takes no slot: the
 -- earlier entry counts it in `r` (occurrences, the first included) and keeps
 -- the time of the last one in `rt` and `rg`.
 -------------------------------------------------------------------------------
@@ -284,17 +285,87 @@ local function Evict(ring, maxBytes, incoming, size)
     end
 end
 
---- Give a store without a log ring one: its log lines move there, newest
--- kept, and every entry is numbered in the order it was written. A trace from
--- before the split holds mostly log lines; left in the structured ring, they
--- would fill its smaller byte bound and evict the structured entries.
-local function SplitLogLines(s, logCap, logMaxBytes)
+-------------------------------------------------------------------------------
+-- Folding repeated log lines
+--
+-- A folder remembers, per log line (level and text), the entry of its first
+-- occurrence and the sequence number at its last one. A repeat is counted on
+-- that entry while it is less than TRACE_REPEAT_SECONDS old and no barrier was
+-- written since the line's last occurrence: a structured entry that marks a
+-- moment the reader looks around (a window, a waypoint, a taxi, a reminder, a
+-- Lua error, a session start, a loading screen, entering a new zone, a
+-- change of the tracked quest). What a trigger caused then shows after the trigger,
+-- not folded into an entry from before it.
+-------------------------------------------------------------------------------
+
+local BARRIER_CATEGORIES = {
+    window = true, waypoint = true, taxi = true, reminder = true, ["lua-error"] = true, session = true,
+}
+local BARRIER_EVENTS = {
+    LOADING_SCREEN_ENABLED = true, LOADING_SCREEN_DISABLED = true, PLAYER_ENTERING_WORLD = true,
+    ZONE_CHANGED_NEW_AREA = true, SUPER_TRACKING_CHANGED = true,
+}
+-- A subzone change (ZONE_CHANGED, ZONE_CHANGED_INDOORS) is no barrier: in the
+-- owner's trace it ended a fold 41 times in 2.5 days and took the log lines
+-- from 2,764 slots to 4,491.
+
+local function IsBarrier(entry)
+    return BARRIER_CATEGORIES[entry.c] == true or (entry.c == "event" and BARRIER_EVENTS[entry.m] == true)
+end
+
+local function NewFolder()
+    return { lines = {}, barrier = 0 }
+end
+
+local function FoldKey(entry)
+    if entry.c ~= "log" or entry.f then return nil end
+    return tostring(entry.l) .. "\0" .. tostring(entry.m)
+end
+
+--- Count `count` more occurrences of the line `key`, the last at `g`/`t`, on
+-- the entry of its first occurrence. `seq` is the sequence number now.
+-- @return table|nil The entry counted on; nil when the line starts a new entry
+local function Fold(folder, key, g, t, count, seq, ring, repeatSeconds)
+    local seen = folder.lines[key]
+    if not seen then return nil end
+    local entry = seen.entry
+    local age = (g and entry.g) and (g - entry.g) or nil
+    -- GetTime restarts with the client; a negative age is another session.
+    if (ring and ring.e[seen.slot] ~= entry) or folder.barrier > seen.last
+        or not age or age < 0 or age >= repeatSeconds then
+        folder.lines[key] = nil
+        return nil
+    end
+    entry.r = (tonumber(entry.r) or 1) + count
+    entry.rg = Round(g, 3)
+    entry.rt = t
+    seen.last = seq
+    return entry
+end
+
+--- Give a store without a log ring one: its log lines move there, folded the
+-- way they would have been when written, and every entry is numbered in the
+-- order it was written. A trace from before the split holds mostly log lines;
+-- left in the structured ring, they would fill its smaller byte bound and
+-- evict the structured entries.
+local function SplitLogLines(s, logCap, logMaxBytes, repeatSeconds)
     local structured, lines = {}, {}
     local seq = 0
+    local folder = NewFolder()
     for _, entry in ipairs(StoreEntries(s)) do
-        seq = seq + 1
-        entry.q = seq
-        if entry.c == "log" then lines[#lines + 1] = entry else structured[#structured + 1] = entry end
+        local key = FoldKey(entry)
+        if entry.c == "session" then folder = NewFolder() end
+        if not (key and Fold(folder, key, entry.g, entry.t, tonumber(entry.r) or 1, seq, nil, repeatSeconds)) then
+            seq = seq + 1
+            entry.q = seq
+            if entry.c == "log" then
+                lines[#lines + 1] = entry
+                if key then folder.lines[key] = { entry = entry, last = seq } end
+            else
+                structured[#structured + 1] = entry
+                if IsBarrier(entry) then folder.barrier = seq end
+            end
+        end
     end
     s.e, s.first, s.n, s.bytes = {}, 1, 0, 0
     for _, entry in ipairs(structured) do
@@ -302,7 +373,7 @@ local function SplitLogLines(s, logCap, logMaxBytes)
         s.e[s.n] = entry
         s.bytes = s.bytes + ValueSize(entry)
     end
-    local log = Resized({ cap = s.cap, first = 1, n = #lines, e = lines }, logCap, NewRing(logCap))
+    local log = Resized({ cap = #lines + 1, first = 1, n = #lines, e = lines }, logCap, NewRing(logCap))
     Evict(log, logMaxBytes, 0, 0)
     s.log, s.seq = log, seq
 end
@@ -323,7 +394,7 @@ function Diagnostics:GetTraceStore()
     end
     CountBytes(s)
     if not ValidRing(s.log) then
-        SplitLogLines(s, self.TRACE_LOG_CAP, self.TRACE_LOG_MAX_BYTES)
+        SplitLogLines(s, self.TRACE_LOG_CAP, self.TRACE_LOG_MAX_BYTES, self.TRACE_REPEAT_SECONDS)
     elseif s.log.cap ~= self.TRACE_LOG_CAP then
         s.log = Resized(s.log, self.TRACE_LOG_CAP, NewRing(self.TRACE_LOG_CAP))
     end
@@ -416,55 +487,44 @@ local function MakeEntry(level, category, message, fields)
     return entry
 end
 
---- Count a log line on the entry of its first occurrence, when that entry is
--- still in the log ring and less than TRACE_REPEAT_SECONDS old.
--- The index lives in memory only: after a /reload a line starts a new entry.
--- @return boolean true when the line was counted
-local function CountRepeat(self, store, key)
-    local index = self._logRepeats
-    if not index or index.store ~= store then return false end
-    local seen = index.lines[key]
-    if not seen then return false end
-    local ring = store.log
-    local entry = seen.entry
-    if ring.e[seen.slot] ~= entry then
-        index.lines[key] = nil
-        return false
+--- The live folder, for this store. In memory only: after a /reload a line
+-- starts a new entry.
+local function LiveFolder(self, store)
+    local folder = self._logRepeats
+    if not folder or folder.store ~= store then
+        folder = NewFolder()
+        folder.store = store
+        self._logRepeats = folder
     end
-    local now = GetTime and GetTime() or nil
-    local age = (now and entry.g) and (now - entry.g) or nil
-    -- GetTime restarts with the client; a negative age is another session.
-    if not age or age < 0 or age >= self.TRACE_REPEAT_SECONDS then
-        index.lines[key] = nil
-        return false
-    end
-    local before = ValueSize(entry)
-    entry.r = (tonumber(entry.r) or 1) + 1
-    entry.rg = Round(now, 3)
-    entry.rt = time and time() or nil
-    ring.bytes = ring.bytes + ValueSize(entry) - before
-    Evict(ring, self.TRACE_LOG_MAX_BYTES, 0, 0)
-    -- The changed entry is saved with the next reload too.
-    Diagnostics.unsavedTrace = (Diagnostics.unsavedTrace or 0) + 1
-    return true
+    return folder
 end
 
 local function TraceLog(self, store, message, fields, level)
     local entry = MakeEntry(level or "INFO", "log", message, fields)
-    -- QR:Log passes no fields; a line that has some is never folded.
-    if entry.f then
-        Push(store, store.log, self.TRACE_LOG_MAX_BYTES, entry)
-        return
+    local ring = store.log
+    local key = FoldKey(entry)
+    local folder = LiveFolder(self, store)
+    if key then
+        local before
+        local seen = folder.lines[key]
+        if seen then before = ValueSize(seen.entry) end
+        local counted = Fold(folder, key, entry.g, entry.t, 1, store.seq, ring, self.TRACE_REPEAT_SECONDS)
+        if counted then
+            ring.bytes = ring.bytes + ValueSize(counted) - before
+            Evict(ring, self.TRACE_LOG_MAX_BYTES, 0, 0)
+            -- The changed entry is saved with the next reload too.
+            Diagnostics.unsavedTrace = (Diagnostics.unsavedTrace or 0) + 1
+            return
+        end
     end
-    local key = entry.l .. "\0" .. entry.m
-    if CountRepeat(self, store, key) then return end
-    local slot = Push(store, store.log, self.TRACE_LOG_MAX_BYTES, entry)
-    local index = self._logRepeats
-    if not index or index.store ~= store then
-        index = { store = store, lines = {} }
-        self._logRepeats = index
-    end
-    index.lines[key] = { entry = entry, slot = slot }
+    local slot = Push(store, ring, self.TRACE_LOG_MAX_BYTES, entry)
+    if key then folder.lines[key] = { entry = entry, slot = slot, last = entry.q } end
+end
+
+--- Append a structured entry; a barrier ends every fold in progress.
+local function PushStructured(self, store, entry)
+    Push(store, store, self.TRACE_MAX_BYTES, entry)
+    if IsBarrier(entry) then LiveFolder(self, store).barrier = entry.q end
 end
 
 local function TraceUnsafe(self, category, message, fields, level)
@@ -473,7 +533,7 @@ local function TraceUnsafe(self, category, message, fields, level)
     -- compares it with the last one and records the transition first.
     local taxi = OnTaxi()
     if self._lastTaxi ~= nil and taxi ~= self._lastTaxi then
-        Push(store, store, self.TRACE_MAX_BYTES, MakeEntry("INFO", "taxi",
+        PushStructured(self, store, MakeEntry("INFO", "taxi",
             taxi and "taxi started" or "taxi ended", { onTaxi = taxi }))
     end
     self._lastTaxi = taxi
@@ -481,7 +541,7 @@ local function TraceUnsafe(self, category, message, fields, level)
         TraceLog(self, store, message, fields, level)
         return
     end
-    Push(store, store, self.TRACE_MAX_BYTES, MakeEntry(level or "INFO", category or "misc", message, fields))
+    PushStructured(self, store, MakeEntry(level or "INFO", category or "misc", message, fields))
 end
 
 --- Add one entry to the trace when the setting is on; a no-op otherwise.
@@ -543,19 +603,6 @@ function Diagnostics:ClientInfo()
     }
 end
 
-local function NpcFields(fields)
-    if UnitName then
-        local name = UnitName("npc")
-        if name then fields.npc = name end
-    end
-    if UnitGUID then
-        local guid = UnitGUID("npc")
-        if type(guid) == "string" then
-            local npcID = guid:match("^%a+%-%d+%-%d+%-%d+%-%d+%-(%d+)%-")
-            if npcID then fields.npcID = tonumber(npcID) end
-        end
-    end
-end
 
 -- Events whose entry carries the game map the client put the player on.
 local GAME_MAP_EVENTS = {
@@ -569,6 +616,23 @@ local function Plain(value)
     local kind = type(value)
     if kind == "string" or kind == "number" or kind == "boolean" then return value end
     return nil
+end
+
+--- The dialog's NPC: its name, the GUID's type (Creature, GameObject, ...)
+-- and the ID the GUID carries. Under addon restrictions both values can be
+-- secret; a secret one is left out, and the entry is still written.
+local function NpcFields(fields)
+    if UnitName then
+        local name = Plain(UnitName("npc"))
+        if type(name) == "string" then fields.npc = name end
+    end
+    if UnitGUID then
+        local guid = Plain(UnitGUID("npc"))
+        if type(guid) == "string" then
+            local kind, id = guid:match("^(%a+)%-%d+%-%d+%-%d+%-%d+%-(%d+)%-")
+            if id then fields.npcID, fields.npcType = tonumber(id), kind end
+        end
+    end
 end
 
 --- Which game map the player is on, beside the UI map every entry has.
@@ -828,15 +892,21 @@ function Reminder:Unsaved()
     return trace + captures + observations, trace, captures, crossings, observations
 end
 
---- Fill level of the trace buffer: the higher of entries/cap and bytes/byte cap.
+--- Fill level of the whole trace, both rings: the higher of entries against
+-- both caps and bytes against both byte bounds.
 -- @return number percent (0-100), number n, number bytes
 function Reminder:TraceFill()
     local store = QR.db and QR.db.trace
     if not ValidStore(store) then return 0, 0, 0 end
-    local byEntries = store.n / Diagnostics.TRACE_CAP
-    local byBytes = (tonumber(store.bytes) or 0) / Diagnostics.TRACE_MAX_BYTES
+    local n, bytes = store.n, tonumber(store.bytes) or 0
+    if ValidRing(store.log) then
+        n = n + store.log.n
+        bytes = bytes + (tonumber(store.log.bytes) or 0)
+    end
+    local byEntries = n / (Diagnostics.TRACE_CAP + Diagnostics.TRACE_LOG_CAP)
+    local byBytes = bytes / (Diagnostics.TRACE_MAX_BYTES + Diagnostics.TRACE_LOG_MAX_BYTES)
     local fill = math.min(1, math.max(byEntries, byBytes))
-    return math.floor(fill * 100 + 0.5), store.n, tonumber(store.bytes) or 0
+    return math.floor(fill * 100 + 0.5), n, bytes
 end
 
 --- Whether a reload now would cost the player nothing.
@@ -952,8 +1022,9 @@ function Reminder:Populate()
     local percent, n, bytes = self:TraceFill()
     SetLine(lines.fill, showTrace and string_format(L["SAVE_REMINDER_TRACE_FILL"], percent) or "")
     SetLine(lines.fillDetail, showTrace and string_format(L["SAVE_REMINDER_TRACE_FILL_DETAIL"],
-        n, Diagnostics.TRACE_CAP, math.floor(bytes / 1024 + 0.5),
-        math.floor(Diagnostics.TRACE_MAX_BYTES / 1024 + 0.5)) or "", { 0.8, 0.8, 0.8 })
+        n, Diagnostics.TRACE_CAP + Diagnostics.TRACE_LOG_CAP, math.floor(bytes / 1024 + 0.5),
+        math.floor((Diagnostics.TRACE_MAX_BYTES + Diagnostics.TRACE_LOG_MAX_BYTES) / 1024 + 0.5))
+        or "", { 0.8, 0.8, 0.8 })
     SetLine(lines.fullNote, showTrace and L["SAVE_REMINDER_TRACE_FULL_NOTE"] or "", { 0.8, 0.8, 0.8 })
     SetLine(lines.survey, db.zoneSurveyEnabled == true
         and string_format(L["SAVE_REMINDER_SURVEY_NEW"], crossings) or "")

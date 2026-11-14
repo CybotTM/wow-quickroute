@@ -284,21 +284,147 @@ T:run(prefix .. "a store from before the log ring moves its log lines out and ke
         D.TRACE_MAX_BYTES = bytes - 1
         D.TRACE_LOG_CAP = 10
         D:Trace("event", "written now")
+        QR:Log("INFO", "a line after the move")
         local store = QR.db.trace
         t:assertEqual(4, store.n, "e1, w1, e2 and the new entry, got n=" .. store.n)
         t:assertEqual(0, store.dropped, "no structured entry dropped, got " .. tostring(store.dropped))
-        t:assertEqual(10, store.log.n, "the newest ten log lines moved, got " .. store.log.n)
-        t:assertEqual(2, store.log.dropped, "the two oldest did not fit, got " .. tostring(store.log.dropped))
+        t:assertEqual(10, store.log.n, "the newest ten log lines kept, got " .. store.log.n)
+        t:assertEqual(3, store.log.dropped, "the three oldest did not fit, got " .. tostring(store.log.dropped))
         local got = {}
         for _, e in ipairs(D:GetTraceEntries()) do got[#got + 1] = e.m end
-        t:assertEqual("e1,old line 3,old line 4,old line 5,old line 6,w1,old line 7,old line 8,old line 9,"
-            .. "old line 10,old line 11,old line 12,e2,written now", table.concat(got, ","),
+        t:assertEqual("e1,old line 4,old line 5,old line 6,w1,old line 7,old line 8,old line 9,"
+            .. "old line 10,old line 11,old line 12,e2,written now,a line after the move", table.concat(got, ","),
             "in the order written, got " .. table.concat(got, ","))
         local structuredBytes = 0
         for i = 0, store.n - 1 do
             structuredBytes = structuredBytes + D.TraceEntrySize(store.e[((store.first - 1 + i) % store.cap) + 1])
         end
         t:assertEqual(structuredBytes, store.bytes, "the structured byte count is recounted")
+    end)
+end)
+
+-- A fold must not hide what a trigger caused. In the owner's trace,
+-- BuildGraph, "added nodes" and "Path found" at g=2500412.9, 0.26 s after a
+-- TomTom waypoint entry, would have been folded into entries 166 s older.
+T:run(prefix .. "a barrier entry ends a fold, other entries do not", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        MockWoW.config.baseTime = 8000
+        local line = "Path found to map 2413: 3 nodes, 120s"
+        QR:Log("INFO", line)
+        local function tick() MockWoW.config.baseTime = MockWoW.config.baseTime + 1 end
+        -- Not barriers: a quest-log burst, a subzone change, a route entry.
+        for _, message in ipairs({ "QUEST_LOG_UPDATE", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS" }) do
+            tick(); D:Trace("event", message)
+            tick(); QR:Log("INFO", line)
+        end
+        tick(); D:Trace("route", "request")
+        tick(); QR:Log("INFO", line)
+        t:assertEqual(1, QR.db.trace.log.n, "folded across them, got " .. QR.db.trace.log.n)
+        local barriers = {
+            { "window", "show route (x)" }, { "waypoint", "TomTom callback" }, { "reminder", "shown" },
+            { "lua-error", "boom" }, { "session", "trace started" }, { "event", "LOADING_SCREEN_ENABLED" },
+            { "event", "LOADING_SCREEN_DISABLED" }, { "event", "PLAYER_ENTERING_WORLD" },
+            { "event", "ZONE_CHANGED_NEW_AREA" }, { "event", "SUPER_TRACKING_CHANGED" },
+        }
+        for i, b in ipairs(barriers) do
+            tick(); D:Trace(b[1], b[2])
+            tick(); QR:Log("INFO", line)
+            t:assertEqual(1 + i, QR.db.trace.log.n, b[1] .. " " .. b[2] .. " starts a new entry, got "
+                .. QR.db.trace.log.n)
+            tick(); QR:Log("INFO", line)
+            t:assertEqual(1 + i, QR.db.trace.log.n, "and the line folds again after it")
+        end
+    end)
+end)
+
+T:run(prefix .. "a taxi transition ends a fold", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        local saved = _G.UnitOnTaxi
+        local onTaxi = false
+        _G.UnitOnTaxi = function() return onTaxi end
+        local ok, err = pcall(function()
+            QR:Log("INFO", "same")
+            onTaxi = true
+            QR:Log("INFO", "same")
+        end)
+        _G.UnitOnTaxi = saved
+        if not ok then error(err, 0) end
+        t:assertNotNil(find("taxi"), "the transition is traced")
+        t:assertEqual(2, QR.db.trace.log.n, "the line after it is a new entry, got " .. QR.db.trace.log.n)
+    end)
+end)
+
+T:run(prefix .. "an old store's log lines are folded when they move, not cut", function(t)
+    withTrace(true, function()
+        local old = {}
+        local function add(c, m, g) old[#old + 1] = { c = c, m = m, l = "DEBUG", g = g } end
+        for g = 1, 20 do add("log", "Quest 91234: negative cache hit", g) end
+        add("window", "show route (waypoint-auto)", 20.5)
+        for g = 21, 40 do add("log", "Quest 91234: negative cache hit", g) end
+        add("event", "QUEST_LOG_UPDATE", 40.5)
+        for g = 41, 45 do add("log", "Quest 91234: negative cache hit", g) end
+        QR.db.trace = { v = D.TRACE_VERSION, cap = D.TRACE_CAP, first = 1, n = #old, dropped = 0, e = old }
+        D.TRACE_LOG_CAP = 10
+        MockWoW.config.baseTime = 50
+        QR:Log("DEBUG", "Quest 91234: negative cache hit")
+        local log = QR.db.trace.log
+        t:assertEqual(0, log.dropped, "nothing cut, got " .. tostring(log.dropped))
+        local got = {}
+        for _, e in ipairs(D:GetTraceEntries()) do got[#got + 1] = e.c .. ":" .. tostring(e.r or 1) end
+        -- 20 before the window; 25 after it (a QUEST_LOG_UPDATE is no barrier).
+        -- The move happens at the first write after login, which starts a new
+        -- session: the line written then is a new entry.
+        t:assertEqual("log:20,window:1,log:25,event:1,log:1", table.concat(got, ","),
+            "two folds around the window, got " .. table.concat(got, ","))
+    end)
+end)
+
+T:run(prefix .. "a resized store keeps its log ring and numbering", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        D:Trace("event", "before resize")
+        QR:Log("INFO", "line before resize")
+        local log = QR.db.trace.log
+        D.TRACE_CAP = D.TRACE_CAP - 1
+        D:Trace("event", "after resize")
+        QR:Log("INFO", "line after resize")
+        t:assertTrue(QR.db.trace.log == log, "the same log ring")
+        local got = {}
+        for _, e in ipairs(D:GetTraceEntries()) do got[#got + 1] = e.m end
+        local text = table.concat(got, ",")
+        t:assertTrue(text:find("before resize,line before resize,after resize,line after resize", 1, true) ~= nil,
+            "in write order, got " .. text)
+    end)
+end)
+
+T:run(prefix .. "an NPC entry is written when the name and GUID are secret", function(t)
+    withTrace(true, function()
+        local savedName, savedGUID, savedSecret = _G.UnitName, _G.UnitGUID, _G.issecretvalue
+        local secret = {}
+        _G.UnitName = function(unit)
+            if unit == "npc" then secret.name = "Delve-O-Bot 7001"; return secret.name end
+            return savedName(unit)
+        end
+        _G.UnitGUID = function(unit)
+            if unit == "npc" then secret.guid = "Creature-0-3767-1-1234-232267-00006F2A1B"; return secret.guid end
+            return nil
+        end
+        _G.issecretvalue = function(v) return v ~= nil and (v == secret.name or v == secret.guid) end
+        local ok, err = pcall(function() MockWoW:FireEvent("GOSSIP_SHOW") end)
+        _G.issecretvalue = savedSecret
+        local ok2, err2 = pcall(function() MockWoW:FireEvent("MERCHANT_SHOW") end)
+        _G.UnitName, _G.UnitGUID = savedName, savedGUID
+        if not ok then error(err, 0) end
+        if not ok2 then error(err2, 0) end
+        local gossip = find("event", function(e) return e.m == "GOSSIP_SHOW" end)
+        t:assertNotNil(gossip, "the GOSSIP_SHOW entry is written")
+        t:assertNil(gossip and gossip.f and gossip.f.npc, "without the secret name")
+        t:assertNil(gossip and gossip.f and gossip.f.npcID, "without an ID from the secret GUID")
+        local merchant = find("event", function(e) return e.m == "MERCHANT_SHOW" end)
+        t:assertEqual(232267, merchant and merchant.f and merchant.f.npcID, "a readable GUID gives the ID")
+        t:assertEqual("Creature", merchant and merchant.f and merchant.f.npcType, "and its type")
     end)
 end)
 

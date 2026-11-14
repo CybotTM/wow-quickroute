@@ -92,6 +92,17 @@ def describe(record):
     return text
 
 
+def offset(at, prior):
+    """When a prior entry happened relative to `at`: "-0.500s", or for a
+    repeated line the span of its occurrences, "-4.500s..+1.000s"."""
+    first = at - prior["gameTime"]
+    text = f"-{first:.3f}s"
+    if prior.get("repeats") and "lastGameTime" in prior:
+        last = prior["lastGameTime"] - at
+        text += f"..{'+' if last > 0 else '-'}{abs(last):.3f}s"
+    return text
+
+
 def window_opens(records):
     """Every traced window open with the entries of the WINDOW_SECONDS before it.
 
@@ -116,7 +127,9 @@ def window_opens(records):
             if started is None or at - started > REPEAT_SECONDS + WINDOW_SECONDS:
                 break
             last = prior.get("lastGameTime", started)
-            if at - started <= WINDOW_SECONDS or (prior.get("repeats") and 0 <= at - last <= WINDOW_SECONDS):
+            # A repeated line spans first..last occurrence; it counts when that
+            # span reaches into the window, also when it goes on past the open.
+            if at - started <= WINDOW_SECONDS or (prior.get("repeats") and last >= at - WINDOW_SECONDS):
                 before.append(prior)
             j -= 1
         before.reverse()
@@ -150,8 +163,7 @@ def summary(records, headers):
         if not before:
             lines.append(f"    (nothing in the {WINDOW_SECONDS:g} s before)")
         for prior in before:
-            delta = record["gameTime"] - prior.get("lastGameTime", prior["gameTime"])
-            lines.append(f"    -{delta:.3f}s {describe(prior)}")
+            lines.append(f"    {offset(record['gameTime'], prior)} {describe(prior)}")
     return "\n".join(lines)
 
 
