@@ -701,6 +701,10 @@ T:run("Data: Hearthstone toy variants are isDynamic with no mapID", function(t)
         54452, 93672, 162973, 163045, 165669, 165670, 165802,
         166746, 166747, 168907, 172179, 180290, 184353, 183716,
         182773, 188952, 190196, 190237, 193588, 200630, 206195, 212337,
+        -- Every toy whose spell has the Hearthstone's effect in client DB2
+        -- build 12.1.5.70783, including the Tome of Town Portal.
+        142542, 208704, 209035, 210455, 228940, 245970, 246565, 257736,
+        263489, 263933, 265100, 281136, 281615,
     }
     for _, id in ipairs(hearthstoneVariants) do
         local data = QR.TeleportItemsData[id]
