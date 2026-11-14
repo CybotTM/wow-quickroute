@@ -892,20 +892,22 @@ function Reminder:Unsaved()
     return trace + captures + observations, trace, captures, crossings, observations
 end
 
---- Fill level of the whole trace, both rings: the higher of entries against
--- both caps and bytes against both byte bounds.
+--- Fill level of the trace: the fuller of the two rings, each against its own
+-- entry cap and byte bound, because each ring drops its oldest entries on its
+-- own. The counts returned are the sums of both rings.
 -- @return number percent (0-100), number n, number bytes
 function Reminder:TraceFill()
     local store = QR.db and QR.db.trace
     if not ValidStore(store) then return 0, 0, 0 end
     local n, bytes = store.n, tonumber(store.bytes) or 0
+    local fill = math.max(n / Diagnostics.TRACE_CAP, bytes / Diagnostics.TRACE_MAX_BYTES)
     if ValidRing(store.log) then
+        local logBytes = tonumber(store.log.bytes) or 0
+        fill = math.max(fill, store.log.n / Diagnostics.TRACE_LOG_CAP, logBytes / Diagnostics.TRACE_LOG_MAX_BYTES)
         n = n + store.log.n
-        bytes = bytes + (tonumber(store.log.bytes) or 0)
+        bytes = bytes + logBytes
     end
-    local byEntries = n / (Diagnostics.TRACE_CAP + Diagnostics.TRACE_LOG_CAP)
-    local byBytes = bytes / (Diagnostics.TRACE_MAX_BYTES + Diagnostics.TRACE_LOG_MAX_BYTES)
-    local fill = math.min(1, math.max(byEntries, byBytes))
+    fill = math.min(1, fill)
     return math.floor(fill * 100 + 0.5), n, bytes
 end
 

@@ -247,7 +247,7 @@ T:run(prefix .. "names what records and the fill level", function(t)
         QR.db.zoneSurveyEnabled = true
         D.unsavedTrace = 7
         ZS.unsavedCaptures, ZS.unsavedCrossings = 3, 2
-        -- The log ring counts too: 3 of the 6 MiB both rings may hold.
+        -- The log ring counts too: 2 MiB in the main ring, 1 MiB in the log ring.
         local total = D.TRACE_MAX_BYTES + D.TRACE_LOG_MAX_BYTES
         QR.db.trace = { v = D.TRACE_VERSION, cap = D.TRACE_CAP, first = 1, n = 5000, bytes = total / 2 - 1024 * 1024,
             e = {}, log = { cap = D.TRACE_LOG_CAP, first = 1, n = 1000, bytes = 1024 * 1024, e = {} } }
@@ -257,10 +257,11 @@ T:run(prefix .. "names what records and the fill level", function(t)
         t:assertTrue(lines.active:GetText():find(L["SAVE_REMINDER_TRACE_NAME"], 1, true) ~= nil, "names the trace")
         t:assertTrue(lines.active:GetText():find(L["SAVE_REMINDER_SURVEY_NAME"], 1, true) ~= nil, "names the survey")
         t:assertTrue(lines.unsaved:GetText():find("10", 1, true) ~= nil, "7 trace + 3 survey entries unsaved")
-        -- 6000 of 25000 entries = 24 %, 3 of 6 MiB = 50 %: the higher one.
-        t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL"], 50), lines.fill:GetText(), "fill is the higher share")
+        -- Each ring against its own bounds: main 2 of 4.5 MiB = 44 %, log
+        -- 1 of 1.5 MiB = 67 %. The log ring drops first, so it sets the fill.
+        t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL"], 67), lines.fill:GetText(), "fill is the fuller ring")
         t:assertTrue(lines.survey:GetText():find("2", 1, true) ~= nil, "two new crossings")
-        t:assertEqual(math.floor(376 * 0.5), math.floor(R.popup.barWidth), "the bar is half full")
+        t:assertEqual(math.floor(376 * 0.67), math.floor(R.popup.barWidth), "the bar is two thirds full")
     end)
 end)
 
