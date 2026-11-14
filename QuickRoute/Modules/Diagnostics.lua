@@ -403,6 +403,21 @@ function Diagnostics:GetTraceStore()
     return s
 end
 
+--- What this login or /reload wrote into a ring: entries and bytes. In memory
+-- only, so it starts at zero after every reload, and keyed by the ring table,
+-- so a replaced or resized ring starts at zero too. The entries are the
+-- ring's newest, so eviction (oldest first) reaches them last.
+local sessionWrites = setmetatable({}, { __mode = "k" })
+local function SessionWrites(ring)
+    local w = sessionWrites[ring]
+    if not w then
+        w = { n = 0, bytes = 0 }
+        sessionWrites[ring] = w
+    end
+    return w
+end
+Diagnostics.SessionWrites = SessionWrites
+
 --- Append an entry to a ring. @return number The slot it went into
 local function Push(s, ring, maxBytes, entry)
     s.seq = s.seq + 1
@@ -413,6 +428,8 @@ local function Push(s, ring, maxBytes, entry)
     ring.e[slot] = entry
     ring.n = ring.n + 1
     ring.bytes = ring.bytes + size
+    local w = SessionWrites(ring)
+    w.n, w.bytes = w.n + 1, w.bytes + size
     -- Entries written since this login or /reload: what a reload would save.
     Diagnostics.unsavedTrace = (Diagnostics.unsavedTrace or 0) + 1
     return slot
@@ -510,7 +527,11 @@ local function TraceLog(self, store, message, fields, level)
         if seen then before = ValueSize(seen.entry) end
         local counted = Fold(folder, key, entry.g, entry.t, 1, store.seq, ring, self.TRACE_REPEAT_SECONDS)
         if counted then
-            ring.bytes = ring.bytes + ValueSize(counted) - before
+            local grown = ValueSize(counted) - before
+            ring.bytes = ring.bytes + grown
+            -- The folder lives in memory, so the entry was written this session.
+            local w = SessionWrites(ring)
+            w.bytes = w.bytes + grown
             Evict(ring, self.TRACE_LOG_MAX_BYTES, 0, 0)
             -- The changed entry is saved with the next reload too.
             Diagnostics.unsavedTrace = (Diagnostics.unsavedTrace or 0) + 1
@@ -892,10 +913,13 @@ function Reminder:Unsaved()
     return trace + captures + observations, trace, captures, crossings, observations
 end
 
---- Fill level of the trace: the fuller of the two rings, each against its own
--- entry cap and byte bound, because each ring drops its oldest entries on its
--- own. The counts and bounds returned are that ring's, so the line under the
--- bar shows the numbers the percentage comes from.
+--- How much of the trace this login or /reload wrote: the fuller of the two
+-- rings, each against its own entry cap and byte bound, because each ring
+-- drops its oldest entries on its own. The rings themselves are saved and
+-- stay full; what a reload changes is how much of them is not yet on disk.
+-- At 100 % a ring drops entries that never reached disk. The counts and
+-- bounds returned are that ring's, so the line under the bar shows the
+-- numbers the percentage comes from.
 -- @return number percent (0-100), number n, number cap, number bytes, number maxBytes
 function Reminder:TraceFill()
     local store = QR.db and QR.db.trace
@@ -903,8 +927,12 @@ function Reminder:TraceFill()
         return 0, 0, Diagnostics.TRACE_CAP, 0, Diagnostics.TRACE_MAX_BYTES
     end
     local function RingFill(ring, cap, maxBytes)
-        local bytes = tonumber(ring.bytes) or 0
-        return math.max(ring.n / cap, bytes / maxBytes), ring.n, cap, bytes, maxBytes
+        local w = SessionWrites(ring)
+        -- Written past the bound: the ring holds only its newest, all of
+        -- them from this session.
+        local n = math.min(w.n, ring.n)
+        local bytes = math.min(w.bytes, tonumber(ring.bytes) or 0)
+        return math.max(n / cap, bytes / maxBytes), n, cap, bytes, maxBytes
     end
     local fill, n, cap, bytes, maxBytes = RingFill(store, Diagnostics.TRACE_CAP, Diagnostics.TRACE_MAX_BYTES)
     if ValidRing(store.log) then

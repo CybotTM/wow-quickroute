@@ -251,6 +251,10 @@ T:run(prefix .. "names what records and the fill level", function(t)
         local total = D.TRACE_MAX_BYTES + D.TRACE_LOG_MAX_BYTES
         QR.db.trace = { v = D.TRACE_VERSION, cap = D.TRACE_CAP, first = 1, n = 5000, bytes = total / 2 - 1024 * 1024,
             e = {}, log = { cap = D.TRACE_LOG_CAP, first = 1, n = 1000, bytes = 1024 * 1024, e = {} } }
+        -- All of it written since the last load.
+        local main, log = D.SessionWrites(QR.db.trace), D.SessionWrites(QR.db.trace.log)
+        main.n, main.bytes = QR.db.trace.n, QR.db.trace.bytes
+        log.n, log.bytes = 1000, 1024 * 1024
         tick(MINUTES_20)
         local lines = R.popup.lines
         local L = QR.L
@@ -269,9 +273,10 @@ T:run(prefix .. "names what records and the fill level", function(t)
 end)
 
 -- The owner's trace of 2026-11-14 18:19: the log ring at its byte bound, the
--- main ring at 8 %. The popup read "100 %" above "5468 of 25000 entries, 1946
--- of 6144 KB", the sums of both rings.
-T:run(prefix .. "the numbers under a full bar are the full ring's", function(t)
+-- main ring at 8 %. The popup read "100 %" after every /reload, because the
+-- rings are saved and stay full. What a reload changes is how much of them is
+-- not on disk yet, so the bar counts that and starts at 0 after the load.
+T:run(prefix .. "a ring filled before the last load shows 0 %", function(t)
     withReminder(function()
         D.unsavedTrace = 8681
         QR.db.trace = { v = D.TRACE_VERSION, cap = D.TRACE_CAP, first = 1, n = 997, bytes = 360930,
@@ -279,10 +284,53 @@ T:run(prefix .. "the numbers under a full bar are the full ring's", function(t)
         tick(MINUTES_20)
         local lines = R.popup.lines
         local L = QR.L
-        t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL"], 100), lines.fill:GetText(), "the log ring is full")
-        t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL_DETAIL"], 4292, 5000, 1536, 1536),
-            lines.fillDetail:GetText(), "its own entries and bytes, not the sums")
+        t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL"], 0), lines.fill:GetText(),
+            "nothing written since the load")
+        t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL_DETAIL"], 0, D.TRACE_CAP, 0,
+            math.floor(D.TRACE_MAX_BYTES / 1024 + 0.5)), lines.fillDetail:GetText(), "zero entries, zero bytes")
     end)
+end)
+
+T:run(prefix .. "the bar counts the entries written since the load", function(t)
+    withReminder(function()
+        QR.db.trace = nil
+        for i = 1, 3 do QR:Log("INFO", "line " .. i) end
+        local percent, n, cap = R:TraceFill()
+        t:assertEqual(3, n, "three new log lines")
+        t:assertEqual(D.TRACE_LOG_CAP, cap, "in the log ring, the fuller one")
+        t:assertEqual(0, percent, "3 of 5000 rounds to 0 %")
+        local _, _, _, bytes = R:TraceFill()
+        t:assertEqual(QR.db.trace.log.bytes, bytes, "and their bytes")
+    end)
+end)
+
+T:run(prefix .. "a repeated line counts its bytes, not a new entry", function(t)
+    withReminder(function()
+        QR.db.trace = nil
+        QR:Log("INFO", "the same line")
+        local _, _, _, before = R:TraceFill()
+        for _ = 1, 4 do QR:Log("INFO", "the same line") end
+        local _, n, _, bytes = R:TraceFill()
+        t:assertEqual(1, n, "four repeats fold into the first entry")
+        t:assertTrue(bytes > before, "the repeat count grows the entry: " .. before .. " -> " .. bytes)
+        t:assertEqual(QR.db.trace.log.bytes, bytes, "the bytes match the ring's")
+    end)
+end)
+
+T:run(prefix .. "written past the bound: 100 %, the ring's own numbers", function(t)
+    local savedCap = D.TRACE_LOG_CAP
+    local ok, err = pcall(withReminder, function()
+        D.TRACE_LOG_CAP = 10
+        QR.db.trace = nil
+        for i = 1, 25 do QR:Log("INFO", "line " .. i) end
+        local percent, n, cap, bytes = R:TraceFill()
+        t:assertEqual(100, percent, "the log ring dropped entries written since the load")
+        t:assertEqual(10, n, "it holds 10, all of them new")
+        t:assertEqual(10, cap, "against its own cap")
+        t:assertEqual(QR.db.trace.log.bytes, bytes, "and its own bytes, not the 25 written")
+    end)
+    D.TRACE_LOG_CAP = savedCap
+    if not ok then error(err, 0) end
 end)
 
 T:run(prefix .. "names the observations and counts their unsaved writes", function(t)
