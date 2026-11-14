@@ -551,7 +551,8 @@ T:run(prefix .. "a teleport from an NPC's dialog is filed under the NPC, not a s
         t:assertEqual(2694, e.toInstanceMapID, "to game map 2694, got " .. tostring(e.toInstanceMapID))
         t:assertEqual(7.2, e.loadingSeconds, "7.2 s from loading screen to landing, got " .. tostring(e.loadingSeconds))
         t:assertEqual("Alliance", e.faction, "the faction")
-        t:assertEqual(string.format("npc:232267:%d:%.2f:%.2f", F.gossipTo.mapID, F.gossipTo.x, F.gossipTo.y), e.key,
+        t:assertEqual("Creature", e.npcType, "the GUID's type, got " .. tostring(e.npcType))
+        t:assertEqual(string.format("npc:Creature:232267:%d:%.2f:%.2f", F.gossipTo.mapID, F.gossipTo.x, F.gossipTo.y), e.key,
             "keyed by the NPC, got " .. tostring(e.key))
         t:assertNil(DC.pendingCast, "nothing left in flight")
     end)
@@ -683,6 +684,98 @@ T:run(prefix .. "an interaction that is no gossip dialog is no cause", function(
         onGameMap(to)
         event("LOADING_SCREEN_DISABLED")
         t:assertEqual(0, #list("unknownTeleports"), "closing a vendor before a portal files nothing")
+    end)
+end)
+
+--- One closed gossip dialog with `name`/`npcID` at the current position.
+local function dialog(name, npcID)
+    talkTo(name, npcID)
+    event("GOSSIP_SHOW")
+    event("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)
+    event("GOSSIP_CLOSED", false)
+    event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 3)
+end
+
+local function loadInto(point)
+    event("LOADING_SCREEN_ENABLED")
+    onGameMap(point)
+    event("LOADING_SCREEN_DISABLED")
+end
+
+T:run(prefix .. "a second NPC's teleport carries that NPC, not the one talked to before", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Innkeeper", 6740)
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 1
+        at(F.gossipFrom.mapID, 0.5, 0.5)
+        dialog("Delve-O-Bot 7001", 232267)
+        loadInto(F.gossipTo)
+        local e = list("unknownTeleports")[1]
+        t:assertEqual(232267, e and e.npcID, "the bot, got " .. tostring(e and e.npcID))
+        t:assertEqual(0.5, e and e.fromX, "from where the bot stood, got " .. tostring(e and e.fromX))
+    end)
+end)
+
+T:run(prefix .. "the loading screen uses up the dialog", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Delve-O-Bot 7001", 232267)
+        loadInto(F.gossipTo)
+        -- A second loading screen within 2 s of the close, somewhere else.
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 1
+        loadInto({ mapID = F.stormwind, x = 0.5, y = 0.5 })
+        t:assertEqual(1, #list("unknownTeleports"), "only the first crossing is the NPC's")
+    end)
+end)
+
+T:run(prefix .. "a later hide does not move the dialog's close", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Delve-O-Bot 7001", 232267)
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 1.9
+        event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 0)
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 0.6
+        loadInto(F.gossipTo)
+        t:assertEqual(0, #list("unknownTeleports"), "2.5 s after the close is too late")
+    end)
+end)
+
+T:run(prefix .. "a reload drops the dialog", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Delve-O-Bot 7001", 232267)
+        event("PLAYER_ENTERING_WORLD", false, true)
+        loadInto(F.gossipTo)
+        t:assertEqual(0, #list("unknownTeleports"), "nothing from before the reload")
+    end)
+end)
+
+T:run(prefix .. "switching off drops the dialog", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Delve-O-Bot 7001", 232267)
+        DC:SetEnabled(false)
+        DC:SetEnabled(true)
+        loadInto(F.gossipTo)
+        t:assertEqual(0, #list("unknownTeleports"), "nothing from before the switch went off")
+    end)
+end)
+
+T:run(prefix .. "a GameObject's ID is stored with its type", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        talkTo("Portal", nil)
+        _G.UnitGUID = function(unit)
+            if unit == "npc" then return "GameObject-0-3767-1-1234-232267-00006F2A1B" end
+            return nil
+        end
+        event("GOSSIP_SHOW")
+        event("GOSSIP_CLOSED", false)
+        loadInto(F.gossipTo)
+        local e = list("unknownTeleports")[1]
+        t:assertEqual("GameObject", e and e.npcType, "the type, got " .. tostring(e and e.npcType))
+        t:assertTrue(e ~= nil and e.key:find("npc:GameObject:232267:", 1, true) == 1,
+            "a key apart from the creature with that number, got " .. tostring(e and e.key))
     end)
 end)
 
@@ -1255,6 +1348,12 @@ T:run(prefix .. "events and sampling are registered only while switched on", fun
             t:assertTrue(frame:IsEventRegistered(name), "on: " .. name .. " is registered")
         end
         t:assertNotNil(frame:GetScript("OnUpdate"), "on: OnUpdate samples the route")
+        -- Named, not read from DC.EVENTS: a name missing from that list is
+        -- what this has to catch.
+        for _, name in ipairs({ "UNIT_SPELLCAST_SUCCEEDED", "LOADING_SCREEN_ENABLED", "GOSSIP_SHOW",
+            "GOSSIP_CLOSED", "PLAYER_INTERACTION_MANAGER_FRAME_SHOW", "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" }) do
+            t:assertTrue(frame:IsEventRegistered(name), "on: " .. name .. " is registered")
+        end
         DC:SetEnabled(false)
         t:assertFalse(frame:IsEventRegistered("UNIT_SPELLCAST_SUCCEEDED"), "off again: unregistered")
     end)

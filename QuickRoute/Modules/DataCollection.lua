@@ -428,6 +428,7 @@ function DataCollection:RecordLanding(pending, landing)
         -- For a spell cause, the dialog that had closed before the cast.
         entry.npc = npc.npc
         entry.npcID = npc.npcID
+        entry.npcType = npc.npcType
         entry.interactionType = npc.interactionType
         entry.npcSeconds = pending.npcSeconds
     end
@@ -448,7 +449,7 @@ function DataCollection:RecordLanding(pending, landing)
     end
     local key
     if entry.cause == "npc" then
-        key = string_format("npc:%s:%d:%.2f:%.2f", tostring(npc.npcID or npc.npc or "?"),
+        key = string_format("npc:%s:%s:%d:%.2f:%.2f", tostring(npc.npcType or "?"), tostring(npc.npcID or npc.npc or "?"),
             landing.mapID, landing.x, landing.y)
     else
         key = string_format("%d:%d:%.2f:%.2f", pending.spellID, landing.mapID, landing.x, landing.y)
@@ -545,8 +546,10 @@ local function NpcIdentity(record)
     if UnitGUID then
         local ok, guid = pcall(UnitGUID, "npc")
         if ok and Public(guid) and type(guid) == "string" then
-            local id = tonumber(guid:match("^%a+%-%d+%-%d+%-%d+%-%d+%-(%d+)%-"))
-            if IsID(id) then record.npcID = id end
+            -- The GUID's type goes with the ID: a GameObject's ID is no NPC ID.
+            local kind, id = guid:match("^(%a+)%-%d+%-%d+%-%d+%-%d+%-(%d+)%-")
+            id = tonumber(id)
+            if IsID(id) and #kind <= 32 then record.npcID, record.npcType = id, kind end
         end
     end
 end
