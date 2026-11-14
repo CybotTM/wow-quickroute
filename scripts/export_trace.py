@@ -12,6 +12,12 @@ stores with the trace ("retail" or "forever").
 Then it prints a summary: entries per flavor and category, and for every
 window open its reason and the trace entries of the two seconds before it.
 
+A log line the addon saw again within a few minutes is stored once; its record
+carries `repeats` (occurrences, the first included), `lastTime` and
+`lastGameTime` (the last occurrence). It sits at the position of its first
+occurrence, and it is also listed before a window open when its last
+occurrence falls into the two seconds before it.
+
 Usage:
     python3 scripts/export_trace.py -o trace.jsonl \\
         "/mnt/f/World of Warcraft/_retail_/WTF/Account/<ACCOUNT>/SavedVariables/QuickRoute.lua" \\
@@ -33,14 +39,21 @@ import generate_forever_data as gfd  # noqa: E402
 from import_zone_survey import default_lua, run_export  # noqa: E402
 
 WINDOW_SECONDS = 2.0
+# How far back a repeated log line can have started: Diagnostics.TRACE_REPEAT_SECONDS.
+REPEAT_SECONDS = 300.0
 FIELDS = (("t", "time"), ("g", "gameTime"), ("l", "level"), ("c", "category"),
-          ("m", "message"), ("map", "mapID"), ("x", "x"), ("y", "y"))
+          ("m", "message"), ("map", "mapID"), ("x", "x"), ("y", "y"),
+          ("r", "repeats"), ("rt", "lastTime"), ("rg", "lastGameTime"))
 
 
 def read_trace(lua, path):
-    """(client header, dropped count, entries) of one SavedVariables file."""
+    """(client header, dropped counts, entries) of one SavedVariables file.
+
+    The dropped counts are those of the structured ring and of the log ring.
+    """
     data = run_export(lua, "--trace", path)
-    return data.get("client") or {}, data.get("dropped", 0), gfd.as_list(data.get("entries", {}))
+    dropped = (data.get("dropped", 0), data.get("logDropped", 0))
+    return data.get("client") or {}, dropped, gfd.as_list(data.get("entries", {}))
 
 
 def to_record(entry, flavor, seq, source):
@@ -58,10 +71,11 @@ def to_record(entry, flavor, seq, source):
 def load_records(lua, paths):
     records, headers = [], []
     for path in paths:
-        client, dropped, entries = read_trace(lua, path)
+        client, (dropped, log_dropped), entries = read_trace(lua, path)
         flavor = client.get("flavor") or "unknown"
         headers.append({"source": path, "flavor": flavor, "client": client,
-                        "entries": len(entries), "dropped": dropped})
+                        "entries": len(entries), "dropped": dropped, "logDropped": log_dropped,
+                        "repeats": sum(max(0, e.get("r", 1) - 1) for e in entries)})
         for seq, entry in enumerate(entries, 1):
             records.append(to_record(entry, flavor, seq, path))
     return records, headers
@@ -69,6 +83,8 @@ def load_records(lua, paths):
 
 def describe(record):
     text = f"{record.get('category')}: {record.get('message')}"
+    if record.get("repeats"):
+        text += f" (x{record['repeats']})"
     fields = record.get("fields") or {}
     for key in ("trigger", "outcome", "a1", "npc", "questID", "reason"):
         if key in fields:
@@ -76,11 +92,24 @@ def describe(record):
     return text
 
 
+def offset(at, prior):
+    """When a prior entry happened relative to `at`: "-0.500s", or for a
+    repeated line the span of its occurrences, "-4.500s..+1.000s"."""
+    first = at - prior["gameTime"]
+    text = f"-{first:.3f}s"
+    if prior.get("repeats") and "lastGameTime" in prior:
+        last = prior["lastGameTime"] - at
+        text += f"..{'+' if last > 0 else '-'}{abs(last):.3f}s"
+    return text
+
+
 def window_opens(records):
     """Every traced window open with the entries of the WINDOW_SECONDS before it.
 
     gameTime restarts with the client, so the look-back stays within one file
-    and within one session (it stops at the session's start entry).
+    and within one session (it stops at the session's start entry). A repeated
+    log line counts when its last occurrence is in the window, although its
+    record sits where it first occurred (at most REPEAT_SECONDS earlier).
     """
     opens = []
     for i, record in enumerate(records):
@@ -90,13 +119,18 @@ def window_opens(records):
         at = record.get("gameTime")
         before = []
         j = i - 1
-        while j >= 0:
+        while j >= 0 and at is not None:
             prior = records[j]
             if prior["source"] != record["source"] or prior.get("category") == "session":
                 break
-            if at is None or prior.get("gameTime") is None or at - prior["gameTime"] > WINDOW_SECONDS:
+            started = prior.get("gameTime")
+            if started is None or at - started > REPEAT_SECONDS + WINDOW_SECONDS:
                 break
-            before.append(prior)
+            last = prior.get("lastGameTime", started)
+            # A repeated line spans first..last occurrence; it counts when that
+            # span reaches into the window, also when it goes on past the open.
+            if at - started <= WINDOW_SECONDS or (prior.get("repeats") and last >= at - WINDOW_SECONDS):
+                before.append(prior)
             j -= 1
         before.reverse()
         opens.append((record, before))
@@ -108,7 +142,9 @@ def summary(records, headers):
     for header in headers:
         client = header["client"]
         lines.append(f"{header['source']}: {header['flavor']}, {header['entries']} entries, "
-                     f"{header['dropped']} dropped by the cap, interface {client.get('interface', '?')}, "
+                     f"{header['dropped']} dropped by the cap, {header['logDropped']} log lines dropped "
+                     f"by theirs, {header['repeats']} repeated log lines folded, "
+                     f"interface {client.get('interface', '?')}, "
                      f"build {client.get('build', '?')}, addon {client.get('addonVersion', '?')}")
     counts = collections.Counter((r["flavor"], r.get("category")) for r in records)
     lines.append("")
@@ -127,8 +163,7 @@ def summary(records, headers):
         if not before:
             lines.append(f"    (nothing in the {WINDOW_SECONDS:g} s before)")
         for prior in before:
-            delta = record["gameTime"] - prior["gameTime"]
-            lines.append(f"    -{delta:.3f}s {describe(prior)}")
+            lines.append(f"    {offset(record['gameTime'], prior)} {describe(prior)}")
     return "\n".join(lines)
 
 

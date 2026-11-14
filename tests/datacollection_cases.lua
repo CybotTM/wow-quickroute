@@ -23,6 +23,10 @@ local FIXTURES = {
         unknownTo = { mapID = 85, x = 0.4, y = 0.6 },
         -- A third map no route plan leads to.
         offPlan = 85,
+        -- The owner's Delve-O-Bot crossing of 2026-11-11: Northern Barrens to
+        -- Harandar, game maps 1 (Kalimdor) and 2694 (Harandar).
+        gossipFrom = { mapID = 10, x = 0.7873, y = 0.9103, instanceMapID = 1, instanceName = "Kalimdor" },
+        gossipTo = { mapID = 2413, x = 0.3672, y = 0.4963, instanceMapID = 2694, instanceName = "Harandar" },
     },
     forever = {
         stormwind = 1453, ironforge = 1455, continent = 1415,
@@ -31,6 +35,10 @@ local FIXTURES = {
         unknownFrom = { mapID = 1416, x = 0.1209, y = 0.5641 },
         unknownTo = { mapID = 1453, x = 0.4987, y = 0.8667 },
         offPlan = 1454,
+        -- The same crossing on maps the Forever data knows; the game maps
+        -- are those of the retail trace.
+        gossipFrom = { mapID = 1416, x = 0.1209, y = 0.5641, instanceMapID = 1, instanceName = "Kalimdor" },
+        gossipTo = { mapID = 1453, x = 0.4987, y = 0.8667, instanceMapID = 2694, instanceName = "Harandar" },
     },
 }
 local F = FIXTURES[flavor]
@@ -51,6 +59,10 @@ local function snapshot()
         zoneSurvey = QR.db.zoneSurvey,
         pendingCast = DC.pendingCast,
         follow = DC.follow,
+        interaction = DC.interaction,
+        unitName = _G.UnitName,
+        unitGUID = _G.UnitGUID,
+        issecret = _G.issecretvalue,
         unsaved = DC.unsavedCount,
         captures = ZS.unsavedCaptures,
         crossings = ZS.unsavedCrossings,
@@ -71,6 +83,8 @@ local function restore(saved)
     QR.db.zoneSurvey = saved.zoneSurvey
     DC.pendingCast = saved.pendingCast
     DC.follow = saved.follow
+    DC.interaction = saved.interaction
+    _G.UnitName, _G.UnitGUID, _G.issecretvalue = saved.unitName, saved.unitGUID, saved.issecret
     DC.unsavedCount = saved.unsaved
     ZS.unsavedCaptures, ZS.unsavedCrossings = saved.captures, saved.crossings
     if QR.MainFrame then
@@ -92,7 +106,7 @@ local function withCollection(on, fn)
     QR.db.dataCollection = on
     QR.db.observations = nil
     QR.db.zoneSurveyEnabled = false
-    DC.pendingCast, DC.follow = nil, nil
+    DC.pendingCast, DC.follow, DC.interaction = nil, nil, nil
     DC.unsavedCount = 0
     QR.db.lastDestination, QR.db.destinationLocked = nil, false
     local ok, err = pcall(fn)
@@ -433,6 +447,379 @@ T:run(prefix .. "an unknown spell without an immediate loading screen is not a t
         at(to.mapID, to.x, to.y)
         event("LOADING_SCREEN_DISABLED")
         t:assertEqual(0, #list("unknownTeleports"), "nor a loading screen 10 s after the cast")
+    end)
+end)
+
+-------------------------------------------------------------------------------
+-- NPC teleports: a gossip option that starts a loading screen
+-------------------------------------------------------------------------------
+
+-- The dialog's NPC as the client gives it: UnitName("npc") and the creature
+-- GUID, whose sixth part is the NPC ID.
+local function talkTo(name, npcID)
+    local realName = _G.UnitName
+    _G.UnitName = function(unit)
+        if unit == "npc" then return name end
+        return realName(unit)
+    end
+    _G.UnitGUID = function(unit)
+        if unit == "npc" and npcID then return "Creature-0-3767-1-1234-" .. npcID .. "-00006F2A1B" end
+        return nil
+    end
+end
+
+local function onGameMap(point)
+    at(point.mapID, point.x, point.y)
+    MockWoW.config.instanceMapID, MockWoW.config.instanceName = point.instanceMapID, point.instanceName
+end
+
+--- The owner's retail trace of 2026-11-11, 20:38:57 to 20:39:06, event for
+-- event with its GetTime values. `castAt`, when given, adds the cast of
+-- "Summon Delve-O-Bot 7001" (467465): the trace does not record casts, only
+-- that the stored unknownTeleports entry put one within 3 s before the
+-- loading screen.
+local function delveBotCrossing(castAt)
+    local cfg = MockWoW.config
+    local from, to = F.gossipFrom, F.gossipTo
+    onGameMap(from)
+    MockWoW.config.playerFaction = "Alliance"
+    talkTo("Delve-O-Bot 7001", 232267)
+    local function clock(g) cfg.baseTime = g end
+    local cast_done = false
+    -- Cast before the step at `g` when the cast time lies before it.
+    local function cast(g)
+        if castAt and castAt <= g and not cast_done then
+            clock(castAt)
+            event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-1", 467465)
+            cast_done = true
+        end
+    end
+    cast(2500480.376)
+    clock(2500480.376)
+    event("GOSSIP_SHOW")
+    event("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)
+    cast(2500481.738)
+    clock(2500481.738)
+    event("GOSSIP_CLOSED", false)
+    event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 3)
+    event("GOSSIP_CLOSED", false)
+    event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 0)
+    event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 0)
+    cast(2500481.886)
+    clock(2500481.886)
+    event("LOADING_SCREEN_ENABLED")
+    -- During and right after the loading screen the client reports no map.
+    at(nil, nil, nil)
+    MockWoW.config.instanceMapID, MockWoW.config.instanceName = to.instanceMapID, to.instanceName
+    clock(2500487.478)
+    event("PLAYER_ENTERING_WORLD", false, false)
+    event("LOADING_SCREEN_DISABLED")
+    -- Another NPC's interaction on arrival.
+    talkTo("Unknown", 212407)
+    event("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 79)
+    event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 79)
+    event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 79)
+    clock(2500489.042)
+    onGameMap(to)
+    event("ZONE_CHANGED_NEW_AREA")
+end
+
+T:run(prefix .. "a teleport from an NPC's dialog is filed under the NPC, not a spell cast before it", function(t)
+    withCollection(true, function()
+        -- The cast placed before the dialog opened. The trace cannot say when
+        -- it was; the cases below cover a cast inside the dialog and after it.
+        delveBotCrossing(2500479.9)
+        local entries = list("unknownTeleports")
+        t:assertEqual(1, #entries, "one crossing, got " .. #entries)
+        local e = entries[1]
+        if not e then return end
+        t:assertEqual("npc", e.cause, "the dialog is the cause, got " .. tostring(e.cause))
+        t:assertEqual("Delve-O-Bot 7001", e.npc, "the NPC, got " .. tostring(e.npc))
+        t:assertEqual(232267, e.npcID, "its ID from the GUID, got " .. tostring(e.npcID))
+        t:assertEqual(3, e.interactionType, "a gossip interaction, got " .. tostring(e.interactionType))
+        t:assertNil(e.spellID, "no spellID, got " .. tostring(e.spellID))
+        t:assertEqual(467465, e.castSpellID, "the cast kept beside it, got " .. tostring(e.castSpellID))
+        t:assertEqual("Spell 467465", e.castName, "with its name, got " .. tostring(e.castName))
+        t:assertEqual(1.99, e.castSeconds, "1.99 s before the loading screen, got " .. tostring(e.castSeconds))
+        t:assertEqual(0.15, e.npcSeconds, "the dialog closed 0.15 s before it, got " .. tostring(e.npcSeconds))
+        t:assertEqual(F.gossipFrom.mapID, e.fromMapID, "from the NPC's map, got " .. tostring(e.fromMapID))
+        t:assertEqual(F.gossipFrom.x, e.fromX, "at the NPC, x " .. tostring(e.fromX))
+        t:assertEqual(F.gossipFrom.y, e.fromY, "at the NPC, y " .. tostring(e.fromY))
+        t:assertEqual(F.gossipTo.mapID, e.toMapID, "to the arrival map, got " .. tostring(e.toMapID))
+        t:assertEqual(F.gossipTo.x, e.toX, "arrival x " .. tostring(e.toX))
+        t:assertEqual(1, e.fromInstanceMapID, "from game map 1, got " .. tostring(e.fromInstanceMapID))
+        t:assertEqual(2694, e.toInstanceMapID, "to game map 2694, got " .. tostring(e.toInstanceMapID))
+        t:assertEqual(7.2, e.loadingSeconds, "7.2 s from loading screen to landing, got " .. tostring(e.loadingSeconds))
+        t:assertEqual("Alliance", e.faction, "the faction")
+        t:assertEqual("Creature", e.npcType, "the GUID's type, got " .. tostring(e.npcType))
+        t:assertEqual(string.format("npc:Creature:232267:%d:%.2f:%.2f", F.gossipTo.mapID, F.gossipTo.x, F.gossipTo.y), e.key,
+            "keyed by the NPC, got " .. tostring(e.key))
+        t:assertNil(DC.pendingCast, "nothing left in flight")
+    end)
+end)
+
+T:run(prefix .. "a cast inside the dialog leaves the dialog the cause", function(t)
+    withCollection(true, function()
+        delveBotCrossing(2500481.0)
+        local e = list("unknownTeleports")[1]
+        t:assertEqual("npc", e and e.cause, "the dialog closed after the cast, got " .. tostring(e and e.cause))
+        t:assertEqual(467465, e and e.castSpellID, "the cast is kept")
+    end)
+end)
+
+T:run(prefix .. "a cast after the dialog closed is the cause, the dialog is kept beside it", function(t)
+    withCollection(true, function()
+        delveBotCrossing(2500481.8)
+        local entries = list("unknownTeleports")
+        t:assertEqual(1, #entries, "one crossing, got " .. #entries)
+        local e = entries[1]
+        if not e then return end
+        t:assertEqual("spell", e.cause, "the later cast is the cause, got " .. tostring(e.cause))
+        t:assertEqual(467465, e.spellID, "as spellID, got " .. tostring(e.spellID))
+        t:assertNil(e.castSpellID, "not twice")
+        t:assertEqual(232267, e.npcID, "the dialog's NPC beside it, got " .. tostring(e.npcID))
+        t:assertEqual(0.15, e.npcSeconds, "closed 0.15 s before the loading screen, got " .. tostring(e.npcSeconds))
+        t:assertEqual(F.gossipFrom.mapID, e.fromMapID, "from where the cast was")
+    end)
+end)
+
+T:run(prefix .. "a teleport from a dialog without any cast is recorded", function(t)
+    withCollection(true, function()
+        delveBotCrossing(nil)
+        local entries = list("unknownTeleports")
+        t:assertEqual(1, #entries, "one crossing, got " .. #entries)
+        local e = entries[1]
+        if not e then return end
+        t:assertEqual("npc", e.cause, "the dialog, got " .. tostring(e.cause))
+        t:assertEqual(232267, e.npcID, "the NPC")
+        t:assertNil(e.castSpellID, "no cast, got " .. tostring(e.castSpellID))
+        t:assertEqual(F.gossipTo.mapID, e.toMapID, "the landing")
+    end)
+end)
+
+-- The owner's second Delve-O-Bot crossing, 2026-11-11 21:29:54 to 21:30:03,
+-- Harandar to a delve in the Eastern Kingdoms: here the client sent the
+-- loading screen before GOSSIP_CLOSED. No cast was recorded with it, so it
+-- went unrecorded before. The landing positions are not in the trace.
+T:run(prefix .. "a loading screen that starts before the dialog's close is the NPC's", function(t)
+    withCollection(true, function()
+        local cfg = MockWoW.config
+        local from = F.gossipTo
+        local to = flavor == "forever" and { mapID = F.unknownFrom.mapID, continent = F.continent }
+            -- The client reported continent 2537 first; the mock's continent
+            -- is 13.
+            or { mapID = 2512, continent = F.continent }
+        onGameMap(from)
+        talkTo("Delve-O-Bot 7001", 232267)
+        cfg.baseTime = 2503537.331
+        event("GOSSIP_SHOW")
+        event("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)
+        cfg.baseTime = 2503539.013
+        event("LOADING_SCREEN_ENABLED")
+        event("GOSSIP_CLOSED", false)
+        event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 3)
+        event("GOSSIP_CLOSED", false)
+        event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 0)
+        event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 0)
+        cfg.baseTime = 2503545.428
+        -- A continent first, then the zone.
+        at(to.continent, 0.5, 0.5)
+        cfg.instanceMapID, cfg.instanceName = 0, "Eastern Kingdoms"
+        event("PLAYER_ENTERING_WORLD", false, false)
+        event("LOADING_SCREEN_DISABLED")
+        at(to.mapID, 0.5, 0.5)
+        event("ZONE_CHANGED_NEW_AREA")
+        local entries = list("unknownTeleports")
+        t:assertEqual(1, #entries, "one crossing, got " .. #entries)
+        local e = entries[1]
+        if not e then return end
+        t:assertEqual("npc", e.cause, "the open dialog, got " .. tostring(e.cause))
+        t:assertEqual(232267, e.npcID, "the bot, got " .. tostring(e.npcID))
+        t:assertEqual(0, e.npcSeconds, "no close before the loading screen: 0 s, got " .. tostring(e.npcSeconds))
+        t:assertEqual(from.mapID, e.fromMapID, "from the bot's map, got " .. tostring(e.fromMapID))
+        t:assertEqual(to.mapID, e.toMapID, "to the zone, got " .. tostring(e.toMapID))
+        t:assertEqual(0, e.toInstanceMapID, "game map 0, got " .. tostring(e.toInstanceMapID))
+    end)
+end)
+
+T:run(prefix .. "a dialog left open for long is no cause", function(t)
+    withCollection(true, function()
+        local from, to = F.gossipFrom, F.gossipTo
+        onGameMap(from)
+        talkTo("Delve-O-Bot 7001", 232267)
+        event("GOSSIP_SHOW")
+        -- Its close never reported; the player walks into a portal later.
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 600
+        event("LOADING_SCREEN_ENABLED")
+        onGameMap(to)
+        event("LOADING_SCREEN_DISABLED")
+        t:assertEqual(0, #list("unknownTeleports"), "a dialog opened 600 s before files nothing")
+    end)
+end)
+
+T:run(prefix .. "a loading screen long after a dialog closed is not the NPC's", function(t)
+    withCollection(true, function()
+        local from, to = F.gossipFrom, F.gossipTo
+        onGameMap(from)
+        talkTo("Innkeeper", 6740)
+        event("GOSSIP_SHOW")
+        event("GOSSIP_CLOSED", false)
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 10
+        event("LOADING_SCREEN_ENABLED")
+        onGameMap(to)
+        event("LOADING_SCREEN_DISABLED")
+        t:assertEqual(0, #list("unknownTeleports"), "a portal walked into 10 s later is no NPC teleport")
+    end)
+end)
+
+T:run(prefix .. "an interaction that is no gossip dialog is no cause", function(t)
+    withCollection(true, function()
+        local from, to = F.gossipFrom, F.gossipTo
+        onGameMap(from)
+        talkTo("Merchant", 1234)
+        -- Merchant (Enum.PlayerInteractionType.Merchant = 5), no GOSSIP_SHOW.
+        event("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 5)
+        event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 5)
+        event("LOADING_SCREEN_ENABLED")
+        onGameMap(to)
+        event("LOADING_SCREEN_DISABLED")
+        t:assertEqual(0, #list("unknownTeleports"), "closing a vendor before a portal files nothing")
+    end)
+end)
+
+--- One closed gossip dialog with `name`/`npcID` at the current position.
+local function dialog(name, npcID)
+    talkTo(name, npcID)
+    event("GOSSIP_SHOW")
+    event("PLAYER_INTERACTION_MANAGER_FRAME_SHOW", 3)
+    event("GOSSIP_CLOSED", false)
+    event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 3)
+end
+
+local function loadInto(point)
+    event("LOADING_SCREEN_ENABLED")
+    onGameMap(point)
+    event("LOADING_SCREEN_DISABLED")
+end
+
+T:run(prefix .. "a second NPC's teleport carries that NPC, not the one talked to before", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Innkeeper", 6740)
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 1
+        at(F.gossipFrom.mapID, 0.5, 0.5)
+        dialog("Delve-O-Bot 7001", 232267)
+        loadInto(F.gossipTo)
+        local e = list("unknownTeleports")[1]
+        t:assertEqual(232267, e and e.npcID, "the bot, got " .. tostring(e and e.npcID))
+        t:assertEqual(0.5, e and e.fromX, "from where the bot stood, got " .. tostring(e and e.fromX))
+    end)
+end)
+
+T:run(prefix .. "the loading screen uses up the dialog", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Delve-O-Bot 7001", 232267)
+        loadInto(F.gossipTo)
+        -- A second loading screen within 2 s of the close, somewhere else.
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 1
+        loadInto({ mapID = F.stormwind, x = 0.5, y = 0.5 })
+        t:assertEqual(1, #list("unknownTeleports"), "only the first crossing is the NPC's")
+    end)
+end)
+
+T:run(prefix .. "a later hide does not move the dialog's close", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Delve-O-Bot 7001", 232267)
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 1.9
+        event("PLAYER_INTERACTION_MANAGER_FRAME_HIDE", 0)
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 0.6
+        loadInto(F.gossipTo)
+        t:assertEqual(0, #list("unknownTeleports"), "2.5 s after the close is too late")
+    end)
+end)
+
+T:run(prefix .. "a reload drops the dialog", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Delve-O-Bot 7001", 232267)
+        event("PLAYER_ENTERING_WORLD", false, true)
+        loadInto(F.gossipTo)
+        t:assertEqual(0, #list("unknownTeleports"), "nothing from before the reload")
+    end)
+end)
+
+T:run(prefix .. "switching off drops the dialog", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        dialog("Delve-O-Bot 7001", 232267)
+        DC:SetEnabled(false)
+        DC:SetEnabled(true)
+        loadInto(F.gossipTo)
+        t:assertEqual(0, #list("unknownTeleports"), "nothing from before the switch went off")
+    end)
+end)
+
+T:run(prefix .. "a GameObject's ID is stored with its type", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        talkTo("Portal", nil)
+        _G.UnitGUID = function(unit)
+            if unit == "npc" then return "GameObject-0-3767-1-1234-232267-00006F2A1B" end
+            return nil
+        end
+        event("GOSSIP_SHOW")
+        event("GOSSIP_CLOSED", false)
+        loadInto(F.gossipTo)
+        local e = list("unknownTeleports")[1]
+        t:assertEqual("GameObject", e and e.npcType, "the type, got " .. tostring(e and e.npcType))
+        t:assertTrue(e ~= nil and e.key:find("npc:GameObject:232267:", 1, true) == 1,
+            "a key apart from the creature with that number, got " .. tostring(e and e.key))
+    end)
+end)
+
+T:run(prefix .. "a known teleport cast after a dialog stays a known landing", function(t)
+    withCollection(true, function()
+        onGameMap(F.gossipFrom)
+        talkTo("Delve-O-Bot 7001", 232267)
+        event("GOSSIP_SHOW")
+        event("GOSSIP_CLOSED", false)
+        castAndLand(IRONFORGE, F.ironforge, 0.2730, 0.7330, F.gossipFrom)
+        t:assertEqual(1, #list("landings"), "the landing of the known teleport")
+        t:assertEqual(0, #list("unknownTeleports"), "and no NPC teleport")
+    end)
+end)
+
+T:run(prefix .. "an NPC whose name and GUID are secret is recorded without them", function(t)
+    withCollection(true, function()
+        local secret = {}
+        talkTo("Delve-O-Bot 7001", 232267)
+        local realName, realGUID = _G.UnitName, _G.UnitGUID
+        _G.UnitName = function(unit)
+            if unit == "npc" then secret.name = "Delve-O-Bot 7001"; return secret.name end
+            return realName(unit)
+        end
+        _G.UnitGUID = function(unit)
+            if unit == "npc" then secret.guid = realGUID(unit); return secret.guid end
+            return realGUID(unit)
+        end
+        _G.issecretvalue = function(value)
+            return value ~= nil and (value == secret.name or value == secret.guid)
+        end
+        local from, to = F.gossipFrom, F.gossipTo
+        onGameMap(from)
+        event("GOSSIP_SHOW")
+        event("GOSSIP_CLOSED", false)
+        event("LOADING_SCREEN_ENABLED")
+        onGameMap(to)
+        event("LOADING_SCREEN_DISABLED")
+        local e = list("unknownTeleports")[1]
+        t:assertNotNil(e, "the crossing is still recorded")
+        if not e then return end
+        t:assertEqual("npc", e.cause, "as an NPC teleport")
+        t:assertNil(e.npc, "without the secret name, got " .. tostring(e.npc))
+        t:assertNil(e.npcID, "without an ID read from the secret GUID, got " .. tostring(e.npcID))
     end)
 end)
 
@@ -961,6 +1348,12 @@ T:run(prefix .. "events and sampling are registered only while switched on", fun
             t:assertTrue(frame:IsEventRegistered(name), "on: " .. name .. " is registered")
         end
         t:assertNotNil(frame:GetScript("OnUpdate"), "on: OnUpdate samples the route")
+        -- Named, not read from DC.EVENTS: a name missing from that list is
+        -- what this has to catch.
+        for _, name in ipairs({ "UNIT_SPELLCAST_SUCCEEDED", "LOADING_SCREEN_ENABLED", "GOSSIP_SHOW",
+            "GOSSIP_CLOSED", "PLAYER_INTERACTION_MANAGER_FRAME_SHOW", "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" }) do
+            t:assertTrue(frame:IsEventRegistered(name), "on: " .. name .. " is registered")
+        end
         DC:SetEnabled(false)
         t:assertFalse(frame:IsEventRegistered("UNIT_SPELLCAST_SUCCEEDED"), "off again: unregistered")
     end)

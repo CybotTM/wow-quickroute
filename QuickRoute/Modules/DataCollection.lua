@@ -15,9 +15,11 @@
 --
 -- Six recordings:
 --   landings          where a teleport QuickRoute knows actually put the player
---   unknownTeleports  a cast QuickRoute does not know, followed by a loading screen;
---                     with spell, both ends, the game maps (GetInstanceInfo) and
---                     the faction, enough to curate a portal the data lacks
+--   unknownTeleports  a cast QuickRoute does not know, or an NPC's gossip dialog,
+--                     followed by a loading screen; with the cause (`cause`
+--                     "spell" or "npc"), both ends, the game maps
+--                     (GetInstanceInfo) and the faction, enough to curate a
+--                     portal the data lacks
 --   noRoute           a route calculation that ended without a route
 --   stepTimes         measured time between map arrivals on a followed route,
 --                     and start-to-arrival for the whole route, against the estimate
@@ -62,6 +64,18 @@ local MIN_MOVE = 0.05
 -- An unknown spell counts only when the loading screen follows at once: any
 -- spell cast just before walking through a portal would otherwise be filed.
 local UNKNOWN_WINDOW = 3
+-- A gossip dialog counts as the cause of a loading screen that starts while it
+-- is open or within this many seconds of its close. Picking a teleport option
+-- closes the dialog and starts the loading screen within a server round trip
+-- (0.15 s in the owner's trace of 2026-11-11); walking into a portal after
+-- talking to someone takes longer.
+local NPC_WINDOW = 2
+-- A dialog still open when a loading screen starts counts only when it opened
+-- less than this many seconds before: a close the client never reported must
+-- not file a later crossing under an NPC from long ago.
+local NPC_OPEN_LIMIT = 300
+-- The interaction type of a gossip dialog (Enum.PlayerInteractionType.Gossip).
+local GOSSIP_INTERACTION = 3
 -- Once a loading screen started, how long the landing may take to resolve.
 local LANDING_WINDOW = 90
 -- Retries while the client still reports a continent or no position.
@@ -224,6 +238,7 @@ end
 function DataCollection:Forget()
     self.pendingCast = nil
     self.follow = nil
+    self.interaction = nil
 end
 
 --- Switch the observations on or off. The settings checkbox and /qrdata both
@@ -393,8 +408,30 @@ function DataCollection:RecordLanding(pending, landing)
     -- A spell of the player's own (a mount, a combat spell cast just before a
     -- portal) is not a teleport candidate. It is still written, flagged, so a
     -- portal whose click the client reports as a player spell is not lost.
-    local entry = { spellID = pending.spellID, name = SpellName(pending.spellID), faction = Faction(),
-        playerSpell = pending.playerSpell or nil }
+    local entry = { faction = Faction() }
+    local npc = pending.npc
+    if pending.cause == "npc" then
+        -- The dialog is the cause; a cast seen before it is kept beside it,
+        -- with its distance to the loading screen, never as `spellID`.
+        entry.cause = "npc"
+        entry.castSpellID = pending.castSpellID
+        entry.castName = pending.castSpellID and SpellName(pending.castSpellID) or nil
+        entry.castSeconds = pending.castSeconds
+        entry.castPlayerSpell = pending.castPlayerSpell or nil
+    else
+        entry.cause = "spell"
+        entry.spellID = pending.spellID
+        entry.name = SpellName(pending.spellID)
+        entry.playerSpell = pending.playerSpell or nil
+    end
+    if npc then
+        -- For a spell cause, the dialog that had closed before the cast.
+        entry.npc = npc.npc
+        entry.npcID = npc.npcID
+        entry.npcType = npc.npcType
+        entry.interactionType = npc.interactionType
+        entry.npcSeconds = pending.npcSeconds
+    end
     Point("from", entry, pending.from)
     Point("to", entry, landing)
     -- The game maps on both sides: a portal between two phased or instanced
@@ -410,7 +447,13 @@ function DataCollection:RecordLanding(pending, landing)
     if pending.sawLoading and IsFinite(pending.loadingAt) then
         entry.loadingSeconds = Round(GetTime() - pending.loadingAt, 1)
     end
-    local key = string_format("%d:%d:%.2f:%.2f", pending.spellID, landing.mapID, landing.x, landing.y)
+    local key
+    if entry.cause == "npc" then
+        key = string_format("npc:%s:%s:%d:%.2f:%.2f", tostring(npc.npcType or "?"), tostring(npc.npcID or npc.npc or "?"),
+            landing.mapID, landing.x, landing.y)
+    else
+        key = string_format("%d:%d:%.2f:%.2f", pending.spellID, landing.mapID, landing.x, landing.y)
+    end
     return self:Push("unknownTeleports", entry, key)
 end
 
@@ -490,16 +533,112 @@ function DataCollection:OnSpellSucceeded(unit, spellID)
     }
 end
 
+--- The NPC and position of a dialog read at its start.
+-- The name and the GUID are guarded: under addon restrictions both can be
+-- secret values.
+local function NpcIdentity(record)
+    if UnitName then
+        local ok, name = pcall(UnitName, "npc")
+        if ok and Public(name) and type(name) == "string" and #name > 0 and #name <= 128 then
+            record.npc = name
+        end
+    end
+    if UnitGUID then
+        local ok, guid = pcall(UnitGUID, "npc")
+        if ok and Public(guid) and type(guid) == "string" then
+            -- The GUID's type goes with the ID: a GameObject's ID is no NPC ID.
+            local kind, id = guid:match("^(%a+)%-%d+%-%d+%-%d+%-%d+%-(%d+)%-")
+            id = tonumber(id)
+            if IsID(id) and #kind <= 32 then record.npcID, record.npcType = id, kind end
+        end
+    end
+end
+
+--- GOSSIP_SHOW and PLAYER_INTERACTION_MANAGER_FRAME_SHOW: a dialog opened.
+-- The client sends both for one gossip dialog; while one is open, the second
+-- adds to it. The NPC and the player's position are read when it opens: the
+-- player is at the NPC then.
+function DataCollection:OnInteractionShow(event, interactionType)
+    local current = self.interaction
+    if not current or current.closedAt then
+        current = { shownAt = GetTime(), from = PlayerPoint(), fromGame = GameMap() }
+        NpcIdentity(current)
+        self.interaction = current
+    end
+    if event == "GOSSIP_SHOW" then current.gossip = true end
+    if IsFinite(interactionType) then
+        current.interactionType = interactionType
+        if interactionType == GOSSIP_INTERACTION then current.gossip = true end
+    end
+end
+
+--- GOSSIP_CLOSED and PLAYER_INTERACTION_MANAGER_FRAME_HIDE. The client sends
+-- several of each for one dialog (in the owner's trace: two GOSSIP_CLOSED,
+-- and hides of type 3, 0 and 0); the first one is the close.
+function DataCollection:OnInteractionHide()
+    local current = self.interaction
+    if current and not current.closedAt then current.closedAt = GetTime() end
+end
+
+--- The gossip dialog that caused a loading screen starting now, or nil.
+local function RecentGossip(interaction, now)
+    if not (interaction and interaction.gossip and interaction.from) then return nil end
+    if not interaction.closedAt then
+        local open = now - interaction.shownAt
+        if open >= 0 and open <= NPC_OPEN_LIMIT then return interaction end
+        return nil
+    end
+    local since = now - interaction.closedAt
+    if since >= 0 and since <= NPC_WINDOW then return interaction end
+    return nil
+end
+
 function DataCollection:OnLoadingScreen()
     local pending = self.pendingCast
-    if not pending then return end
     local now = GetTime()
-    if pending.sawLoading then
+    local interaction = self.interaction
+    -- A dialog is a candidate for this loading screen only.
+    self.interaction = nil
+    if pending and pending.sawLoading then
         -- A second loading screen before the landing was read: whatever the
         -- player landed on is no longer this cast's landing.
         self.pendingCast = nil
         return
     end
+    local npc = RecentGossip(interaction, now)
+    -- A known teleport's cast stays a known teleport.
+    if npc and not (pending and pending.teleport) then
+        local castOK = pending ~= nil and now - pending.castAt <= UNKNOWN_WINDOW
+        local npcAt = npc.closedAt or now
+        local npcSeconds = Round(now - npcAt, 2)
+        if not castOK or npcAt >= pending.castAt then
+            -- The dialog closed after the cast (or is still open): picking an
+            -- option in it is what started the loading screen. The cast is
+            -- kept beside it with its distance to the loading screen, so a
+            -- wrong choice of cause can be corrected from the data.
+            self.pendingCast = {
+                cause = "npc",
+                npc = npc,
+                npcSeconds = npcSeconds,
+                castSpellID = castOK and pending.spellID or nil,
+                castSeconds = castOK and Round(now - pending.castAt, 2) or nil,
+                castPlayerSpell = castOK and pending.playerSpell or nil,
+                from = npc.from,
+                fromGame = npc.fromGame,
+                castAt = npcAt,
+                attempts = 0,
+                loading = true,
+                sawLoading = true,
+                loadingAt = now,
+            }
+            return
+        end
+        -- The cast came after the dialog closed: the spell is the cause, the
+        -- dialog is kept beside it.
+        pending.npc = npc
+        pending.npcSeconds = npcSeconds
+    end
+    if not pending then return end
     local window = pending.teleport and KNOWN_WINDOW or UNKNOWN_WINDOW
     if now - pending.castAt > window then self.pendingCast = nil; return end
     pending.loading = true
@@ -951,12 +1090,18 @@ function DataCollection:OnEvent(event, ...)
         self:OnSpellSucceeded(unit, spellID)
     elseif event == "LOADING_SCREEN_ENABLED" then
         self:OnLoadingScreen()
+    elseif event == "GOSSIP_SHOW" then
+        self:OnInteractionShow(event)
+    elseif event == "PLAYER_INTERACTION_MANAGER_FRAME_SHOW" then
+        self:OnInteractionShow(event, (...))
+    elseif event == "GOSSIP_CLOSED" or event == "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" then
+        self:OnInteractionHide()
     elseif event == "GET_ITEM_INFO_RECEIVED" then
         local itemID = ...
         if self.itemSpells and IsID(itemID) then self:ResolveItemSpell(itemID) end
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isLogin, isReload = ...
-        if isLogin or isReload then self.pendingCast = nil; return end
+        if isLogin or isReload then self.pendingCast, self.interaction = nil, nil; return end
         if self.pendingCast then self.pendingCast.loading = false end
         self:TryLanding()
     elseif event == "LOADING_SCREEN_DISABLED" then
@@ -1003,7 +1148,9 @@ end
 
 local EVENTS = { "UNIT_SPELLCAST_SUCCEEDED", "LOADING_SCREEN_ENABLED",
     "LOADING_SCREEN_DISABLED", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED",
-    "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "GET_ITEM_INFO_RECEIVED" }
+    "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "GET_ITEM_INFO_RECEIVED",
+    "GOSSIP_SHOW", "GOSSIP_CLOSED",
+    "PLAYER_INTERACTION_MANAGER_FRAME_SHOW", "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" }
 DataCollection.EVENTS = EVENTS
 
 local function OnUpdate(f, elapsed)

@@ -91,6 +91,50 @@ class ExportTraceTest(unittest.TestCase):
         self.assertTrue(any(r["message"] == "QUEST_DETAIL" for r in records),
                         "the event is in the trace, only not in the window")
 
+    def test_a_repeated_log_line_is_one_record_with_its_last_time(self):
+        records = [r for r in self.records if r["source"] == self.retail]
+        repeated = [r for r in records if r.get("message") == "fixture: repeated line"]
+        self.assertEqual(1, len(repeated), "two occurrences, one record")
+        record = repeated[0]
+        self.assertEqual("log", record["category"])
+        self.assertEqual(2, record["repeats"])
+        self.assertAlmostEqual(3.5, record["lastGameTime"] - record["gameTime"], places=3)
+        self.assertIn("lastTime", record)
+        # Merged into the structured entries by write order, not appended.
+        position = records.index(record)
+        self.assertEqual("QUEST_DETAIL", records[position + 1].get("message"))
+        folded = sum(r["repeats"] - 1 for r in records if r.get("repeats"))
+        self.assertGreaterEqual(folded, 1)
+        self.assertIn(f"retail, {len(records)} entries, 0 dropped by the cap, 0 log lines dropped by theirs, "
+                      f"{folded} repeated log lines folded", self.report)
+
+    def test_a_repeat_inside_the_look_back_is_listed_before_the_open(self):
+        records = [r for r in self.records if r["source"] == self.retail]
+        _, before = export_trace.window_opens(records)[0]
+        messages = [r.get("message") for r in before]
+        self.assertIn("fixture: repeated line", messages,
+                      "first seen 4.5 s before the open, last seen 1 s before it")
+        self.assertIn("log: fixture: repeated line (x2)", self.report)
+        self.assertIn("-4.000s..-0.500s log: fixture: repeated line (x2)", self.report)
+
+    def test_a_repeat_spanning_the_open_is_listed_with_its_span(self):
+        def rec(category, message, g, **extra):
+            record = {"source": "s", "flavor": "retail", "category": category, "message": message,
+                      "gameTime": g, "seq": 0}
+            record.update(extra)
+            return record
+        records = [
+            rec("session", "trace started", 0.0),
+            rec("log", "spans the open", 10.0, repeats=4, lastGameTime=60.0),
+            rec("log", "ended long before", 11.0, repeats=2, lastGameTime=20.0),
+            rec("event", "QUEST_ACCEPTED", 49.0),
+            rec("window", "show", 50.0, fields={"action": "show"}),
+        ]
+        _, before = export_trace.window_opens(records)[0]
+        self.assertEqual(["spans the open", "QUEST_ACCEPTED"], [r["message"] for r in before])
+        self.assertEqual("-40.000s..+10.000s", export_trace.offset(50.0, records[1]))
+        self.assertEqual("-1.000s", export_trace.offset(50.0, records[3]))
+
     def test_summary_counts_per_flavor_and_category(self):
         self.assertIn("Entries per flavor and category:", self.report)
         self.assertRegex(self.report, r"retail\s+window\s+\d+")

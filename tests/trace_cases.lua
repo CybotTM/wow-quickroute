@@ -17,6 +17,10 @@ local function withTrace(enabled, fn)
         trace = QR.db.trace,
         cap = D.TRACE_CAP,
         maxBytes = D.TRACE_MAX_BYTES,
+        logCap = D.TRACE_LOG_CAP,
+        logMaxBytes = D.TRACE_LOG_MAX_BYTES,
+        repeatSeconds = D.TRACE_REPEAT_SECONDS,
+        unsaved = D.unsavedTrace,
         auto = QR.db.autoDestination,
         showing = QR.MainFrame.isShowing,
         combat = MockWoW.config.inCombatLockdown,
@@ -37,6 +41,9 @@ local function withTrace(enabled, fn)
     D:ApplyTraceSetting()
     QR.db.trace = saved.trace
     D.TRACE_CAP, D.TRACE_MAX_BYTES = saved.cap, saved.maxBytes
+    D.TRACE_LOG_CAP, D.TRACE_LOG_MAX_BYTES = saved.logCap, saved.logMaxBytes
+    D.TRACE_REPEAT_SECONDS = saved.repeatSeconds
+    D.unsavedTrace = saved.unsaved
     QR.db.autoDestination = saved.auto
     if QR.MainFrame.frame then QR.MainFrame.frame:Hide() end
     QR.MainFrame.isShowing = saved.showing
@@ -115,7 +122,7 @@ T:run(prefix .. "the buffer keeps the newest entries up to the cap", function(t)
     withTrace(true, function()
         D.TRACE_CAP = 5
         QR.db.trace = nil
-        for i = 1, 12 do QR:Log("INFO", "line " .. i) end
+        for i = 1, 12 do D:Trace("misc", "line " .. i) end
         local store = QR.db.trace
         t:assertEqual(5, store.n, "the count stops at the cap")
         local entries = D:GetTraceEntries()
@@ -134,12 +141,290 @@ T:run(prefix .. "the buffer also stops at its byte bound", function(t)
     withTrace(true, function()
         QR.db.trace = nil
         D.TRACE_MAX_BYTES = 2000
-        for i = 1, 100 do QR:Log("INFO", string.rep("x", 150) .. i) end
+        for i = 1, 100 do D:Trace("misc", string.rep("x", 150) .. i) end
         local store = QR.db.trace
         t:assertTrue(store.bytes <= 2000, "estimated size within the bound (" .. store.bytes .. ")")
         t:assertGreaterThan(store.n, 0, "and entries are kept")
         local entries = D:GetTraceEntries()
         t:assertEqual(string.rep("x", 150) .. 100, entries[#entries].m, "the newest one last")
+    end)
+end)
+
+-- Log lines go into a ring of their own. In the owner's retail trace of
+-- 2026-11-11 to 11-14, 17471 of 17952 entries were QR:Log lines from the quest
+-- buttons' background resolution; in one shared ring they would have evicted
+-- the window, waypoint and event entries.
+T:run(prefix .. "log lines have their own ring and never evict structured entries", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        D.TRACE_LOG_CAP = 3
+        D:Trace("window", "first structured")
+        D:Trace("event", "second structured")
+        for i = 1, 10 do QR:Log("DEBUG", "distinct line " .. i) end
+        local store = QR.db.trace
+        t:assertEqual(2, store.n, "the structured ring holds both, got " .. store.n)
+        t:assertEqual(0, store.dropped, "and dropped none, got " .. tostring(store.dropped))
+        t:assertEqual(3, store.log.n, "the log ring stops at its cap, got " .. store.log.n)
+        t:assertEqual(7, store.log.dropped, "and counts what it dropped, got " .. tostring(store.log.dropped))
+        t:assertNotNil(find("window", function(e) return e.m == "first structured" end),
+            "the oldest structured entry survives ten log lines")
+        t:assertNil(find("log", function(e) return e.m == "distinct line 7" end), "line 7 is gone")
+        t:assertNotNil(find("log", function(e) return e.m == "distinct line 8" end), "line 8 is kept")
+        t:assertTrue(store.log.bytes <= D.TRACE_LOG_MAX_BYTES, "the log ring has its own byte bound")
+    end)
+end)
+
+T:run(prefix .. "the log ring also stops at its byte bound", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        D.TRACE_LOG_MAX_BYTES = 2000
+        D:Trace("window", "kept")
+        for i = 1, 100 do QR:Log("INFO", string.rep("x", 150) .. i) end
+        local store = QR.db.trace
+        t:assertTrue(store.log.bytes <= 2000, "log bytes within the bound (" .. store.log.bytes .. ")")
+        t:assertEqual(1, store.n, "the structured entry is untouched, n=" .. store.n)
+        local entries = D:GetTraceEntries()
+        t:assertEqual(string.rep("x", 150) .. 100, entries[#entries].m, "the newest line last")
+    end)
+end)
+
+T:run(prefix .. "a repeated log line is counted on its first entry", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        MockWoW.config.baseTime = 7000
+        D.unsavedTrace = 0
+        for _ = 1, 5 do
+            QR:Log("DEBUG", "Quest 91234: Using cached coords map 2413")
+            MockWoW.config.baseTime = MockWoW.config.baseTime + 1
+        end
+        local store = QR.db.trace
+        t:assertEqual(1, store.log.n, "five repeats take one slot, got " .. store.log.n)
+        local e = find("log", function(x) return x.m == "Quest 91234: Using cached coords map 2413" end)
+        t:assertEqual(5, e and e.r, "the entry counts five occurrences, got " .. tostring(e and e.r))
+        t:assertEqual(7000, e and e.g, "it keeps the first time, got " .. tostring(e and e.g))
+        t:assertEqual(7004, e and e.rg, "and the last one, got " .. tostring(e and e.rg))
+        t:assertEqual("number", e and type(e.rt), "with a Unix time of the last one")
+        t:assertEqual(5, D.unsavedTrace, "every repeat changes what a reload saves, got " .. D.unsavedTrace)
+        local size = 0
+        for _, x in ipairs(D:GetTraceEntries()) do
+            if x.c == "log" then size = size + D.TraceEntrySize(x) end
+        end
+        t:assertEqual(size, store.log.bytes, "the byte count follows the added fields")
+
+        QR:Log("WARN", "Quest 91234: Using cached coords map 2413")
+        t:assertEqual(2, store.log.n, "another level is another line, got " .. store.log.n)
+        QR:Log("DEBUG", "Quest 91235: Using cached coords map 2413")
+        t:assertEqual(3, store.log.n, "another text is another line, got " .. store.log.n)
+
+        MockWoW.config.baseTime = 7000 + D.TRACE_REPEAT_SECONDS
+        QR:Log("DEBUG", "Quest 91234: Using cached coords map 2413")
+        t:assertEqual(4, store.log.n, "a repeat past the window starts a new entry, got " .. store.log.n)
+        t:assertEqual(5, e and e.r, "and leaves the old one alone, got " .. tostring(e and e.r))
+    end)
+end)
+
+T:run(prefix .. "a repeat of a line that left the ring starts a new entry", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        D.TRACE_LOG_CAP = 2
+        QR:Log("INFO", "a")
+        QR:Log("INFO", "b")
+        QR:Log("INFO", "c")
+        QR:Log("INFO", "a")
+        local store = QR.db.trace
+        t:assertEqual(2, store.log.n, "two lines in the ring, got " .. store.log.n)
+        local e = find("log", function(x) return x.m == "a" end)
+        t:assertNotNil(e, "the new 'a' is stored")
+        t:assertNil(e and e.r, "as a first occurrence, r=" .. tostring(e and e.r))
+    end)
+end)
+
+T:run(prefix .. "a game clock that went back is another session", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        MockWoW.config.baseTime = 9000
+        QR:Log("INFO", "same")
+        MockWoW.config.baseTime = 100
+        QR:Log("INFO", "same")
+        t:assertEqual(2, QR.db.trace.log.n, "no fold across a restart, got " .. QR.db.trace.log.n)
+    end)
+end)
+
+T:run(prefix .. "both rings read back in the order they were written", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        D:Trace("event", "one")
+        QR:Log("INFO", "two")
+        D:Trace("event", "three")
+        QR:Log("INFO", "four")
+        local got = {}
+        for _, e in ipairs(D:GetTraceEntries()) do got[#got + 1] = e.m end
+        t:assertEqual("one,two,three,four", table.concat(got, ","), "write order, got " .. table.concat(got, ","))
+    end)
+end)
+
+-- What a trace written by 1.22.0 looks like at the update: one ring, mostly
+-- log lines, near its byte bound. The owner's had 17,952 entries and an
+-- estimated 4.94 MB, above the structured ring's new 4.5 MiB; kept as they
+-- were, the log lines would push the structured entries out at the first write.
+T:run(prefix .. "a store from before the log ring moves its log lines out and keeps its entries", function(t)
+    withTrace(true, function()
+        local old = {}
+        local function add(c, m) old[#old + 1] = { c = c, m = m, l = "INFO", g = #old + 1 } end
+        add("event", "e1")
+        for i = 1, 6 do add("log", "old line " .. i) end
+        add("window", "w1")
+        for i = 7, 12 do add("log", "old line " .. i) end
+        add("event", "e2")
+        local bytes = 0
+        for _, e in ipairs(old) do bytes = bytes + D.TraceEntrySize(e) end
+        QR.db.trace = { v = D.TRACE_VERSION, cap = D.TRACE_CAP, first = 1, n = #old, bytes = bytes,
+            dropped = 0, e = old }
+        -- The structured bound below what the old ring holds, as it was for the owner.
+        D.TRACE_MAX_BYTES = bytes - 1
+        D.TRACE_LOG_CAP = 10
+        D:Trace("event", "written now")
+        QR:Log("INFO", "a line after the move")
+        local store = QR.db.trace
+        t:assertEqual(4, store.n, "e1, w1, e2 and the new entry, got n=" .. store.n)
+        t:assertEqual(0, store.dropped, "no structured entry dropped, got " .. tostring(store.dropped))
+        t:assertEqual(10, store.log.n, "the newest ten log lines kept, got " .. store.log.n)
+        t:assertEqual(3, store.log.dropped, "the three oldest did not fit, got " .. tostring(store.log.dropped))
+        local got = {}
+        for _, e in ipairs(D:GetTraceEntries()) do got[#got + 1] = e.m end
+        t:assertEqual("e1,old line 4,old line 5,old line 6,w1,old line 7,old line 8,old line 9,"
+            .. "old line 10,old line 11,old line 12,e2,written now,a line after the move", table.concat(got, ","),
+            "in the order written, got " .. table.concat(got, ","))
+        local structuredBytes = 0
+        for i = 0, store.n - 1 do
+            structuredBytes = structuredBytes + D.TraceEntrySize(store.e[((store.first - 1 + i) % store.cap) + 1])
+        end
+        t:assertEqual(structuredBytes, store.bytes, "the structured byte count is recounted")
+    end)
+end)
+
+-- A fold must not hide what a trigger caused. In the owner's trace,
+-- BuildGraph, "added nodes" and "Path found" at g=2500412.9, 0.26 s after a
+-- TomTom waypoint entry, would have been folded into entries 166 s older.
+T:run(prefix .. "a barrier entry ends a fold, other entries do not", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        MockWoW.config.baseTime = 8000
+        local line = "Path found to map 2413: 3 nodes, 120s"
+        QR:Log("INFO", line)
+        local function tick() MockWoW.config.baseTime = MockWoW.config.baseTime + 1 end
+        -- Not barriers: a quest-log burst, a subzone change, a route entry.
+        for _, message in ipairs({ "QUEST_LOG_UPDATE", "ZONE_CHANGED", "ZONE_CHANGED_INDOORS" }) do
+            tick(); D:Trace("event", message)
+            tick(); QR:Log("INFO", line)
+        end
+        tick(); D:Trace("route", "request")
+        tick(); QR:Log("INFO", line)
+        t:assertEqual(1, QR.db.trace.log.n, "folded across them, got " .. QR.db.trace.log.n)
+        local barriers = {
+            { "window", "show route (x)" }, { "waypoint", "TomTom callback" }, { "reminder", "shown" },
+            { "lua-error", "boom" }, { "session", "trace started" }, { "event", "LOADING_SCREEN_ENABLED" },
+            { "event", "LOADING_SCREEN_DISABLED" }, { "event", "PLAYER_ENTERING_WORLD" },
+            { "event", "ZONE_CHANGED_NEW_AREA" }, { "event", "SUPER_TRACKING_CHANGED" },
+        }
+        for i, b in ipairs(barriers) do
+            tick(); D:Trace(b[1], b[2])
+            tick(); QR:Log("INFO", line)
+            t:assertEqual(1 + i, QR.db.trace.log.n, b[1] .. " " .. b[2] .. " starts a new entry, got "
+                .. QR.db.trace.log.n)
+            tick(); QR:Log("INFO", line)
+            t:assertEqual(1 + i, QR.db.trace.log.n, "and the line folds again after it")
+        end
+    end)
+end)
+
+T:run(prefix .. "a taxi transition ends a fold", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        local saved = _G.UnitOnTaxi
+        local onTaxi = false
+        _G.UnitOnTaxi = function() return onTaxi end
+        local ok, err = pcall(function()
+            QR:Log("INFO", "same")
+            onTaxi = true
+            QR:Log("INFO", "same")
+        end)
+        _G.UnitOnTaxi = saved
+        if not ok then error(err, 0) end
+        t:assertNotNil(find("taxi"), "the transition is traced")
+        t:assertEqual(2, QR.db.trace.log.n, "the line after it is a new entry, got " .. QR.db.trace.log.n)
+    end)
+end)
+
+T:run(prefix .. "an old store's log lines are folded when they move, not cut", function(t)
+    withTrace(true, function()
+        local old = {}
+        local function add(c, m, g) old[#old + 1] = { c = c, m = m, l = "DEBUG", g = g } end
+        for g = 1, 20 do add("log", "Quest 91234: negative cache hit", g) end
+        add("window", "show route (waypoint-auto)", 20.5)
+        for g = 21, 40 do add("log", "Quest 91234: negative cache hit", g) end
+        add("event", "QUEST_LOG_UPDATE", 40.5)
+        for g = 41, 45 do add("log", "Quest 91234: negative cache hit", g) end
+        QR.db.trace = { v = D.TRACE_VERSION, cap = D.TRACE_CAP, first = 1, n = #old, dropped = 0, e = old }
+        D.TRACE_LOG_CAP = 10
+        MockWoW.config.baseTime = 50
+        QR:Log("DEBUG", "Quest 91234: negative cache hit")
+        local log = QR.db.trace.log
+        t:assertEqual(0, log.dropped, "nothing cut, got " .. tostring(log.dropped))
+        local got = {}
+        for _, e in ipairs(D:GetTraceEntries()) do got[#got + 1] = e.c .. ":" .. tostring(e.r or 1) end
+        -- 20 before the window; 25 after it (a QUEST_LOG_UPDATE is no barrier).
+        -- The move happens at the first write after login, which starts a new
+        -- session: the line written then is a new entry.
+        t:assertEqual("log:20,window:1,log:25,event:1,log:1", table.concat(got, ","),
+            "two folds around the window, got " .. table.concat(got, ","))
+    end)
+end)
+
+T:run(prefix .. "a resized store keeps its log ring and numbering", function(t)
+    withTrace(true, function()
+        QR.db.trace = nil
+        D:Trace("event", "before resize")
+        QR:Log("INFO", "line before resize")
+        local log = QR.db.trace.log
+        D.TRACE_CAP = D.TRACE_CAP - 1
+        D:Trace("event", "after resize")
+        QR:Log("INFO", "line after resize")
+        t:assertTrue(QR.db.trace.log == log, "the same log ring")
+        local got = {}
+        for _, e in ipairs(D:GetTraceEntries()) do got[#got + 1] = e.m end
+        local text = table.concat(got, ",")
+        t:assertTrue(text:find("before resize,line before resize,after resize,line after resize", 1, true) ~= nil,
+            "in write order, got " .. text)
+    end)
+end)
+
+T:run(prefix .. "an NPC entry is written when the name and GUID are secret", function(t)
+    withTrace(true, function()
+        local savedName, savedGUID, savedSecret = _G.UnitName, _G.UnitGUID, _G.issecretvalue
+        local secret = {}
+        _G.UnitName = function(unit)
+            if unit == "npc" then secret.name = "Delve-O-Bot 7001"; return secret.name end
+            return savedName(unit)
+        end
+        _G.UnitGUID = function(unit)
+            if unit == "npc" then secret.guid = "Creature-0-3767-1-1234-232267-00006F2A1B"; return secret.guid end
+            return nil
+        end
+        _G.issecretvalue = function(v) return v ~= nil and (v == secret.name or v == secret.guid) end
+        local ok, err = pcall(function() MockWoW:FireEvent("GOSSIP_SHOW") end)
+        _G.issecretvalue = savedSecret
+        local ok2, err2 = pcall(function() MockWoW:FireEvent("MERCHANT_SHOW") end)
+        _G.UnitName, _G.UnitGUID = savedName, savedGUID
+        if not ok then error(err, 0) end
+        if not ok2 then error(err2, 0) end
+        local gossip = find("event", function(e) return e.m == "GOSSIP_SHOW" end)
+        t:assertNotNil(gossip, "the GOSSIP_SHOW entry is written")
+        t:assertNil(gossip and gossip.f and gossip.f.npc, "without the secret name")
+        t:assertNil(gossip and gossip.f and gossip.f.npcID, "without an ID from the secret GUID")
+        local merchant = find("event", function(e) return e.m == "MERCHANT_SHOW" end)
+        t:assertEqual(232267, merchant and merchant.f and merchant.f.npcID, "a readable GUID gives the ID")
+        t:assertEqual("Creature", merchant and merchant.f and merchant.f.npcType, "and its type")
     end)
 end)
 
