@@ -894,21 +894,28 @@ end
 
 --- Fill level of the trace: the fuller of the two rings, each against its own
 -- entry cap and byte bound, because each ring drops its oldest entries on its
--- own. The counts returned are the sums of both rings.
--- @return number percent (0-100), number n, number bytes
+-- own. The counts and bounds returned are that ring's, so the line under the
+-- bar shows the numbers the percentage comes from.
+-- @return number percent (0-100), number n, number cap, number bytes, number maxBytes
 function Reminder:TraceFill()
     local store = QR.db and QR.db.trace
-    if not ValidStore(store) then return 0, 0, 0 end
-    local n, bytes = store.n, tonumber(store.bytes) or 0
-    local fill = math.max(n / Diagnostics.TRACE_CAP, bytes / Diagnostics.TRACE_MAX_BYTES)
+    if not ValidStore(store) then
+        return 0, 0, Diagnostics.TRACE_CAP, 0, Diagnostics.TRACE_MAX_BYTES
+    end
+    local function RingFill(ring, cap, maxBytes)
+        local bytes = tonumber(ring.bytes) or 0
+        return math.max(ring.n / cap, bytes / maxBytes), ring.n, cap, bytes, maxBytes
+    end
+    local fill, n, cap, bytes, maxBytes = RingFill(store, Diagnostics.TRACE_CAP, Diagnostics.TRACE_MAX_BYTES)
     if ValidRing(store.log) then
-        local logBytes = tonumber(store.log.bytes) or 0
-        fill = math.max(fill, store.log.n / Diagnostics.TRACE_LOG_CAP, logBytes / Diagnostics.TRACE_LOG_MAX_BYTES)
-        n = n + store.log.n
-        bytes = bytes + logBytes
+        local logFill, logN, logCap, logBytes, logMax =
+            RingFill(store.log, Diagnostics.TRACE_LOG_CAP, Diagnostics.TRACE_LOG_MAX_BYTES)
+        if logFill > fill then
+            fill, n, cap, bytes, maxBytes = logFill, logN, logCap, logBytes, logMax
+        end
     end
     fill = math.min(1, fill)
-    return math.floor(fill * 100 + 0.5), n, bytes
+    return math.floor(fill * 100 + 0.5), n, cap, bytes, maxBytes
 end
 
 --- Whether a reload now would cost the player nothing.
@@ -1021,11 +1028,10 @@ function Reminder:Populate()
     SetLine(lines.unsaved, string_format(L["SAVE_REMINDER_UNSAVED"], total), { 1, 0.82, 0 })
 
     local showTrace = db.diagnosticTrace == true
-    local percent, n, bytes = self:TraceFill()
+    local percent, n, cap, bytes, maxBytes = self:TraceFill()
     SetLine(lines.fill, showTrace and string_format(L["SAVE_REMINDER_TRACE_FILL"], percent) or "")
     SetLine(lines.fillDetail, showTrace and string_format(L["SAVE_REMINDER_TRACE_FILL_DETAIL"],
-        n, Diagnostics.TRACE_CAP + Diagnostics.TRACE_LOG_CAP, math.floor(bytes / 1024 + 0.5),
-        math.floor((Diagnostics.TRACE_MAX_BYTES + Diagnostics.TRACE_LOG_MAX_BYTES) / 1024 + 0.5))
+        n, cap, math.floor(bytes / 1024 + 0.5), math.floor(maxBytes / 1024 + 0.5))
         or "", { 0.8, 0.8, 0.8 })
     SetLine(lines.fullNote, showTrace and L["SAVE_REMINDER_TRACE_FULL_NOTE"] or "", { 0.8, 0.8, 0.8 })
     SetLine(lines.survey, db.zoneSurveyEnabled == true

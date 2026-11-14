@@ -262,6 +262,26 @@ T:run(prefix .. "names what records and the fill level", function(t)
         t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL"], 67), lines.fill:GetText(), "fill is the fuller ring")
         t:assertTrue(lines.survey:GetText():find("2", 1, true) ~= nil, "two new crossings")
         t:assertEqual(math.floor(376 * 0.67), math.floor(R.popup.barWidth), "the bar is two thirds full")
+        t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL_DETAIL"], 1000, D.TRACE_LOG_CAP, 1024,
+            math.floor(D.TRACE_LOG_MAX_BYTES / 1024 + 0.5)), lines.fillDetail:GetText(),
+            "the numbers under the bar are the log ring's")
+    end)
+end)
+
+-- The owner's trace of 2026-11-14 18:19: the log ring at its byte bound, the
+-- main ring at 8 %. The popup read "100 %" above "5468 of 25000 entries, 1946
+-- of 6144 KB", the sums of both rings.
+T:run(prefix .. "the numbers under a full bar are the full ring's", function(t)
+    withReminder(function()
+        D.unsavedTrace = 8681
+        QR.db.trace = { v = D.TRACE_VERSION, cap = D.TRACE_CAP, first = 1, n = 997, bytes = 360930,
+            e = {}, log = { cap = D.TRACE_LOG_CAP, first = 1, n = 4292, bytes = 1572674, e = {} } }
+        tick(MINUTES_20)
+        local lines = R.popup.lines
+        local L = QR.L
+        t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL"], 100), lines.fill:GetText(), "the log ring is full")
+        t:assertEqual(string.format(L["SAVE_REMINDER_TRACE_FILL_DETAIL"], 4292, 5000, 1536, 1536),
+            lines.fillDetail:GetText(), "its own entries and bytes, not the sums")
     end)
 end)
 
