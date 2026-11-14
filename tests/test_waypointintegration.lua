@@ -2169,3 +2169,69 @@ T:run("/qrwp reports when its route request is replaced", function(t)
     end
     t:assertTrue(said, "the replaced request is reported, printed: " .. table.concat(printed, " | "))
 end)
+
+-------------------------------------------------------------------------------
+-- A resolution that repeats the quest's last one writes one line
+-------------------------------------------------------------------------------
+
+-- The trackers resolve every tracked quest again after each waypoint change,
+-- zone change or /reload. In the owner's trace of 2026-11-14 the repeated
+-- resolver lines were 3,290 of the 4,292 lines in the log ring.
+local function captureDebug(fn)
+    local messages = {}
+    local origDebug = QR.Debug
+    QR.Debug = function(self, msg)
+        messages[#messages + 1] = msg
+        origDebug(self, msg)
+    end
+    local ok, err = pcall(fn)
+    QR.Debug = origDebug
+    if not ok then error(err, 0) end
+    return messages
+end
+
+T:run("GetQuestWaypoint: a repeated resolution writes one line", function(t)
+    resetState()
+    MockWoW.config.questTitles[70005] = "Unresolvable Repeat"
+    local first = captureDebug(function() QR.WaypointIntegration:GetQuestWaypoint(70005) end)
+    t:assert(#first > 1, "the first resolution writes its lines (" .. #first .. ")")
+    QR.WaypointIntegration:ClearQuestCoordCache()
+    local second = captureDebug(function() QR.WaypointIntegration:GetQuestWaypoint(70005) end)
+    t:assertEqual(1, #second, "the same resolution again writes one line")
+    t:assertEqual(string.format("Quest 70005: same %d lines as the last resolution, ending: %s",
+        #first, first[#first]), second[1], "which names the count and the last line")
+end)
+
+T:run("GetQuestWaypoint: a changed resolution writes all its lines", function(t)
+    resetState()
+    MockWoW.config.questTitles[70006] = "Moving Quest"
+    MockWoW.config.questWaypoints[70006] = { mapID = 84, x = 0.3, y = 0.7 }
+    local first = captureDebug(function() QR.WaypointIntegration:GetQuestWaypoint(70006) end)
+    QR.WaypointIntegration:ClearQuestCoordCache()
+    MockWoW.config.questWaypoints[70006] = { mapID = 84, x = 0.5, y = 0.5 }
+    local second = captureDebug(function() QR.WaypointIntegration:GetQuestWaypoint(70006) end)
+    t:assert(#second >= 1, "the changed resolution writes lines")
+    local summarized = false
+    for _, msg in ipairs(second) do
+        if msg:find("same %d+ lines") then summarized = true end
+    end
+    t:assertFalse(summarized, "and no summary: " .. table.concat(first, " | ") .. " -> " .. table.concat(second, " | "))
+end)
+
+T:run("GetQuestWaypoint: a resolution that errors still writes its lines and raises", function(t)
+    resetState()
+    MockWoW.config.questTitles[70007] = "Erroring Quest"
+    local orig = QR.WaypointIntegration._ResolveQuestWaypoint
+    QR.WaypointIntegration._ResolveQuestWaypoint = function(self, questID)
+        orig(self, questID)
+        error("resolver broke")
+    end
+    local raised
+    local lines = captureDebug(function()
+        local ok, err = pcall(QR.WaypointIntegration.GetQuestWaypoint, QR.WaypointIntegration, 70007)
+        raised = not ok and tostring(err)
+    end)
+    QR.WaypointIntegration._ResolveQuestWaypoint = orig
+    t:assert(raised and raised:find("resolver broke", 1, true) ~= nil, "the error reaches the caller")
+    t:assert(#lines > 1, "the lines before the error are written (" .. #lines .. ")")
+end)
