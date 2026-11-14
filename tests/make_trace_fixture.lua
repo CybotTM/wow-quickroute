@@ -60,11 +60,15 @@ QR.db.autoDestination = true
 local function session()
     -- More than two seconds before the open: outside its look-back window.
     cfg.baseTime = cfg.baseTime + 1
+    -- A log line that repeats: stored once, with its last occurrence inside
+    -- the open's look-back although its first one is not.
+    QR:Log("DEBUG", "fixture: repeated line")
     MockWoW:FireEvent("QUEST_DETAIL")
     cfg.baseTime = cfg.baseTime + 3
     MockWoW:FireEvent("GOSSIP_SHOW", "")
     cfg.baseTime = cfg.baseTime + 0.5
     MockWoW:FireEvent("QUEST_ACCEPTED", 4711)
+    QR:Log("DEBUG", "fixture: repeated line")
     cfg.baseTime = cfg.baseTime + 0.5
     if QR.MainFrame.frame then QR.MainFrame.frame:Hide() end
     QR.MainFrame.isShowing = false

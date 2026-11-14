@@ -101,13 +101,32 @@ end
 -- The buffer is written in place: `e` is indexed 1..cap, `first` is the oldest
 -- entry and `n` the count. Shifting a list on every insert, as push() above
 -- does, would move 20000 entries per line.
+--
+-- Plain QR:Log lines have a ring of their own, `log` inside the store, with
+-- the same layout and a smaller budget: background work (the quest buttons
+-- resolving every tracked quest, the route behind each button) logs the same
+-- lines over and over, and in one shared ring those evicted the structured
+-- entries within days. Every entry carries `q`, a sequence number across both
+-- rings, so the two read back in the order they were written. A log line
+-- that repeats an earlier one with the same level and text within
+-- TRACE_REPEAT_SECONDS of that one's first occurrence takes no slot: the
+-- earlier entry counts it in `r` (occurrences, the first included) and keeps
+-- the time of the last one in `rt` and `rg`.
 -------------------------------------------------------------------------------
 
 Diagnostics.TRACE_VERSION = 1
 Diagnostics.TRACE_CAP = 20000
 -- A second bound, on the estimated serialized size, so a run of long entries
 -- cannot grow the SavedVariables file past this however few entries it has.
-Diagnostics.TRACE_MAX_BYTES = 6 * 1024 * 1024
+-- With the log ring's bound below, the two add up to the 6 MiB of one ring
+-- before.
+Diagnostics.TRACE_MAX_BYTES = 4.5 * 1024 * 1024
+-- The log lines' own ring.
+Diagnostics.TRACE_LOG_CAP = 5000
+Diagnostics.TRACE_LOG_MAX_BYTES = 1.5 * 1024 * 1024
+-- A repeat of a log line within this many seconds of the line's first
+-- occurrence is counted on that entry instead of taking a slot.
+Diagnostics.TRACE_REPEAT_SECONDS = 300
 -- QUEST_LOG_UPDATE and QUEST_POI_UPDATE fire in bursts; one entry per event
 -- per this many seconds, and the next one let through says how many it hid.
 Diagnostics.TRACE_THROTTLE_SECONDS = 2
@@ -200,15 +219,28 @@ local function ValueSize(v)
 end
 Diagnostics.TraceEntrySize = ValueSize
 
-local function NewStore(cap)
-    return { v = Diagnostics.TRACE_VERSION, cap = cap, first = 1, n = 0, bytes = 0, dropped = 0, e = {} }
+--- A ring: the store itself (structured entries) or its `log` ring.
+local function NewRing(cap)
+    return { cap = cap, first = 1, n = 0, bytes = 0, dropped = 0, e = {} }
 end
 
-local function ValidStore(s)
-    return type(s) == "table" and s.v == Diagnostics.TRACE_VERSION and type(s.e) == "table"
+local function NewStore(cap)
+    local s = NewRing(cap)
+    s.v = Diagnostics.TRACE_VERSION
+    return s
+end
+
+local function ValidRing(s)
+    return type(s) == "table" and type(s.e) == "table"
         and type(s.cap) == "number" and s.cap >= 1
         and type(s.first) == "number" and s.first >= 1 and s.first <= s.cap
         and type(s.n) == "number" and s.n >= 0 and s.n <= s.cap
+end
+
+-- A store written before the log ring existed is still valid; on the next
+-- write its log lines move into a log ring (SplitLogLines).
+local function ValidStore(s)
+    return ValidRing(s) and s.v == Diagnostics.TRACE_VERSION
 end
 
 local function StoreEntries(s)
@@ -220,6 +252,61 @@ local function StoreEntries(s)
     return list
 end
 
+--- The ring resized to `cap`, keeping its newest entries in order.
+local function Resized(ring, cap, fresh)
+    local old = StoreEntries(ring)
+    fresh.dropped = (tonumber(ring.dropped) or 0) + math.max(0, #old - cap)
+    for i = math.max(1, #old - cap + 1), #old do
+        fresh.e[fresh.n + 1] = old[i]
+        fresh.n = fresh.n + 1
+        fresh.bytes = fresh.bytes + ValueSize(old[i])
+    end
+    return fresh
+end
+
+local function CountBytes(ring)
+    if type(ring.bytes) ~= "number" then
+        ring.bytes = 0
+        for _, entry in ipairs(StoreEntries(ring)) do ring.bytes = ring.bytes + ValueSize(entry) end
+    end
+end
+
+--- Drop the oldest entries of a ring until it is within its bounds, leaving
+-- room for `incoming` more entries of `size` estimated bytes.
+local function Evict(ring, maxBytes, incoming, size)
+    while ring.n > 0 and (ring.n + incoming > ring.cap or ring.bytes + size > maxBytes) do
+        local old = ring.e[ring.first]
+        ring.e[ring.first] = nil
+        ring.bytes = ring.bytes - (old and ValueSize(old) or 0)
+        ring.first = (ring.first % ring.cap) + 1
+        ring.n = ring.n - 1
+        ring.dropped = (tonumber(ring.dropped) or 0) + 1
+    end
+end
+
+--- Give a store without a log ring one: its log lines move there, newest
+-- kept, and every entry is numbered in the order it was written. A trace from
+-- before the split holds mostly log lines; left in the structured ring, they
+-- would fill its smaller byte bound and evict the structured entries.
+local function SplitLogLines(s, logCap, logMaxBytes)
+    local structured, lines = {}, {}
+    local seq = 0
+    for _, entry in ipairs(StoreEntries(s)) do
+        seq = seq + 1
+        entry.q = seq
+        if entry.c == "log" then lines[#lines + 1] = entry else structured[#structured + 1] = entry end
+    end
+    s.e, s.first, s.n, s.bytes = {}, 1, 0, 0
+    for _, entry in ipairs(structured) do
+        s.n = s.n + 1
+        s.e[s.n] = entry
+        s.bytes = s.bytes + ValueSize(entry)
+    end
+    local log = Resized({ cap = s.cap, first = 1, n = #lines, e = lines }, logCap, NewRing(logCap))
+    Evict(log, logMaxBytes, 0, 0)
+    s.log, s.seq = log, seq
+end
+
 --- The trace store, created or repaired as needed. Only called while tracing,
 -- so a player who never turns the setting on never gets a `trace` key.
 function Diagnostics:GetTraceStore()
@@ -229,46 +316,62 @@ function Diagnostics:GetTraceStore()
         QR.db.trace = s
     elseif s.cap ~= self.TRACE_CAP then
         -- The cap changed between versions: keep the newest entries in order.
-        local old = StoreEntries(s)
-        local fresh = NewStore(self.TRACE_CAP)
-        fresh.dropped = (tonumber(s.dropped) or 0) + math.max(0, #old - self.TRACE_CAP)
-        fresh.client = s.client
-        for i = math.max(1, #old - self.TRACE_CAP + 1), #old do
-            fresh.e[fresh.n + 1] = old[i]
-            fresh.n = fresh.n + 1
-            fresh.bytes = fresh.bytes + ValueSize(old[i])
-        end
+        local fresh = Resized(s, self.TRACE_CAP, NewStore(self.TRACE_CAP))
+        fresh.client, fresh.log, fresh.seq = s.client, s.log, s.seq
         s = fresh
         QR.db.trace = s
     end
-    if type(s.bytes) ~= "number" then
-        s.bytes = 0
-        for _, entry in ipairs(StoreEntries(s)) do s.bytes = s.bytes + ValueSize(entry) end
+    CountBytes(s)
+    if not ValidRing(s.log) then
+        SplitLogLines(s, self.TRACE_LOG_CAP, self.TRACE_LOG_MAX_BYTES)
+    elseif s.log.cap ~= self.TRACE_LOG_CAP then
+        s.log = Resized(s.log, self.TRACE_LOG_CAP, NewRing(self.TRACE_LOG_CAP))
     end
+    CountBytes(s.log)
+    if type(s.seq) ~= "number" then s.seq = 0 end
     return s
 end
 
-local function Push(s, entry)
+--- Append an entry to a ring. @return number The slot it went into
+local function Push(s, ring, maxBytes, entry)
+    s.seq = s.seq + 1
+    entry.q = s.seq
     local size = ValueSize(entry)
-    while s.n > 0 and (s.n >= s.cap or s.bytes + size > Diagnostics.TRACE_MAX_BYTES) do
-        local old = s.e[s.first]
-        s.e[s.first] = nil
-        s.bytes = s.bytes - (old and ValueSize(old) or 0)
-        s.first = (s.first % s.cap) + 1
-        s.n = s.n - 1
-        s.dropped = (tonumber(s.dropped) or 0) + 1
-    end
-    s.e[((s.first - 1 + s.n) % s.cap) + 1] = entry
-    s.n = s.n + 1
-    s.bytes = s.bytes + size
+    Evict(ring, maxBytes, 1, size)
+    local slot = ((ring.first - 1 + ring.n) % ring.cap) + 1
+    ring.e[slot] = entry
+    ring.n = ring.n + 1
+    ring.bytes = ring.bytes + size
     -- Entries written since this login or /reload: what a reload would save.
     Diagnostics.unsavedTrace = (Diagnostics.unsavedTrace or 0) + 1
+    return slot
 end
 
---- Trace entries in chronological order (empty when there are none).
+--- Merge two lists already in write order by their sequence number. Entries
+-- written before sequence numbers existed have none and are the oldest.
+local function MergeBySeq(a, b)
+    local out, i, j = {}, 1, 1
+    while i <= #a or j <= #b do
+        local x, y = a[i], b[j]
+        if y == nil or (x ~= nil and (tonumber(x.q) or 0) <= (tonumber(y.q) or 0)) then
+            out[#out + 1] = x
+            i = i + 1
+        else
+            out[#out + 1] = y
+            j = j + 1
+        end
+    end
+    return out
+end
+
+--- Trace entries in chronological order (empty when there are none), the
+-- structured entries and the log lines merged.
 function Diagnostics:GetTraceEntries()
     if not (QR.db and ValidStore(QR.db.trace)) then return {} end
-    return StoreEntries(QR.db.trace)
+    local s = QR.db.trace
+    local entries = StoreEntries(s)
+    if ValidRing(s.log) then entries = MergeBySeq(entries, StoreEntries(s.log)) end
+    return entries
 end
 
 function Diagnostics:IsTracing()
@@ -313,17 +416,72 @@ local function MakeEntry(level, category, message, fields)
     return entry
 end
 
+--- Count a log line on the entry of its first occurrence, when that entry is
+-- still in the log ring and less than TRACE_REPEAT_SECONDS old.
+-- The index lives in memory only: after a /reload a line starts a new entry.
+-- @return boolean true when the line was counted
+local function CountRepeat(self, store, key)
+    local index = self._logRepeats
+    if not index or index.store ~= store then return false end
+    local seen = index.lines[key]
+    if not seen then return false end
+    local ring = store.log
+    local entry = seen.entry
+    if ring.e[seen.slot] ~= entry then
+        index.lines[key] = nil
+        return false
+    end
+    local now = GetTime and GetTime() or nil
+    local age = (now and entry.g) and (now - entry.g) or nil
+    -- GetTime restarts with the client; a negative age is another session.
+    if not age or age < 0 or age >= self.TRACE_REPEAT_SECONDS then
+        index.lines[key] = nil
+        return false
+    end
+    local before = ValueSize(entry)
+    entry.r = (tonumber(entry.r) or 1) + 1
+    entry.rg = Round(now, 3)
+    entry.rt = time and time() or nil
+    ring.bytes = ring.bytes + ValueSize(entry) - before
+    Evict(ring, self.TRACE_LOG_MAX_BYTES, 0, 0)
+    -- The changed entry is saved with the next reload too.
+    Diagnostics.unsavedTrace = (Diagnostics.unsavedTrace or 0) + 1
+    return true
+end
+
+local function TraceLog(self, store, message, fields, level)
+    local entry = MakeEntry(level or "INFO", "log", message, fields)
+    -- QR:Log passes no fields; a line that has some is never folded.
+    if entry.f then
+        Push(store, store.log, self.TRACE_LOG_MAX_BYTES, entry)
+        return
+    end
+    local key = entry.l .. "\0" .. entry.m
+    if CountRepeat(self, store, key) then return end
+    local slot = Push(store, store.log, self.TRACE_LOG_MAX_BYTES, entry)
+    local index = self._logRepeats
+    if not index or index.store ~= store then
+        index = { store = store, lines = {} }
+        self._logRepeats = index
+    end
+    index.lines[key] = { entry = entry, slot = slot }
+end
+
 local function TraceUnsafe(self, category, message, fields, level)
     local store = self:GetTraceStore()
     -- Taxi state has no event of its own on every client, so each entry
     -- compares it with the last one and records the transition first.
     local taxi = OnTaxi()
     if self._lastTaxi ~= nil and taxi ~= self._lastTaxi then
-        Push(store, MakeEntry("INFO", "taxi", taxi and "taxi started" or "taxi ended",
-            { onTaxi = taxi }))
+        Push(store, store, self.TRACE_MAX_BYTES, MakeEntry("INFO", "taxi",
+            taxi and "taxi started" or "taxi ended", { onTaxi = taxi }))
     end
     self._lastTaxi = taxi
-    Push(store, MakeEntry(level or "INFO", category or "misc", message, fields))
+    if category == "log" then
+        TraceLog(self, store, message, fields, level)
+        return
+    end
+    Push(store, store, self.TRACE_MAX_BYTES, MakeEntry(level or "INFO", category or "misc", message, fields))
 end
 
 --- Add one entry to the trace when the setting is on; a no-op otherwise.
@@ -514,6 +672,7 @@ function Diagnostics:ApplyTraceSetting()
     self.traceEventsRegistered = true
     self._lastTaxi = nil
     self._throttle = {}
+    self._logRepeats = nil
 
     local store = self:GetTraceStore()
     local client = self:ClientInfo()
@@ -522,6 +681,7 @@ function Diagnostics:ApplyTraceSetting()
     for k, v in pairs(client) do fields[k] = v end
     fields.unregistered = #failed > 0 and table_concat(failed, ",") or nil
     fields.cap = self.TRACE_CAP
+    fields.logCap = self.TRACE_LOG_CAP
     -- The character, so a connection seen for one race or faction can be told
     -- from one that is open to all: the race's file token (not its localized
     -- name), the faction and class tokens, the level. No name, no GUID.

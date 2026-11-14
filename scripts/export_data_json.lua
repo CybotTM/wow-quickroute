@@ -75,21 +75,45 @@ local function loadSavedVariables(path)
     return env.QuickRouteDB
 end
 
+--- The entries of one ring in write order: `e` indexed 1..cap, `first` the
+-- oldest entry, `n` the count.
+local function ringEntries(ring, path)
+    local list = {}
+    local cap, first, n = tonumber(ring.cap), tonumber(ring.first), tonumber(ring.n)
+    if not (cap and first and n) or cap < 1 then fail("malformed trace in " .. path) end
+    for i = 0, n - 1 do
+        local entry = ring.e[((first - 1 + i) % cap) + 1]
+        if type(entry) == "table" then list[#list + 1] = entry end
+    end
+    return list, cap
+end
+
 --- QuickRouteDB.trace in chronological order. Diagnostics.lua writes it as a
--- ring buffer: `e` indexed 1..cap, `first` the oldest entry, `n` the count.
+-- ring buffer of structured entries with a second ring, `log`, for the QR:Log
+-- lines; both are merged by `q`, the sequence number every entry carries
+-- (entries written before it existed have none and are the oldest).
 local function loadTrace(path)
     local db = loadSavedVariables(path)
     local store = type(db) == "table" and db.trace
     local result = { entries = {} }
     if type(store) ~= "table" or type(store.e) ~= "table" then return result end
-    local cap, first, n = tonumber(store.cap), tonumber(store.first), tonumber(store.n)
-    if not (cap and first and n) or cap < 1 then fail("malformed trace in " .. path) end
-    for i = 0, n - 1 do
-        local entry = store.e[((first - 1 + i) % cap) + 1]
-        if type(entry) == "table" then result.entries[#result.entries + 1] = entry end
+    local entries, cap = ringEntries(store, path)
+    local log = type(store.log) == "table" and type(store.log.e) == "table" and store.log or nil
+    local lines = log and ringEntries(log, path) or {}
+    local i, j = 1, 1
+    while i <= #entries or j <= #lines do
+        local x, y = entries[i], lines[j]
+        if y == nil or (x ~= nil and (tonumber(x.q) or 0) <= (tonumber(y.q) or 0)) then
+            result.entries[#result.entries + 1] = x
+            i = i + 1
+        else
+            result.entries[#result.entries + 1] = y
+            j = j + 1
+        end
     end
     result.client = type(store.client) == "table" and store.client or nil
     result.dropped = tonumber(store.dropped) or 0
+    result.logDropped = log and tonumber(log.dropped) or 0
     result.cap = cap
     return result
 end

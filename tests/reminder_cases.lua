@@ -247,7 +247,7 @@ T:run(prefix .. "names what records and the fill level", function(t)
         QR.db.zoneSurveyEnabled = true
         D.unsavedTrace = 7
         ZS.unsavedCaptures, ZS.unsavedCrossings = 3, 2
-        QR.db.trace = { v = D.TRACE_VERSION, cap = D.TRACE_CAP, first = 1, n = 5000, bytes = 3 * 1024 * 1024, e = {} }
+        QR.db.trace = { v = D.TRACE_VERSION, cap = D.TRACE_CAP, first = 1, n = 5000, bytes = D.TRACE_MAX_BYTES / 2, e = {} }
         tick(MINUTES_20)
         local lines = R.popup.lines
         local L = QR.L
