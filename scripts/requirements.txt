@@ -7,4 +7,4 @@
 #
 # Python 3.10 or newer: process_screenshots.py uses PEP 604 unions
 # ("str | None") in its annotations.
-Pillow==12.3.0
+Pillow==13.0.0
