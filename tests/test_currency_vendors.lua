@@ -411,3 +411,21 @@ T:run("Currency vendors: the currency section renders above the catalogue", func
         ds.isShowing = savedShowing
     end)
 end)
+
+T:run("Currency vendors: a cut vendor list keeps its more-matches line", function(t)
+    withCurrencyNames({ [2003] = "Cut Supplies" }, function()
+        local many = {}
+        for i = 1, 150 do
+            many[i] = { npcID = 5000 + i, name = "Seller " .. i, mapID = 84, x = 0.5, y = 0.5,
+                source = "catalogue", currencies = { [2003] = true } }
+        end
+        local savedLocations, savedKnown = QR.ServiceRouter.GetCurrencyLocations, QR.ServiceRouter.GetKnownCurrencies
+        QR.ServiceRouter.GetCurrencyLocations = function() return many end
+        QR.ServiceRouter.GetKnownCurrencies = function() return { { currencyID = 2003, name = "Cut Supplies" } } end
+        local ok, results = pcall(QR.DestinationSearch.CollectResults, QR.DestinationSearch, "cut supplies")
+        QR.ServiceRouter.GetCurrencyLocations, QR.ServiceRouter.GetKnownCurrencies = savedLocations, savedKnown
+        if not ok then error(results, 0) end
+        t:assertEqual(102, #results.currencies, "the list stops at 102 rows")
+        t:assertTrue(results.catalogMore == true, "and says there are more matches")
+    end)
+end)

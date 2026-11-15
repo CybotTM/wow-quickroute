@@ -565,7 +565,8 @@ function DS:CollectResults(query)
                 tag = L[entry.role == "giver" and "CATALOG_GIVER" or entry.questID and "CATALOG_REFERENCE" or "CATALOG_NPC"],
             })
         end
-        results.catalogMore = more
+        -- A cut vendor list above keeps its "more matches" line.
+        results.catalogMore = results.catalogMore or more
     end
 
     -- Every countable row, not the groups they are nested in: services arrive
