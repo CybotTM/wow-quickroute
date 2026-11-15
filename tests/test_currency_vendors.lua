@@ -102,10 +102,15 @@ T:run("Currency vendors: search exposes localized currency names and fastest rou
     withMerchant(function()
         QR.ServiceRouter:ObserveMerchant()
         local results = QR.DestinationSearch:CollectResults("supplies")
-        t:assertEqual(1, #(results.currencies or {}), "Name search finds the observed currency")
+        local currencyRows = 0
+        for _, row in ipairs(results.currencies or {}) do
+            if row.currencyID then currencyRows = currencyRows + 1 end
+        end
+        t:assertEqual(1, currencyRows, "Name search finds the observed currency")
         if results.currencies and results.currencies[1] then
             t:assertEqual(2003, results.currencies[1].currencyID, "Result identifies spending currency")
         end
+        t:assertEqual(2, #(results.currencies or {}), "followed by the one observed vendor")
     end)
 end)
 
@@ -326,5 +331,101 @@ T:run("Currency vendors: unavailable selected currency has explanation and back 
         t:assertFalse(fastest, "No fastest-vendor action is advertised without a candidate")
         ds:HideDropdown()
         ds._currencyOnly, ds._selectedCurrencyID, ds.isShowing = savedCurrency, savedSelected, savedShowing
+    end)
+end)
+
+-- A search for a currency lists the vendors that take it. The first case is the
+-- owner's: "Leerenlichtmergel" (currency 3316) against the shipped catalogue,
+-- which showed one "fastest to reach" row and none of its vendors.
+local function withCurrencyNames(names, fn)
+    local saved = { currency = _G.C_CurrencyInfo, db = QR.db }
+    QR.db = { currencyVendors = {} }
+    _G.C_CurrencyInfo = { GetCurrencyInfo = function(id)
+        return { name = names[id] or ("Currency " .. id), quantity = names[id] and 10 or 0 }
+    end }
+    local ok, err = pcall(fn)
+    _G.C_CurrencyInfo, QR.db = saved.currency, saved.db
+    if not ok then error(err, 0) end
+end
+
+T:run("Currency vendors: searching a currency lists its vendors under the fastest row", function(t)
+    withCurrencyNames({ [3316] = "Leerenlichtmergel" }, function()
+        local vendors = QR.ServiceRouter:GetCurrencyLocations(3316)
+        t:assertTrue(#vendors > 0, "the catalogue knows vendors for 3316, got " .. #vendors)
+        local rows = QR.DestinationSearch:CollectResults("Leerenlichtmergel").currencies
+        t:assertEqual(1 + #vendors, #rows, "the currency row and one row per vendor")
+        t:assertEqual(3316, rows[1] and rows[1].currencyID, "the fastest-vendor row comes first")
+        for i = 2, #rows do
+            t:assertEqual(3316, rows[i].vendorCurrencyID, "row " .. i .. " is a vendor of 3316")
+            t:assertNil(rows[i].currencyID, "row " .. i .. " routes to its vendor, not to the fastest search")
+        end
+        local ds, savedPOI, savedRouter = QR.DestinationSearch, QR.POIRouting, QR.ServiceRouter.RouteToCurrency
+        local routed, fastest
+        QR.POIRouting = { RouteToMapPosition = function(_, mapID, x, y) routed = { mapID, x, y } end }
+        QR.ServiceRouter.RouteToCurrency = function() fastest = true end
+        local ok, err = pcall(ds.SelectResult, ds, rows[2])
+        QR.POIRouting, QR.ServiceRouter.RouteToCurrency = savedPOI, savedRouter
+        if not ok then error(err, 0) end
+        t:assertNil(fastest, "a vendor row does not start the fastest-vendor search")
+        t:assertEqual(rows[2].mapID, routed and routed[1], "a vendor row routes to that vendor's map")
+        t:assertEqual(rows[2].x, routed and routed[2], "and position")
+    end)
+end)
+
+T:run("Currency vendors: a misspelt currency name finds no currency", function(t)
+    withCurrencyNames({ [3316] = "Leerenlichtmergel" }, function()
+        local rows = QR.DestinationSearch:CollectResults("leerenlichtmerkel").currencies
+        t:assertEqual(0, #rows, "the owner's query of 2026-11-15 matches no currency name")
+    end)
+end)
+
+T:run("Currency vendors: a query matching many currencies lists them without vendors", function(t)
+    local names = {}
+    for _, id in ipairs(QR.Catalog:GetCurrencies()) do names[id] = "Coin " .. id end
+    withCurrencyNames(names, function()
+        local rows = QR.DestinationSearch:CollectResults("coin").currencies
+        t:assertTrue(#rows > 3, "more than three currencies match, got " .. #rows)
+        for _, row in ipairs(rows) do
+            t:assertNil(row.vendorCurrencyID, "no vendor rows for " .. tostring(row.name))
+        end
+    end)
+end)
+
+T:run("Currency vendors: the currency section renders above the catalogue", function(t)
+    withCurrencyNames({ [3316] = "Silvermoon Marl" }, function()
+        local ds = QR.DestinationSearch
+        local savedShowing = ds.isShowing
+        ds:CreateDropdown()
+        ds:RefreshDropdown("silver")
+        local currencyHeader, catalogHeader
+        for i, row in ipairs(ds.rows) do
+            local text = row.nameLabel and row.nameLabel:GetText() or ""
+            if not currencyHeader and text:find(QR.L["DEST_SEARCH_CURRENCIES"], 1, true) then currencyHeader = i end
+            if not catalogHeader and text:find(QR.L["DEST_SEARCH_CATALOG"], 1, true) then catalogHeader = i end
+        end
+        t:assertNotNil(currencyHeader, "the currency section is shown")
+        t:assertNotNil(catalogHeader, "the catalogue section is shown")
+        t:assertTrue((currencyHeader or 0) < (catalogHeader or 0),
+            "currencies before the catalogue: " .. tostring(currencyHeader) .. " < " .. tostring(catalogHeader))
+        ds:HideDropdown()
+        ds.isShowing = savedShowing
+    end)
+end)
+
+T:run("Currency vendors: a cut vendor list keeps its more-matches line", function(t)
+    withCurrencyNames({ [2003] = "Cut Supplies" }, function()
+        local many = {}
+        for i = 1, 150 do
+            many[i] = { npcID = 5000 + i, name = "Seller " .. i, mapID = 84, x = 0.5, y = 0.5,
+                source = "catalogue", currencies = { [2003] = true } }
+        end
+        local savedLocations, savedKnown = QR.ServiceRouter.GetCurrencyLocations, QR.ServiceRouter.GetKnownCurrencies
+        QR.ServiceRouter.GetCurrencyLocations = function() return many end
+        QR.ServiceRouter.GetKnownCurrencies = function() return { { currencyID = 2003, name = "Cut Supplies" } } end
+        local ok, results = pcall(QR.DestinationSearch.CollectResults, QR.DestinationSearch, "cut supplies")
+        QR.ServiceRouter.GetCurrencyLocations, QR.ServiceRouter.GetKnownCurrencies = savedLocations, savedKnown
+        if not ok then error(results, 0) end
+        t:assertEqual(102, #results.currencies, "the list stops at 102 rows")
+        t:assertTrue(results.catalogMore == true, "and says there are more matches")
     end)
 end)

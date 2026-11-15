@@ -243,6 +243,38 @@ end
 
 DS.ByRelevance = function(_, queryLower) return ByRelevance(queryLower) end
 
+-- A search that matches at most this many currencies lists each one's vendors
+-- under its "fastest to reach" row. More matches list the currencies alone:
+-- every expansion reads all vendor locations of that currency, on every
+-- debounced keystroke.
+local MAX_EXPANDED_CURRENCIES = 3
+-- Rows in the currency list at most, vendors included.
+local MAX_CURRENCY_ROWS = 102
+
+--- Append one row per vendor of `currencyID` to `list`, keeping the vendors
+-- whose name or zone contains `filter` ("" keeps all). A row carries
+-- vendorCurrencyID and vendorLocation and never currencyID: SelectResult
+-- sends a currencyID row to the fastest-vendor search, not to this vendor.
+-- @return boolean true when the list reached MAX_CURRENCY_ROWS
+local function AppendVendorRows(list, currencyID, filter)
+    for _, loc in ipairs(QR.ServiceRouter:GetCurrencyLocations(currencyID)) do
+        local map = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(loc.mapID)
+        local zoneName = map and map.name or tostring(loc.mapID)
+        if filter == "" or string_find(string_lower(loc.name or ""), filter, 1, true)
+            or string_find(string_lower(zoneName), filter, 1, true) then
+            if #list >= MAX_CURRENCY_ROWS then return true end
+            table_insert(list, {
+                name = (loc.name or L["CURRENCY_VENDOR_KNOWN"]) .. " (" .. zoneName .. ")",
+                mapID = loc.mapID, x = loc.x, y = loc.y, source = loc.source,
+                reference = loc.reference,
+                tag = loc.source == "merchant" and L["CURRENCY_VENDOR_OBSERVED_SHORT"] or L["CURRENCY_VENDOR_KNOWN"],
+                vendorCurrencyID = currencyID, vendorLocation = loc,
+            })
+        end
+    end
+    return false
+end
+
 --- Collect all destination results, optionally filtered by search query
 -- @param query string Search text (empty = all results)
 -- @return table { waypoints = {}, quests = {}, cities = {}, dungeons = {}, services = {}, status = {} }
@@ -506,6 +538,20 @@ function DS:CollectResults(query)
                 })
             end
         end
+        -- A search for a currency is a search for the places that take it:
+        -- each matched currency's vendors follow its "fastest to reach" row.
+        local matchedCurrencies = results.currencies
+        if isSearching and not self._currencyOnly and #matchedCurrencies <= MAX_EXPANDED_CURRENCIES then
+            local expanded = {}
+            for _, currency in ipairs(matchedCurrencies) do
+                table_insert(expanded, currency)
+                if AppendVendorRows(expanded, currency.currencyID, "") then
+                    results.catalogMore = true
+                    break
+                end
+            end
+            results.currencies = expanded
+        end
     end
 
     if QR.Catalog and not self._currencyOnly then
@@ -519,7 +565,8 @@ function DS:CollectResults(query)
                 tag = L[entry.role == "giver" and "CATALOG_GIVER" or entry.questID and "CATALOG_REFERENCE" or "CATALOG_NPC"],
             })
         end
-        results.catalogMore = more
+        -- A cut vendor list above keeps its "more matches" line.
+        results.catalogMore = results.catalogMore or more
     end
 
     -- Every countable row, not the groups they are nested in: services arrive
@@ -845,19 +892,8 @@ function DS:RefreshDropdown(query)
             else
                 table_insert(results.currencies, { name = L["CURRENCY_VENDOR_NONE"], informational = true, multiline = true })
             end
-            for _, loc in ipairs(locations) do
-                local map = C_Map and C_Map.GetMapInfo and C_Map.GetMapInfo(loc.mapID)
-                local zoneName = map and map.name or tostring(loc.mapID)
-                if query == "" or string_find(string_lower(loc.name or ""), string_lower(query), 1, true)
-                    or string_find(string_lower(zoneName), string_lower(query), 1, true) then
-                    if #results.currencies >= 102 then results.catalogMore = true; break end
-                    table_insert(results.currencies, {
-                        name = (loc.name or L["CURRENCY_VENDOR_KNOWN"]) .. " (" .. zoneName .. ")",
-                        mapID = loc.mapID, x = loc.x, y = loc.y, source = loc.source,
-                        reference = loc.reference, tag = loc.source == "merchant" and L["CURRENCY_VENDOR_OBSERVED_SHORT"] or L["CURRENCY_VENDOR_KNOWN"],
-                        vendorCurrencyID = currencyID, vendorLocation = loc,
-                    })
-                end
+            if AppendVendorRows(results.currencies, currencyID, string_lower(query)) then
+                results.catalogMore = true
             end
         end
     end
@@ -1000,6 +1036,23 @@ function DS:RefreshDropdown(query)
         end
     end
 
+    -- Currency vendors come before the catalogue and the ATT search: a query
+    -- that names a currency is answered by its vendors, and below up to 40
+    -- catalogue rows and the ATT results they were out of sight.
+    if #results.currencies > 0 then
+        local title = self._selectedCurrencyID and string_format(L["CURRENCY_VENDOR_SELECT"], QR.ServiceRouter:GetCurrencyName(self._selectedCurrencyID)) or L["DEST_SEARCH_CURRENCIES"]
+        local _, newY = self:CreateSectionHeader("currencies", title, yOffset)
+        yOffset = newY
+        totalRows = totalRows + 1
+        if not self.collapsedSections.currencies then
+            for _, currency in ipairs(results.currencies) do
+                local _, newY2 = self:CreateResultRow(currency, yOffset)
+                yOffset = newY2
+                totalRows = totalRows + 1
+            end
+        end
+    end
+
     if #results.catalog > 0 then
         local _, newY = self:CreateSectionHeader("catalog", L["DEST_SEARCH_CATALOG"], yOffset)
         yOffset, totalRows = newY, totalRows + 1
@@ -1038,20 +1091,6 @@ function DS:RefreshDropdown(query)
             end
             local _, rowY = self:CreateResultRow({ name = L["ATT_SEARCH_HINT"], informational = true, multiline = true }, yOffset)
             yOffset, totalRows = rowY, totalRows + 1
-        end
-    end
-
-    if #results.currencies > 0 then
-        local title = self._selectedCurrencyID and string_format(L["CURRENCY_VENDOR_SELECT"], QR.ServiceRouter:GetCurrencyName(self._selectedCurrencyID)) or L["DEST_SEARCH_CURRENCIES"]
-        local _, newY = self:CreateSectionHeader("currencies", title, yOffset)
-        yOffset = newY
-        totalRows = totalRows + 1
-        if not self.collapsedSections.currencies then
-            for _, currency in ipairs(results.currencies) do
-                local _, newY2 = self:CreateResultRow(currency, yOffset)
-                yOffset = newY2
-                totalRows = totalRows + 1
-            end
         end
     end
 
