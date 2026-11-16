@@ -6,16 +6,19 @@
 -- (an observed merchant or the destination catalogue). A currency without one
 -- is filed in the travel observations (DataCollection list missingVendors), so
 -- the gap can be curated later.
+-- When no vendor takes it but this character saw a merchant selling it, the
+-- button reads "QuickRoute to seller" and routes to that merchant instead.
 local ADDON_NAME, QR = ...
 
 local CreateFrame = CreateFrame
-local pcall, type = pcall, type
+local pcall, type, tostring = pcall, type, tostring
 
 QR.CurrencyPopupButton = {
     button = nil,
     initialized = false,
     hooked = false,
     currencyID = nil,
+    kind = nil,       -- nil: a vendor accepts it; "seller": a merchant sells it
 }
 
 local CPB = QR.CurrencyPopupButton
@@ -24,29 +27,39 @@ local CPB = QR.CurrencyPopupButton
 CPB.EXTRA_HEIGHT = 28
 local BUTTON_WIDTH, BUTTON_HEIGHT = 150, 22
 
-local function HasVendor(currencyID)
+local function HasLocations(method, currencyID)
     local SR = QR.ServiceRouter
-    if not (SR and SR.GetCurrencyLocations) then return false end
-    local ok, locations = pcall(SR.GetCurrencyLocations, SR, currencyID)
+    if not (SR and SR[method]) then return false end
+    local ok, locations = pcall(SR[method], SR, currencyID)
     return ok and type(locations) == "table" and #locations > 0
 end
+
+-- Label and tooltip keys per kind: nil (a vendor takes it), "seller" (a
+-- merchant sells it), "abundance" (the active place of abundance takes it).
+local LABELS = {
+    vendor = { "CURRENCY_POPUP_ROUTE", "CURRENCY_POPUP_ROUTE_TT" },
+    seller = { "CURRENCY_POPUP_SELLER", "CURRENCY_POPUP_SELLER_TT" },
+    abundance = { "CURRENCY_POPUP_ABUNDANCE", "CURRENCY_POPUP_ABUNDANCE_TT" },
+}
 
 function CPB:CreateButton(popup)
     if self.button then return self.button end
     local L = QR.L
     local btn = QR.CreateModernButton(popup, BUTTON_WIDTH, BUTTON_HEIGHT)
-    btn:SetText(L["CURRENCY_POPUP_ROUTE"])
     btn:Hide()
     btn:SetScript("OnClick", function()
         local currencyID = CPB.currencyID
-        if currencyID and QR.ServiceRouter then
-            QR.ServiceRouter:RouteToCurrency(currencyID)
+        if CPB.kind == "abundance" and QR.Abundance then
+            QR.Abundance:Route()
+        elseif currencyID and QR.ServiceRouter then
+            QR.ServiceRouter:RouteToCurrency(currencyID, CPB.kind)
         end
     end)
     btn:SetScript("OnEnter", function(self)
+        local keys = LABELS[CPB.kind or "vendor"]
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L["CURRENCY_POPUP_ROUTE"], 1, 1, 1, 1, true)
-        GameTooltip:AddLine(L["CURRENCY_POPUP_ROUTE_TT"], 0.7, 0.7, 0.7, true)
+        GameTooltip:SetText(L[keys[1]], 1, 1, 1, 1, true)
+        GameTooltip:AddLine(L[keys[2]], 0.7, 0.7, 0.7, true)
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
     end)
@@ -70,14 +83,34 @@ function CPB:Update(entry)
         return
     end
     self.currencyID = currencyID
-    if not HasVendor(currencyID) then
-        if self.button then self.button:Hide() end
-        if QR.DataCollection then
-            pcall(QR.DataCollection.RecordMissingVendor, QR.DataCollection, currencyID, "popup")
+    local kind, detail = nil, nil
+    local abundance = QR.Abundance
+    if abundance and currencyID == abundance.SHARD_CURRENCY_ID then
+        -- A Shard of Dundun is spent at the active place of abundance. When
+        -- that is not known for certain, the returned events are filed.
+        local ok, active, returned = pcall(abundance.GetActive, abundance)
+        if ok and active then
+            kind = "abundance"
+        else
+            detail = "abundance:" .. tostring(ok and returned or "error")
         end
-        return
     end
+    if not kind and not HasLocations("GetCurrencyLocations", currencyID) then
+        -- No known place to spend it: filed for curation, and the merchant
+        -- seen selling it, if any, is offered in place of a vendor.
+        if QR.DataCollection then
+            pcall(QR.DataCollection.RecordMissingVendor, QR.DataCollection, currencyID, "popup", detail)
+        end
+        if not HasLocations("GetCurrencySellers", currencyID) then
+            self.kind = nil
+            if self.button then self.button:Hide() end
+            return
+        end
+        kind = "seller"
+    end
+    self.kind = kind
     local btn = self:CreateButton(popup)
+    btn:SetText(QR.L[LABELS[kind or "vendor"][1]])
     btn:ClearAllPoints()
     local transfer = popup.CurrencyTransferToggleButton
     if transfer and transfer:IsShown() then
