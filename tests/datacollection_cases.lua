@@ -1,6 +1,6 @@
 -------------------------------------------------------------------------------
 -- datacollection_cases.lua
--- The travel-observation cases (QR.DataCollection: the opt-in switch, the six
+-- The travel-observation cases (QR.DataCollection: the opt-in switch, the seven
 -- recordings kept in QR.db.observations, /qrdata), shared by
 -- test_datacollection.lua (retail) and test_forever_datacollection.lua
 -- (QR_TEST_FLAVOR=forever). Not named test_*.lua, so the runner does not pick
@@ -213,9 +213,9 @@ T:run(prefix .. "every locale translates the new strings, and says the data stay
         local tooltip = QR.L["SETTINGS_DATA_COLLECTION_TT"]
         t:assertNotNil(tooltip:find("SavedVariables", 1, true),
             locale .. " tooltip names the SavedVariables file: " .. tooltip)
-        local ok, text = pcall(string.format, QR.L["DATA_COLLECTION_COUNTS"], 1, 2, 3, 4, 5, 6)
-        t:assertTrue(ok, locale .. " counts format takes six numbers: " .. tostring(text))
-        t:assertNil(tostring(text):find("%d", 1, true), locale .. " counts format has no seventh number: " .. tostring(text))
+        local ok, text = pcall(string.format, QR.L["DATA_COLLECTION_COUNTS"], 1, 2, 3, 4, 5, 6, 7)
+        t:assertTrue(ok, locale .. " counts format takes seven numbers: " .. tostring(text))
+        t:assertNil(tostring(text):find("%d", 1, true), locale .. " counts format has no eighth number: " .. tostring(text))
         local okNew, line = pcall(string.format, QR.L["SAVE_REMINDER_OBSERVATIONS_NEW"], 7)
         t:assertTrue(okNew and line:find("7", 1, true) ~= nil,
             locale .. " reminder line takes the count: " .. tostring(line))
@@ -1125,8 +1125,9 @@ T:run(prefix .. "/qrdata off stops every recording and leaves the survey alone",
         local from, to = anyEdge()
         PC:ExcludeEdge(from, to, nil)
         PC:IncludeEdge(from, to)
+        DC:RecordMissingVendor(4242, "popup")
         for _, name in ipairs({ "landings", "unknownTeleports", "noRoute", "stepTimes",
-            "rejectedSteps", "calcTimes" }) do
+            "rejectedSteps", "calcTimes", "missingVendors" }) do
             t:assertEqual(0, #list(name), name .. " stays empty after /qrdata off, got " .. #list(name))
         end
         at(F.stormwind, 0.5, 0.5)
@@ -1144,10 +1145,11 @@ T:run(prefix .. "/qrdata on, clear and the status line", function(t)
             t:assertTrue(QR.db.dataCollection, "on switches it on")
             PC:CalculatePath(0, 0.5, 0.5)
             DC:Push("landings", {})
+            DC:RecordMissingVendor(4242, "popup")
             printed = {}
             SlashCmdList["QRDATA"]("")
             t:assertEqual(QR.L["DATA_COLLECTION_ON"], printed[1], "the status names the switch")
-            t:assertEqual(string.format(QR.L["DATA_COLLECTION_COUNTS"], 1, 0, 1, 0, 0, 1),
+            t:assertEqual(string.format(QR.L["DATA_COLLECTION_COUNTS"], 1, 0, 1, 0, 0, 1, 1),
                 printed[2], "and counts each recording, without the survey")
             SlashCmdList["QRDATA"]("clear")
             t:assertEqual(0, #list("landings") + #list("noRoute") + #list("calcTimes"),

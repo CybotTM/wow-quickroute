@@ -254,6 +254,7 @@ function QR:OnPlayerLogin()
             { "QuestTeleportBtns",  function() QR.QuestTeleportButtons:Initialize() end },
             { "POIRouting",         function() QR.POIRouting:Initialize() end },
             { "EJButton",           function() if QR.EncounterJournalButton then QR.EncounterJournalButton:Initialize() end end },
+            { "CurrencyPopupBtn",   function() if QR.CurrencyPopupButton then QR.CurrencyPopupButton:Initialize() end end },
             { "DungeonPicker",      function() QR.DungeonPicker:Initialize() end },
             { "DestinationSearch",  function() QR.DestinationSearch:Initialize() end },
             { "DungeonTravelOffer", function() QR.DungeonTravelOffer:Initialize() end },
