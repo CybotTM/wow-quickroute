@@ -691,13 +691,16 @@ end
 --- A currency with no known vendor that accepts it, one entry per currency.
 -- Repeats only raise the count, so the list names what to curate.
 -- @param source string "popup" (the currency window) or "route" (a route request)
-function DataCollection:RecordMissingVendor(currencyID, source)
+-- @param detail string|nil what was looked up besides vendors, e.g. the
+--   Abundant Harvest events returned for a Shard of Dundun
+function DataCollection:RecordMissingVendor(currencyID, source, detail)
     if not IsID(currencyID) then return nil end
     local entry = {
         currencyID = currencyID,
         source = source,
         faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction() or nil,
     }
+    if type(detail) == "string" then entry.detail = detail:sub(1, 64) end
     local SR = QR.ServiceRouter
     if SR and SR.GetCurrencyName then
         local name = SR:GetCurrencyName(currencyID)

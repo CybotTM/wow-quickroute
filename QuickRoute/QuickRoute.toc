@@ -70,6 +70,7 @@ Modules\ServiceRouter.lua
 Modules\MultiRoute.lua
 Modules\PhasePanel.lua
 Modules\EncounterJournalButton.lua
+Modules\Abundance.lua
 Modules\CurrencyPopupButton.lua
 Modules\SettingsHeader.xml
 Modules\SettingsHeader.lua

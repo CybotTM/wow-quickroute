@@ -78,6 +78,7 @@ QuickRoute/
     DestinationSearch.lua → Destination search dropdown (zones, dungeons, quests)
     ServiceRouter.lua     → Routing to service POIs
     EncounterJournalButton.lua → Teleport button in the Encounter Journal
+    Abundance.lua         → The active place of abundance (Shard of Dundun), from the Abundant Harvest map events
     CurrencyPopupButton.lua → "QuickRoute to vendor" in the currency window's options popup ("to seller" when only a merchant selling it is known)
     SettingsPanel.lua     → Settings UI (native Settings API, vertical layout)
     SettingsHeader.lua    → Section headers for the settings panel

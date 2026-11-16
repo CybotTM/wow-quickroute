@@ -191,3 +191,91 @@ T:run("CurrencyPopupButton: a currency no vendor takes but a merchant sells gets
         t:assertNil(kind, "and routes to an accepting vendor")
     end)
 end)
+
+-------------------------------------------------------------------------------
+-- Abundance: a Shard of Dundun (3376) is spent at the active place of abundance.
+-------------------------------------------------------------------------------
+
+local SHARD = 3376
+
+-- events: uiMapID -> list of areaPoiIDs GetEventsForMap returns.
+local function withAreaPois(events, fn)
+    local saved, savedPOI = _G.C_AreaPoiInfo, QR.POIRouting
+    _G.C_AreaPoiInfo = {
+        GetEventsForMap = function(mapID) return events[mapID] or {} end,
+        GetAreaPOIInfo = function(mapID, poiID)
+            return { name = "Abundance " .. poiID, position = { x = 0.316, y = 0.261 }, mapID = mapID }
+        end,
+    }
+    local routed
+    QR.POIRouting = { RouteToMapPosition = function(_, mapID, x, y) routed = { mapID, x, y } end }
+    local ok, err = pcall(fn, function() return routed end)
+    _G.C_AreaPoiInfo, QR.POIRouting = saved, savedPOI
+    if not ok then error(err, 0) end
+end
+
+T:run("Abundance: exactly one harvest event names the active cave", function(t)
+    withAreaPois({ [2437] = { 1234, 8525 } }, function()
+        local active, returned = QR.Abundance:GetActive()
+        t:assertEqual(8525, active and active.areaPoiID, "the Skinning Den is active")
+        t:assertEqual(2437, active and active.mapID, "on Zul'Aman")
+        t:assertEqual(0.316, active and active.x, "at the position the client reports")
+        t:assertEqual("8525", returned, "only Abundant Harvest events are listed")
+    end)
+end)
+
+T:run("Abundance: no event, several events or an event on the wrong map count as unknown", function(t)
+    withAreaPois({}, function()
+        local active, returned = QR.Abundance:GetActive()
+        t:assertNil(active, "no event: unknown")
+        t:assertEqual("", returned, "and nothing returned")
+    end)
+    withAreaPois({ [2437] = { 8525 }, [2405] = { 8526 }, [2413] = { 8527 }, [2395] = { 8528 } }, function()
+        local active, returned = QR.Abundance:GetActive()
+        t:assertNil(active, "four events at once: the assumption is wrong, nothing is offered")
+        t:assertEqual("8525,8526,8527,8528", returned, "and all four are reported")
+    end)
+    withAreaPois({ [2405] = { 8525 } }, function()
+        t:assertNil(QR.Abundance:GetActive(), "an event returned for another cave's map is ignored")
+    end)
+    local saved = _G.C_AreaPoiInfo
+    _G.C_AreaPoiInfo = nil
+    local active, returned = QR.Abundance:GetActive()
+    _G.C_AreaPoiInfo = saved
+    t:assertNil(active, "a client without the API has no active cave")
+    t:assertEqual("no-api", returned, "and says why")
+end)
+
+T:run("Abundance: the shard's popup offers the active cave", function(t)
+    withPopup({ transfer = true }, function(tokenFrame)
+        withAreaPois({ [2437] = { 8525 } }, function(routed)
+            CPB:Initialize()
+            tokenFrame:UpdatePopup(entry(SHARD))
+            t:assertTrue(CPB.button and CPB.button:IsShown(), "the button is shown")
+            t:assertEqual(QR.L["CURRENCY_POPUP_ABUNDANCE"], CPB.button:GetText(), "labelled for the place of abundance")
+            t:assertEqual(0, #missing(), "a known cave is not filed")
+            CPB.button:GetScript("OnClick")(CPB.button)
+            t:assertEqual(2437, routed() and routed()[1], "a click routes to the cave's map")
+        end)
+    end)
+end)
+
+T:run("Abundance: an unknown cave hides the button and files what the client returned", function(t)
+    withPopup({ transfer = true }, function(tokenFrame)
+        withAreaPois({ [2437] = { 8525 }, [2405] = { 8526 } }, function()
+            CPB:Initialize()
+            tokenFrame:UpdatePopup(entry(SHARD))
+            t:assertFalse(CPB.button ~= nil and CPB.button:IsShown(), "no button")
+            local e = missing()[1] or {}
+            t:assertEqual(SHARD, e.currencyID, "the shard is filed")
+            t:assertEqual("abundance:8525,8526", e.detail, "with the events the client returned")
+            local printed
+            local savedPrint = QR.Print
+            QR.Print = function(_, msg) printed = msg end
+            local ok = QR.Abundance:Route()
+            QR.Print = savedPrint
+            t:assertFalse(ok, "a route request fails")
+            t:assertEqual(QR.L["ABUNDANCE_NONE"], printed, "and says so")
+        end)
+    end)
+end)
