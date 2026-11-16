@@ -165,6 +165,7 @@ end
 
 local MAX_VENDOR_LOCATIONS = 500
 local MAX_VENDOR_CURRENCIES = 32
+local MAX_MERCHANT_ITEMS = 300
 
 local function GetCharacter()
     local guid = _G.UnitGUID and _G.UnitGUID("player")
@@ -229,11 +230,26 @@ function SR:ObserveMerchant()
     end
     if #accepted > 0 and not next(currencies) then return end
     local name = UnitName and UnitName("npc")
+    -- Currencies this merchant sells: an offer whose GetItemInfo carries a
+    -- currencyID gives that currency, so the merchant is where to get more.
+    local sells = {}
+    local itemCount = _G.GetMerchantNumItems and _G.GetMerchantNumItems()
+    if api.GetItemInfo and IsFinite(itemCount) then
+        for index = 1, math_min(itemCount, MAX_MERCHANT_ITEMS) do
+            local okItem, info = pcall(api.GetItemInfo, index)
+            local currencyID = okItem and type(info) == "table" and info.currencyID or nil
+            if issecretvalue and issecretvalue(currencyID) then currencyID = nil end
+            if IsFinite(currencyID) and currencyID > 0 and currencyID == math_floor(currencyID) then
+                sells[currencyID] = true
+            end
+        end
+    end
     if (issecretvalue and issecretvalue(name)) or type(name) ~= "string" then return end
     loc.name = name:sub(1, 128)
     loc.npcID, loc.character = npcID, character
     loc.faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
     loc.currencies = currencies
+    loc.sells = sells
     loc.lastSeen = _G.time and _G.time() or 0
     loc.source = "merchant"
     if type(QR.db.currencyVendors) ~= "table" then QR.db.currencyVendors = {} end
@@ -289,11 +305,39 @@ function SR:GetCurrencyLocations(currencyID)
     return results
 end
 
+--- Merchants this character saw selling the currency (an offer that gives it).
+-- Only observations count: the catalogue records accepted costs, not sales.
+function SR:GetCurrencySellers(currencyID)
+    local results = {}
+    local vendors = QR.db and QR.db.currencyVendors
+    local character = GetCharacter()
+    if type(vendors) ~= "table" or not character or not IsFinite(currencyID) then return results end
+    local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    for _, loc in pairs(vendors) do
+        if IsPosition(loc) and loc.source == "merchant" and loc.character == character
+            and loc.faction == faction and type(loc.name) == "string" and IsFinite(loc.npcID) and loc.npcID > 0
+            and type(loc.sells) == "table" and loc.sells[currencyID] == true then
+            table_insert(results, loc)
+        end
+    end
+    table_sort(results, function(a, b)
+        if a.name ~= b.name then return a.name < b.name end
+        return a.mapID < b.mapID
+    end)
+    return results
+end
+
+--- Accepting vendors by default; kind "seller" asks for the merchants selling it.
+local function LocationsFor(self, currencyID, kind)
+    if kind == "seller" then return self:GetCurrencySellers(currencyID) end
+    return self:GetCurrencyLocations(currencyID)
+end
+
 --- Revalidate a displayed or previously ranked point against current offers.
 -- A new observation can replace its position or remove the accepted currency.
-function SR:IsCurrencyLocationAvailable(currencyID, location)
+function SR:IsCurrencyLocationAvailable(currencyID, location, kind)
     if not IsPosition(location) then return false end
-    for _, current in ipairs(self:GetCurrencyLocations(currencyID)) do
+    for _, current in ipairs(LocationsFor(self, currencyID, kind)) do
         if current.npcID == location.npcID and current.mapID == location.mapID
             and current.x == location.x and current.y == location.y then return true end
     end
@@ -342,10 +386,10 @@ end
 
 --- Yield between candidates so a large personal catalogue cannot freeze a
 -- frame. A newer route selection invalidates callbacks already in flight.
-function SR:FindNearestCurrencyVendorAsync(currencyID, callback)
+function SR:FindNearestCurrencyVendorAsync(currencyID, callback, kind)
     self:CancelCurrencyRouting()
     local generation = self._currencyGeneration
-    local locations = self:GetCurrencyLocations(currencyID)
+    local locations = LocationsFor(self, currencyID, kind)
     local index, bestLoc, bestCost, bestResult = 1
     local function ReadOrigin()
         if not (C_Map and C_Map.GetBestMapForUnit and C_Map.GetPlayerMapPosition) then return nil end
@@ -383,7 +427,7 @@ function SR:FindNearestCurrencyVendorAsync(currencyID, callback)
             origin, index, bestLoc, bestCost, bestResult = current, 1, nil, nil, nil
         end
         if index > #locations then
-            if bestLoc and not SR:IsCurrencyLocationAvailable(currencyID, bestLoc) then
+            if bestLoc and not SR:IsCurrencyLocationAvailable(currencyID, bestLoc, kind) then
                 callback(nil, nil, nil, "vendor_unavailable")
             else
                 callback(bestLoc, bestCost, bestResult)
@@ -401,7 +445,9 @@ function SR:FindNearestCurrencyVendorAsync(currencyID, callback)
 end
 
 --- Route by currency ID or exact localized name; ambiguous partial names fail.
-function SR:RouteToCurrency(query)
+-- kind "seller" routes to the nearest merchant seen selling the currency.
+function SR:RouteToCurrency(query, kind)
+    if kind == "seller" then return self:RouteToCurrencySeller(query) end
     self:CancelCurrencyRouting()
     if QR.MultiRoute and QR.MultiRoute.CancelSelection then QR.MultiRoute:CancelSelection() end
     local currencyID = tonumber(query)
@@ -438,6 +484,34 @@ function SR:RouteToCurrency(query)
             QR:Print(QR.L[loc.source == "merchant" and "CURRENCY_VENDOR_OBSERVED" or "CATALOG_LOCATION"])
         end
     end)
+    return true
+end
+
+--- Route to the nearest merchant this character saw selling the currency.
+function SR:RouteToCurrencySeller(currencyID)
+    self:CancelCurrencyRouting()
+    if QR.MultiRoute and QR.MultiRoute.CancelSelection then QR.MultiRoute:CancelSelection() end
+    if not IsFinite(currencyID) or #self:GetCurrencySellers(currencyID) == 0 then
+        QR:Print(QR.L["CURRENCY_SELLER_NONE"])
+        return false
+    end
+    QR:Print(QR.L["CALCULATING"])
+    local closes = QR.MainFrame and QR.MainFrame.closeCount
+    self:FindNearestCurrencyVendorAsync(currencyID, function(loc, _, _, reason)
+        if not loc then
+            QR:Print(QR.L[reason == "position_changed" and "CURRENCY_VENDOR_MOVED"
+                or reason == "vendor_unavailable" and "CURRENCY_SELLER_NONE"
+                or reason == "position_unavailable" and "DESTINATION_UNAVAILABLE" or "NO_PATH_FOUND"])
+            return
+        end
+        if QR.POIRouting then
+            QR.POIRouting:RouteToMapPosition(loc.mapID, loc.x, loc.y, closes)
+            if QR.DestinationSearch then
+                QR.DestinationSearch:SetSearchText(loc.name .. " — " .. GetCurrencyName(currencyID))
+            end
+            QR:Print(QR.L["CURRENCY_VENDOR_OBSERVED"])
+        end
+    end, "seller")
     return true
 end
 

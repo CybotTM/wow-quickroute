@@ -78,7 +78,7 @@ QuickRoute/
     DestinationSearch.lua → Destination search dropdown (zones, dungeons, quests)
     ServiceRouter.lua     → Routing to service POIs
     EncounterJournalButton.lua → Teleport button in the Encounter Journal
-    CurrencyPopupButton.lua → "QuickRoute to vendor" in the currency window's options popup
+    CurrencyPopupButton.lua → "QuickRoute to vendor" in the currency window's options popup ("to seller" when only a merchant selling it is known)
     SettingsPanel.lua     → Settings UI (native Settings API, vertical layout)
     SettingsHeader.lua    → Section headers for the settings panel
     RoutingAPI.lua        → QuickRouteAPI, the versioned contract other

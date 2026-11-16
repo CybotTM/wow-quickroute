@@ -11,7 +11,7 @@ local CPB = QR.CurrencyPopupButton
 local SR = QR.ServiceRouter
 local DC = QR.DataCollection
 
-local KNOWN, UNKNOWN = 3316, 4242
+local KNOWN, UNKNOWN, SOLD = 3316, 4242, 3418
 
 -- A stand-in for Blizzard_TokenUI: TokenFrame:UpdatePopup(entry) sizes the
 -- popup afresh on every call, as the real one does (CalculateBestHeight).
@@ -36,6 +36,7 @@ local function withPopup(opts, fn)
     local saved = {
         tokenFrame = _G.TokenFrame, popup = _G.TokenFramePopup,
         db = QR.db, getLocations = SR.GetCurrencyLocations, route = SR.RouteToCurrency,
+        getSellers = SR.GetCurrencySellers, kind = CPB.kind,
         currency = _G.C_CurrencyInfo, print = QR.Print,
         button = CPB.button, initialized = CPB.initialized, hooked = CPB.hooked, currencyID = CPB.currencyID,
         unsaved = DC.unsavedCount,
@@ -45,6 +46,12 @@ local function withPopup(opts, fn)
     SR.GetCurrencyLocations = function(_, currencyID)
         if currencyID == KNOWN then
             return { { mapID = 2339, x = 0.5, y = 0.5, npcID = 1, name = "Vendor" } }
+        end
+        return {}
+    end
+    SR.GetCurrencySellers = function(_, currencyID)
+        if currencyID == SOLD then
+            return { { mapID = 2393, x = 0.4, y = 0.6, npcID = 2, name = "Seller", source = "merchant" } }
         end
         return {}
     end
@@ -62,6 +69,7 @@ local function withPopup(opts, fn)
     local ok, err = pcall(fn, tokenFrame, popup)
     _G.TokenFrame, _G.TokenFramePopup = saved.tokenFrame, saved.popup
     QR.db, SR.GetCurrencyLocations, SR.RouteToCurrency = saved.db, saved.getLocations, saved.route
+    SR.GetCurrencySellers, CPB.kind = saved.getSellers, saved.kind
     _G.C_CurrencyInfo, QR.Print = saved.currency, saved.print
     CPB.button, CPB.initialized, CPB.hooked, CPB.currencyID =
         saved.button, saved.initialized, saved.hooked, saved.currencyID
@@ -157,5 +165,29 @@ T:run("ServiceRouter: a route request for a currency without a vendor is filed",
         t:assertEqual("route", e.source, "from the route request")
         SR:RouteToCurrency("no such currency")
         t:assertEqual(1, #missing(), "an unknown name names no currency and files nothing")
+    end)
+end)
+
+-- The owner's case of 2026-11-16: "Nebulöser Leerenkern" has no vendor that
+-- takes it, but a merchant sells it.
+T:run("CurrencyPopupButton: a currency no vendor takes but a merchant sells gets the seller button", function(t)
+    withPopup({ transfer = true }, function(tokenFrame, popup)
+        CPB:Initialize()
+        tokenFrame:UpdatePopup(entry(SOLD))
+        t:assertTrue(CPB.button and CPB.button:IsShown(), "the button is shown")
+        t:assertEqual(QR.L["CURRENCY_POPUP_SELLER"], CPB.button:GetText(), "labelled for the seller")
+        t:assertEqual(135 + CPB.EXTRA_HEIGHT, popup:GetHeight(), "the popup grows by the button's row")
+        t:assertEqual(SOLD, (missing()[1] or {}).currencyID, "still filed: nowhere known to spend it")
+
+        local routed, kind
+        SR.RouteToCurrency = function(_, query, k) routed, kind = query, k end
+        CPB.button:GetScript("OnClick")(CPB.button)
+        t:assertEqual(SOLD, routed, "a click routes for that currency")
+        t:assertEqual("seller", kind, "to a merchant selling it")
+
+        tokenFrame:UpdatePopup(entry(KNOWN))
+        t:assertEqual(QR.L["CURRENCY_POPUP_ROUTE"], CPB.button:GetText(), "a currency with a vendor gets the vendor label back")
+        CPB.button:GetScript("OnClick")(CPB.button)
+        t:assertNil(kind, "and routes to an accepting vendor")
     end)
 end)

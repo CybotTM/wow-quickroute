@@ -6,6 +6,8 @@
 -- (an observed merchant or the destination catalogue). A currency without one
 -- is filed in the travel observations (DataCollection list missingVendors), so
 -- the gap can be curated later.
+-- When no vendor takes it but this character saw a merchant selling it, the
+-- button reads "QuickRoute to seller" and routes to that merchant instead.
 local ADDON_NAME, QR = ...
 
 local CreateFrame = CreateFrame
@@ -16,6 +18,7 @@ QR.CurrencyPopupButton = {
     initialized = false,
     hooked = false,
     currencyID = nil,
+    kind = nil,       -- nil: a vendor accepts it; "seller": a merchant sells it
 }
 
 local CPB = QR.CurrencyPopupButton
@@ -24,10 +27,10 @@ local CPB = QR.CurrencyPopupButton
 CPB.EXTRA_HEIGHT = 28
 local BUTTON_WIDTH, BUTTON_HEIGHT = 150, 22
 
-local function HasVendor(currencyID)
+local function HasLocations(method, currencyID)
     local SR = QR.ServiceRouter
-    if not (SR and SR.GetCurrencyLocations) then return false end
-    local ok, locations = pcall(SR.GetCurrencyLocations, SR, currencyID)
+    if not (SR and SR[method]) then return false end
+    local ok, locations = pcall(SR[method], SR, currencyID)
     return ok and type(locations) == "table" and #locations > 0
 end
 
@@ -35,18 +38,18 @@ function CPB:CreateButton(popup)
     if self.button then return self.button end
     local L = QR.L
     local btn = QR.CreateModernButton(popup, BUTTON_WIDTH, BUTTON_HEIGHT)
-    btn:SetText(L["CURRENCY_POPUP_ROUTE"])
     btn:Hide()
     btn:SetScript("OnClick", function()
         local currencyID = CPB.currencyID
         if currencyID and QR.ServiceRouter then
-            QR.ServiceRouter:RouteToCurrency(currencyID)
+            QR.ServiceRouter:RouteToCurrency(currencyID, CPB.kind)
         end
     end)
     btn:SetScript("OnEnter", function(self)
+        local seller = CPB.kind == "seller"
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L["CURRENCY_POPUP_ROUTE"], 1, 1, 1, 1, true)
-        GameTooltip:AddLine(L["CURRENCY_POPUP_ROUTE_TT"], 0.7, 0.7, 0.7, true)
+        GameTooltip:SetText(L[seller and "CURRENCY_POPUP_SELLER" or "CURRENCY_POPUP_ROUTE"], 1, 1, 1, 1, true)
+        GameTooltip:AddLine(L[seller and "CURRENCY_POPUP_SELLER_TT" or "CURRENCY_POPUP_ROUTE_TT"], 0.7, 0.7, 0.7, true)
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
     end)
@@ -70,14 +73,23 @@ function CPB:Update(entry)
         return
     end
     self.currencyID = currencyID
-    if not HasVendor(currencyID) then
-        if self.button then self.button:Hide() end
+    local kind = nil
+    if not HasLocations("GetCurrencyLocations", currencyID) then
+        -- No known place to spend it: filed for curation, and the merchant
+        -- seen selling it, if any, is offered in place of a vendor.
         if QR.DataCollection then
             pcall(QR.DataCollection.RecordMissingVendor, QR.DataCollection, currencyID, "popup")
         end
-        return
+        if not HasLocations("GetCurrencySellers", currencyID) then
+            self.kind = nil
+            if self.button then self.button:Hide() end
+            return
+        end
+        kind = "seller"
     end
+    self.kind = kind
     local btn = self:CreateButton(popup)
+    btn:SetText(QR.L[kind == "seller" and "CURRENCY_POPUP_SELLER" or "CURRENCY_POPUP_ROUTE"])
     btn:ClearAllPoints()
     local transfer = popup.CurrencyTransferToggleButton
     if transfer and transfer:IsShown() then

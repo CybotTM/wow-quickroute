@@ -429,3 +429,57 @@ T:run("Currency vendors: a cut vendor list keeps its more-matches line", functio
         t:assertTrue(results.catalogMore == true, "and says there are more matches")
     end)
 end)
+
+-- C_MerchantFrame.GetItemInfo(index).currencyID names the currency an offer
+-- gives (Blizzard_APIDocumentationGenerated/MerchantFrameDocumentation.lua).
+T:run("Currency vendors: a merchant offering a currency is recorded as its seller", function(t)
+    withMerchant(function()
+        local count = _G.GetMerchantNumItems
+        _G.GetMerchantNumItems = function() return 3 end
+        _G.C_MerchantFrame.GetItemInfo = function(index)
+            if index == 2 then return { name = "Nebulous Voidcore", currencyID = 3418 } end
+            return { name = "Item " .. index }
+        end
+        local ok, err = pcall(function()
+            QR.ServiceRouter:ObserveMerchant()
+            local sellers = QR.ServiceRouter:GetCurrencySellers(3418)
+            t:assertEqual(1, #sellers, "the merchant sells 3418")
+            t:assertEqual(0.3, sellers[1] and sellers[1].x, "at the observed position")
+            t:assertEqual(0, #QR.ServiceRouter:GetCurrencySellers(2003), "an accepted cost is not a sale")
+            t:assertEqual(0, #QR.ServiceRouter:GetCurrencyLocations(3418), "a sale is not an accepted cost")
+            MockWoW.config.playerFaction = "Horde"
+            QR.PlayerInfo:InvalidateCache()
+            t:assertEqual(0, #QR.ServiceRouter:GetCurrencySellers(3418), "the other faction sees no seller")
+            MockWoW.config.playerFaction = "Alliance"
+            QR.PlayerInfo:InvalidateCache()
+            _G.UnitGUID = function() return "Player-1-B" end
+            t:assertEqual(0, #QR.ServiceRouter:GetCurrencySellers(3418), "another character sees no seller")
+        end)
+        _G.GetMerchantNumItems = count
+        if not ok then error(err, 0) end
+    end)
+end)
+
+T:run("Currency vendors: a seller route goes to the merchant selling the currency", function(t)
+    withMerchant(function()
+        local count, savedAfter, savedPOI, savedPrint = _G.GetMerchantNumItems, C_Timer.After, QR.POIRouting, QR.Print
+        _G.GetMerchantNumItems = function() return 1 end
+        _G.C_MerchantFrame.GetItemInfo = function() return { currencyID = 3418 } end
+        local pending, routed, printed = {}, nil, {}
+        local ok, err = pcall(function()
+            QR.ServiceRouter:ObserveMerchant()
+            C_Timer.After = function(_, fn) pending[#pending + 1] = fn end
+            QR.POIRouting = { RouteToMapPosition = function(_, mapID, x, y) routed = { mapID, x, y } end }
+            QR.PathCalculator = { CalculatePath = function() return { totalTime = 5 } end }
+            QR.Print = function(_, msg) printed[#printed + 1] = msg end
+            t:assertTrue(QR.ServiceRouter:RouteToCurrency(3418, "seller"), "the seller route starts")
+            local i = 1
+            while pending[i] do pending[i](); i = i + 1 end
+            t:assertEqual(84, routed and routed[1], "and routes to the seller's map")
+            t:assertFalse(QR.ServiceRouter:RouteToCurrency(9999, "seller"), "no seller, no route")
+            t:assertEqual(QR.L["CURRENCY_SELLER_NONE"], printed[#printed], "and says so")
+        end)
+        _G.GetMerchantNumItems, C_Timer.After, QR.POIRouting, QR.Print = count, savedAfter, savedPOI, savedPrint
+        if not ok then error(err, 0) end
+    end)
+end)
