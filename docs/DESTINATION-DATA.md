@@ -39,3 +39,13 @@ On the development machine, standalone Lua 5.1 loaded the generated 4.70 MB file
 Fastest currency selection calculates one route per frame. A map change or movement exceeding 0.1% of a map axis discards all prior estimates and restarts from the new origin. At most two restarts are allowed; sustained movement produces an explanatory retry message. Cancellation prevents an earlier comparison from publishing over a newer destination selection.
 
 Explicit currency-vendor selections and the final asynchronous winner recheck current offers before starting a route. A new merchant observation that removes the currency invalidates a displayed choice. Live quest selections resolve their current target again; catalogue references preserve their declared role and recheck character access. A currency with no eligible vendor shows an explanation and back control without offering a fastest route.
+
+## Places that take a currency without being merchants
+
+The Trading Post takes Trader's Tender (currency 2032) but opens its own window, so a merchant visit never records it, and the AllTheThings catalogue names its costs without a position. `QuickRoute/Data/CurrencyPOIs.lua` lists such places from the client's `AreaPOI` table, projected onto a UI map through `UiMapAssignment`. Regenerate it from wago.tools CSV exports of one build (`AreaPOI`, `UiMapAssignment`, `UiMap`) in one directory:
+
+```sh
+python3 scripts/generate_currency_pois.py --build 12.1.5.70783 --dir /path/to/csv
+```
+
+The UI map of each point is named in the script's `SPEC`, because region boxes of neighbouring zones overlap.

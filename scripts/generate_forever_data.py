@@ -1207,6 +1207,11 @@ def generate(args):
     ]), {"TravelTransitions": {"nodes": {}, "edges": []}, "TravelPhaseGroups": {},
          "TravelHolidayIcons": {}})
 
+    write_lua(out("CurrencyPOIs.lua"), header("CurrencyPOIs.lua", [
+        "Empty. The retail places that take a currency without being merchants",
+        "are Trading Posts, which Forever does not have.",
+    ]), {"CurrencyPOIs": []})
+
     print("retail zone -> Forever zone (adjacency):", file=sys.stderr)
     unmapped = sorted(uid for uid, f in zone_map.items() if f is None)
     print(f"  mapped {sum(1 for f in zone_map.values() if f)}, unmapped {len(unmapped)}",
