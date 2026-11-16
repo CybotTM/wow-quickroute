@@ -275,6 +275,13 @@ function SR:GetCurrencyLocations(currencyID)
             if not observed[loc.npcID .. ":" .. loc.mapID] then table_insert(results, loc) end
         end
     end
+    -- Places that take the currency without being merchants (the Trading Post).
+    for _, poi in ipairs(currencyID and QR.CurrencyPOIs or {}) do
+        if poi.currencyID == currencyID and (poi.faction == "both" or poi.faction == faction) then
+            table_insert(results, { name = QR.L[poi.nameKey], mapID = poi.mapID, x = poi.x, y = poi.y,
+                source = "catalogue", areaPoiID = poi.areaPoiID, currencies = { [currencyID] = true } })
+        end
+    end
     table_sort(results, function(a, b)
         if a.name ~= b.name then return a.name < b.name end
         return a.mapID < b.mapID
@@ -303,9 +310,11 @@ function SR:GetKnownCurrencies(includeAll)
             end
         end
     end
-    if QR.Catalog then
+    local listed = QR.Catalog and QR.Catalog:GetCurrencies() or {}
+    for _, poi in ipairs(QR.CurrencyPOIs or {}) do table_insert(listed, poi.currencyID) end
+    if #listed > 0 then
         local api = _G.C_CurrencyInfo
-        for _, currencyID in ipairs(QR.Catalog:GetCurrencies()) do
+        for _, currencyID in ipairs(listed) do
             local ok, info = false, nil
             if api and api.GetCurrencyInfo then ok, info = pcall(api.GetCurrencyInfo, currencyID) end
             local quantity = ok and type(info) == "table" and info.quantity
