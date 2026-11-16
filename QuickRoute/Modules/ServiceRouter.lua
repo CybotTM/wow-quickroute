@@ -403,6 +403,9 @@ function SR:RouteToCurrency(query)
         end
     end
     if not currencyID or #self:GetCurrencyLocations(currencyID) == 0 then
+        if currencyID and QR.DataCollection then
+            pcall(QR.DataCollection.RecordMissingVendor, QR.DataCollection, currencyID, "route")
+        end
         QR:Print(QR.L["CURRENCY_VENDOR_NONE"])
         return false
     end

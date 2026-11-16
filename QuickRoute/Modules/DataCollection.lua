@@ -8,12 +8,12 @@
 -- pcall, so a recording can fail without touching routing.
 --
 -- The switch is its own setting, next to the diagnostic trace and the zone
--- survey, and governs only these six lists: the zone survey has its own
+-- survey, and governs only these seven lists: the zone survey has its own
 -- switch. DataCollection:SetEnabled is the one writer of the setting.
 -- DataCollection.unsavedCount counts the writes since the last reload, for
 -- the save reminder in Diagnostics.lua.
 --
--- Six recordings:
+-- Seven recordings:
 --   landings          where a teleport QuickRoute knows actually put the player
 --   unknownTeleports  a cast QuickRoute does not know, or an NPC's gossip dialog,
 --                     followed by a loading screen; with the cause (`cause`
@@ -25,6 +25,8 @@
 --                     and start-to-arrival for the whole route, against the estimate
 --   rejectedSteps     a step the player refused
 --   calcTimes         how long a route calculation took
+--   missingVendors    a currency the player looked at, or asked a route for,
+--                     with no known vendor that accepts it
 local ADDON_NAME, QR = ...
 
 -- Cache frequently-used globals
@@ -48,8 +50,10 @@ local CAPS = {
     stepTimes = 60,
     rejectedSteps = 30,
     calcTimes = 50,
+    missingVendors = 40,
 }
-local ORDER = { "landings", "unknownTeleports", "noRoute", "stepTimes", "rejectedSteps", "calcTimes" }
+local ORDER = { "landings", "unknownTeleports", "noRoute", "stepTimes", "rejectedSteps", "calcTimes",
+    "missingVendors" }
 DataCollection.CAPS = CAPS
 local MAX_COUNTER = 1000000000
 
@@ -684,6 +688,26 @@ function DataCollection:RecordNoRoute(failure, destMapID, destX, destY, source)
     return self:Push("noRoute", entry, key)
 end
 
+--- A currency with no known vendor that accepts it, one entry per currency.
+-- Repeats only raise the count, so the list names what to curate.
+-- @param source string "popup" (the currency window) or "route" (a route request)
+function DataCollection:RecordMissingVendor(currencyID, source)
+    if not IsID(currencyID) then return nil end
+    local entry = {
+        currencyID = currencyID,
+        source = source,
+        faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction() or nil,
+    }
+    local SR = QR.ServiceRouter
+    if SR and SR.GetCurrencyName then
+        local name = SR:GetCurrencyName(currencyID)
+        if type(name) == "string" and Public(name) and name ~= tostring(currencyID) then
+            entry.name = name:sub(1, 128)
+        end
+    end
+    return self:Push("missingVendors", entry, "currency:" .. currencyID)
+end
+
 function DataCollection:AfterCalculation(PC, started, route, failure, destMapID, destX, destY)
     local running = InAsyncSearch(QR.PathCalculator)
     if running then
@@ -1189,7 +1213,7 @@ function DataCollection:PrintStatus()
     local L = QR.L
     QR:Print(IsOn() and L["DATA_COLLECTION_ON"] or L["DATA_COLLECTION_OFF"])
     local c = self:Counts()
-    QR:Print(string_format(L["DATA_COLLECTION_COUNTS"], c[1], c[2], c[3], c[4], c[5], c[6]))
+    QR:Print(string_format(L["DATA_COLLECTION_COUNTS"], c[1], c[2], c[3], c[4], c[5], c[6], c[7]))
 end
 
 SLASH_QRDATA1 = "/qrdata"
