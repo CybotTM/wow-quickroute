@@ -21,6 +21,8 @@ QR.UI = {
     frame = nil,
     stepLabels = {},
     stepLabelPool = {},  -- Pool of reusable step label frames
+    groupHeaders = {},   -- Continent headers on screen
+    groupHeaderPool = {},
     combatDimmedSteps = {},  -- Step frames dimmed because combat blocks their teleport
     -- Cache tables for localized names (reduces repeated API calls)
     itemInfoCache = {},
@@ -63,8 +65,11 @@ local BUTTON_MIN_WIDTH = 50
 local SEARCH_BOX_WIDTH = 260
 local MENU_INSET = 6
 local TOOLBAR_BOTTOM = -32  -- y of the line under the single toolbar row
+local PANEL_WIDTH = 200     -- the summary column right of the step list
+local RAIL_X = 12           -- x of the timeline rail inside a step row
+local STEP_TEXT_LEFT = 28 + STEP_ICON_SIZE + 6  -- rail, icon, gap
+local GROUP_HEADER_HEIGHT = 24
 local CACHE_MAX_SIZE = 100  -- Max entries in item/spell caches (LRU eviction)
-local ARROW_PREFIX = ">"  -- Prefix for destination line (UTF-8 arrows don't render in WoW fonts)
 
 --- Helper to calculate button width based on text (for localization flexibility)
 -- @param text string The button label text
@@ -540,7 +545,7 @@ function UI:CreateContent(parentFrame)
     -- Create scroll frame for steps (modern thin scrollbar)
     local scrollFrame = CreateFrame("ScrollFrame", "QuickRouteScrollFrame", frame, "UIPanelScrollFrameTemplate")
     scrollFrame:SetPoint("TOPLEFT", timeLabel, "BOTTOMLEFT", -5, -5)
-    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20, PADDING)
+    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -20 - PANEL_WIDTH - PADDING, PADDING)
     frame.scrollFrame = scrollFrame
     QR.SkinScrollBar(scrollFrame)
 
@@ -550,13 +555,229 @@ function UI:CreateContent(parentFrame)
     local window = QR.MainFrame and QR.MainFrame.frame
     local contentWidth = window and window:GetWidth() or 0
     if contentWidth < FRAME_MIN_WIDTH then contentWidth = FRAME_MIN_WIDTH end
-    scrollChild:SetSize(contentWidth - 50, 1)
+    scrollChild:SetSize(contentWidth - 50 - PANEL_WIDTH - PADDING, 1)
     scrollFrame:SetScrollChild(scrollChild)
     frame.scrollChild = scrollChild
 
     self.frame = frame
+    self:CreateSummaryPanel(frame, timeLabel)
 
     return frame
+end
+
+-------------------------------------------------------------------------------
+-- Summary column: travel time and the one action for the current step
+-------------------------------------------------------------------------------
+
+--- A labelled action button for the summary column.
+local function CreatePanelButton(parent, text, height)
+    local button = QR.CreateModernButton(parent, PANEL_WIDTH - 2 * PADDING, height)
+    button:SetText(text)
+    return button
+end
+
+--- Build the column right of the step list (design E of 2026-11-17): the
+-- total travel time, and for the current step its action with labelled
+-- buttons. The row icons stay for the other steps; here the player finds the
+-- one thing to click without hovering for tooltips.
+-- @param frame Frame The route tab content frame
+-- @param timeLabel FontString The status line the column starts below
+function UI:CreateSummaryPanel(frame, timeLabel)
+    local panel = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    panel:SetPoint("TOPRIGHT", timeLabel, "BOTTOMRIGHT", 5, -5)
+    panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PADDING, PADDING)
+    panel:SetWidth(PANEL_WIDTH)
+    panel:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8x8", edgeFile = "Interface\\Buttons\\WHITE8x8", edgeSize = 1 })
+    panel:SetBackdropColor(0.09, 0.09, 0.12, 0.9)
+    panel:SetBackdropBorderColor(0.25, 0.25, 0.3, 0.8)
+    panel:Hide()
+
+    local function Label(font, anchorTo, gap)
+        local fs = panel:CreateFontString(nil, "OVERLAY", font)
+        fs:SetPoint("TOPLEFT", anchorTo or panel, anchorTo and "BOTTOMLEFT" or "TOPLEFT", anchorTo and 0 or PADDING, gap)
+        fs:SetPoint("RIGHT", panel, "RIGHT", -PADDING, 0)
+        fs:SetJustifyH("LEFT")
+        fs:SetWordWrap(true)
+        return fs
+    end
+    panel.timeTitle = Label("GameFontDisableSmall", nil, -PADDING)
+    panel.timeTitle:SetText(L["ROUTE_PANEL_TIME"])
+    panel.timeValue = Label("GameFontNormalHuge", panel.timeTitle, -2)
+    panel.timeDetail = Label("GameFontHighlightSmall", panel.timeValue, -2)
+    panel.nextTitle = Label("GameFontDisableSmall", panel.timeDetail, -14)
+    panel.nextTitle:SetText(L["ROUTE_PANEL_NEXT"])
+    panel.nextText = Label("GameFontHighlight", panel.nextTitle, -4)
+
+    -- Benutzen: a plain button the secure overlay of the current teleport step
+    -- covers; the plain button only draws it, the overlay does the use.
+    panel.useAction = CreatePanelButton(panel, L["ROUTE_PANEL_USE"], 30)
+    panel.navAction = CreatePanelButton(panel, L["ROUTE_PANEL_NAV"], 30)
+    panel.rejectAction = CreatePanelButton(panel, L["ROUTE_PANEL_REJECT"], 24)
+    panel.navAction:SetScript("OnClick", function()
+        local row = UI.currentStepFrame
+        local nav = row and row.navButton
+        if nav and nav:GetScript("OnClick") then nav:GetScript("OnClick")(nav) end
+    end)
+    panel.navAction:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText(L["TOOLTIP_NAV"])
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    panel.navAction:SetScript("OnLeave", GameTooltip_Hide)
+    panel.rejectAction:SetScript("OnClick", function()
+        local row = UI.currentStepFrame
+        local reject = row and row.rejectButton
+        if reject and reject:IsShown() and reject:GetScript("OnClick") then reject:GetScript("OnClick")(reject) end
+    end)
+    panel.rejectAction:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+        GameTooltip:SetText(L["STEP_REJECT"])
+        GameTooltip:AddLine(L["STEP_REJECT_TT"], 1, 1, 1, true)
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    panel.rejectAction:SetScript("OnLeave", GameTooltip_Hide)
+    frame.summaryPanel = panel
+end
+
+--- Lay out the action buttons under the next-action text. Hidden ones take
+-- no room, so the first shown one sits right under the text.
+local function LayoutPanelButtons(panel)
+    local previous = panel.nextText
+    for _, key in ipairs({ "useAction", "navAction", "rejectAction" }) do
+        local button = panel[key]
+        if button:IsShown() then
+            button:ClearAllPoints()
+            button:SetPoint("TOPLEFT", previous, "BOTTOMLEFT", 0, -8)
+            previous = button
+        end
+    end
+end
+
+--- Release the secure overlay the summary column holds, if any.
+function UI:ReleasePanelUseButton()
+    local panel = self.frame and self.frame.summaryPanel
+    if panel and panel.secureUse and QR.SecureButtons then
+        QR.SecureButtons:ReleaseButton(panel.secureUse)
+    end
+    if panel then panel.secureUse = nil end
+end
+
+--- Fill the summary column for the route on screen.
+-- @param result table The route result
+-- @param currentIndex number The index of the current step
+-- @param groups table The continent groups of the route
+function UI:UpdateSummaryPanel(result, currentIndex, groups)
+    local panel = self.frame and self.frame.summaryPanel
+    if not panel then return end
+    self:ReleasePanelUseButton()
+    local steps = result and result.steps
+    if not steps or #steps == 0 then panel:Hide() return end
+    local step = steps[currentIndex] or steps[1]
+
+    panel.timeValue:SetText(result.totalTime and QR.CooldownTracker:FormatTime(result.totalTime) or "--:--")
+    local continents = 0
+    for _, group in ipairs(groups) do if group.name then continents = continents + 1 end end
+    local detail = string_format(L["ROUTE_PANEL_STEPS"], #steps)
+    if continents > 1 then detail = detail .. "  ·  " .. string_format(L["ROUTE_PANEL_CONTINENTS"], continents) end
+    panel.timeDetail:SetText(detail)
+    panel.nextText:SetText((self:BuildStepCardTexts(step)))
+
+    -- Use: only for a teleport step, and only out of combat (the window hides
+    -- in combat anyway; a secure frame cannot be set up under lockdown).
+    panel.useAction:Hide()
+    if step.type == "teleport" and step.teleportID and QR.SecureButtons and not InCombatLockdown() then
+        local secure = QR.SecureButtons:GetButton()
+        if secure and QR.SecureButtons:ConfigureButton(secure, step.teleportID, step.sourceType, step.teleportData) then
+            secure:SetSize(panel.useAction:GetWidth(), panel.useAction:GetHeight())
+            QR.SecureButtons:AttachOverlay(secure, panel.useAction, nil, 0, true)
+            secure:SetAlpha(0)
+            secure:Show()
+            panel.secureUse = secure
+            panel.useAction:Show()
+        elseif secure then
+            QR.SecureButtons:ReleaseButton(secure)
+        end
+    end
+    local row = self.currentStepFrame
+    panel.navAction:SetShown(row and row.navButton and row.navButton:IsShown() or false)
+    panel.rejectAction:SetShown(row and row.rejectButton and row.rejectButton:IsShown() or false)
+    LayoutPanelButtons(panel)
+    panel:Show()
+end
+
+--- The continent a step happens on: where it starts, else where it ends.
+-- @param step table The step
+-- @return string|nil The continent key
+local function StepContinent(step)
+    local key = QR.GetContinentForZone and (QR.GetContinentForZone(step.fromMapID)
+        or QR.GetContinentForZone(step.navMapID) or QR.GetContinentForZone(step.destMapID))
+    return key
+end
+
+--- Split the steps into runs on one continent. A step whose continent is
+-- unknown joins the run before it, so it never opens a group of its own.
+-- @param steps table The route steps
+-- @return table Groups { first, last, key, name, time }
+function UI:BuildContinentGroups(steps)
+    local groups = {}
+    for i, step in ipairs(steps or {}) do
+        local key = StepContinent(step)
+        local current = groups[#groups]
+        if not current or (key and key ~= current.key) then
+            current = { first = i, last = i, key = key, time = 0,
+                name = key and QR.GetLocalizedContinentName and QR.GetLocalizedContinentName(key) or nil }
+            groups[#groups + 1] = current
+        else
+            current.last = i
+            if not current.key and key then
+                current.key = key
+                current.name = QR.GetLocalizedContinentName and QR.GetLocalizedContinentName(key) or nil
+            end
+        end
+        current.time = current.time + (tonumber(step.time) or 0)
+    end
+    return groups
+end
+
+--- A header row naming a continent group, taken from a small pool.
+function UI:CreateGroupHeader(group, yOffset)
+    local header = table.remove(self.groupHeaderPool)
+    if not header then
+        header = CreateFrame("Frame", nil, nil)
+        header.background = header:CreateTexture(nil, "BACKGROUND")
+        header.background:SetAllPoints(header)
+        header.background:SetColorTexture(0.12, 0.12, 0.16, 0.9)
+        header.label = header:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        header.label:SetPoint("LEFT", header, "LEFT", 8, 0)
+        header.label:SetPoint("RIGHT", header, "RIGHT", -8, 0)
+        header.label:SetJustifyH("LEFT")
+    end
+    local scrollChild = self.frame.scrollChild
+    header:SetParent(scrollChild)
+    header:ClearAllPoints()
+    header:SetSize(scrollChild:GetWidth(), GROUP_HEADER_HEIGHT)
+    header:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -yOffset)
+    local count = group.last - group.first + 1
+    local parts = { string_format(L["ROUTE_PANEL_STEPS"], count) }
+    if group.time > 0 then table_insert(parts, QR.CooldownTracker:FormatTime(group.time)) end
+    header.label:SetText(group.name .. C.GRAY .. "  ·  " .. table_concat(parts, "  ·  ") .. C.R)
+    header.group = group
+    header:Show()
+    table_insert(self.groupHeaders, header)
+    return header
+end
+
+--- Return every group header to the pool.
+function UI:ClearGroupHeaders()
+    for _, header in ipairs(self.groupHeaders or {}) do
+        header:Hide()
+        header:SetParent(recycleContainer)
+        header:ClearAllPoints()
+        table_insert(self.groupHeaderPool, header)
+    end
+    wipe(self.groupHeaders)
 end
 
 -------------------------------------------------------------------------------
@@ -914,22 +1135,34 @@ function UI:UpdateRoute(result)
     -- Determine current step for progress highlighting
     local currentStepIndex = self:GetCurrentStepIndex(steps)
 
-    -- Create step labels
+    -- Create step labels, with a header where the route reaches a new
+    -- continent: the player sees at a glance which part happens where.
+    local groups = self:BuildContinentGroups(steps)
+    self.currentStepFrame = nil
     if steps and #steps > 0 then
         local yOffset = 0
+        local groupStarts = {}
+        for _, group in ipairs(groups) do groupStarts[group.first] = group end
 
         for i, step in ipairs(steps) do
+            local group = groupStarts[i]
+            if group and group.name then
+                local header = self:CreateGroupHeader(group, yOffset)
+                yOffset = yOffset + header:GetHeight() + 2
+            end
             local status = (i < currentStepIndex) and "completed"
                 or (i == currentStepIndex) and "current"
                 or "upcoming"
-            local stepFrame = self:CreateStepLabel(i, step, yOffset, status)
+            local stepFrame = self:CreateStepLabel(i, step, yOffset, status, i == 1, i == #steps)
             table_insert(self.stepLabels, stepFrame)
+            if status == "current" then self.currentStepFrame = stepFrame end
             yOffset = yOffset + (stepFrame:GetHeight() or STEP_HEIGHT)
         end
 
         -- Update scroll child height
         self.frame.scrollChild:SetHeight(yOffset + PADDING)
     end
+    self:UpdateSummaryPanel(result, currentStepIndex, groups)
 
     -- Auto-set waypoint for current actionable step (opt-in, deferred to avoid re-entrant RefreshRoute)
     if QR.db and QR.db.autoWaypoint and result.steps and #result.steps > 0 then
@@ -1035,15 +1268,8 @@ function UI:BuildStepCardTexts(step)
     if navMapID and C_Map and C_Map.GetMapInfo then
         local mapInfo = C_Map.GetMapInfo(navMapID)
         if mapInfo and mapInfo.name then
-            local locParts = { mapInfo.name }
-            -- Add continent name from parent map
-            if mapInfo.parentMapID then
-                local parentInfo = C_Map.GetMapInfo(mapInfo.parentMapID)
-                if parentInfo and parentInfo.name then
-                    table_insert(locParts, parentInfo.name)
-                end
-            end
-            table_insert(parts, table_concat(locParts, " / "))
+            -- The continent now heads the group the row sits in.
+            table_insert(parts, mapInfo.name)
         end
     end
     local navX = step.navX or step.destX
@@ -1333,7 +1559,7 @@ end
 -- @param yOffset number The vertical offset
 -- @param status string "completed", "current", or "upcoming"
 -- @return Frame The created step frame
-function UI:CreateStepLabel(index, step, yOffset, status)
+function UI:CreateStepLabel(index, step, yOffset, status, isFirst, isLast)
     local scrollChild = self.frame.scrollChild
 
     -- Get container frame for the step from pool (or create new)
@@ -1347,24 +1573,55 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     stepFrame.teleportID = step.teleportID
     stepFrame.sourceType = step.sourceType
 
-    -- Current-step highlight: gold left border
+    -- Current step: a warm tint over the whole row
     local highlight = stepFrame.highlight
     if not highlight then
         highlight = stepFrame:CreateTexture(nil, "BACKGROUND")
-        highlight:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", 0, 0)
-        highlight:SetPoint("BOTTOMLEFT", stepFrame, "BOTTOMLEFT", 0, 0)
-        highlight:SetWidth(3)
-        highlight:SetColorTexture(1, 0.82, 0, 1)
+        highlight:SetAllPoints(stepFrame)
+        highlight:SetColorTexture(0.25, 0.2, 0.05, 0.55)
         stepFrame.highlight = highlight
     end
     highlight:SetShown(status == "current")
+
+    -- Timeline: a rail through all rows and a node per step. Done steps are
+    -- green, the current one gold, the ones ahead grey.
+    local rail = stepFrame.rail
+    if not rail then
+        rail = stepFrame:CreateTexture(nil, "BORDER")
+        rail:SetWidth(2)
+        stepFrame.rail = rail
+        stepFrame.node = stepFrame:CreateTexture(nil, "ARTWORK")
+        stepFrame.node:SetSize(10, 10)
+    end
+    rail:ClearAllPoints()
+    rail:SetPoint("TOP", stepFrame, "TOPLEFT", RAIL_X, isFirst and -24 or 0)
+    rail:SetPoint("BOTTOM", stepFrame, "BOTTOMLEFT", RAIL_X, 0)
+    rail:SetShown(not (isFirst and isLast))
+    if isLast and not isFirst then
+        rail:ClearAllPoints()
+        rail:SetPoint("TOP", stepFrame, "TOPLEFT", RAIL_X, 0)
+        rail:SetPoint("BOTTOM", stepFrame, "TOPLEFT", RAIL_X, -24)
+    end
+    if status == "completed" then
+        rail:SetColorTexture(0.25, 0.68, 0.29, 0.9)
+        stepFrame.node:SetColorTexture(0.25, 0.68, 0.29, 1)
+    elseif status == "current" then
+        rail:SetColorTexture(1, 0.82, 0, 0.9)
+        stepFrame.node:SetColorTexture(1, 0.82, 0, 1)
+    else
+        rail:SetColorTexture(0.35, 0.35, 0.4, 0.9)
+        stepFrame.node:SetColorTexture(0.55, 0.55, 0.6, 1)
+    end
+    stepFrame.node:ClearAllPoints()
+    stepFrame.node:SetPoint("CENTER", stepFrame, "TOPLEFT", RAIL_X + 1, -24)
+    stepFrame.node:Show()
 
     -- Step icon (28×28 Texture frame)
     local iconTexture = stepFrame.iconTexture
     if not iconTexture then
         iconTexture = stepFrame:CreateTexture(nil, "ARTWORK")
         iconTexture:SetSize(STEP_ICON_SIZE, STEP_ICON_SIZE)
-        iconTexture:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", 8, -10)
+        iconTexture:SetPoint("TOPLEFT", stepFrame, "TOPLEFT", 28, -10)
         stepFrame.iconTexture = iconTexture
     end
     local iconPath = STEP_ICON_PATHS[step.type] or STEP_ICON_PATHS.walk
@@ -1398,7 +1655,7 @@ function UI:CreateStepLabel(index, step, yOffset, status)
         stepFrame.label = label1
     end
     label1:ClearAllPoints()
-    local textLeft = 8 + STEP_ICON_SIZE + 6  -- icon offset + icon size + gap
+    local textLeft = STEP_TEXT_LEFT
     -- When useButton is present, leave room for both buttons (use + nav)
     -- The label's right edge is anchored to navButton's LEFT, so the offset is
     -- the distance from there to the leftmost control the row shows. The reject
@@ -1421,7 +1678,7 @@ function UI:CreateStepLabel(index, step, yOffset, status)
         label1:SetText(C.GRAY .. stepPrefix .. actionLine .. C.R)
         stepFrame:SetAlpha(0.6)
     elseif status == "current" then
-        label1:SetText(C.LIGHT_BLUE .. stepPrefix .. C.R .. actionLine)
+        label1:SetText(C.YELLOW .. L["ROUTE_NOW"] .. ":" .. C.R .. " " .. actionLine)
         stepFrame:SetAlpha(1.0)
     else
         label1:SetText(stepPrefix .. actionLine)
@@ -1441,12 +1698,8 @@ function UI:CreateStepLabel(index, step, yOffset, status)
     label2:SetPoint("RIGHT", navButton, "LEFT", textRightOffset, 0)
     label2:SetWordWrap(true)
 
-    -- Destination line styling
-    if status == "completed" then
-        label2:SetText(C.GRAY .. ARROW_PREFIX .. " " .. destLine .. C.R)
-    else
-        label2:SetText(C.GRAY .. ARROW_PREFIX .. " " .. C.R .. destLine)
-    end
+    -- Destination line: muted, without the old ">" marker
+    label2:SetText(C.GRAY .. destLine .. C.R)
     label2:Show()
 
     -- Dynamic height: grow the step frame if text wraps
@@ -1486,6 +1739,8 @@ function UI:ReleaseStepLabelFrame(stepFrame)
     if stepFrame.label2 then stepFrame.label2:Hide() end
     if stepFrame.iconTexture then stepFrame.iconTexture:Hide() end
     if stepFrame.highlight then stepFrame.highlight:Hide() end
+    if stepFrame.rail then stepFrame.rail:Hide() end
+    if stepFrame.node then stepFrame.node:Hide() end
     if stepFrame.navButton then
         stepFrame.navButton:Hide()
         stepFrame.navButton:SetScript("OnClick", nil)
@@ -1533,6 +1788,10 @@ function UI:ClearStepLabels()
     end
     wipe(self.stepLabels)
     wipe(self.combatDimmedSteps)
+    self:ClearGroupHeaders()
+    self.currentStepFrame = nil
+    self:ReleasePanelUseButton()
+    if self.frame and self.frame.summaryPanel then self.frame.summaryPanel:Hide() end
 end
 
 --- Invalidate both the actionable route and navigation owned by QuickRoute.

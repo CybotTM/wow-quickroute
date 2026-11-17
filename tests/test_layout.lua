@@ -174,8 +174,9 @@ T:run("Layout: scrollChild width matches content area width minus margins", func
     -- Content frame gets width from anchors (MainFrame width), so use MainFrame width
     local mainFrameWidth = QR.MainFrame.frame:GetWidth()
     local scrollChildWidth = scrollChild:GetWidth()
-    t:assertEqual(mainFrameWidth - 50, scrollChildWidth,
-        "scrollChild width = MainFrame width - 50 (scroll bar margin)")
+    -- 50 for the scroll bar margin, 210 for the summary column and its gap
+    t:assertEqual(mainFrameWidth - 50 - 210, scrollChildWidth,
+        "scrollChild width = MainFrame width - scroll bar margin - summary column")
 end)
 
 -------------------------------------------------------------------------------
