@@ -278,10 +278,32 @@ function MainFrame:Show(tabName, reason)
 
     local tab = tabName or self.activeTab or "route"
 
+    -- In compact mode a route request opens the tracker, not the window. The
+    -- route is still calculated: the hidden window's route tab does it and
+    -- hands the result to the tracker. The Teleports tab, the tracker's own
+    -- "Window" button and screenshots still open the window.
+    if tab == "route" and self:RoutesGoToTracker(reason) then
+        self:SetActiveTab("route")
+        QR.RouteTracker:Show()
+        if QR.UI and QR.UI.displayedResult and not (QR.UI.isCalculating) then
+            QR.RouteTracker:Update(QR.UI.displayedResult)
+        end
+        return
+    end
+
     QR.FitWindowScale(self.frame, QR.db and QR.db.windowScale or 1)
     self.frame:Show()
     self.isShowing = true
     self:SetActiveTab(tab)  -- SetActiveTab handles content refresh + subtitle
+end
+
+--- Whether a request for the route tab goes to the compact tracker.
+-- @param reason string|nil Who asked; the tracker's "Window" button and
+--   screenshots always get the window
+-- @return boolean
+function MainFrame:RoutesGoToTracker(reason)
+    return QR.RouteTracker ~= nil and QR.RouteTracker:GetMode() == QR.RouteTracker.MODE_COMPACT
+        and reason ~= "switch-window" and reason ~= "screenshot"
 end
 
 --- Release the secure buttons held by whichever tab is showing.
@@ -333,6 +355,11 @@ end
 -- @param tabName string|nil "route" or "teleports"
 -- @param reason string|nil Who asked, for the diagnostic trace
 function MainFrame:Toggle(tabName, reason)
+    if (tabName or self.activeTab or "route") == "route" and not self.isShowing
+        and self:RoutesGoToTracker(reason) then
+        if QR.RouteTracker.isShowing then QR.RouteTracker:Hide() else self:Show("route", reason) end
+        return
+    end
     if self.isShowing then
         -- If showing the same tab, hide; if different tab, switch
         if tabName and tabName ~= self.activeTab then

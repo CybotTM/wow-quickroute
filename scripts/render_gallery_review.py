@@ -58,6 +58,19 @@ ROUTE = SETUP + r'''
         assert(QR.UI.frame.timeLabel:GetText():find("%d"), "The route must have a computed estimate")
 '''
 
+TRACKER = ROUTE + r'''
+        -- The compact view of the same route, switched to from the window.
+        QR.RouteTracker:SwitchToCompact()
+        assert(QR.RouteTracker.isShowing and not QR.MainFrame.isShowing,
+            "Compact must close the window and open the tracker")
+        assert(#QR.RouteTracker.lines > 2, "The tracker must list the computed route")
+        local tracker = QR.RouteTracker.frame
+        tracker:SetScale(1.4)
+        tracker:ClearAllPoints()
+        tracker:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -40, -190)
+        QR_DOC.Reposition()
+'''
+
 TELEPORTS = SETUP + r'''
         QR_DOC.HideOverlapping({"ObjectiveTrackerFrame"})
         QR.db.availabilityFilter = "usable"
@@ -116,6 +129,7 @@ def main():
     renderer.__doc__ = __doc__
     renderer.VIEWS = {
         "gallery-route": ("", ROUTE, 1600, 1000),
+        "gallery-tracker": ("", TRACKER, 1600, 1000),
         "gallery-teleports": ("", TELEPORTS, 1600, 1000),
         "gallery-quick": ("", QUICK, 1366, 768),
         "gallery-quest": ("", QUEST, 1600, 1000),

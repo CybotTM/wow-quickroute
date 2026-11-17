@@ -246,6 +246,7 @@ function QR:OnPlayerLogin()
             { "WaypointIntegration",function() QR.WaypointIntegration:Initialize() end },
             { "MainFrame",          function() QR.MainFrame:Initialize() end },
             { "UI",                 function() QR.UI:Initialize() end },
+            { "RouteTracker",       function() QR.RouteTracker:Initialize() end },
             { "TeleportPanel",      function() QR.TeleportPanel:Initialize() end },
             { "MinimapButton",      function() QR.MinimapButton:Initialize() end },
             { "MiniTeleportPanel",  function() QR.MiniTeleportPanel:Initialize() end },

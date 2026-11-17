@@ -408,6 +408,23 @@ function UI:CreateContent(parentFrame)
     moreButton:SetText(L["MORE_MENU"])
     frame.moreButton = moreButton
 
+    -- "Compact" switches to the small tracker; the tracker's "Window" comes back.
+    local compactButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["COMPACT_MODE"]), BUTTON_HEIGHT)
+    compactButton:SetPoint("RIGHT", moreButton, "LEFT", -BUTTON_PADDING, 0)
+    compactButton:SetText(L["COMPACT_MODE"])
+    compactButton:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.RouteTracker then QR.RouteTracker:SwitchToCompact() end
+    end)
+    compactButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["TOOLTIP_COMPACT_MODE"])
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    compactButton:SetScript("OnLeave", GameTooltip_Hide)
+    frame.compactButton = compactButton
+
     local moreMenu = CreateFrame("Frame", nil, frame, "BackdropTemplate")
     moreMenu:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
@@ -521,7 +538,8 @@ function UI:CreateContent(parentFrame)
         -- Never past More: on a narrow window a long instance name is cut and
         -- the tooltip still names it in full.
         local room = frame:GetWidth() - (PADDING + 5) - SEARCH_BOX_WIDTH - (BUTTON_PADDING + 4)
-            - refreshButton:GetWidth() - 2 * BUTTON_PADDING - moreButton:GetWidth() - PADDING
+            - refreshButton:GetWidth() - 3 * BUTTON_PADDING - moreButton:GetWidth() - PADDING
+            - (frame.compactButton and frame.compactButton:GetWidth() or 0)
         if room > 0 and dungeonOfferButton:GetWidth() > room then
             dungeonOfferButton:SetWidth(room)
         end
@@ -1045,6 +1063,7 @@ function UI:PublishRefreshedRoute(generation, waypoint, result, failure)
         local hint = (failure and failure.retryable) and L["ROUTE_FAIL_RETRY_HINT"] or L["NO_ROUTE_HINT"]
         self.frame.timeLabel:SetText(C.WARN_ORANGE .. explanation .. "\n" .. C.GRAY .. hint .. C.R)
         self:ClearRouteGuidance()
+        if QR.RouteTracker and QR.RouteTracker.isShowing then QR.RouteTracker:ShowMessage(explanation) end
         QR:Log("WARN", string_format("No route found to map %d: %s", waypoint.mapID or 0,
             failure and failure.reason or "unknown"))
     end
@@ -1163,6 +1182,9 @@ function UI:UpdateRoute(result)
         self.frame.scrollChild:SetHeight(yOffset + PADDING)
     end
     self:UpdateSummaryPanel(result, currentStepIndex, groups)
+    if QR.RouteTracker and QR.RouteTracker.isShowing then
+        QR.RouteTracker:Update(result, currentStepIndex, groups)
+    end
 
     -- Auto-set waypoint for current actionable step (opt-in, deferred to avoid re-entrant RefreshRoute)
     if QR.db and QR.db.autoWaypoint and result.steps and #result.steps > 0 then
@@ -1822,6 +1844,7 @@ function UI:ClearRoute()
     end
 
     self:ClearRouteGuidance()
+    if QR.RouteTracker and QR.RouteTracker.isShowing then QR.RouteTracker:ShowMessage(L["SET_WAYPOINT_HINT"]) end
 end
 
 -------------------------------------------------------------------------------
