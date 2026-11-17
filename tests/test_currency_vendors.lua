@@ -3,9 +3,11 @@ local T, QR, MockWoW = ...
 local function withMerchant(fn)
     local saved = { db = QR.db, UnitGUID = _G.UnitGUID, UnitName = _G.UnitName,
         merchant = _G.C_MerchantFrame, currency = _G.C_CurrencyInfo, time = _G.time,
-        map = C_Map, pc = QR.PathCalculator, catalog = QR.Catalog, faction = MockWoW.config.playerFaction }
+        map = C_Map, pc = QR.PathCalculator, catalog = QR.Catalog, faction = MockWoW.config.playerFaction,
+        sources = QR.CurrencySources }
     QR.db = { currencyVendors = {} }
     QR.Catalog = nil
+    QR.CurrencySources = {}
     _G.UnitGUID = function(unit)
         return unit == "player" and "Player-1-A" or "Creature-0-1-2-3-12345-0001"
     end
@@ -23,7 +25,7 @@ local function withMerchant(fn)
     QR.db, _G.UnitGUID, _G.UnitName = saved.db, saved.UnitGUID, saved.UnitName
     _G.C_MerchantFrame, _G.C_CurrencyInfo, _G.time = saved.merchant, saved.currency, saved.time
     C_Map, QR.PathCalculator = saved.map, saved.pc
-    QR.Catalog = saved.catalog
+    QR.Catalog, QR.CurrencySources = saved.catalog, saved.sources
     MockWoW.config.playerFaction = saved.faction
     QR.PlayerInfo:InvalidateCache()
     if not ok then error(err) end
@@ -480,6 +482,85 @@ T:run("Currency vendors: a seller route goes to the merchant selling the currenc
             t:assertEqual(QR.L["CURRENCY_SELLER_NONE"], printed[#printed], "and says so")
         end)
         _G.GetMerchantNumItems, C_Timer.After, QR.POIRouting, QR.Print = count, savedAfter, savedPOI, savedPrint
+        if not ok then error(err, 0) end
+    end)
+end)
+
+-- The owner's case of 2026-11-16: no merchant sells the Nebulous Voidcore;
+-- Orin Straylight hands it out through a weekly quest (Data/CurrencySources.lua).
+T:run("Currency vendors: the shipped list names Orin Straylight for the Nebulous Voidcore", function(t)
+    local found
+    for _, src in ipairs(QR.CurrencySources or {}) do
+        if src.currencyID == 3418 then found = src end
+    end
+    t:assertNotNil(found, "a source row for 3418")
+    t:assertEqual(269987, found and found.npcID, "Orin Straylight")
+    t:assertEqual(2393, found and found.mapID, "in Silvermoon City")
+    t:assertEqual("both", found and found.faction, "for both factions")
+    t:assertEqual("Orin Straylight", QR.L[found and found.nameKey], "with a name")
+end)
+
+T:run("Currency vendors: a listed source is a seller without a merchant visit", function(t)
+    withMerchant(function()
+        QR.CurrencySources = { { currencyID = 3418, npcID = 269987, nameKey = "ORIN_STRAYLIGHT",
+            mapID = 2393, x = 0.4006, y = 0.6471, faction = "both" },
+            { currencyID = 3418, npcID = 7, nameKey = "ORIN_STRAYLIGHT", mapID = 85, x = 0.5, y = 0.5, faction = "Horde" } }
+        local sellers = QR.ServiceRouter:GetCurrencySellers(3418)
+        t:assertEqual(1, #sellers, "the Alliance character gets the shared source only")
+        local s = sellers[1] or {}
+        t:assertEqual(2393, s.mapID, "on its map")
+        t:assertEqual(0.4006, s.x, "at its position")
+        t:assertEqual("catalogue", s.source, "marked as listed")
+        t:assertEqual(269987, s.npcID, "with its npcID")
+        t:assertEqual("Orin Straylight", s.name, "and its name")
+        t:assertEqual(0, #QR.ServiceRouter:GetCurrencySellers(2003), "another currency gets none")
+        t:assertEqual(0, #QR.ServiceRouter:GetCurrencyLocations(3418), "a source is not an accepting vendor")
+        MockWoW.config.playerFaction = "Horde"
+        QR.PlayerInfo:InvalidateCache()
+        t:assertEqual(2, #QR.ServiceRouter:GetCurrencySellers(3418), "the Horde character gets both")
+        _G.UnitGUID = function() return nil end
+        t:assertEqual(2, #QR.ServiceRouter:GetCurrencySellers(3418), "the list needs no known character")
+    end)
+end)
+
+T:run("Currency vendors: a visit to a listed NPC replaces its listed position", function(t)
+    withMerchant(function()
+        QR.CurrencySources = { { currencyID = 3418, npcID = 12345, nameKey = "ORIN_STRAYLIGHT",
+            mapID = 84, x = 0.9, y = 0.9, faction = "both" } }
+        local count = _G.GetMerchantNumItems
+        _G.GetMerchantNumItems = function() return 1 end
+        _G.C_MerchantFrame.GetItemInfo = function() return { currencyID = 3418 } end
+        local ok, err = pcall(function()
+            QR.ServiceRouter:ObserveMerchant()
+            local sellers = QR.ServiceRouter:GetCurrencySellers(3418)
+            t:assertEqual(1, #sellers, "one row for the NPC")
+            t:assertEqual(0.3, sellers[1] and sellers[1].x, "at the observed position")
+            t:assertEqual("merchant", sellers[1] and sellers[1].source, "from the visit")
+        end)
+        _G.GetMerchantNumItems = count
+        if not ok then error(err, 0) end
+    end)
+end)
+
+T:run("Currency vendors: a seller route to a listed source says where the position comes from", function(t)
+    withMerchant(function()
+        local savedAfter, savedPOI, savedPrint = C_Timer.After, QR.POIRouting, QR.Print
+        QR.CurrencySources = { { currencyID = 3418, npcID = 269987, nameKey = "ORIN_STRAYLIGHT",
+            mapID = 2393, x = 0.4006, y = 0.6471, faction = "both" } }
+        local pending, routed, printed = {}, nil, {}
+        local ok, err = pcall(function()
+            C_Timer.After = function(_, fn) pending[#pending + 1] = fn end
+            QR.POIRouting = { RouteToMapPosition = function(_, mapID, x, y) routed = { mapID, x, y } end }
+            QR.PathCalculator = { CalculatePath = function() return { totalTime = 5 } end }
+            QR.Print = function(_, msg) printed[#printed + 1] = msg end
+            t:assertTrue(QR.ServiceRouter:RouteToCurrency(3418, "seller"), "the seller route starts")
+            local i = 1
+            while pending[i] do pending[i](); i = i + 1 end
+            t:assertEqual(2393, routed and routed[1], "to Orin's map")
+            t:assertEqual(0.6471, routed and routed[3], "at Orin's position")
+            t:assertEqual(QR.L["CURRENCY_SOURCE_LISTED"], printed[#printed], "and names the list as the source")
+        end)
+        C_Timer.After, QR.POIRouting, QR.Print = savedAfter, savedPOI, savedPrint
         if not ok then error(err, 0) end
     end)
 end)

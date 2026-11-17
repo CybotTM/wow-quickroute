@@ -49,3 +49,5 @@ python3 scripts/generate_currency_pois.py --build 12.1.5.70783 --dir /path/to/cs
 ```
 
 The UI map of each point is named in the script's `SPEC`, because region boxes of neighbouring zones overlap.
+
+Some currencies are handed out by an NPC through a quest or a service, not through a merchant offer, so a merchant visit never records that NPC as a seller. The Nebulous Voidcore (currency 3418) is one: no merchant sells it, and Orin Straylight in Silvermoon City gives one a week through a quest. `QuickRoute/Data/CurrencySources.lua` lists such NPCs by hand. Each row carries the NPC ID and a position from a QuickRoute DataCollection trace, and a comment naming that trace. A merchant visit to the same NPC on the same map replaces the listed position.

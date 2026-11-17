@@ -41,6 +41,7 @@ Data\Forever\DungeonEntrances.lua
 Data\Forever\FlightPoints.lua
 Data\Forever\ServicePOIs.lua
 Data\Forever\CurrencyPOIs.lua
+Data\Forever\CurrencySources.lua
 Data\Provenance.lua
 Data\Forever\HearthstoneLocations.lua
 Data\Forever\DestinationCatalog.lua
