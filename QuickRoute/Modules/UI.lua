@@ -63,6 +63,8 @@ local BUTTON_HEIGHT = 22
 local BUTTON_PADDING = 4
 local BUTTON_MIN_WIDTH = 50
 local SEARCH_BOX_WIDTH = 260
+local OFFER_MIN_WIDTH = 120   -- an offer narrower than this hides the instance name
+local OFFER_SEARCH_MIN = 140  -- the search box shrinks no further for an offer
 local MENU_INSET = 6
 local TOOLBAR_BOTTOM = -32  -- y of the line under the single toolbar row
 local PANEL_WIDTH = 200     -- the summary column right of the step list
@@ -402,9 +404,26 @@ function UI:CreateContent(parentFrame)
     refreshButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.refreshButton = refreshButton
 
-    -- "More" sits at the right end of the row; its menu opens below it.
+    -- "?" closes the row on the right and opens the help overlay.
+    local helpButton = QR.CreateModernButton(frame, BUTTON_HEIGHT + 4, BUTTON_HEIGHT)
+    helpButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PADDING, -4)
+    helpButton:SetText("?")
+    helpButton:SetScript("OnClick", function()
+        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+        if QR.RouteHelp then QR.RouteHelp:Toggle() end
+    end)
+    helpButton:SetScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:SetText(L["TOOLTIP_HELP"])
+        QR.AddTooltipBranding(GameTooltip)
+        GameTooltip:Show()
+    end)
+    helpButton:SetScript("OnLeave", GameTooltip_Hide)
+    frame.helpButton = helpButton
+
+    -- "More" sits left of "?"; its menu opens below it.
     local moreButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["MORE_MENU"]), BUTTON_HEIGHT)
-    moreButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PADDING, -4)
+    moreButton:SetPoint("RIGHT", helpButton, "LEFT", -BUTTON_PADDING, 0)
     moreButton:SetText(L["MORE_MENU"])
     frame.moreButton = moreButton
 
@@ -535,15 +554,28 @@ function UI:CreateContent(parentFrame)
     frame.dungeonOfferAnchor = function()
         dungeonOfferButton:ClearAllPoints()
         dungeonOfferButton:SetPoint("LEFT", refreshButton, "RIGHT", BUTTON_PADDING, 0)
-        -- Never past More: on a narrow window a long instance name is cut and
-        -- the tooltip still names it in full.
-        local room = frame:GetWidth() - (PADDING + 5) - SEARCH_BOX_WIDTH - (BUTTON_PADDING + 4)
-            - refreshButton:GetWidth() - 3 * BUTTON_PADDING - moreButton:GetWidth() - PADDING
-            - (frame.compactButton and frame.compactButton:GetWidth() or 0)
-        if room > 0 and dungeonOfferButton:GetWidth() > room then
-            dungeonOfferButton:SetWidth(room)
+        -- Never past Compact: on a narrow window the search box gives up
+        -- width first (down to OFFER_SEARCH_MIN), then a long instance name is
+        -- cut; the tooltip still names it in full.
+        local function Room(searchWidth)
+            return frame:GetWidth() - (PADDING + 5) - searchWidth - (BUTTON_PADDING + 4)
+                - refreshButton:GetWidth() - 3 * BUTTON_PADDING - moreButton:GetWidth() - PADDING
+                - (frame.compactButton and frame.compactButton:GetWidth() or 0)
+                - helpButton:GetWidth() - BUTTON_PADDING
+        end
+        local wanted = math_min(dungeonOfferButton:GetWidth(), OFFER_MIN_WIDTH)
+        local searchWidth = SEARCH_BOX_WIDTH
+        if Room(searchWidth) < wanted then
+            searchWidth = math_max(OFFER_SEARCH_MIN, searchWidth - (wanted - Room(searchWidth)))
+        end
+        searchBox:SetWidth(searchWidth)
+        local room = Room(searchWidth)
+        if dungeonOfferButton:GetWidth() > room then
+            dungeonOfferButton:SetWidth(math_max(room, 0))
         end
     end
+    -- Without an offer the search box takes its full width again.
+    dungeonOfferButton:HookScript("OnHide", function() searchBox:SetWidth(SEARCH_BOX_WIDTH) end)
 
     -- Separator line below toolbar
     local separator = frame:CreateTexture(nil, "ARTWORK")
