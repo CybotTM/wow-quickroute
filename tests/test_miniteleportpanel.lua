@@ -599,3 +599,79 @@ T:run("MiniTP: an unsized label is left alone", function(t)
 
     t:assertEqual(label:GetText(), "Beginner's Guide to Dimensional Rifting", "No width, no shortening")
 end)
+
+-------------------------------------------------------------------------------
+-- Closing after a use (the owner's request of 2026-11-17)
+-------------------------------------------------------------------------------
+
+local function buttonFor(id)
+    for _, btn in ipairs(QR.MiniTeleportPanel.secureButtons) do
+        if id == "mount" then
+            if btn:GetAttribute("macrotext") == "/run C_MountJournal.SummonByID(0)" then return btn end
+        elseif btn.teleportID == id then
+            return btn
+        end
+    end
+end
+
+local function click(btn, button)
+    local post = btn and btn:GetScript("PostClick")
+    if post then post(btn, button or "LeftButton", false) end
+end
+
+T:run("MiniTP: a left click on a teleport closes the popup", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    setupOwnedToys({ 140192 })
+    QR.MiniTeleportPanel:Show()
+    t:assertTrue(QR.MiniTeleportPanel.isShowing, "the popup is open")
+    local btn = buttonFor(140192)
+    t:assertNotNil(btn, "the Dalaran Hearthstone row has a button")
+    click(btn, "RightButton")
+    t:assertTrue(QR.MiniTeleportPanel.isShowing, "a right click uses nothing and keeps it open")
+    click(btn, "LeftButton")
+    t:assertFalse(QR.MiniTeleportPanel.isShowing, "a left click closes it")
+    t:assertFalse(QR.MiniTeleportPanel.frame:IsShown(), "and hides the frame")
+end)
+
+T:run("MiniTP: summoning a mount closes the popup", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    setupOwnedToys({ 140192 })
+    QR.MiniTeleportPanel:Show()
+    local btn = buttonFor("mount")
+    t:assertNotNil(btn, "the mount row has a button")
+    click(btn, "LeftButton")
+    t:assertFalse(QR.MiniTeleportPanel.isShowing, "the popup is closed")
+end)
+
+T:run("MiniTP: equipping a ring keeps the popup open for the teleport click", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    -- Worn in finger slot 11; the equip-swap button is the same either way.
+    MockWoW.config.equippedItems = { [11] = 40585 }
+    QR.PlayerInventory:ScanAll()
+    QR.MiniTeleportPanel:Show()
+    local btn = buttonFor(40585)
+    t:assertNotNil(btn, "the Signet of the Kirin Tor row has a button")
+    btn:SetAttribute("macrotext", "/equip item:40585")
+    click(btn, "LeftButton")
+    t:assertTrue(QR.MiniTeleportPanel.isShowing, "the equip-only click keeps it open")
+    btn:SetAttribute("macrotext", "/use 11")
+    click(btn, "LeftButton")
+    t:assertFalse(QR.MiniTeleportPanel.isShowing, "the teleport click closes it")
+end)
+
+T:run("MiniTP: a pool button reused elsewhere does not close the popup", function(t)
+    resetState()
+    QR.PlayerInfo:InvalidateCache()
+    setupOwnedToys({ 140192 })
+    QR.MiniTeleportPanel:Show()
+    local btn = buttonFor(140192)
+    t:assertNotNil(btn and btn.qrAfterUse, "the popup's button carries the close callback")
+    QR.SecureButtons:ReleaseButton(btn)
+    t:assertNil(btn.qrAfterUse, "a released button drops it")
+    btn.qrAfterUse = function() end
+    QR.SecureButtons:ConfigureButton(btn, 140192, "toy")
+    t:assertNil(btn.qrAfterUse, "a reconfigured button drops it too")
+end)

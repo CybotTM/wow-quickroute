@@ -450,6 +450,14 @@ end
 --- Get the icon texture for a teleport entry
 -- @param entry table The teleport entry
 -- @return string|number The icon texture path or ID
+--- Close the popup once a row was used. Deferred one frame, so the secure
+-- action of the click has run before the rows release their buttons.
+local function CloseAfterUse()
+    C_Timer.After(0, function()
+        if MiniTeleportPanel.isShowing and not InCombatLockdown() then MiniTeleportPanel:Hide() end
+    end)
+end
+
 local function GetTeleportIcon(entry)
     if entry.isSpell then
         if C_Spell and C_Spell.GetSpellInfo then
@@ -554,6 +562,7 @@ function MiniTeleportPanel:RefreshList()
                     secBtn:SetSize(ROW_WIDTH, ROW_HEIGHT)
                     QR.SecureButtons:AttachOverlay(secBtn, row, self.frame.scrollFrame, 0, true)
                     secBtn:SetAlpha(0)  -- Invisible overlay, row provides visuals
+                    secBtn.qrAfterUse = CloseAfterUse
 
                     -- Tooltip
                     secBtn:SetScript("OnEnter", function(self)
@@ -615,6 +624,9 @@ function MiniTeleportPanel:RefreshList()
         if secBtn then
             secBtn:SetAttribute("type", "macro")
             secBtn:SetAttribute("macrotext", "/run C_MountJournal.SummonByID(0)")
+            secBtn:SetScript("PostClick", function(_, button)
+                if button == "LeftButton" then CloseAfterUse() end
+            end)
             secBtn:SetSize(ROW_WIDTH, ROW_HEIGHT)
             QR.SecureButtons:AttachOverlay(secBtn, mountRow, self.frame.scrollFrame, 0, true)
             secBtn:SetAlpha(0)
