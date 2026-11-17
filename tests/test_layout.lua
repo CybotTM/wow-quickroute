@@ -491,30 +491,70 @@ T:run("Layout: bottom buttons exist and have reasonable sizes", function(t)
     t:assertGreaterThan(frame.zoneDebugButton:GetWidth(), 0, "zone debug button has width")
 end)
 
-T:run("Layout: toolbar buttons are chained left-to-right", function(t)
+T:run("Layout: one toolbar row holds the search, Refresh and More", function(t)
     MockWoW:ClearComputedBounds()
     local frame = setupUI()
 
-    -- Verify anchor chain: refresh -> copyDebug -> zoneDebug (toolbar row at top)
-    local copyAnchors = frame.copyDebugButton._points
-    t:assertGreaterThan(#copyAnchors, 0, "copy debug has anchors")
-    t:assertEqual("LEFT", copyAnchors[1][1], "copy debug anchor is LEFT")
-
-    local zoneAnchors = frame.zoneDebugButton._points
-    t:assertGreaterThan(#zoneAnchors, 0, "zone debug has anchors")
-    t:assertEqual("LEFT", zoneAnchors[1][1], "zone debug anchor is LEFT")
-
-    -- Compute positions and verify order
-    local refreshBounds = MockWoW:ComputeFrameBounds(frame.refreshButton)
-    local copyBounds = MockWoW:ComputeFrameBounds(frame.copyDebugButton)
-    local zoneBounds = MockWoW:ComputeFrameBounds(frame.zoneDebugButton)
-
-    if refreshBounds and copyBounds and zoneBounds then
-        t:assertGreaterThan(copyBounds.left, refreshBounds.left,
-            "copy is to the right of refresh")
-        t:assertGreaterThan(zoneBounds.left, copyBounds.left,
-            "zone is to the right of copy")
+    local search = MockWoW:ComputeFrameBounds(frame.searchBox)
+    local refresh = MockWoW:ComputeFrameBounds(frame.refreshButton)
+    local more = MockWoW:ComputeFrameBounds(frame.moreButton)
+    t:assertNotNil(more, "the More button exists")
+    if search and refresh and more then
+        t:assertGreaterThan(refresh.left, search.right - 1, "Refresh follows the search box")
+        t:assertGreaterThan(more.left, refresh.right, "More sits right of Refresh")
+        t:assertEqual(search.top, more.top, "More is on the search box's row")
     end
+    t:assertEqual(260, frame.searchBox:GetWidth(), "the search box is the widest control")
+end)
+
+T:run("Layout: the More menu holds the tools, stacked, and starts closed", function(t)
+    MockWoW:ClearComputedBounds()
+    local frame = setupUI()
+    local menu = frame.moreMenu
+    t:assertNotNil(menu, "the menu exists")
+    t:assertFalse(menu:IsShown(), "the menu starts closed")
+    local order = { "multiRouteButton", "currencyButton", "phaseButton", "copyDebugButton", "zoneDebugButton" }
+    local previous
+    for _, key in ipairs(order) do
+        local item = frame[key]
+        t:assertNotNil(item, key .. " is in the menu")
+        t:assertEqual(menu, item and item:GetParent(), key .. " belongs to the menu")
+        local bounds = item and MockWoW:ComputeFrameBounds(item)
+        if bounds and previous then
+            t:assertGreaterThan(previous.top, bounds.top, key .. " sits below the entry before it")
+            t:assertEqual(previous.left, bounds.left, key .. " shares the left edge")
+        end
+        previous = bounds
+    end
+    frame.moreButton:GetScript("OnClick")(frame.moreButton)
+    t:assertTrue(menu:IsShown(), "More opens the menu")
+    frame.moreButton:GetScript("OnClick")(frame.moreButton)
+    t:assertFalse(menu:IsShown(), "a second click closes it")
+end)
+
+T:run("Layout: a More entry closes the menu and runs its tool", function(t)
+    MockWoW:ClearComputedBounds()
+    local frame = setupUI()
+    local copied, anchor = 0, nil
+    local savedCopy, savedCurrency = QR.UI.CopyDebugToClipboard, QR.DestinationSearch.ShowCurrencyDropdown
+    QR.UI.CopyDebugToClipboard = function() copied = copied + 1 end
+    QR.DestinationSearch.ShowCurrencyDropdown = function(_, owner) anchor = owner end
+    local ok, err = pcall(function()
+        frame.moreButton:GetScript("OnClick")(frame.moreButton)
+        frame.copyDebugButton:GetScript("OnClick")(frame.copyDebugButton)
+        t:assertEqual(1, copied, "Copy Debug ran")
+        t:assertFalse(frame.moreMenu:IsShown(), "and closed the menu")
+        frame.moreButton:GetScript("OnClick")(frame.moreButton)
+        frame.currencyButton:GetScript("OnClick")(frame.currencyButton)
+        t:assertEqual(frame.moreButton, anchor, "the currency list hangs off More, which stays visible")
+        frame:Show()
+        frame.moreButton:GetScript("OnClick")(frame.moreButton)
+        frame:Hide()
+        frame:Show()
+        t:assertFalse(frame.moreMenu:IsShown(), "a menu left open is closed when the window closes")
+    end)
+    QR.UI.CopyDebugToClipboard, QR.DestinationSearch.ShowCurrencyDropdown = savedCopy, savedCurrency
+    if not ok then error(err, 0) end
 end)
 
 -------------------------------------------------------------------------------

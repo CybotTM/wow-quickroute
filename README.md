@@ -134,7 +134,7 @@ Development commands, not part of the supported surface: `/qrscan`, `/qrgraph`,
 2. Type `/qr` to open the route window
 3. Follow the step-by-step instructions in the route window
 
-The route toolbar opens **Currency vendors**, **Multi-route** and **Zone phases**. Currency results combine the included catalogue with your observed merchants and filter known access requirements. Search accepts NPC/quest names or IDs. Reference quest coordinates are labeled separately from live quest objectives and turn-ins.
+The route toolbar holds the destination search, **Refresh** and **More**; **More** opens **Multi-route**, **Currency vendors**, **Zone phases** and the two debug copies. Currency results combine the included catalogue with your observed merchants and filter known access requirements. Search accepts NPC/quest names or IDs. Reference quest coordinates are labeled separately from live quest objectives and turn-ins.
 
 In the Teleports tab, **left-click a missing item** to open its source details in ALL THE THINGS (ATT). If ATT is unavailable, QuickRoute opens its own help. **Right-click**, or use **How to obtain** in list view, to open QuickRoute's help directly. It combines available requirements with a short ATT source preview, a copyable Wowhead link and a route button for known source positions. Unknown positions remain explicit. Account-wide toy ownership does not make that toy usable by every race, class or profession.
 
