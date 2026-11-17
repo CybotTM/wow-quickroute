@@ -1249,9 +1249,9 @@ T:run("BuildStepCardTexts returns action and destination for teleport", function
     t:assertNotNil(destLine, "dest line not nil")
     -- Action line should contain destination name (via _TO format)
     t:assertTrue(actionLine:find("Sturmwind") ~= nil, "action line contains localized destination")
-    -- Detail line should contain zone name, continent, and coordinates
+    -- Detail line: zone and coordinates; the continent heads the row's group
     t:assertTrue(destLine:find("Stormwind City") ~= nil, "dest line contains zone name")
-    t:assertTrue(destLine:find("Eastern Kingdoms") ~= nil, "dest line contains continent name")
+    t:assertNil(destLine:find("Eastern Kingdoms"), "dest line leaves the continent to the group header")
     t:assertTrue(destLine:find("45.2") ~= nil, "dest line contains X coordinate")
     t:assertTrue(destLine:find("63.1") ~= nil, "dest line contains Y coordinate")
 end)
@@ -1279,9 +1279,9 @@ T:run("BuildStepCardTexts returns action and destination for walk", function(t)
     -- Action should include destination (new _TO format)
     local expected = string.format(QR.L["ACTION_TRAVEL_TO"], "Goldhain")
     t:assertEqual(expected, actionLine, "walk step uses ACTION_TRAVEL_TO with destination")
-    -- Detail line should contain zone, continent, and coordinates
+    -- Detail line: zone and coordinates; the continent heads the row's group
     t:assertTrue(destLine:find("Elwynn Forest") ~= nil, "dest line contains zone name")
-    t:assertTrue(destLine:find("Eastern Kingdoms") ~= nil, "dest line contains continent name")
+    t:assertNil(destLine:find("Eastern Kingdoms"), "dest line leaves the continent to the group header")
     t:assertTrue(destLine:find("42.3") ~= nil, "dest line contains X coordinate")
 end)
 
