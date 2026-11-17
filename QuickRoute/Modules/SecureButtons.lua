@@ -247,6 +247,7 @@ function SecureButtons:ReleaseButton(btn)
     btn.teleportID = nil
     btn.sourceType = nil
     btn.equipSlot = nil
+    btn.qrAfterUse = nil
     -- Reset visual state for icon-as-button reuse
     if btn.iconTexture then
         btn.iconTexture:Hide()
@@ -479,6 +480,7 @@ function SecureButtons:ConfigureButton(btn, id, sourceType, teleportData)
     btn:SetScript("PreClick", nil)
     btn:SetScript("PostClick", nil)
     btn.equipSlot = nil
+    btn.qrAfterUse = nil
     btn:SetAttribute("type", nil)
     btn:SetAttribute("macrotext", nil)
     btn:SetAttribute("spell", nil)
@@ -535,6 +537,14 @@ function SecureButtons:ConfigureButton(btn, id, sourceType, teleportData)
             QR:Debug(string_format("SecureButton clicked: %s id=%s type=%s btn=%s down=%s",
                 tostring(self.sourceType), tostring(self.teleportID),
                 tostring(self:GetAttribute("type")), tostring(button), tostring(down)))
+            -- An owner (the Quick Teleports popup) closes after a use. The
+            -- first click on an unworn equippable only equips it, so the
+            -- owner stays open for the second click that teleports.
+            local macro = self:GetAttribute("macrotext")
+            local equipOnly = self.equipSlot and type(macro) == "string" and macro:find("^/equip") ~= nil
+            if button == "LeftButton" and type(self.qrAfterUse) == "function" and not equipOnly then
+                self.qrAfterUse(self)
+            end
         end)
     end
     return ok
