@@ -1578,7 +1578,7 @@ function UI:CreateStepLabel(index, step, yOffset, status, isFirst, isLast)
     if not highlight then
         highlight = stepFrame:CreateTexture(nil, "BACKGROUND")
         highlight:SetAllPoints(stepFrame)
-        highlight:SetColorTexture(0.25, 0.2, 0.05, 0.55)
+        highlight:SetColorTexture(0.2, 0.16, 0.04, 0.35)
         stepFrame.highlight = highlight
     end
     highlight:SetShown(status == "current")
