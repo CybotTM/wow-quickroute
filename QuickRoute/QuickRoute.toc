@@ -57,6 +57,7 @@ Modules\MainFrame.lua
 Modules\TeleportPanel.lua
 Modules\SecureButtons.lua
 Modules\UI.lua
+Modules\RouteTracker.lua
 Modules\MinimapButton.lua
 Modules\MiniTeleportPanel.lua
 Modules\MapSidebar.lua
