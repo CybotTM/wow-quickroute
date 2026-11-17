@@ -305,19 +305,28 @@ function SR:GetCurrencyLocations(currencyID)
     return results
 end
 
---- Merchants this character saw selling the currency (an offer that gives it).
--- Only observations count: the catalogue records accepted costs, not sales.
+--- Merchants this character saw selling the currency (an offer that gives it),
+-- and the NPCs in QR.CurrencySources that hand it out without a merchant offer.
 function SR:GetCurrencySellers(currencyID)
-    local results = {}
+    local results, observed = {}, {}
+    if not IsFinite(currencyID) then return results end
     local vendors = QR.db and QR.db.currencyVendors
     local character = GetCharacter()
-    if type(vendors) ~= "table" or not character or not IsFinite(currencyID) then return results end
+    if type(vendors) ~= "table" then vendors = {} end
     local faction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
     for _, loc in pairs(vendors) do
-        if IsPosition(loc) and loc.source == "merchant" and loc.character == character
+        if character and IsPosition(loc) and loc.source == "merchant" and loc.character == character
             and loc.faction == faction and type(loc.name) == "string" and IsFinite(loc.npcID) and loc.npcID > 0
             and type(loc.sells) == "table" and loc.sells[currencyID] == true then
+            observed[loc.npcID .. ":" .. loc.mapID] = true
             table_insert(results, loc)
+        end
+    end
+    for _, src in ipairs(QR.CurrencySources or {}) do
+        if src.currencyID == currencyID and (src.faction == "both" or src.faction == faction)
+            and not observed[src.npcID .. ":" .. src.mapID] then
+            table_insert(results, { name = QR.L[src.nameKey], npcID = src.npcID, mapID = src.mapID,
+                x = src.x, y = src.y, source = "catalogue" })
         end
     end
     table_sort(results, function(a, b)
@@ -487,7 +496,8 @@ function SR:RouteToCurrency(query, kind)
     return true
 end
 
---- Route to the nearest merchant this character saw selling the currency.
+--- Route to the nearest seller: a merchant this character saw selling the
+-- currency, or an NPC from QR.CurrencySources.
 function SR:RouteToCurrencySeller(currencyID)
     self:CancelCurrencyRouting()
     if QR.MultiRoute and QR.MultiRoute.CancelSelection then QR.MultiRoute:CancelSelection() end
@@ -509,7 +519,7 @@ function SR:RouteToCurrencySeller(currencyID)
             if QR.DestinationSearch then
                 QR.DestinationSearch:SetSearchText(loc.name .. " — " .. GetCurrencyName(currencyID))
             end
-            QR:Print(QR.L["CURRENCY_VENDOR_OBSERVED"])
+            QR:Print(QR.L[loc.source == "merchant" and "CURRENCY_VENDOR_OBSERVED" or "CURRENCY_SOURCE_LISTED"])
         end
     end, "seller")
     return true

@@ -1212,6 +1212,11 @@ def generate(args):
         "are Trading Posts, which Forever does not have.",
     ]), {"CurrencyPOIs": []})
 
+    write_lua(out("CurrencySources.lua"), header("CurrencySources.lua", [
+        "Empty. The retail currency sources are NPCs of Midnight, which Forever",
+        "does not have.",
+    ]), {"CurrencySources": []})
+
     print("retail zone -> Forever zone (adjacency):", file=sys.stderr)
     unmapped = sorted(uid for uid, f in zone_map.items() if f is None)
     print(f"  mapped {sum(1 for f in zone_map.values() if f)}, unmapped {len(unmapped)}",
