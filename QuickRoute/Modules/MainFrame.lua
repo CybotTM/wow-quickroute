@@ -227,6 +227,9 @@ function MainFrame:SetActiveTab(tabName)
     -- Update tab button styles
     QR.UpdateTabBarState(self.tabs, tabName)
 
+    -- The help explains the route tab; it does not stay over the Teleports tab.
+    if tabName ~= "route" and QR.RouteHelp and QR.RouteHelp.isShowing then QR.RouteHelp:Hide() end
+
     -- Update subtitle and refresh content for the active tab
     if tabName == "teleports" then
         if self.subtitle then
@@ -295,6 +298,7 @@ function MainFrame:Show(tabName, reason)
     self.frame:Show()
     self.isShowing = true
     self:SetActiveTab(tab)  -- SetActiveTab handles content refresh + subtitle
+    if tab == "route" and QR.RouteHelp then QR.RouteHelp:ShowIfNew() end
 end
 
 --- Whether a request for the route tab goes to the compact tracker.

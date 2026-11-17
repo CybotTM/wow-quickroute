@@ -19,6 +19,7 @@ SETUP = r'''
         QR.db.windowScale = 1.3
         QR.db.autoWaypoint = false
         QR.db.useIconButtons = false
+        QR.db.routeHelpSeen = true  -- the help scene opens it on purpose
         local position = {mapID=84,x=.4965,y=.8725}
         C_Map.GetBestMapForUnit = function(unit)
             if unit == "player" then return position.mapID end
@@ -69,6 +70,12 @@ TRACKER = ROUTE + r'''
         tracker:ClearAllPoints()
         tracker:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -40, -190)
         QR_DOC.Reposition()
+'''
+
+HELP = ROUTE + r'''
+        -- The help overlay over the same route, as the "?" button opens it.
+        QR.RouteHelp:Show()
+        assert(QR.RouteHelp.isShowing, "The help overlay must be open")
 '''
 
 TELEPORTS = SETUP + r'''
@@ -130,6 +137,7 @@ def main():
     renderer.VIEWS = {
         "gallery-route": ("", ROUTE, 1600, 1000),
         "gallery-tracker": ("", TRACKER, 1600, 1000),
+        "gallery-help": ("", HELP, 1600, 1000),
         "gallery-teleports": ("", TELEPORTS, 1600, 1000),
         "gallery-quick": ("", QUICK, 1366, 768),
         "gallery-quest": ("", QUEST, 1600, 1000),
