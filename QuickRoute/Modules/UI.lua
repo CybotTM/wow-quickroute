@@ -60,6 +60,9 @@ local PADDING = 10
 local BUTTON_HEIGHT = 22
 local BUTTON_PADDING = 4
 local BUTTON_MIN_WIDTH = 50
+local SEARCH_BOX_WIDTH = 260
+local MENU_INSET = 6
+local TOOLBAR_BOTTOM = -32  -- y of the line under the single toolbar row
 local CACHE_MAX_SIZE = 100  -- Max entries in item/spell caches (LRU eviction)
 local ARROW_PREFIX = ">"  -- Prefix for destination line (UTF-8 arrows don't render in WoW fonts)
 
@@ -341,18 +344,15 @@ function UI:CreateContent(parentFrame)
         QR.DestinationSearch.searchBox = searchBox
     end
 
-    -- Calculate button widths based on localized text
+    -- One toolbar row: the destination, Refresh, a pending dungeon offer, and
+    -- on the right "More", which holds the tools a player needs now and then.
+    -- Seven equal buttons in two rows put debug tools on the same level as the
+    -- destination; the player could not tell what to click first.
+    searchBox:SetWidth(SEARCH_BOX_WIDTH)
+
     local refreshText = L["REFRESH"]
-    local debugText = L["COPY_DEBUG"]
-    local zoneText = L["ZONE_INFO"]
-
-    local refreshWidth = CalculateButtonWidth(refreshText)
-    local debugWidth = CalculateButtonWidth(debugText)
-    local zoneWidth = CalculateButtonWidth(zoneText)
-
-    -- Refresh button (right of dropdown in toolbar)
-    local refreshButton = QR.CreateModernButton(frame, refreshWidth, BUTTON_HEIGHT)
-    refreshButton:SetPoint("LEFT", searchBox, "RIGHT", BUTTON_PADDING, 0)
+    local refreshButton = QR.CreateModernButton(frame, CalculateButtonWidth(refreshText), BUTTON_HEIGHT)
+    refreshButton:SetPoint("LEFT", searchBox, "RIGHT", BUTTON_PADDING + 4, 0)
     ApplyButtonStyle(refreshButton, refreshText, "refresh")
     refreshButton:SetScript("OnClick", function(_, button)
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
@@ -397,64 +397,105 @@ function UI:CreateContent(parentFrame)
     refreshButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.refreshButton = refreshButton
 
-    -- Copy Debug button (right of refresh)
-    local copyDebugButton = QR.CreateModernButton(frame, debugWidth, BUTTON_HEIGHT)
-    copyDebugButton:SetPoint("LEFT", refreshButton, "RIGHT", BUTTON_PADDING, 0)
-    ApplyButtonStyle(copyDebugButton, debugText, "debug")
-    copyDebugButton:SetScript("OnClick", function()
-        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-        UI:CopyDebugToClipboard()
-    end)
-    copyDebugButton:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L["TOOLTIP_DEBUG"])
-        QR.AddTooltipBranding(GameTooltip)
-        GameTooltip:Show()
-    end)
-    copyDebugButton:SetScript("OnLeave", GameTooltip_Hide)
-    frame.copyDebugButton = copyDebugButton
+    -- "More" sits at the right end of the row; its menu opens below it.
+    local moreButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["MORE_MENU"]), BUTTON_HEIGHT)
+    moreButton:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PADDING, -4)
+    moreButton:SetText(L["MORE_MENU"])
+    frame.moreButton = moreButton
 
-    -- Zone Debug button (right of debug)
-    local zoneDebugButton = QR.CreateModernButton(frame, zoneWidth, BUTTON_HEIGHT)
-    zoneDebugButton:SetPoint("LEFT", copyDebugButton, "RIGHT", BUTTON_PADDING, 0)
-    ApplyButtonStyle(zoneDebugButton, zoneText, "zone")
-    zoneDebugButton:SetScript("OnClick", function()
-        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-        UI:CopyZoneDebugToClipboard()
-    end)
-    zoneDebugButton:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L["TOOLTIP_ZONE"])
-        QR.AddTooltipBranding(GameTooltip)
-        GameTooltip:Show()
-    end)
-    zoneDebugButton:SetScript("OnLeave", GameTooltip_Hide)
-    frame.zoneDebugButton = zoneDebugButton
+    local moreMenu = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+    moreMenu:SetBackdrop({
+        bgFile = "Interface\\Buttons\\WHITE8x8",
+        edgeFile = "Interface\\Buttons\\WHITE8x8",
+        edgeSize = 1,
+    })
+    moreMenu:SetBackdropColor(0.08, 0.08, 0.1, 0.97)
+    moreMenu:SetBackdropBorderColor(0.4, 0.4, 0.45, 1)
+    moreMenu:SetFrameStrata("DIALOG")
+    moreMenu:SetPoint("TOPRIGHT", moreButton, "BOTTOMRIGHT", 0, -2)
+    moreMenu:Hide()
+    frame.moreMenu = moreMenu
+    -- A menu left open must not come back the next time the window opens.
+    if frame.HookScript then frame:HookScript("OnHide", function() moreMenu:Hide() end) end
 
-    -- Keep travel tools discoverable even when the destination search is
-    -- empty. A second row also leaves room for longer localized labels.
-    local multiRouteButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["MULTI_ROUTE"]), BUTTON_HEIGHT)
-    multiRouteButton:SetPoint("TOPLEFT", searchBox, "BOTTOMLEFT", 0, -8)
-    multiRouteButton:SetText(L["MULTI_ROUTE"])
-    multiRouteButton:SetScript("OnClick", function()
+    moreButton:SetScript("OnClick", function()
         PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-        if QR.MultiRoute then QR.MultiRoute:Show() end
+        if moreMenu:IsShown() then moreMenu:Hide() else moreMenu:Show() end
     end)
-    multiRouteButton:SetScript("OnEnter", function(self)
+    moreButton:SetScript("OnEnter", function(self)
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L["TOOLTIP_MULTI_ROUTE"])
+        GameTooltip:SetText(L["TOOLTIP_MORE_MENU"])
         QR.AddTooltipBranding(GameTooltip)
         GameTooltip:Show()
     end)
-    multiRouteButton:SetScript("OnLeave", GameTooltip_Hide)
-    frame.multiRouteButton = multiRouteButton
+    moreButton:SetScript("OnLeave", GameTooltip_Hide)
+
+    -- Entries, top to bottom. Each closes the menu before it acts, so a
+    -- window it opens is not covered by the menu.
+    local entries = {
+        { key = "multiRouteButton", label = L["MULTI_ROUTE"], tooltip = L["TOOLTIP_MULTI_ROUTE"], action = function()
+            if QR.MultiRoute then QR.MultiRoute:Show() end
+        end },
+        { key = "currencyButton", label = L["CURRENCY_VENDORS"], tooltip = L["TOOLTIP_CURRENCY_VENDORS"], action = function()
+            -- The menu is closed by now, so the list hangs off "More".
+            if QR.DestinationSearch and QR.DestinationSearch.ShowCurrencyDropdown then
+                QR.DestinationSearch:ShowCurrencyDropdown(moreButton)
+            end
+        end },
+    }
+    -- QuickRoute_Camelot.toc does not load PhasePanel: WoW Forever has no
+    -- Zidormi phases, and an entry opening an empty window would be noise.
+    if QR.PhasePanel then
+        entries[#entries + 1] = { key = "phaseButton", label = L["PHASE_TITLE"], tooltip = L["TOOLTIP_PHASES"],
+            action = function() if QR.PhasePanel then QR.PhasePanel:Show() end end }
+    end
+    entries[#entries + 1] = { separator = true }
+    entries[#entries + 1] = { key = "copyDebugButton", label = L["COPY_DEBUG"], tooltip = L["TOOLTIP_DEBUG"],
+        action = function() UI:CopyDebugToClipboard() end }
+    entries[#entries + 1] = { key = "zoneDebugButton", label = L["ZONE_INFO"], tooltip = L["TOOLTIP_ZONE"],
+        action = function() UI:CopyZoneDebugToClipboard() end }
+
+    local menuWidth = CalculateButtonWidth(L["MORE_MENU"])
+    for _, entry in ipairs(entries) do
+        if entry.label then menuWidth = math_max(menuWidth, CalculateButtonWidth(entry.label)) end
+    end
+    menuWidth = menuWidth + 2 * MENU_INSET
+    local y = -MENU_INSET
+    for _, entry in ipairs(entries) do
+        if entry.separator then
+            local line = moreMenu:CreateTexture(nil, "ARTWORK")
+            line:SetColorTexture(0.5, 0.5, 0.5, 0.5)
+            line:SetHeight(1)
+            line:SetPoint("TOPLEFT", moreMenu, "TOPLEFT", MENU_INSET, y - 3)
+            line:SetPoint("TOPRIGHT", moreMenu, "TOPRIGHT", -MENU_INSET, y - 3)
+            y = y - 7
+        else
+            local item = QR.CreateModernButton(moreMenu, menuWidth - 2 * MENU_INSET, BUTTON_HEIGHT)
+            item:SetPoint("TOPLEFT", moreMenu, "TOPLEFT", MENU_INSET, y)
+            item:SetText(entry.label)
+            item:SetScript("OnClick", function()
+                PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
+                moreMenu:Hide()
+                entry.action()
+            end)
+            item:SetScript("OnEnter", function(self)
+                GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+                GameTooltip:SetText(entry.tooltip)
+                QR.AddTooltipBranding(GameTooltip)
+                GameTooltip:Show()
+            end)
+            item:SetScript("OnLeave", GameTooltip_Hide)
+            frame[entry.key] = item
+            y = y - BUTTON_HEIGHT - 2
+        end
+    end
+    moreMenu:SetSize(menuWidth, -y + MENU_INSET - 2)
 
     -- The dungeon offer's only surface. Without it the addon printed "Open
     -- QuickRoute to route there" and then offered nothing to click, and
     -- DungeonTravelOffer:Route had no caller outside its own tests.
-    -- On the same row as the other actions. A third row below them fell past
-    -- the separator at -60 and was drawn over the time readout and the first
-    -- step. The width follows the text, which names the instance.
+    -- It follows Refresh on the toolbar row; the width follows the text,
+    -- which names the instance.
     local dungeonOfferButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["MULTI_ROUTE"]), BUTTON_HEIGHT)
     dungeonOfferButton:Hide()
     dungeonOfferButton:SetScript("OnClick", function()
@@ -469,53 +510,24 @@ function UI:CreateContent(parentFrame)
     end)
     dungeonOfferButton:SetScript("OnLeave", GameTooltip_Hide)
     frame.dungeonOfferButton = dungeonOfferButton
-    -- Anchored after currencyButton exists, at the end of that row.
     frame.dungeonOfferAnchor = function()
         dungeonOfferButton:ClearAllPoints()
-        -- After the phase button, which takes the same anchor off currencyButton
-        -- and is created later: both sat on the same point and the phase button
-        -- took the clicks in the 93 pixels they shared.
-        local previous = frame.phaseButton or frame.currencyButton or multiRouteButton
-        dungeonOfferButton:SetPoint("LEFT", previous, "RIGHT", BUTTON_PADDING, 0)
-    end
-
-    local currencyButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["CURRENCY_VENDORS"]), BUTTON_HEIGHT)
-    currencyButton:SetPoint("LEFT", multiRouteButton, "RIGHT", BUTTON_PADDING, 0)
-    currencyButton:SetText(L["CURRENCY_VENDORS"])
-    currencyButton:SetScript("OnClick", function(self)
-        PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-        if QR.DestinationSearch and QR.DestinationSearch.ShowCurrencyDropdown then
-            QR.DestinationSearch:ShowCurrencyDropdown(self)
+        dungeonOfferButton:SetPoint("LEFT", refreshButton, "RIGHT", BUTTON_PADDING, 0)
+        -- Never past More: on a narrow window a long instance name is cut and
+        -- the tooltip still names it in full.
+        local room = frame:GetWidth() - (PADDING + 5) - SEARCH_BOX_WIDTH - (BUTTON_PADDING + 4)
+            - refreshButton:GetWidth() - 2 * BUTTON_PADDING - moreButton:GetWidth() - PADDING
+        if room > 0 and dungeonOfferButton:GetWidth() > room then
+            dungeonOfferButton:SetWidth(room)
         end
-    end)
-    currencyButton:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-        GameTooltip:SetText(L["TOOLTIP_CURRENCY_VENDORS"])
-        QR.AddTooltipBranding(GameTooltip)
-        GameTooltip:Show()
-    end)
-    currencyButton:SetScript("OnLeave", GameTooltip_Hide)
-    frame.currencyButton = currencyButton
-
-    -- QuickRoute_Camelot.toc does not load PhasePanel: WoW Forever has no
-    -- Zidormi phases, and a button opening an empty window would be noise.
-    if QR.PhasePanel then
-        local phaseButton = QR.CreateModernButton(frame, CalculateButtonWidth(L["PHASE_TITLE"]), BUTTON_HEIGHT)
-        phaseButton:SetPoint("LEFT", currencyButton, "RIGHT", BUTTON_PADDING, 0)
-        phaseButton:SetText(L["PHASE_TITLE"])
-        phaseButton:SetScript("OnClick", function()
-            PlaySound(SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON)
-            if QR.PhasePanel then QR.PhasePanel:Show() end
-        end)
-        frame.phaseButton = phaseButton
     end
 
     -- Separator line below toolbar
     local separator = frame:CreateTexture(nil, "ARTWORK")
     separator:SetColorTexture(0.5, 0.5, 0.5, 0.5)
     separator:SetHeight(1)
-    separator:SetPoint("TOPLEFT", PADDING, -60)
-    separator:SetPoint("TOPRIGHT", -PADDING, -60)
+    separator:SetPoint("TOPLEFT", PADDING, TOOLBAR_BOTTOM)
+    separator:SetPoint("TOPRIGHT", -PADDING, TOOLBAR_BOTTOM)
 
     -- Time estimate label below separator
     local timeLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")

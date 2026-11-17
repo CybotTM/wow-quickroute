@@ -622,7 +622,7 @@ T:run("DungeonOffer: the offer button does not sit on top of another control", f
         QR.DungeonTravelOffer:Present(70016, 33)
         local frame = QR.UI.frame
         local offer = MockWoW:ComputeFrameBounds(frame.dungeonOfferButton)
-        for _, name in ipairs({ "multiRouteButton", "currencyButton", "phaseButton" }) do
+        for _, name in ipairs({ "searchBox", "refreshButton", "moreButton" }) do
             local other = frame[name] and MockWoW:ComputeFrameBounds(frame[name])
             if other then
                 t:assertTrue(offer.left >= other.right or offer.right <= other.left,
