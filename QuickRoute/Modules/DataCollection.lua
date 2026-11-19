@@ -8,12 +8,12 @@
 -- pcall, so a recording can fail without touching routing.
 --
 -- The switch is its own setting, next to the diagnostic trace and the zone
--- survey, and governs only these seven lists: the zone survey has its own
+-- survey, and governs only these eight lists: the zone survey has its own
 -- switch. DataCollection:SetEnabled is the one writer of the setting.
 -- DataCollection.unsavedCount counts the writes since the last reload, for
 -- the save reminder in Diagnostics.lua.
 --
--- Seven recordings:
+-- Eight recordings:
 --   landings          where a teleport QuickRoute knows actually put the player
 --   unknownTeleports  a cast QuickRoute does not know, or an NPC's gossip dialog,
 --                     followed by a loading screen; with the cause (`cause`
@@ -27,6 +27,8 @@
 --   calcTimes         how long a route calculation took
 --   missingVendors    a currency the player looked at, or asked a route for,
 --                     with no known vendor that accepts it
+--   refusedUses       a teleport use the client refused before the cast
+--                     began, with its error text and where the player stood
 local ADDON_NAME, QR = ...
 
 -- Cache frequently-used globals
@@ -51,9 +53,10 @@ local CAPS = {
     rejectedSteps = 30,
     calcTimes = 50,
     missingVendors = 40,
+    refusedUses = 30,
 }
 local ORDER = { "landings", "unknownTeleports", "noRoute", "stepTimes", "rejectedSteps", "calcTimes",
-    "missingVendors" }
+    "missingVendors", "refusedUses" }
 DataCollection.CAPS = CAPS
 local MAX_COUNTER = 1000000000
 
@@ -243,6 +246,7 @@ function DataCollection:Forget()
     self.pendingCast = nil
     self.follow = nil
     self.interaction = nil
+    self.lastUse, self.lastError, self.lastRefusal = nil, nil, nil
 end
 
 --- Switch the observations on or off. The settings checkbox and /qrdata both
@@ -510,6 +514,8 @@ end
 
 function DataCollection:OnSpellSucceeded(unit, spellID)
     if not Public(unit) or unit ~= "player" or not IsID(spellID) then return end
+    -- The use went through: a later error is not its refusal.
+    self.lastUse = nil
     -- No teleport is cast in combat; skip the position reads there.
     if InCombatLockdown and InCombatLockdown() then return end
     -- A cast during a loading screen that is already under way does not
@@ -535,6 +541,86 @@ function DataCollection:OnSpellSucceeded(unit, spellID)
         castAt = GetTime(),
         attempts = 0,
     }
+end
+
+-------------------------------------------------------------------------------
+-- refusedUses: a teleport use the client refused
+--
+-- The client checks an item's area, cooldown and the like before a cast
+-- begins, so no UNIT_SPELLCAST_SUCCEEDED follows and the landing recording
+-- above never sees the attempt. The refusal is a UI_ERROR_MESSAGE ("You must
+-- be in <area>"). The attempt comes from a QuickRoute button (NoteButtonUse)
+-- or from UNIT_SPELLCAST_FAILED for a known teleport spell, so a use from the
+-- bags is caught as well. The client's order of the error and the attempt is
+-- not documented, so the two are paired in either order within REFUSAL_WINDOW.
+-------------------------------------------------------------------------------
+
+local REFUSAL_WINDOW = 1
+local MAX_MESSAGE = 200
+
+function DataCollection:RecordRefusal(use, refusal)
+    self.lastUse, self.lastError = nil, nil
+    self.lastRefusal = { id = use.id, at = refusal.at }
+    local entry = { id = use.id, kind = use.kind, source = use.source, message = refusal.message }
+    if IsFinite(refusal.errorType) then entry.errorType = refusal.errorType end
+    local point = PlayerPoint()
+    if point then
+        Point("at", entry, point)
+    elseif C_Map and C_Map.GetBestMapForUnit then
+        local ok, raw = pcall(C_Map.GetBestMapForUnit, "player")
+        if ok and IsID(raw) then entry.atMapID = raw end
+    end
+    local game = GameMap()
+    if game then
+        entry.instanceMapID = game.instanceMapID
+        entry.instanceName = game.instanceName
+    end
+    self:Push("refusedUses", entry,
+        table_concat({ tostring(use.id), tostring(entry.atMapID), refusal.message }, ":"))
+end
+
+local function Recent(record, now)
+    return record and IsFinite(record.at) and now >= record.at and now - record.at <= REFUSAL_WINDOW
+end
+
+function DataCollection:NoteUse(id, kind, source)
+    if not IsOn() or not IsID(id) then return end
+    local now = GetTime()
+    if not IsFinite(now) then return end
+    -- The button and UNIT_SPELLCAST_FAILED can both report one refused use.
+    local prior = self.lastRefusal
+    if prior and prior.id == id and Recent(prior, now) then return end
+    local use = { id = id, kind = kind, source = source, at = now }
+    if Recent(self.lastError, now) then
+        self:RecordRefusal(use, self.lastError)
+    else
+        self.lastUse = use
+    end
+end
+
+--- A QuickRoute button was clicked to use a teleport.
+function DataCollection:NoteButtonUse(id, sourceType)
+    self:NoteUse(id, sourceType, "button")
+end
+
+function DataCollection:OnSpellFailed(unit, spellID)
+    if not Public(unit) or unit ~= "player" or not IsID(spellID) then return end
+    local teleport = self:FindTeleport(spellID)
+    if teleport then self:NoteUse(teleport.id, teleport.kind, "spell") end
+end
+
+function DataCollection:OnErrorMessage(errorType, message)
+    if not Public(message) or type(message) ~= "string" or message == "" then return end
+    local now = GetTime()
+    if not IsFinite(now) then return end
+    local refusal = { errorType = Public(errorType) and errorType or nil,
+        message = message:sub(1, MAX_MESSAGE), at = now }
+    if Recent(self.lastUse, now) then
+        self:RecordRefusal(self.lastUse, refusal)
+    else
+        self.lastUse = nil
+        self.lastError = refusal
+    end
 end
 
 --- The NPC and position of a dialog read at its start.
@@ -1115,6 +1201,11 @@ function DataCollection:OnEvent(event, ...)
     if event == "UNIT_SPELLCAST_SUCCEEDED" then
         local unit, _, spellID = ...
         self:OnSpellSucceeded(unit, spellID)
+    elseif event == "UNIT_SPELLCAST_FAILED" then
+        local unit, _, spellID = ...
+        self:OnSpellFailed(unit, spellID)
+    elseif event == "UI_ERROR_MESSAGE" then
+        self:OnErrorMessage(...)
     elseif event == "LOADING_SCREEN_ENABLED" then
         self:OnLoadingScreen()
     elseif event == "GOSSIP_SHOW" then
@@ -1173,7 +1264,8 @@ function DataCollection:Initialize()
     QR:Debug("DataCollection initialized")
 end
 
-local EVENTS = { "UNIT_SPELLCAST_SUCCEEDED", "LOADING_SCREEN_ENABLED",
+local EVENTS = { "UNIT_SPELLCAST_SUCCEEDED", "UNIT_SPELLCAST_FAILED", "UI_ERROR_MESSAGE",
+    "LOADING_SCREEN_ENABLED",
     "LOADING_SCREEN_DISABLED", "PLAYER_ENTERING_WORLD", "ZONE_CHANGED",
     "ZONE_CHANGED_INDOORS", "ZONE_CHANGED_NEW_AREA", "GET_ITEM_INFO_RECEIVED",
     "GOSSIP_SHOW", "GOSSIP_CLOSED",
@@ -1216,7 +1308,7 @@ function DataCollection:PrintStatus()
     local L = QR.L
     QR:Print(IsOn() and L["DATA_COLLECTION_ON"] or L["DATA_COLLECTION_OFF"])
     local c = self:Counts()
-    QR:Print(string_format(L["DATA_COLLECTION_COUNTS"], c[1], c[2], c[3], c[4], c[5], c[6], c[7]))
+    QR:Print(string_format(L["DATA_COLLECTION_COUNTS"], c[1], c[2], c[3], c[4], c[5], c[6], c[7], c[8]))
 end
 
 SLASH_QRDATA1 = "/qrdata"

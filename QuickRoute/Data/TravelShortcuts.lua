@@ -492,6 +492,11 @@ QR.TeleportDestinationData = {
                 ["destination"] = "Amani Foothold",
                 ["mapID"] = 2509,
                 ["nodeKey"] = "Travel:AMANI_FOOTHOLD_FLIGHT",
+                -- QuickRoute addition: the client refuses the potion outside
+                -- the Vaults of Atal'Utek ("You must be in ...").
+                ["requirements"] = {
+                    ["usableOnMaps"] = { 2509 },
+                },
                 ["x"] = 0.4439,
                 ["y"] = 0.6236,
             },

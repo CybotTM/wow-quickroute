@@ -213,15 +213,37 @@ checkers.mapArtID = function(required, phases, ignorePhase)
     if current == nil then current = TR:GetMapArtID(mapID) end
     if Number(current) and Number(artID) then return current == artID end
 end
-checkers.anyOf = function(requirements, phases, ignorePhase)
+local MAX_MAP_DEPTH = 16
+-- A teleport whose item works only inside an area: the client refuses it
+-- elsewhere ("You must be in <area>"). The start map, or one of the maps it
+-- lies within, has to be listed. `origin` is the map a route search starts
+-- from, so a leg planned from somewhere else (multi-route) is checked against
+-- its own start; outside a search the player's current map is the start.
+checkers.usableOnMaps = function(maps, _, _, origin)
+    if type(maps) ~= "table" then return nil end
+    local mapID = origin
+    if not Number(mapID) then mapID = Read(C_Map and C_Map.GetBestMapForUnit, "player") end
+    if not Number(mapID) then return nil end
+    for _ = 1, MAX_MAP_DEPTH do
+        for _, allowed in ipairs(maps) do
+            if allowed == mapID then return true end
+        end
+        local info = Read(C_Map and C_Map.GetMapInfo, mapID)
+        local parent = type(info) == "table" and info.parentMapID
+        if not Number(parent) or parent <= 0 or parent == mapID then return false end
+        mapID = parent
+    end
+    return false
+end
+checkers.anyOf = function(requirements, phases, ignorePhase, origin)
     if type(requirements) ~= "table" then return nil end
     local unknown = false
     for kind, value in pairs(requirements) do
         local result
         if type(kind) == "number" then
-            result = TR:Check(value, phases, ignorePhase)
+            result = TR:Check(value, phases, ignorePhase, origin)
         elseif checkers[kind] then
-            result = checkers[kind](value, phases, ignorePhase)
+            result = checkers[kind](value, phases, ignorePhase, origin)
         end
         if result == true then return true end
         if result == nil then unknown = true end
@@ -231,14 +253,15 @@ end
 
 --- true=available, false=known locked, nil=unknown. ignorePhase is only for
 -- graph construction: phase conditions still apply during stateful search.
-function TR:Check(requirements, phases, ignorePhase)
+-- origin is the map the route search starts from (nil: the player's map).
+function TR:Check(requirements, phases, ignorePhase, origin)
     if requirements == nil then return true end
     if type(requirements) ~= "table" then return nil end
     local unknown = false
     for kind, value in pairs(requirements) do
         local checker = checkers[kind]
         local ok, result = false, nil
-        if checker then ok, result = pcall(checker, value, phases, ignorePhase) end
+        if checker then ok, result = pcall(checker, value, phases, ignorePhase, origin) end
         if ok and result == false then return false end
         if not ok or result == nil then unknown = true end
     end
@@ -277,13 +300,17 @@ function TR:CanTraverseZoneMaps(fromMapID, toMapID)
 end
 
 function TR:FindPath(graph, start, goal)
+    local startNode = graph.nodes[start]
+    local origin = startNode and startNode.mapID
     -- First find the unrestricted lower bound. If that exact route satisfies
     -- every requirement, it is already optimal; disconnected destinations need
     -- no phase-state expansion at all.
     local staticChecks = {}
     local function staticAllowed(requirements)
         if requirements == nil then return true end
-        if staticChecks[requirements] == nil then staticChecks[requirements] = self:Check(requirements, nil, true) == true end
+        if staticChecks[requirements] == nil then
+            staticChecks[requirements] = self:Check(requirements, nil, true, origin) == true
+        end
         return staticChecks[requirements]
     end
     -- A step the player reported as unusable is refused for this journey. It is
@@ -397,7 +424,7 @@ function TR:FindPath(graph, start, goal)
         if requirements == nil then return true end
         local byState = checks[state]
         if not byState then byState = {}; checks[state] = byState end
-        if byState[requirements] == nil then byState[requirements] = TR:Check(requirements, state) == true end
+        if byState[requirements] == nil then byState[requirements] = TR:Check(requirements, state, nil, origin) == true end
         return byState[requirements]
     end
     local function allowed(node, state)

@@ -1,6 +1,6 @@
 -------------------------------------------------------------------------------
 -- datacollection_cases.lua
--- The travel-observation cases (QR.DataCollection: the opt-in switch, the seven
+-- The travel-observation cases (QR.DataCollection: the opt-in switch, the eight
 -- recordings kept in QR.db.observations, /qrdata), shared by
 -- test_datacollection.lua (retail) and test_forever_datacollection.lua
 -- (QR_TEST_FLAVOR=forever). Not named test_*.lua, so the runner does not pick
@@ -107,6 +107,7 @@ local function withCollection(on, fn)
     QR.db.observations = nil
     QR.db.zoneSurveyEnabled = false
     DC.pendingCast, DC.follow, DC.interaction = nil, nil, nil
+    DC.lastUse, DC.lastError, DC.lastRefusal = nil, nil, nil
     DC.unsavedCount = 0
     QR.db.lastDestination, QR.db.destinationLocked = nil, false
     local ok, err = pcall(fn)
@@ -213,9 +214,10 @@ T:run(prefix .. "every locale translates the new strings, and says the data stay
         local tooltip = QR.L["SETTINGS_DATA_COLLECTION_TT"]
         t:assertNotNil(tooltip:find("SavedVariables", 1, true),
             locale .. " tooltip names the SavedVariables file: " .. tooltip)
-        local ok, text = pcall(string.format, QR.L["DATA_COLLECTION_COUNTS"], 1, 2, 3, 4, 5, 6, 7)
-        t:assertTrue(ok, locale .. " counts format takes seven numbers: " .. tostring(text))
-        t:assertNil(tostring(text):find("%d", 1, true), locale .. " counts format has no eighth number: " .. tostring(text))
+        local ok, text = pcall(string.format, QR.L["DATA_COLLECTION_COUNTS"], 1, 2, 3, 4, 5, 6, 7, 8)
+        t:assertTrue(ok, locale .. " counts format takes eight numbers: " .. tostring(text))
+        t:assertNil(tostring(text):find("%d", 1, true), locale .. " counts format has no ninth number: " .. tostring(text))
+        t:assertNotNil(tostring(text):find("8", 1, true), locale .. " counts format shows the eighth number: " .. tostring(text))
         local okNew, line = pcall(string.format, QR.L["SAVE_REMINDER_OBSERVATIONS_NEW"], 7)
         t:assertTrue(okNew and line:find("7", 1, true) ~= nil,
             locale .. " reminder line takes the count: " .. tostring(line))
@@ -1126,8 +1128,10 @@ T:run(prefix .. "/qrdata off stops every recording and leaves the survey alone",
         PC:ExcludeEdge(from, to, nil)
         PC:IncludeEdge(from, to)
         DC:RecordMissingVendor(4242, "popup")
+        DC:NoteButtonUse(279550, "item")
+        event("UI_ERROR_MESSAGE", 51, "You must be in The Vaults of Atal'Utek.")
         for _, name in ipairs({ "landings", "unknownTeleports", "noRoute", "stepTimes",
-            "rejectedSteps", "calcTimes", "missingVendors" }) do
+            "rejectedSteps", "calcTimes", "missingVendors", "refusedUses" }) do
             t:assertEqual(0, #list(name), name .. " stays empty after /qrdata off, got " .. #list(name))
         end
         at(F.stormwind, 0.5, 0.5)
@@ -1146,10 +1150,11 @@ T:run(prefix .. "/qrdata on, clear and the status line", function(t)
             PC:CalculatePath(0, 0.5, 0.5)
             DC:Push("landings", {})
             DC:RecordMissingVendor(4242, "popup")
+            DC:Push("refusedUses", {})
             printed = {}
             SlashCmdList["QRDATA"]("")
             t:assertEqual(QR.L["DATA_COLLECTION_ON"], printed[1], "the status names the switch")
-            t:assertEqual(string.format(QR.L["DATA_COLLECTION_COUNTS"], 1, 0, 1, 0, 0, 1, 1),
+            t:assertEqual(string.format(QR.L["DATA_COLLECTION_COUNTS"], 1, 0, 1, 0, 0, 1, 1, 1),
                 printed[2], "and counts each recording, without the survey")
             SlashCmdList["QRDATA"]("clear")
             t:assertEqual(0, #list("landings") + #list("noRoute") + #list("calcTimes"),
@@ -1353,7 +1358,8 @@ T:run(prefix .. "events and sampling are registered only while switched on", fun
         -- Named, not read from DC.EVENTS: a name missing from that list is
         -- what this has to catch.
         for _, name in ipairs({ "UNIT_SPELLCAST_SUCCEEDED", "LOADING_SCREEN_ENABLED", "GOSSIP_SHOW",
-            "GOSSIP_CLOSED", "PLAYER_INTERACTION_MANAGER_FRAME_SHOW", "PLAYER_INTERACTION_MANAGER_FRAME_HIDE" }) do
+            "GOSSIP_CLOSED", "PLAYER_INTERACTION_MANAGER_FRAME_SHOW", "PLAYER_INTERACTION_MANAGER_FRAME_HIDE",
+            "UNIT_SPELLCAST_FAILED", "UI_ERROR_MESSAGE" }) do
             t:assertTrue(frame:IsEventRegistered(name), "on: " .. name .. " is registered")
         end
         DC:SetEnabled(false)
@@ -2064,4 +2070,119 @@ T:run(prefix .. "player-visible strings of the observations escape their pipes",
     local line = source:match('print%("  /qrdata[^\n]*')
     t:assertNotNil(line, "the help line exists")
     t:assertNil(line and line:gsub("||", ""):find("|", 1, true), "the /qrdata help line has no single pipe: " .. tostring(line))
+end)
+
+-------------------------------------------------------------------------------
+-- refusedUses: a teleport use the client refused before the cast began
+-------------------------------------------------------------------------------
+
+-- The owner's report of 2026-11-17: a click on the Potion of Venomous Return
+-- (item 279550) outside its area, answered with this error.
+local POTION = 279550
+local AREA_ERROR = "Ihr müsst im Gebiet 'Die Kammern von Atal'Utek' sein."
+
+T:run(prefix .. "a refused button use is filed with its error and place", function(t)
+    withCollection(true, function()
+        DC:Initialize()
+        at(F.stormwind, 0.5, 0.5)
+        DC:NoteButtonUse(POTION, "item")
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        local entries = list("refusedUses")
+        t:assertEqual(1, #entries, "one refusal is filed, got " .. #entries)
+        local entry = entries[1] or {}
+        t:assertEqual(POTION, entry.id, "with the clicked teleport")
+        t:assertEqual("item", entry.kind, "and its kind")
+        t:assertEqual("button", entry.source, "and that a QuickRoute button was clicked")
+        t:assertEqual(AREA_ERROR, entry.message, "and the client's error text")
+        t:assertEqual(51, entry.errorType, "and the error type")
+        t:assertEqual(F.stormwind, entry.atMapID, "and the map the player stood on")
+        t:assertEqual(1, entry.count, "counted once")
+    end)
+end)
+
+T:run(prefix .. "an error before the click pairs as well, and a repeat counts", function(t)
+    withCollection(true, function()
+        DC:Initialize()
+        at(F.stormwind, 0.5, 0.5)
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        DC:NoteButtonUse(POTION, "item")
+        t:assertEqual(1, #list("refusedUses"), "the error first, then the click: one refusal")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 5
+        DC:NoteButtonUse(POTION, "item")
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        local entries = list("refusedUses")
+        t:assertEqual(1, #entries, "the same refusal on the same map stays one entry, got " .. #entries)
+        t:assertEqual(2, (entries[1] or {}).count, "with a count of two")
+    end)
+end)
+
+T:run(prefix .. "the button and the failed spell file one refusal, not two", function(t)
+    withCollection(true, function()
+        DC:Initialize()
+        at(F.stormwind, 0.5, 0.5)
+        DC:NoteButtonUse(IRONFORGE, "spell")
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        event("UNIT_SPELLCAST_FAILED", "player", "Cast-1", IRONFORGE)
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        local entries = list("refusedUses")
+        t:assertEqual(1, #entries, "one entry, got " .. #entries)
+        t:assertEqual(1, (entries[1] or {}).count, "counted once, got " .. tostring((entries[1] or {}).count))
+    end)
+end)
+
+T:run(prefix .. "a failed known spell outside QuickRoute is filed too", function(t)
+    withCollection(true, function()
+        DC:Initialize()
+        at(F.stormwind, 0.5, 0.5)
+        event("UNIT_SPELLCAST_FAILED", "player", "Cast-1", IRONFORGE)
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        local entry = list("refusedUses")[1] or {}
+        t:assertEqual(IRONFORGE, entry.id, "the teleport the spell belongs to")
+        t:assertEqual("spell", entry.source, "reported by the failed cast")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 5
+        event("UNIT_SPELLCAST_FAILED", "player", "Cast-2", 990002)
+        event("UI_ERROR_MESSAGE", 51, "Not enough mana")
+        t:assertEqual(1, #list("refusedUses"), "an unknown spell files nothing, even with an error right after it")
+    end)
+end)
+
+T:run(prefix .. "no refusal without a use close by, or after a cast went through", function(t)
+    withCollection(true, function()
+        DC:Initialize()
+        at(F.stormwind, 0.5, 0.5)
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        t:assertEqual(0, #list("refusedUses"), "an error alone files nothing")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 2
+        DC:NoteButtonUse(POTION, "item")
+        t:assertEqual(0, #list("refusedUses"), "nor an error two seconds before the click")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 2
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        t:assertEqual(0, #list("refusedUses"), "nor one two seconds after it")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 2
+        DC:NoteButtonUse(POTION, "item")
+        event("UNIT_SPELLCAST_SUCCEEDED", "player", "Cast-3", 990003)
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        t:assertEqual(0, #list("refusedUses"), "nor an error after the cast went through")
+    end)
+end)
+
+T:run(prefix .. "a QuickRoute teleport button reports its click", function(t)
+    withCollection(true, function()
+        DC:Initialize()
+        at(F.stormwind, 0.5, 0.5)
+        local SB = QR.SecureButtons
+        local btn = SB:GetButton()
+        t:assertNotNil(btn, "a pooled button")
+        if not btn then return end
+        t:assertTrue(SB:ConfigureButton(btn, POTION, "item"), "configured for the potion")
+        local post = btn:GetScript("PostClick")
+        post(btn, "LeftButton", false)
+        event("UI_ERROR_MESSAGE", 51, AREA_ERROR)
+        t:assertEqual(POTION, (list("refusedUses")[1] or {}).id, "the click is paired with the refusal")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + 5
+        post(btn, "RightButton", false)
+        event("UI_ERROR_MESSAGE", 51, "Other")
+        t:assertEqual(1, #list("refusedUses"), "a right click is no use")
+        SB:ReleaseButton(btn)
+    end)
 end)

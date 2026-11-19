@@ -542,8 +542,12 @@ function SecureButtons:ConfigureButton(btn, id, sourceType, teleportData)
             -- owner stays open for the second click that teleports.
             local macro = self:GetAttribute("macrotext")
             local equipOnly = self.equipSlot and type(macro) == "string" and macro:find("^/equip") ~= nil
-            if button == "LeftButton" and type(self.qrAfterUse) == "function" and not equipOnly then
-                self.qrAfterUse(self)
+            if button == "LeftButton" and not equipOnly then
+                -- An opt-in observation: a refusal right after this click is
+                -- filed with the teleport that was clicked.
+                local DC = QR.DataCollection
+                if DC and DC.NoteButtonUse then pcall(DC.NoteButtonUse, DC, self.teleportID, self.sourceType) end
+                if type(self.qrAfterUse) == "function" then self.qrAfterUse(self) end
             end
         end)
     end
