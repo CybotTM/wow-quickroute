@@ -39,6 +39,8 @@ local JOURNAL_ROW_HEIGHT = 44
 local ICON_SIZE = 18
 local PADDING = 10           -- inside the wooden border, whose corners reach 6 px in
 local TITLE_HEIGHT = 24
+-- Content inset inside the wooden frame when its edge atlases report no size.
+local WOOD_FALLBACK_INSET = 28
 local MAX_CONTENT_HEIGHT = 400
 local SECTION_GAP = 7        -- 3px gap + 1px line + 3px gap
 local HEADER_HEIGHT = 16
@@ -452,6 +454,10 @@ function MiniTeleportPanel.PlaceEntry(entry)
             or type(minY) ~= "number" or type(maxY) ~= "number" then
             return nil
         end
+        -- The client answers a zone it cannot draw on the continent with an
+        -- empty rectangle (0, 0, 0, 0): every point of the zone then lands on
+        -- the continent's top left corner, as seen in the game on 2026-11-22.
+        if maxX - minX <= 0 or maxY - minY <= 0 then return nil end
         cx = minX + x * (maxX - minX)
         cy = minY + y * (maxY - minY)
     end
@@ -657,9 +663,15 @@ local function DrawEntryMap(view, marker, place)
     local left, top, width, height = MiniTeleportPanel.ArtWindow(art, { place },
         ENTRY_MAP_SPAN, view.viewWidth / view.viewHeight)
     local scale = DrawArt(view, art, left, top, width, height)
+    local mx, my = (place.x * art.layerWidth - left) * scale, (place.y * art.layerHeight - top) * scale
     marker:ClearAllPoints()
-    marker:SetPoint("CENTER", view, "TOPLEFT",
-        (place.x * art.layerWidth - left) * scale, -(place.y * art.layerHeight - top) * scale)
+    marker:SetPoint("CENTER", view, "TOPLEFT", mx, -my)
+    -- A texture is not clipped by its frame: a point outside the window would
+    -- put the cross on a neighbouring card.
+    if mx < 0 or my < 0 or mx > view.viewWidth or my > view.viewHeight then
+        marker:Hide()
+        return false
+    end
     marker:Show()
     return true
 end
@@ -687,6 +699,23 @@ function MiniTeleportPanel.WoodenLayout()
     return layout
 end
 
+--- How far the content stays inside the wooden frame: the wider of the
+-- side and top edge atlases plus a small gap, never less than PADDING.
+function MiniTeleportPanel.WoodInset()
+    local edge = 0
+    if C_Texture and C_Texture.GetAtlasInfo then
+        for _, atlas in ipairs({ "!Neutral-NineSlice-EdgeLeft", "_Neutral-NineSlice-EdgeTop" }) do
+            local ok, info = pcall(C_Texture.GetAtlasInfo, atlas)
+            if ok and type(info) == "table" then
+                local size = atlas:sub(1, 1) == "!" and info.width or info.height
+                if type(size) == "number" and size > edge then edge = size end
+            end
+        end
+    end
+    if edge <= 0 then edge = WOOD_FALLBACK_INSET end
+    return math_max(PADDING, edge + 4)
+end
+
 local function ApplySkin(frame)
     local layout = MiniTeleportPanel.WoodenLayout()
     if layout then
@@ -698,6 +727,9 @@ local function ApplySkin(frame)
         border:SetFrameLevel(frame:GetFrameLevel() + 20)
         local ok = pcall(_G.NineSliceUtil.ApplyLayout, border, layout)
         if ok then
+            -- The planks are far wider than the old border: keep the content
+            -- clear of them, measured from the edge atlases themselves.
+            frame.contentInset = MiniTeleportPanel.WoodInset()
             local bg = frame:CreateTexture(nil, "BACKGROUND")
             bg:SetPoint("TOPLEFT", frame, "TOPLEFT", 4, -4)
             bg:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -4, 4)
@@ -783,19 +815,23 @@ function MiniTeleportPanel:CreateFrame()
     L = QR.L
 
     local frame = CreateFrame("Frame", "QRMiniTeleportPanel", UIParent, "BackdropTemplate")
-    frame:SetSize(PANEL_WIDTH, TITLE_HEIGHT + PADDING * 2)
     frame:SetFrameStrata("DIALOG")
     frame:SetClampedToScreen(true)
     frame:SetMovable(true)
     frame:EnableMouse(true)
     ApplySkin(frame)
+    -- The content keeps its width; a wider frame inset grows the frame instead.
+    local inset = frame.contentInset or PADDING
+    frame.contentInset = inset
+    frame.insetGrowth = (inset - PADDING) * 2
+    frame:SetSize(PANEL_WIDTH + frame.insetGrowth, TITLE_HEIGHT + inset * 2)
 
     -- Title bar: the drag handle. The secure overlays sit on the cards inside
     -- the scroll frame below it and are hidden once a card scrolls past the
     -- scroll frame's top, so none of them can cover this strip.
     local titleBar = CreateFrame("Frame", nil, frame)
-    titleBar:SetPoint("TOPLEFT", frame, "TOPLEFT", PADDING, -PADDING + 2)
-    titleBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -PADDING, -PADDING + 2)
+    titleBar:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -inset + 2)
+    titleBar:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -inset, -inset + 2)
     titleBar:SetHeight(TITLE_HEIGHT)
     titleBar:EnableMouse(true)
     titleBar:RegisterForDrag("LeftButton")
@@ -849,8 +885,8 @@ function MiniTeleportPanel:CreateFrame()
 
     -- Scroll frame for the content (modern thin scrollbar)
     local scrollFrame = CreateFrame("ScrollFrame", "QRMiniTPScrollFrame", frame, "UIPanelScrollFrameTemplate")
-    scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", PADDING, -(TITLE_HEIGHT + PADDING))
-    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -PADDING - 10, PADDING)
+    scrollFrame:SetPoint("TOPLEFT", frame, "TOPLEFT", inset, -(TITLE_HEIGHT + inset))
+    scrollFrame:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -inset - 10, inset)
     QR.SkinScrollBar(scrollFrame)
 
     -- Parchment behind the travel journal: Blizzard's quest log paper where
@@ -1154,6 +1190,7 @@ function MiniTeleportPanel:GetToken(parent)
     local icon = token:CreateTexture(nil, "ARTWORK")
     icon:SetAllPoints()
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    icon.qrIconCoords = { 0.08, 0.92, 0.08, 0.92 }
     token.icon = icon
     -- The cross stays on the true point; the token sits beside it when it had
     -- to make room, joined to it by a short line.
@@ -1223,7 +1260,33 @@ end
 --- Get the icon texture for a teleport entry
 -- @param entry table The teleport entry
 -- @return string|number The icon texture path or ID
-local function GetTeleportIcon(entry)
+-- The housing teleport shows the homestone of Blizzard's housing dashboard
+-- (Blizzard_HousingDashboardHouseUpgrade.xml, TeleportToHouseButton), not the
+-- spell's own icon, where the client has that atlas.
+local HOUSING_TELEPORT_SPELL = 1233637
+local HOUSING_ICON_ATLAS = "dashboard-panel-homestone-teleport-button"
+
+--- Put a file on an icon texture. A pooled texture may have shown the housing
+-- atlas before, whose texture coordinates would otherwise stay on it.
+local function SetIconFile(tex, file)
+    tex:SetTexture(file)
+    local c = tex.qrIconCoords
+    if c then tex:SetTexCoord(c[1], c[2], c[3], c[4]) else tex:SetTexCoord(0, 1, 0, 1) end
+end
+
+local GetTeleportIcon
+
+--- Show an entry's icon on a texture.
+local function SetEntryIcon(tex, entry)
+    if entry and entry.id == HOUSING_TELEPORT_SPELL and AtlasExists(HOUSING_ICON_ATLAS) then
+        tex:SetAtlas(HOUSING_ICON_ATLAS)
+        return
+    end
+    SetIconFile(tex, GetTeleportIcon(entry))
+end
+MiniTeleportPanel.SetEntryIcon = SetEntryIcon
+
+function GetTeleportIcon(entry)
     if entry.isSpell then
         if C_Spell and C_Spell.GetSpellInfo then
             local info = C_Spell.GetSpellInfo(entry.id)
@@ -1274,7 +1337,7 @@ local function ApplyStatus(element, entry)
 end
 
 local function FillTexts(element, entry)
-    element.icon:SetTexture(GetTeleportIcon(entry))
+    SetEntryIcon(element.icon, entry)
     SetTextFitted(element.nameLabel, GetLocalizedName(entry))
     SetTextFitted(element.destLabel, GetLocalizedDestination(entry))
     element.dimmed = nil
@@ -1520,7 +1583,7 @@ function MiniTeleportPanel:RefreshList()
         row.statusLabel:SetText("")
         table_insert(self.rows, row)
 
-        local totalHeight = TITLE_HEIGHT + ROW_HEIGHT + PADDING * 3
+        local totalHeight = TITLE_HEIGHT + ROW_HEIGHT + PADDING * 3 + (self.frame.insetGrowth or 0)
         self.frame:SetHeight(totalHeight)
         self.frame.scrollChild:SetHeight(ROW_HEIGHT)
         self.frame.signature = signature
@@ -1586,7 +1649,7 @@ function MiniTeleportPanel:RefreshList()
     LayoutRow(mountRow, false, onParchment)
     mountRow:SetPoint("TOPLEFT", scrollChild, "TOPLEFT", 0, -yOffset)
     mountRow:SetPoint("RIGHT", scrollChild, "RIGHT", 0, 0)
-    mountRow.icon:SetTexture("Interface\\Icons\\Ability_Mount_RidingHorse")
+    SetIconFile(mountRow.icon, "Interface\\Icons\\Ability_Mount_RidingHorse")
     SetDesaturated(mountRow.icon, false)
     mountRow.dimmed = nil
     SetTextFitted(mountRow.nameLabel, L["MINI_PANEL_SUMMON_MOUNT"])
@@ -1626,7 +1689,7 @@ function MiniTeleportPanel:RefreshList()
 
     local contentHeight = yOffset
     local visibleHeight = math_min(contentHeight, MAX_CONTENT_HEIGHT)
-    self.frame:SetHeight(TITLE_HEIGHT + visibleHeight + PADDING * 3)
+    self.frame:SetHeight(TITLE_HEIGHT + visibleHeight + PADDING * 3 + (self.frame.insetGrowth or 0))
     self.frame.scrollChild:SetHeight(contentHeight)
     self.frame.signature = signature
 end

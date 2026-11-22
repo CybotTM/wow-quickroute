@@ -554,6 +554,45 @@ T:run("MiniTP views: the wooden frame is used when every atlas exists", function
     t:assertEqual("_Neutral-NineSlice-EdgeTop", P.frame.woodBorder.TopEdge:GetAtlas(), "with the top edge atlas")
 end)
 
+T:run("MiniTP views: an empty zone rectangle leaves the entry unplaced", function(t)
+    -- The client answers a zone it cannot draw on the continent with
+    -- 0, 0, 0, 0; the cross then sat on the continent's top left corner.
+    resetState(P.VIEW_TILES)
+    MockWoW.config.mapRects[84] = { [13] = { 0, 0, 0, 0 } }
+    local data = QR.MageTeleports.Alliance[STORMWIND]
+    t:assertNil(P.PlaceEntry({ id = STORMWIND, data = data, isSpell = true }),
+        "a rectangle without area gives no place")
+end)
+
+T:run("MiniTP views: the content stays inside the wooden frame's planks", function(t)
+    resetState(P.VIEW_TILES)
+    P:CreateFrame()
+    local narrowWidth = P.frame:GetWidth()
+    t:assertEqual("backdrop", P.frame.skin, "the backdrop first")
+    P.frame = nil
+    for _, atlas in ipairs(WOOD) do MockWoW.config.atlases[atlas] = true end
+    P:CreateFrame()
+    t:assertEqual("wood", P.frame.skin, "then the wooden frame")
+    -- The mock's atlases are 32 px: the content keeps 4 px off the planks.
+    t:assertEqual(36, P.frame.contentInset, "the content inset follows the edge atlas")
+    -- PADDING is 10: 26 px more on each side keep the content width.
+    t:assertEqual(narrowWidth + 52, P.frame:GetWidth(), "the frame grows by the extra inset on both sides")
+end)
+
+T:run("MiniTP views: the housing teleport shows the dashboard's homestone", function(t)
+    resetState(P.VIEW_TILES)
+    local frame = CreateFrame("Frame")
+    local tex = frame:CreateTexture()
+    MockWoW.config.atlases["dashboard-panel-homestone-teleport-button"] = true
+    P.SetEntryIcon(tex, { id = 1233637, isSpell = true, data = {} })
+    t:assertEqual("dashboard-panel-homestone-teleport-button", tex:GetAtlas(), "the housing dashboard's homestone")
+    MockWoW.config.atlases["dashboard-panel-homestone-teleport-button"] = nil
+    local plain = frame:CreateTexture()
+    P.SetEntryIcon(plain, { id = 1233637, isSpell = true, data = {} })
+    t:assertNil(plain:GetAtlas(), "without the atlas the spell's own icon is used")
+    t:assertNotNil(plain:GetTexture(), "and a texture is set")
+end)
+
 T:run("MiniTP views: one missing atlas falls back to the backdrop", function(t)
     resetState(P.VIEW_TILES)
     for i = 2, #WOOD do MockWoW.config.atlases[WOOD[i]] = true end
