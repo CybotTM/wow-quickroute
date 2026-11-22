@@ -55,7 +55,7 @@ T:run("Graph build slices: a build inside the driver pauses and others see the p
         PC:CalculatePathAsync(84, 0.6, 0.6, nil, function(r) route = r end)
         t:assertNotNil(PC.asyncRunning, "the route is parked inside its build")
         t:assertEqual(previous, PC.graph, "between slices the previous, complete graph is the published one")
-        t:assertTrue(PC.graphDirty, "and it is still marked for rebuild")
+        t:assertTrue(PC.graphDirty and true or false, "and it is still marked for rebuild")
         drain()
         -- Seven pause points between the steps, and more inside the dungeon
         -- pass, one per eight entrances.
@@ -86,6 +86,24 @@ T:run("Graph build slices: a rebuild by somebody else while the build pauses win
         drain()
         t:assertEqual(theirs, PC.graph, "the parked build gives up and leaves the other graph in place")
         t:assertNotNil(route, "the route is still answered, on that graph")
+    end)
+end)
+
+T:run("Graph build slices: a mark written while the build pauses survives it", function(t)
+    withDriver(function(drain)
+        PC:BuildGraph()
+        PC.graphDirty = true
+        PC.FRAME_BUDGET_MS = 0
+        local route
+        PC:CalculatePathAsync(84, 0.6, 0.6, nil, function(r) route = r end)
+        t:assertNotNil(PC.asyncRunning, "the route is parked inside its build")
+        -- What a production site does between two slices, e.g. a zone change.
+        PC.graphDirty = true
+        PC.dirtyReason = "zone"
+        drain()
+        t:assertNotNil(route, "the route is still answered")
+        t:assertTrue(PC.graphDirty, "but the graph stays marked for the newer data")
+        t:assertEqual("zone", PC.dirtyReason, "with the reason of that mark")
     end)
 end)
 

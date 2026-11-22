@@ -754,3 +754,39 @@ T:run(prefix .. "a zone change marks the graph with its reason", function(t)
     t:assertEqual("entering-world", PC.dirtyReason, "a loading screen, got " .. tostring(PC.dirtyReason))
     PC.dirtyReason = saved
 end)
+
+
+T:run(prefix .. "a window with more counts than the key limit is written in parts", function(t)
+    withTrace(true, function()
+        D._perf = nil
+        for i = 1, 40 do D:PerfCount(string.format("key%02d", i)) end
+        D:FlushPerf("test")
+        local parts, keys = 0, 0
+        for _, e in ipairs(D:GetTraceEntries()) do
+            if e.c == "perf" and e.m == "counts" then
+                parts = parts + 1
+                t:assertNil(e.f._truncated, "no part is cut")
+                for key in pairs(e.f) do
+                    if key:match("^key%d%d$") then keys = keys + 1 end
+                end
+            end
+        end
+        t:assertEqual(2, parts, "two parts, got " .. parts)
+        t:assertEqual(40, keys, "holding all forty keys, got " .. keys)
+    end)
+end)
+
+T:run(prefix .. "a rebuild that changed nothing is counted as such", function(t)
+    withTrace(true, function()
+        local PC = QR.PathCalculator
+        PC.graphDirty, PC.dirtyReason = true, "restriction"
+        PC:BuildGraph()
+        D._perf = nil
+        PC.graphDirty, PC.dirtyReason = true, "restriction"
+        PC:BuildGraph()
+        D:FlushPerf("test")
+        local counts = perfEntry("counts")
+        t:assertEqual(1, counts and counts.f and counts.f["rebuild-same:restriction"],
+            "the second build with the same shape is counted under its reason")
+    end)
+end)

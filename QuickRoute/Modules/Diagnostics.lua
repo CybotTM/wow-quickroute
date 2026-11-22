@@ -665,9 +665,17 @@ function Diagnostics:FlushPerf(reason)
         fields["ge" .. PERF_BUCKETS[#PERF_BUCKETS]] = sample.buckets[#PERF_BUCKETS + 1] or 0
         self:Trace("perf", kind, fields)
     end
-    if next(perf.counts) then
-        local fields = { reason = reason, seconds = seconds }
-        for key, value in pairs(perf.counts) do fields[key] = value end
+    -- In parts below the trace's key limit (TRACE_FIELD_KEYS_MAX), which
+    -- would otherwise cut keys off without saying which.
+    local keys = {}
+    for key in pairs(perf.counts) do keys[#keys + 1] = key end
+    table.sort(keys)
+    local perPart = TRACE_FIELD_KEYS_MAX - 3
+    for first = 1, #keys, perPart do
+        local fields = { reason = reason, seconds = seconds, part = math.floor((first - 1) / perPart) + 1 }
+        for index = first, math.min(#keys, first + perPart - 1) do
+            fields[keys[index]] = perf.counts[keys[index]]
+        end
         self:Trace("perf", "counts", fields)
     end
 end

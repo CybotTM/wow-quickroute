@@ -154,6 +154,16 @@ class ExportTraceTest(unittest.TestCase):
 
 
 
+    def test_report_sums_the_performance_samples_of_a_session(self):
+        # The fixture drives a route that rebuilds the graph and a quest-button
+        # route, then the client's save event; the samples go through the
+        # SavedVariables file into the report.
+        for name in ("slice-fg", "slice-bg", "route-fg", "route-bg"):
+            self.assertRegex(self.report, rf"retail\s+{name}\s+n=\d+", name)
+        self.assertIn("rebuild:zone=", self.report)
+        self.assertIn("build-pause=", self.report)
+        self.assertIn("qtb-route=", self.report)
+
 class PerformanceSummaryTest(unittest.TestCase):
     def test_sums_samples_and_counts_per_flavor(self):
         def perf(message, **fields):

@@ -212,6 +212,11 @@ end
 --- Build the complete travel graph
 -- Creates nodes for locations and edges for travel methods
 -- @return Graph|nil The constructed travel graph, or nil on error
+-- What graphDirty holds while a build inside the driver pauses (BuildGraph).
+-- BuildGraph returns the graph and whether the build succeeded; a build that
+-- gave up returns the graph that replaced it and that build's outcome.
+local PAUSED_BUILD = setmetatable({}, { __tostring = function() return "paused build" end })
+
 function PathCalculator:BuildGraph()
     -- Inside the asynchronous driver the build pauses between its steps when
     -- the slice's budget is spent. A pause puts the previous, complete graph
@@ -232,6 +237,12 @@ function PathCalculator:BuildGraph()
         zoneTravelGraph = self.zoneTravelGraph, zoneTravelCache = self.zoneTravelCache,
         build = self.graphBuild or 0,
     } or nil
+    -- A mark written while the build pauses must survive it: the build
+    -- ends with graphDirty = not buildSuccess, which would drop a mark that
+    -- asked for data newer than this build read. The flag holds a sentinel
+    -- while paused (truthy, so every other caller still rebuilds); any write
+    -- replaces it, and the build then leaves the graph marked.
+    local markedWhilePaused = false
     local function Pause()
         if not sliced or not QR.Graph.BudgetSpent() then return true end
         local mine = {
@@ -242,11 +253,14 @@ function PathCalculator:BuildGraph()
         self.zoneTravelGraph, self.zoneTravelCache = published.zoneTravelGraph, published.zoneTravelCache
         self.graphPauses = (self.graphPauses or 0) + 1
         if D and D.PerfCount then D:PerfCount("build-pause") end
+        self.graphDirty = PAUSED_BUILD
         coroutine.yield()
         if self.graph ~= published.graph or (self.graphBuild or 0) ~= published.build then
             QR:Log("INFO", "BuildGraph abandoned: the graph was rebuilt while it paused")
             return false
         end
+        if self.graphDirty ~= PAUSED_BUILD then markedWhilePaused = true end
+        self.graphDirty = true
         -- What a reader built for the previous graph meanwhile stays with it.
         published.nodeIndex = self.nodeIndex
         published.zoneTravelGraph, published.zoneTravelCache = self.zoneTravelGraph, self.zoneTravelCache
@@ -284,7 +298,7 @@ function PathCalculator:BuildGraph()
         buildError = err
     end
 
-    if not Pause() then return self.graph end
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     -- Add portal hub connections
     success, err = pcall(function()
@@ -297,7 +311,7 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
-    if not Pause() then return self.graph end
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     -- Add player teleport edges
     success, err = pcall(function()
@@ -309,7 +323,7 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
-    if not Pause() then return self.graph end
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     -- Add dungeon/raid entrance nodes. The two passes of AddDungeonNodes, run
     -- here so the second one -- three quarters of a build, measured on the
@@ -322,7 +336,7 @@ function PathCalculator:BuildGraph()
         for index, dn in ipairs(dungeonNodes or {}) do
             success, err = pcall(self.ConnectViaContinentRouting, self, dn.name, dn.mapID, dn.x, dn.y)
             if not success then break end
-            if index % 8 == 0 and not Pause() then return self.graph end
+            if index % 8 == 0 and not Pause() then return self.graph, self.lastBuildSucceeded == true end
         end
     end
     if not success then
@@ -330,7 +344,7 @@ function PathCalculator:BuildGraph()
         buildSuccess = false
         buildError = buildError or err
     end
-    if not Pause() then return self.graph end
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     -- Dungeon teleports the player knows. Must come after AddDungeonNodes:
     -- the nodes these edges point at do not exist before it.
@@ -355,7 +369,7 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
-    if not Pause() then return self.graph end
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     -- IMPORTANT: Connect all nodes on the same map with walking edges
     -- This ensures teleport destinations connect to portal hubs on the same map
@@ -382,7 +396,7 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
-    if not Pause() then return self.graph end
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     success, err = pcall(function()
         self:ConnectIslandNodes()
@@ -400,7 +414,7 @@ function PathCalculator:BuildGraph()
     -- have written. The result was still faster at the shipped FLIGHT_SPEED,
     -- but only by margin -- recalibrating the speed below ~17 yd/s made flight
     -- routes slower than the ones they displaced. Now the guard decides it.
-    if not Pause() then return self.graph end
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     success, err = pcall(function()
         self:AddFlightEdges()
@@ -422,7 +436,7 @@ function PathCalculator:BuildGraph()
             local collected = TRQ:StaticPhaseMaps(self.graph, function(visited)
                 return visited % 64 ~= 0 or Pause()
             end)
-            if not collected then return self.graph end
+            if not collected then return self.graph, self.lastBuildSucceeded == true end
         else
             pcall(TRQ.StaticPhaseMaps, TRQ, self.graph)
         end
@@ -432,8 +446,9 @@ function PathCalculator:BuildGraph()
     -- replaced underneath me" from "I rebuilt it myself on the way in".
     self.graphBuild = (self.graphBuild or 0) + 1
 
-    -- Only mark clean if all steps succeeded
-    self.graphDirty = not buildSuccess
+    -- Only mark clean if all steps succeeded, and nothing marked the graph
+    -- while the build paused.
+    self.graphDirty = not buildSuccess or markedWhilePaused
     -- Remembered so CalculatePath can notice a faction change. Recorded even
     -- on a failed build: a half-built graph belongs to the faction it was
     -- attempted for.
@@ -441,12 +456,34 @@ function PathCalculator:BuildGraph()
 
     -- Log graph stats
     local nodeCount, edgeCount = 0, 0
-    for _ in pairs(self.graph.nodes) do nodeCount = nodeCount + 1 end
-    for _, edges in pairs(self.graph.edges) do
-        for _ in pairs(edges) do edgeCount = edgeCount + 1 end
+    -- The fixed graph's shape: fixed nodes, edges between them and their
+    -- weights. A build that ends with the shape of the one before it most
+    -- likely changed nothing (equal shapes are a hint, not a proof), which
+    -- the diagnostic trace counts per reason.
+    local transient = QR.Graph.IsTransientNode
+    local fixedNodes, fixedEdges, fixedWeight = 0, 0, 0
+    for _, node in pairs(self.graph.nodes) do
+        nodeCount = nodeCount + 1
+        if not transient(node) then fixedNodes = fixedNodes + 1 end
     end
+    for from, edges in pairs(self.graph.edges) do
+        local fixedFrom = not transient(self.graph.nodes[from])
+        for to, edge in pairs(edges) do
+            edgeCount = edgeCount + 1
+            if fixedFrom and not transient(self.graph.nodes[to]) then
+                fixedEdges = fixedEdges + 1
+                fixedWeight = fixedWeight + (edge.weight or 0)
+            end
+        end
+    end
+    local shape = string_format("%d:%d:%.1f", fixedNodes, fixedEdges, fixedWeight)
+    if buildSuccess and shape == self.lastGraphShape and D and D.PerfCount then
+        D:PerfCount("rebuild-same:" .. reason)
+    end
+    if buildSuccess then self.lastGraphShape = shape end
     QR:Log("INFO", string_format("BuildGraph complete: %d nodes, %d edges, success=%s",
         nodeCount, edgeCount, tostring(buildSuccess)))
+    self.lastBuildSucceeded = buildSuccess
     -- A sliced build's span includes its pauses; only a build in one piece
     -- is a duration of work.
     if D and D.PerfSample and buildStarted then
@@ -457,7 +494,7 @@ function PathCalculator:BuildGraph()
         end
     end
 
-    return self.graph
+    return self.graph, buildSuccess
 end
 
 --- Add sourced access-gated portals and explicit NPC phase changes.
@@ -930,8 +967,11 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         self.dirtyReason = "faction"
     end
     if self.graphDirty or not self.graph then
-        self:BuildGraph()
-        if self.graphDirty or not self.graph then return nil, Failure(self.FAILURE.GRAPH_UNAVAILABLE) end
+        -- Whether the build itself succeeded, not graphDirty: a build that a
+        -- newer mark reached while it paused leaves the graph marked for the
+        -- next calculation, and this one still uses the graph it just built.
+        local _, built = self:BuildGraph()
+        if not built or not self.graph then return nil, Failure(self.FAILURE.GRAPH_UNAVAILABLE) end
     end
     -- Recorded after any rebuild this calculation did itself, so the guard in
     -- ResumeAsync only fires on a rebuild by somebody else. Capturing the graph
