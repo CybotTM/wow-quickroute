@@ -1538,13 +1538,17 @@ function PathCalculator:StepAsync()
     self:ContinueAsync()
 end
 
--- A background request does no work in combat unless a foreground request
--- waits behind it. Parked, it keeps the temporary destination node it may have
--- added; it is resumed after the fight, never dropped (see the section header).
+-- A background request does no work in combat, nor in the wait after a fight
+-- (QR.POST_COMBAT_GRACE), unless a foreground request waits behind it. Parked,
+-- it keeps the temporary destination node it may have added; it is resumed
+-- afterwards, never dropped (see the section header).
+-- @return string|nil "combat" or "grace" when it must park
 local function MustPark(self, running)
-    if not running.background or self:HasForegroundWaiting() then return false end
+    if not running.background or self:HasForegroundWaiting() then return nil end
     local inCombat = _G.InCombatLockdown
-    return type(inCombat) == "function" and inCombat() == true
+    if type(inCombat) == "function" and inCombat() == true then return "combat" end
+    if QR.PostCombatGraceLeft and QR:PostCombatGraceLeft() > 0 then return "grace" end
+    return nil
 end
 
 --- Run the next slice of the running calculation, or look again later when it
@@ -1552,9 +1556,10 @@ end
 function PathCalculator:ContinueAsync()
     local running = self.asyncRunning
     if not running then return end
-    if MustPark(self, running) then
+    local parked = MustPark(self, running)
+    if parked then
         local D = QR.Diagnostics
-        if D and D.PerfCount then D:PerfCount("bg-parked") end
+        if D and D.PerfCount then D:PerfCount(parked == "grace" and "bg-grace" or "bg-parked") end
         if C_Timer and C_Timer.After then
             C_Timer.After(self.BACKGROUND_COMBAT_RECHECK or 1, function()
                 if self.asyncRunning == running then self:ContinueAsync() end

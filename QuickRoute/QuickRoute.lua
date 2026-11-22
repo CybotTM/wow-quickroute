@@ -338,6 +338,22 @@ function QR:AreActionsRestricted()
     return false, nil
 end
 
+-- Seconds after a fight in which background work (the quest buttons and
+-- their routes) waits. Combat end is when the game and other addons do their
+-- own work -- loot, achievements, boss mods -- and a background route that
+-- starts then competes with it. A route the player asks for is not delayed.
+QR.POST_COMBAT_GRACE = 10
+
+--- Seconds left of the wait after the last fight, 0 when none is running.
+-- A new fight restarts it from its end.
+-- @return number
+function QR:PostCombatGraceLeft()
+    local ended = self.combatEndedAt
+    if not ended or type(GetTime) ~= "function" then return 0 end
+    local left = ended + (self.POST_COMBAT_GRACE or 0) - GetTime()
+    return left > 0 and left or 0
+end
+
 -- Create and register the single combat event frame
 do
     local combatFrame = CreateFrame("Frame")
@@ -357,6 +373,7 @@ do
             end
         elseif event == "PLAYER_REGEN_ENABLED" then
             QR.inCombat = false
+            QR.combatEndedAt = GetTime and GetTime() or nil
             for _, cb in ipairs(combatCallbacks) do
                 if cb.leave then
                     local ok, err = pcall(cb.leave)

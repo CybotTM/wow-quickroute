@@ -454,6 +454,9 @@ else
             TestFramework.failedTests = TestFramework.failedTests + 1
             TestFramework.failures[#TestFramework.failures + 1] = "Failed to load: " .. basename
         else
+            -- The mock's GetTime stands still, so the wait after a fight that
+            -- an earlier file ended (QR.POST_COMBAT_GRACE) would never run out.
+            QR.combatEndedAt = nil
             local ok, runErr = pcall(chunk, TestFramework, QR, MockWoW)
             if not ok then
                 print("    ERROR running " .. basename .. ": " .. tostring(runErr))

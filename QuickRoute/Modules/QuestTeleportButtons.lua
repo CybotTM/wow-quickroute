@@ -855,6 +855,23 @@ function QTB:RefreshButtons()
     self:CancelRefresh()
     if not self.initialized then return end
     if InCombatLockdown() then return end
+    -- After a fight the refresh waits (QR.POST_COMBAT_GRACE): one timer runs
+    -- it when the wait is over, whatever asked for it meanwhile. The buttons
+    -- on screen follow the tracker again at once.
+    local grace = QR.PostCombatGraceLeft and QR:PostCombatGraceLeft() or 0
+    if grace > 0 and self.enabled then
+        local D = QR.Diagnostics
+        if D and D.PerfCount then D:PerfCount("qtb-grace") end
+        if self.updateFrame and next(self.activeButtons) then self.updateFrame:Show() end
+        if not self._graceTimer and C_Timer and C_Timer.After then
+            self._graceTimer = true
+            C_Timer.After(grace + 0.1, function()
+                QTB._graceTimer = nil
+                QTB:RefreshButtons()
+            end)
+        end
+        return
+    end
     if not self.enabled then
         self:ReleaseAllButtons()
         return

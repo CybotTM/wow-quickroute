@@ -371,3 +371,23 @@ T:run("Quest button background: the trace counts routes, deferrals, joins and in
     t:assertEqual(1, counted["instance:party"], "the instance type, got " .. tostring(counted["instance:party"]))
     t:assertEqual(1, counted["qtb-paused"], "and the pause, got " .. tostring(counted["qtb-paused"]))
 end)
+
+T:run("Quest button background: after a fight the refresh waits and runs once when the wait is over", function(t)
+    withButtons(function(s)
+        local cfg = MockWoW.config
+        s.track(9101, 84, 0.4, 0.4)
+        QR.combatEndedAt = cfg.baseTime
+        local ok, err = pcall(function()
+            QTB:RefreshButtons()
+            QTB:RefreshButtons() -- a quest event in the wait asks again
+            t:assertEqual(1, #s.queue, "one timer waits for the end, queued " .. #s.queue)
+            t:assertEqual(0, #s.routes, "no route started in the wait")
+            cfg.baseTime = cfg.baseTime + QR.POST_COMBAT_GRACE + 1
+            s.drain()
+            t:assertEqual(1, #s.routes, "the timer ran the refresh, routes " .. #s.routes)
+            t:assertEqual(3561, spellOf(9101), "and the button is configured")
+        end)
+        QR.combatEndedAt = nil
+        if not ok then error(err, 0) end
+    end)
+end)

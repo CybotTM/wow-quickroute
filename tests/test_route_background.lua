@@ -172,6 +172,55 @@ T:run("Background routes: a foreground request in combat is not held up by a par
     end)
 end)
 
+T:run("Background routes: the wait after a fight parks a background request until it is over", function(t)
+    local cfg = MockWoW.config
+    local savedTime = cfg.baseTime
+    local ok, err = pcall(withDriver, function(d)
+        -- What the combat frame does when the fight ends.
+        QR.combatFrame:GetScript("OnEvent")(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+        t:assertEqual(cfg.baseTime, QR.combatEndedAt, "the end of the fight is recorded")
+        local done = false
+        PC:CalculatePathAsync(20, 0.5, 0.5, nil, function() done = true end,
+            { consumer = "quest_buttons", background = true })
+        d.drain(10)
+        t:assertEqual(0, #d.budgets, "no slice ran in the wait, slices " .. #d.budgets)
+        t:assertFalse(done, "and nothing was published")
+        cfg.baseTime = cfg.baseTime + QR.POST_COMBAT_GRACE - 1
+        d.drain(10)
+        t:assertFalse(done, "one second before the end it still waits")
+        cfg.baseTime = cfg.baseTime + 1
+        d.drain()
+        t:assertTrue(done, "when the wait is over the request finishes")
+    end)
+    cfg.baseTime, QR.combatEndedAt = savedTime, nil
+    if not ok then error(err, 0) end
+end)
+
+T:run("Background routes: a foreground request is not held up by the wait after a fight", function(t)
+    local ok, err = pcall(withDriver, function(d)
+        QR.combatEndedAt = MockWoW.config.baseTime
+        local panel = false
+        PC:CalculatePathAsync(30, 0.5, 0.5, nil, function() panel = true end, { consumer = "api" })
+        d.drain(20)
+        t:assertTrue(panel, "the foreground request finished in the wait")
+    end)
+    QR.combatEndedAt = nil
+    if not ok then error(err, 0) end
+end)
+
+T:run("Background routes: a new fight restarts the wait from its own end", function(t)
+    local cfg = MockWoW.config
+    local savedTime = cfg.baseTime
+    QR.combatEndedAt = cfg.baseTime
+    cfg.baseTime = cfg.baseTime + QR.POST_COMBAT_GRACE - 1
+    local before = QR:PostCombatGraceLeft()
+    QR.combatFrame:GetScript("OnEvent")(QR.combatFrame, "PLAYER_REGEN_ENABLED")
+    local after = QR:PostCombatGraceLeft()
+    cfg.baseTime, QR.combatEndedAt = savedTime, nil
+    t:assertEqual(1, before, "one second was left of the first wait")
+    t:assertEqual(QR.POST_COMBAT_GRACE, after, "the second fight's end starts a full wait")
+end)
+
 T:run("Background routes: a background request writes no trace entries", function(t)
     local D = QR.Diagnostics
     local savedTracing, savedTrace = D.IsTracing, D.Trace
