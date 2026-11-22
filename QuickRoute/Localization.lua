@@ -221,6 +221,13 @@ L["MINI_PANEL_TITLE"] = "Quick Teleports"
 L["MINI_PANEL_NO_TELEPORTS"] = "No teleports available"
 L["MINI_PANEL_SUMMON_MOUNT"] = "Summon Mount"
 L["MINI_PANEL_RANDOM_FAVORITE"] = "Random favorite"
+L["MINI_PANEL_VIEW_TILES"] = "Tiles"
+L["MINI_PANEL_VIEW_TILES_TIP"] = "A card per teleport: its continent map with a red cross where it lands."
+L["MINI_PANEL_VIEW_TABLE"] = "Map table"
+L["MINI_PANEL_VIEW_TABLE_TIP"] = "All continents on one table, each teleport pinned where it lands."
+L["MINI_PANEL_VIEW_JOURNAL"] = "Travel journal"
+L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "A list on parchment with a small map for each teleport."
+L["MINI_PANEL_NO_FIXED_PLACE"] = "No fixed place"
 
 -- Dungeon/Raid routing
 L["DUNGEON_PICKER_TITLE"] = "Dungeons & Raids"
@@ -860,6 +867,13 @@ if GetLocale() == "deDE" then
     L["MINI_PANEL_NO_TELEPORTS"] = "Keine Teleporte verfügbar"
     L["MINI_PANEL_SUMMON_MOUNT"] = "Reittier rufen"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Zufälliger Favorit"
+    L["MINI_PANEL_VIEW_TILES"] = "Kacheln"
+    L["MINI_PANEL_VIEW_TILES_TIP"] = "Eine Karte pro Teleport: die Kontinentkarte mit einem roten Kreuz am Ziel."
+    L["MINI_PANEL_VIEW_TABLE"] = "Kartentisch"
+    L["MINI_PANEL_VIEW_TABLE_TIP"] = "Alle Kontinente auf einem Tisch, jeder Teleport an seinem Ziel angeheftet."
+    L["MINI_PANEL_VIEW_JOURNAL"] = "Reisebuch"
+    L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "Eine Liste auf Pergament mit einer kleinen Karte zu jedem Teleport."
+    L["MINI_PANEL_NO_FIXED_PLACE"] = "Ohne festen Ort"
 
     -- Dungeon/Raid routing
     L["DUNGEON_PICKER_TITLE"] = "Dungeons & Schlachtzüge"
@@ -1243,6 +1257,13 @@ if GetLocale() == "frFR" then
     L["MINI_PANEL_NO_TELEPORTS"] = "Aucune téléportation disponible"
     L["MINI_PANEL_SUMMON_MOUNT"] = "Invoquer la monture"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Favori aléatoire"
+    L["MINI_PANEL_VIEW_TILES"] = "Tuiles"
+    L["MINI_PANEL_VIEW_TILES_TIP"] = "Une carte par téléportation : la carte du continent avec une croix rouge à l'arrivée."
+    L["MINI_PANEL_VIEW_TABLE"] = "Table des cartes"
+    L["MINI_PANEL_VIEW_TABLE_TIP"] = "Tous les continents sur une table, chaque téléportation épinglée à son arrivée."
+    L["MINI_PANEL_VIEW_JOURNAL"] = "Carnet de voyage"
+    L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "Une liste sur parchemin avec une petite carte pour chaque téléportation."
+    L["MINI_PANEL_NO_FIXED_PLACE"] = "Sans lieu fixe"
 
     -- Dungeon/Raid routing
     L["DUNGEON_PICKER_TITLE"] = "Donjons & Raids"
@@ -1594,6 +1615,13 @@ if esLocale == "esES" or esLocale == "esMX" then
     L["MINI_PANEL_NO_TELEPORTS"] = "No hay teletransportes disponibles"
     L["MINI_PANEL_SUMMON_MOUNT"] = "Invocar montura"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Favorito aleatorio"
+    L["MINI_PANEL_VIEW_TILES"] = "Mosaico"
+    L["MINI_PANEL_VIEW_TILES_TIP"] = "Una tarjeta por teletransporte: el mapa del continente con una cruz roja en el destino."
+    L["MINI_PANEL_VIEW_TABLE"] = "Mesa de mapas"
+    L["MINI_PANEL_VIEW_TABLE_TIP"] = "Todos los continentes en una mesa, cada teletransporte clavado en su destino."
+    L["MINI_PANEL_VIEW_JOURNAL"] = "Diario de viaje"
+    L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "Una lista en pergamino con un pequeño mapa para cada teletransporte."
+    L["MINI_PANEL_NO_FIXED_PLACE"] = "Sin lugar fijo"
 
     -- Dungeon/Raid routing
     L["DUNGEON_PICKER_TITLE"] = "Mazmorras y bandas"
@@ -1944,6 +1972,13 @@ if GetLocale() == "ptBR" then
     L["MINI_PANEL_NO_TELEPORTS"] = "Nenhum teletransporte disponível"
     L["MINI_PANEL_SUMMON_MOUNT"] = "Invocar montaria"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Favorito aleatório"
+    L["MINI_PANEL_VIEW_TILES"] = "Blocos"
+    L["MINI_PANEL_VIEW_TILES_TIP"] = "Um cartão por teletransporte: o mapa do continente com uma cruz vermelha no destino."
+    L["MINI_PANEL_VIEW_TABLE"] = "Mesa de mapas"
+    L["MINI_PANEL_VIEW_TABLE_TIP"] = "Todos os continentes em uma mesa, cada teletransporte fixado no destino."
+    L["MINI_PANEL_VIEW_JOURNAL"] = "Diário de viagem"
+    L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "Uma lista em pergaminho com um pequeno mapa para cada teletransporte."
+    L["MINI_PANEL_NO_FIXED_PLACE"] = "Sem lugar fixo"
 
     -- Dungeon/Raid routing
     L["DUNGEON_PICKER_TITLE"] = "Masmorras e Raides"
@@ -2294,6 +2329,13 @@ if GetLocale() == "ruRU" then
     L["MINI_PANEL_NO_TELEPORTS"] = "Нет доступных телепортов"
     L["MINI_PANEL_SUMMON_MOUNT"] = "Призвать ездовое"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Случайное избранное"
+    L["MINI_PANEL_VIEW_TILES"] = "Плитки"
+    L["MINI_PANEL_VIEW_TILES_TIP"] = "Карточка на каждый телепорт: карта континента с красным крестом в точке прибытия."
+    L["MINI_PANEL_VIEW_TABLE"] = "Стол с картой"
+    L["MINI_PANEL_VIEW_TABLE_TIP"] = "Все континенты на одном столе, каждый телепорт приколот к точке прибытия."
+    L["MINI_PANEL_VIEW_JOURNAL"] = "Дорожный журнал"
+    L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "Список на пергаменте с маленькой картой для каждого телепорта."
+    L["MINI_PANEL_NO_FIXED_PLACE"] = "Без точного места"
 
     -- Dungeon/Raid routing
     L["DUNGEON_PICKER_TITLE"] = "Подземелья и рейды"
@@ -2644,6 +2686,13 @@ if GetLocale() == "koKR" then
     L["MINI_PANEL_NO_TELEPORTS"] = "사용 가능한 순간이동이 없습니다"
     L["MINI_PANEL_SUMMON_MOUNT"] = "탈것 소환"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "무작위 즐겨찾기"
+    L["MINI_PANEL_VIEW_TILES"] = "타일"
+    L["MINI_PANEL_VIEW_TILES_TIP"] = "순간이동마다 카드 한 장: 도착 지점에 빨간 십자가가 표시된 대륙 지도."
+    L["MINI_PANEL_VIEW_TABLE"] = "지도 탁자"
+    L["MINI_PANEL_VIEW_TABLE_TIP"] = "모든 대륙을 한 탁자에, 각 순간이동은 도착 지점에 고정."
+    L["MINI_PANEL_VIEW_JOURNAL"] = "여행 일지"
+    L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "양피지 위 목록, 순간이동마다 작은 지도 포함."
+    L["MINI_PANEL_NO_FIXED_PLACE"] = "고정 위치 없음"
 
     -- Dungeon/Raid routing
     L["DUNGEON_PICKER_TITLE"] = "던전 및 공격대"
@@ -2994,6 +3043,13 @@ if GetLocale() == "zhCN" then
     L["MINI_PANEL_NO_TELEPORTS"] = "没有可用的传送"
     L["MINI_PANEL_SUMMON_MOUNT"] = "召唤坐骑"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "随机最爱"
+    L["MINI_PANEL_VIEW_TILES"] = "卡片"
+    L["MINI_PANEL_VIEW_TILES_TIP"] = "每个传送一张卡片：大陆地图上用红色十字标出目的地。"
+    L["MINI_PANEL_VIEW_TABLE"] = "地图桌"
+    L["MINI_PANEL_VIEW_TABLE_TIP"] = "所有大陆摆在一张桌上，每个传送钉在目的地。"
+    L["MINI_PANEL_VIEW_JOURNAL"] = "旅行日志"
+    L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "羊皮纸上的列表，每个传送附一张小地图。"
+    L["MINI_PANEL_NO_FIXED_PLACE"] = "无固定地点"
 
     -- Dungeon/Raid routing
     L["DUNGEON_PICKER_TITLE"] = "地下城与团队副本"
@@ -3344,6 +3400,13 @@ if GetLocale() == "zhTW" then
     L["MINI_PANEL_NO_TELEPORTS"] = "沒有可用的傳送"
     L["MINI_PANEL_SUMMON_MOUNT"] = "召喚坐騎"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "隨機最愛"
+    L["MINI_PANEL_VIEW_TILES"] = "卡片"
+    L["MINI_PANEL_VIEW_TILES_TIP"] = "每個傳送一張卡片：大陸地圖上以紅色十字標出目的地。"
+    L["MINI_PANEL_VIEW_TABLE"] = "地圖桌"
+    L["MINI_PANEL_VIEW_TABLE_TIP"] = "所有大陸擺在一張桌上，每個傳送釘在目的地。"
+    L["MINI_PANEL_VIEW_JOURNAL"] = "旅行日誌"
+    L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "羊皮紙上的清單，每個傳送附一張小地圖。"
+    L["MINI_PANEL_NO_FIXED_PLACE"] = "無固定地點"
 
     -- Dungeon/Raid routing
     L["DUNGEON_PICKER_TITLE"] = "地城與團隊副本"
@@ -3694,6 +3757,13 @@ if GetLocale() == "itIT" then
     L["MINI_PANEL_NO_TELEPORTS"] = "Nessun teletrasporto disponibile"
     L["MINI_PANEL_SUMMON_MOUNT"] = "Evoca cavalcatura"
     L["MINI_PANEL_RANDOM_FAVORITE"] = "Preferito casuale"
+    L["MINI_PANEL_VIEW_TILES"] = "Riquadri"
+    L["MINI_PANEL_VIEW_TILES_TIP"] = "Una scheda per teletrasporto: la mappa del continente con una croce rossa sulla destinazione."
+    L["MINI_PANEL_VIEW_TABLE"] = "Tavolo delle mappe"
+    L["MINI_PANEL_VIEW_TABLE_TIP"] = "Tutti i continenti su un tavolo, ogni teletrasporto fissato alla sua destinazione."
+    L["MINI_PANEL_VIEW_JOURNAL"] = "Diario di viaggio"
+    L["MINI_PANEL_VIEW_JOURNAL_TIP"] = "Un elenco su pergamena con una piccola mappa per ogni teletrasporto."
+    L["MINI_PANEL_NO_FIXED_PLACE"] = "Senza luogo fisso"
 
     -- Dungeon/Raid routing
     L["DUNGEON_PICKER_TITLE"] = "Spedizioni e incursioni"

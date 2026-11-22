@@ -48,6 +48,9 @@ globals = {
     "C_QuestLog",
     "C_ToyBox",
     "C_Texture",
+    -- Blizzard_SharedXML nine-slice helpers (the Quick Teleports wooden frame)
+    "NineSliceUtil",
+    "NineSliceLayouts",
     "C_Timer",
     "C_TaxiMap",
     "C_TaskQuest",

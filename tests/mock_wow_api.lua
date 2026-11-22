@@ -40,6 +40,8 @@ MockWoW.config = {
     ownedToys = {},
     addonMetadata = {},
     mapArt = {},
+    mapRects = {},          -- { [zoneMapID] = { [continentMapID] = { minX, maxX, minY, maxY } } } for C_Map.GetMapRectOnMap
+    atlases = {},           -- { [atlasName] = true } for C_Texture.GetAtlasInfo; empty means no atlas exists
 
     -- Spells the player knows: { [spellID] = true }
     knownSpells = {},
@@ -412,6 +414,8 @@ function MockWoW:Reset()
     self.config.ownedToys = {}
     self.config.addonMetadata = {}
     self.config.mapArt = {}
+    self.config.mapRects = {}
+    self.config.atlases = {}
     _G.SettingsPanel._layouts = {}
     _G.TomTom = nil
     self.config.knownSpells = {}
@@ -756,6 +760,8 @@ local function CreateMockFrame(frameType, name, parent, template)
     end
     function frame:GetTextWidth() return #(self._text or "") * 7 end
     function frame:CreateTexture(name, layer)
+        -- Counted, so a test can tell whether a refresh created textures.
+        MockWoW.texturesCreated = (MockWoW.texturesCreated or 0) + 1
         local texture = CreateMockTexture(self)
         self._regions = self._regions or {}
         self._regions[#self._regions + 1] = texture
@@ -1227,6 +1233,16 @@ function MockWoW:Install()
         end
         -- Return a generic entry for unknown maps
         return { mapID = mapID, name = "Map " .. tostring(mapID), mapType = 3 }
+    end
+
+    -- A zone's rectangle on an ancestor map, in the client's return order
+    -- (minX, maxX, minY, maxY). Nothing for a pair the config does not list,
+    -- as the client answers for maps that do not nest.
+    _G.C_Map.GetMapRectOnMap = function(mapID, topMapID)
+        local rects = cfg.mapRects and cfg.mapRects[mapID]
+        local rect = rects and rects[topMapID]
+        if not rect then return nil end
+        return rect[1], rect[2], rect[3], rect[4]
     end
 
     _G.C_Map.GetPlayerMapPosition = function(mapID, unit)
@@ -1781,6 +1797,48 @@ function MockWoW:Install()
     _G.UIParent._size = { w = 1024, h = 768 }  -- Standard UI resolution for layout tests
 
     _G.UISpecialFrames = {}
+
+    -- Atlas lookup: an atlas exists only when a test lists it in cfg.atlases,
+    -- so every caller's fallback is what runs by default.
+    _G.C_Texture = {
+        GetAtlasInfo = function(atlas)
+            if cfg.atlases and cfg.atlases[atlas] then
+                return { width = 32, height = 32, file = atlas }
+            end
+            return nil
+        end,
+    }
+
+    -- Blizzard_SharedXML's nine-slice helper, reduced to what callers observe:
+    -- one texture per piece the layout names, created on the container the
+    -- way GetNineSlicePiece does, each set to the piece's atlas.
+    local NINE_SLICE_PIECES = { "TopLeftCorner", "TopRightCorner", "BottomLeftCorner", "BottomRightCorner",
+        "TopEdge", "BottomEdge", "LeftEdge", "RightEdge", "Center" }
+    _G.NineSliceUtil = {
+        ApplyLayout = function(container, layout)
+            for _, name in ipairs(NINE_SLICE_PIECES) do
+                local piece = layout[name]
+                if piece then
+                    local texture = container[name] or container:CreateTexture()
+                    container[name] = texture
+                    texture:SetAtlas(piece.atlas)
+                end
+            end
+            container._nineSliceLayout = layout
+        end,
+    }
+    _G.NineSliceLayouts = {
+        WoodenNeutralFrameTemplate = {
+            TopLeftCorner = { atlas = "Neutral-NineSlice-Corner" },
+            TopRightCorner = { atlas = "Neutral-NineSlice-Corner" },
+            BottomLeftCorner = { atlas = "Neutral-NineSlice-Corner" },
+            BottomRightCorner = { atlas = "Neutral-NineSlice-Corner" },
+            TopEdge = { atlas = "_Neutral-NineSlice-EdgeTop" },
+            BottomEdge = { atlas = "_Neutral-NineSlice-EdgeBottom" },
+            LeftEdge = { atlas = "!Neutral-NineSlice-EdgeLeft" },
+            RightEdge = { atlas = "!Neutral-NineSlice-EdgeRight" },
+        },
+    }
 
     ---------------------------------------------------------------------------
     -- Minimap (for MinimapButton)
