@@ -1336,10 +1336,29 @@ local function ApplyStatus(element, entry)
     if element.SetAlpha and element.isToken then element:SetAlpha(dimmed and 0.75 or 1) end
 end
 
+-- Destinations without a fixed point that Blizzard's map legend has a
+-- symbol for (MapLegendFrame.lua): the symbol goes before the destination,
+-- so the kind of place reads at a glance next to the item's own icon.
+local DESTINATION_BADGES = {
+    ["Random Delve"] = "delves-regular",
+}
+
+--- The destination text of an entry, with its map legend symbol in front
+-- where it has one and the client has the atlas.
+-- @return string
+function MiniTeleportPanel.DestinationText(entry)
+    local text = GetLocalizedDestination(entry)
+    local badge = entry and entry.data and DESTINATION_BADGES[entry.data.destination]
+    if badge and AtlasExists(badge) then
+        return "|A:" .. badge .. ":14:14|a " .. text
+    end
+    return text
+end
+
 local function FillTexts(element, entry)
     SetEntryIcon(element.icon, entry)
     SetTextFitted(element.nameLabel, GetLocalizedName(entry))
-    SetTextFitted(element.destLabel, GetLocalizedDestination(entry))
+    SetTextFitted(element.destLabel, MiniTeleportPanel.DestinationText(entry))
     element.dimmed = nil
     ApplyStatus(element, entry)
 end

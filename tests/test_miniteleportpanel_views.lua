@@ -593,6 +593,16 @@ T:run("MiniTP views: the housing teleport shows the dashboard's homestone", func
     t:assertNotNil(plain:GetTexture(), "and a texture is set")
 end)
 
+T:run("MiniTP views: a random delve shows the map legend's delve symbol", function(t)
+    resetState(P.VIEW_TILES)
+    local entry = { id = 230850, isSpell = false, data = { destination = "Random Delve" } }
+    t:assertFalse(P.DestinationText(entry):find("|A:", 1, true) ~= nil, "no symbol without the atlas")
+    MockWoW.config.atlases["delves-regular"] = true
+    local text = P.DestinationText(entry)
+    t:assertEqual(1, text:find("|A:delves-regular:14:14|a ", 1, true), "the delve symbol in front, got " .. text)
+    t:assertTrue(#text > #"|A:delves-regular:14:14|a ", "followed by the destination")
+end)
+
 T:run("MiniTP views: one missing atlas falls back to the backdrop", function(t)
     resetState(P.VIEW_TILES)
     for i = 2, #WOOD do MockWoW.config.atlases[WOOD[i]] = true end
