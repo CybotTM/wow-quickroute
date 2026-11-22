@@ -136,6 +136,9 @@ T:run("Quest shortcuts: walking-first routes never advertise a later teleport", 
         } }
     end
     qtb:InvalidateCache()
+    -- The route bound (QTB.ROUTES_PER_MINUTE) counts by GetTime, and the mock's
+    -- clock stands still, so the routes of earlier tests would fill it.
+    qtb:ResetRouteBudget()
     qtb:RefreshButtons()
     t:assertNil(qtb.activeButtons[123], "A same-map teleport does not override the planner's first walk")
 

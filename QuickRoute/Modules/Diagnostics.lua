@@ -152,6 +152,8 @@ local TRACE_EVENTS = {
     "PLAYER_CONTROL_LOST", "PLAYER_CONTROL_GAINED",
     "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED",
     "SUPER_TRACKING_CHANGED", "USER_WAYPOINT_UPDATED",
+    -- The performance window is written out before WoW saves (see FlushPerf).
+    "PLAYER_LEAVING_WORLD", "PLAYER_LOGOUT",
 }
 Diagnostics.TRACE_EVENTS = TRACE_EVENTS
 
@@ -579,6 +581,105 @@ function Diagnostics:Trace(category, message, fields, level)
     if not ok then self.lastTraceError = tostring(err) end
 end
 
+-------------------------------------------------------------------------------
+-- Performance samples (diagnostic trace only)
+--
+-- What the route work costs in the game, where the standalone measurements
+-- cannot reach: how long each slice of a route search takes, how long a
+-- graph build takes and what marked the graph for it, how often the quest
+-- buttons route, wait, defer or pause, and which instance types the client
+-- reports. Samples and counts are summed in memory and written as "perf"
+-- entries once per PERF_WINDOW_SECONDS, and before WoW saves
+-- (PLAYER_LEAVING_WORLD, PLAYER_LOGOUT): one entry per sample kind with its
+-- count, total, maximum and a histogram, and one "counts" entry.
+-------------------------------------------------------------------------------
+
+Diagnostics.PERF_WINDOW_SECONDS = 300
+-- Upper bounds of the histogram buckets in milliseconds. 16 is one frame at
+-- 60 fps, 33 two.
+local PERF_BUCKETS = { 2, 4, 8, 16, 33 }
+Diagnostics.PERF_BUCKETS = PERF_BUCKETS
+
+local function PerfWindow(self)
+    local perf = self._perf
+    if not perf then
+        perf = { start = GetTime and GetTime() or 0, samples = {}, counts = {} }
+        self._perf = perf
+    end
+    return perf
+end
+
+local function PerfDue(self, perf)
+    local now = GetTime and GetTime() or 0
+    if now - perf.start >= (self.PERF_WINDOW_SECONDS or 300) then self:FlushPerf("window") end
+end
+
+--- Add one duration to the window.
+-- @param kind string e.g. "slice-bg", "build"
+-- @param ms number milliseconds
+function Diagnostics:PerfSample(kind, ms)
+    if not self:IsTracing() or type(kind) ~= "string" or type(ms) ~= "number"
+        or ms ~= ms or ms < 0 or ms == math.huge then return end
+    local perf = PerfWindow(self)
+    local sample = perf.samples[kind]
+    if not sample then
+        sample = { n = 0, total = 0, max = 0, buckets = {} }
+        perf.samples[kind] = sample
+    end
+    sample.n = sample.n + 1
+    sample.total = sample.total + ms
+    if ms > sample.max then sample.max = ms end
+    local slot = #PERF_BUCKETS + 1
+    for index, bound in ipairs(PERF_BUCKETS) do
+        if ms < bound then slot = index; break end
+    end
+    sample.buckets[slot] = (sample.buckets[slot] or 0) + 1
+    PerfDue(self, perf)
+end
+
+--- Count one occurrence in the window.
+-- @param key string e.g. "qtb-route", "rebuild:zone", "instance:party"
+function Diagnostics:PerfCount(key)
+    if not self:IsTracing() or type(key) ~= "string" then return end
+    local perf = PerfWindow(self)
+    perf.counts[key] = (perf.counts[key] or 0) + 1
+    PerfDue(self, perf)
+end
+
+--- Write the window's samples and counts as "perf" entries and start a new
+-- window. Nothing is written for an empty window.
+-- @param reason string "window", "PLAYER_LOGOUT", ...
+function Diagnostics:FlushPerf(reason)
+    local perf = self._perf
+    self._perf = nil
+    if not perf or not self:IsTracing() then return end
+    local seconds = Round((GetTime and GetTime() or 0) - perf.start, 1)
+    for kind, sample in pairs(perf.samples) do
+        local fields = {
+            reason = reason, seconds = seconds, n = sample.n,
+            total = Round(sample.total, 2), max = Round(sample.max, 2),
+        }
+        for index, bound in ipairs(PERF_BUCKETS) do
+            fields["lt" .. bound] = sample.buckets[index] or 0
+        end
+        fields["ge" .. PERF_BUCKETS[#PERF_BUCKETS]] = sample.buckets[#PERF_BUCKETS + 1] or 0
+        self:Trace("perf", kind, fields)
+    end
+    -- In parts below the trace's key limit (TRACE_FIELD_KEYS_MAX), which
+    -- would otherwise cut keys off without saying which.
+    local keys = {}
+    for key in pairs(perf.counts) do keys[#keys + 1] = key end
+    table.sort(keys)
+    local perPart = TRACE_FIELD_KEYS_MAX - 3
+    for first = 1, #keys, perPart do
+        local fields = { reason = reason, seconds = seconds, part = math.floor((first - 1) / perPart) + 1 }
+        for index = first, math.min(#keys, first + perPart - 1) do
+            fields[keys[index]] = perf.counts[keys[index]]
+        end
+        self:Trace("perf", "counts", fields)
+    end
+end
+
 local function TrimStack(stack)
     if type(stack) ~= "string" then return nil end
     stack = stack:gsub("Interface[/\\]AddOns[/\\]", ""):gsub("%s*\n%s*", " | "):gsub(" | $", "")
@@ -728,6 +829,7 @@ function Diagnostics:OnTraceEvent(event, ...)
     end
     if GAME_MAP_EVENTS[event] then GameMapFields(fields) end
     self:Trace("event", event, fields)
+    if event == "PLAYER_LEAVING_WORLD" or event == "PLAYER_LOGOUT" then self:FlushPerf(event) end
 end
 
 --- Register or unregister the trace events to match the setting.

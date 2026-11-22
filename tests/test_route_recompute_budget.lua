@@ -58,6 +58,12 @@ local function withCountedRoutes(body)
     QTB.enabled = true
     if not QTB.initialized then QTB:Initialize() end
     QTB:InvalidateCache()
+    -- The route bound (QTB.ROUTES_PER_MINUTE) counts by GetTime, and the mock's
+    -- clock stands still, so the routes of earlier tests would fill it.
+    -- This file counts the routes the events ask for, not the bound.
+    saved.routesPerMinute = QTB.ROUTES_PER_MINUTE
+    QTB.ROUTES_PER_MINUTE = math.huge
+    QTB:ResetRouteBudget()
 
     -- Counted rather than real: this file is about how many routes are asked
     -- for, and the real ones are slow enough to dominate the suite.
@@ -77,6 +83,8 @@ local function withCountedRoutes(body)
     QR.PathCalculator.graphDirty = saved.graphDirty
     MockWoW.config.knownSpells[3561] = saved.knownSpell
     QTB.enabled = saved.enabled
+    QTB.ROUTES_PER_MINUTE = saved.routesPerMinute
+    QTB:ResetRouteBudget()
     if not ok then error(err, 0) end
 end
 

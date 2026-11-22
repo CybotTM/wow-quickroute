@@ -79,6 +79,15 @@ local function session()
 end
 
 session()
+-- Route work for the performance samples: a route that rebuilds the graph
+-- (as after a zone change), and a quest-button route, which is a background
+-- request. The window is written out the way the client saves.
+QR.PathCalculator.graphDirty = true
+QR.PathCalculator.dirtyReason = "zone"
+QR.UI:RefreshRoute()
+cfg.questWatches = { 4711 }
+QR.QuestTeleportButtons:RefreshButtons()
+MockWoW:FireEvent("PLAYER_LOGOUT")
 if fill then
     -- A full session per round computes a route each time, which takes
     -- minutes at 20000 entries. The rounds after the first replay the entries

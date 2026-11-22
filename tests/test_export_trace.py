@@ -153,5 +153,39 @@ class ExportTraceTest(unittest.TestCase):
         self.assertEqual("unknown", headers[0]["flavor"])
 
 
+
+    def test_report_sums_the_performance_samples_of_a_session(self):
+        # The fixture drives a route that rebuilds the graph and a quest-button
+        # route, then the client's save event; the samples go through the
+        # SavedVariables file into the report.
+        for name in ("slice-fg", "slice-bg", "route-fg", "route-bg"):
+            self.assertRegex(self.report, rf"retail\s+{name}\s+n=\d+", name)
+        self.assertIn("rebuild:zone=", self.report)
+        self.assertIn("build-pause=", self.report)
+        self.assertIn("qtb-route=", self.report)
+
+class PerformanceSummaryTest(unittest.TestCase):
+    def test_sums_samples_and_counts_per_flavor(self):
+        def perf(message, **fields):
+            return {"flavor": "retail", "category": "perf", "message": message, "fields": fields}
+
+        records = [
+            perf("slice-bg", n=2, total=6.0, max=5.0, lt2=0, lt4=1, lt8=1, lt16=0, lt33=0, ge33=0, seconds=300),
+            perf("slice-bg", n=1, total=40.0, max=40.0, lt2=0, lt4=0, lt8=0, lt16=0, lt33=0, ge33=1, seconds=12),
+            perf("counts", reason="window", seconds=300, **{"qtb-route": 3, "rebuild:zone": 1}),
+            perf("counts", reason="PLAYER_LOGOUT", seconds=12, **{"qtb-route": 2}),
+            {"flavor": "retail", "category": "log", "message": "unrelated"},
+        ]
+        lines = export_trace.performance(records)
+        text = "\n".join(lines)
+        self.assertIn("slice-bg     n=3 mean=15.33 max=40.00", text)
+        self.assertIn("lt4=1 lt8=1", text)
+        self.assertIn("ge33=1", text)
+        self.assertIn("qtb-route=5", text)
+        self.assertIn("rebuild:zone=1", text)
+
+    def test_no_section_without_perf_entries(self):
+        self.assertEqual([], export_trace.performance([{"flavor": "retail", "category": "log", "message": "x"}]))
+
 if __name__ == "__main__":
     unittest.main()

@@ -2615,6 +2615,7 @@ function UI:GenerateZoneDebugInfo()
         local oldGraphDirty = QR.PathCalculator.graphDirty
         QR.debugMode = true
         QR.PathCalculator.graphDirty = true
+        QR.PathCalculator.dirtyReason = "ui"
 
         local success, result = pcall(function()
             return QR.PathCalculator:CalculatePath(waypoint.mapID, waypoint.x, waypoint.y)

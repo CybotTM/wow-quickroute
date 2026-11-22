@@ -157,9 +157,15 @@ for _, event in ipairs({ "ZONE_CHANGED_NEW_AREA", "TAXI_NODE_STATUS_CHANGED", "T
     "PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_CONTROL_GAINED" }) do
     flyableCacheFrame:RegisterEvent(event)
 end
-flyableCacheFrame:SetScript("OnEvent", function()
+--- A flight or movement event: speeds and flight permission may have changed.
+-- @param event string The event name, recorded as the rebuild's reason
+function PathCalculator:OnMovementEvent(event)
     if QR.TravelTime.ClearMovementCache then QR.TravelTime:ClearMovementCache() end
-    PathCalculator.graphDirty = true
+    self.graphDirty = true
+    self.dirtyReason = "movement:" .. tostring(event)
+end
+flyableCacheFrame:SetScript("OnEvent", function(_, event)
+    PathCalculator:OnMovementEvent(event)
 end)
 
 --- Get a localized display name for a graph node
@@ -212,7 +218,69 @@ end
 --- Build the complete travel graph
 -- Creates nodes for locations and edges for travel methods
 -- @return Graph|nil The constructed travel graph, or nil on error
+-- What graphDirty holds while a build inside the driver pauses (BuildGraph).
+-- BuildGraph returns the graph and whether the build succeeded; a build that
+-- gave up returns the graph that replaced it and that build's outcome.
+local PAUSED_BUILD = setmetatable({}, { __tostring = function() return "paused build" end })
+
 function PathCalculator:BuildGraph()
+    -- Inside the asynchronous driver the build pauses between its steps when
+    -- the slice's budget is spent. A pause puts the previous, complete graph
+    -- back for everybody else and takes the half-built one along; a build that
+    -- finds on resuming that somebody else rebuilt meanwhile gives up and
+    -- leaves that graph in place.
+    local sliced = self.asyncRunning ~= nil and coroutine.running() == self.asyncRunning.thread
+    -- What marked the graph for this build, for the diagnostic trace. A build
+    -- nobody asked for by a recorded reason (the first one, a test) is "other".
+    local reason = self.dirtyReason or (self.graph and "other" or "first")
+    self.dirtyReason = nil
+    local D = QR.Diagnostics
+    if D and D.PerfCount then D:PerfCount("rebuild:" .. reason) end
+    local clock = type(_G.debugprofilestop) == "function" and _G.debugprofilestop or nil
+    local buildStarted = clock and clock()
+    local published = sliced and {
+        graph = self.graph, nodeIndex = self.nodeIndex,
+        zoneTravelGraph = self.zoneTravelGraph, zoneTravelCache = self.zoneTravelCache,
+        build = self.graphBuild or 0,
+    } or nil
+    -- A mark written while the build pauses must survive it: the build
+    -- ends with graphDirty = not buildSuccess, which would drop a mark that
+    -- asked for data newer than this build read. The flag holds a sentinel
+    -- while paused (truthy, so every other caller still rebuilds); any write
+    -- replaces it, and the build then leaves the graph marked.
+    local markedWhilePaused = false
+    local function Pause()
+        if not sliced or not QR.Graph.BudgetSpent() then return true end
+        local mine = {
+            graph = self.graph, nodeIndex = self.nodeIndex,
+            zoneTravelGraph = self.zoneTravelGraph, zoneTravelCache = self.zoneTravelCache,
+        }
+        self.graph, self.nodeIndex = published.graph, published.nodeIndex
+        self.zoneTravelGraph, self.zoneTravelCache = published.zoneTravelGraph, published.zoneTravelCache
+        self.graphPauses = (self.graphPauses or 0) + 1
+        if D and D.PerfCount then D:PerfCount("build-pause") end
+        self.graphDirty = PAUSED_BUILD
+        coroutine.yield()
+        if self.graph ~= published.graph or (self.graphBuild or 0) ~= published.build then
+            QR:Log("INFO", "BuildGraph abandoned: the graph was rebuilt while it paused")
+            return false
+        end
+        if self.graphDirty ~= PAUSED_BUILD then markedWhilePaused = true end
+        self.graphDirty = true
+        -- What a reader built for the previous graph meanwhile stays with it.
+        published.nodeIndex = self.nodeIndex
+        published.zoneTravelGraph, published.zoneTravelCache = self.zoneTravelGraph, self.zoneTravelCache
+        self.graph, self.nodeIndex = mine.graph, mine.nodeIndex
+        self.zoneTravelGraph, self.zoneTravelCache = mine.zoneTravelGraph, mine.zoneTravelCache
+        return true
+    end
+
+    -- How long each step of the build took, as "step:<name>" samples in the
+    -- diagnostic trace, so a long slice in the game can be attributed.
+    local function Timed(name, started)
+        if started and D and D.PerfSample then D:PerfSample("step:" .. name, clock() - started) end
+    end
+
     -- Create new graph
     self.graph = QR.Graph:New()
     -- The index belongs to the graph that was just discarded. Leaving it in
@@ -227,103 +295,165 @@ function PathCalculator:BuildGraph()
         return nil
     end
 
-    QR:Log("INFO", "BuildGraph started")
+    QR:Log("INFO", "BuildGraph started (" .. reason .. ")")
 
     local buildSuccess = true
     local buildError = nil
 
     -- Add zone/city nodes
+    local t_zones = clock and clock()
     local success, err = pcall(function()
         self:AddZoneNodes()
     end)
+    Timed("zones", t_zones)
     if not success then
         QR:Error("AddZoneNodes failed: " .. tostring(err))
         buildSuccess = false
         buildError = err
     end
 
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
     -- Add portal hub connections
+    local t_portals = clock and clock()
     success, err = pcall(function()
         self:AddPortalConnections()
         self:AddConditionalConnections()
     end)
+    Timed("portals", t_portals)
     if not success then
         QR:Error("AddPortalConnections failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
 
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
     -- Add player teleport edges
+    local t_teleports = clock and clock()
     success, err = pcall(function()
         self:AddPlayerTeleportEdges()
     end)
+    Timed("teleports", t_teleports)
     if not success then
         QR:Error("AddPlayerTeleportEdges failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
 
-    -- Add dungeon/raid entrance nodes
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
+    -- Add dungeon/raid entrance nodes. The two passes of AddDungeonNodes, run
+    -- here so the second one -- three quarters of a build, measured on the
+    -- test graph -- can pause after every node: one node took up to 3.7 ms
+    -- there, and the game ran the build about five times slower.
+    local dungeonNodes
     success, err = pcall(function()
-        self:AddDungeonNodes()
+        dungeonNodes = self:AddDungeonEntranceNodes()
     end)
+    if success then
+        for index, dn in ipairs(dungeonNodes or {}) do
+            local started = clock and clock()
+            success, err = pcall(self.ConnectViaContinentRouting, self, dn.name, dn.mapID, dn.x, dn.y)
+            Timed("dungeon-node", started)
+            if not success then break end
+            if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+        end
+    end
     if not success then
         QR:Error("AddDungeonNodes failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     -- Dungeon teleports the player knows. Must come after AddDungeonNodes:
     -- the nodes these edges point at do not exist before it.
+    local t_dungeon_teleports = clock and clock()
     success, err = pcall(function()
         self:AddDungeonTeleportEdges()
     end)
+    Timed("dungeon-teleports", t_dungeon_teleports)
     if not success then
         QR:Error("AddDungeonTeleportEdges failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
 
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
     -- A zone whose only reason to be in the graph is its flight master. Before
     -- the island and flight passes, so the node gets its overland edges and
     -- AddFlightEdges finds an anchor on the map.
+    local t_flight_masters = clock and clock()
     success, err = pcall(function()
         self:AddFlightMasterNodes()
     end)
+    Timed("flight-masters", t_flight_masters)
     if not success then
         QR:Error("AddFlightMasterNodes failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
 
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
     -- IMPORTANT: Connect all nodes on the same map with walking edges
     -- This ensures teleport destinations connect to portal hubs on the same map
+    -- One map at a time, so the build can pause between maps.
+    local sameMapGroups
     success, err = pcall(function()
-        self:ConnectSameMapNodes()
+        sameMapGroups = self:SameMapGroups()
     end)
+    if success then
+        for _, group in ipairs(sameMapGroups or {}) do
+            local started = clock and clock()
+            success, err = pcall(self.ConnectSameMapGroup, self, group)
+            Timed("same-map", started)
+            if not success then break end
+            if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+        end
+    end
     if not success then
         QR:Error("ConnectSameMapNodes failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
 
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
     -- Connect island nodes to the continent graph.
     -- Portal destinations and dungeon entrances may be the only node on their
     -- map, leaving them isolated. Give each one a hub/continent edge so
     -- Dijkstra can traverse across maps.
     -- The player node last, once every other node and edge exists.
+    local t_player_node = clock and clock()
     success, err = pcall(function()
         self:ConnectPlayerNode()
     end)
+    Timed("player-node", t_player_node)
     if not success then
         QR:Error("ConnectPlayerNode failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
 
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
+    -- One node at a time, so the build can pause between nodes.
+    local islandCandidates
     success, err = pcall(function()
-        self:ConnectIslandNodes()
+        islandCandidates = self:IslandCandidates()
     end)
+    if success then
+        for _, nodeName in ipairs(islandCandidates or {}) do
+            local started = clock and clock()
+            success, err = pcall(self.ConnectIslandNode, self, nodeName)
+            Timed("island-node", started)
+            if not success then break end
+            if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+        end
+    end
     if not success then
         QR:Error("ConnectIslandNodes failed: " .. tostring(err))
         buildSuccess = false
@@ -337,36 +467,97 @@ function PathCalculator:BuildGraph()
     -- have written. The result was still faster at the shipped FLIGHT_SPEED,
     -- but only by margin -- recalibrating the speed below ~17 yd/s made flight
     -- routes slower than the ones they displaced. Now the guard decides it.
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
+    local t_flight_edges = clock and clock()
     success, err = pcall(function()
         self:AddFlightEdges()
     end)
+    Timed("flight-edges", t_flight_edges)
     if not success then
         QR:Error("AddFlightEdges failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
 
+    -- The phase maps of the fixed graph, collected now rather than in the
+    -- first search that needs them, where the collection took a slice of its
+    -- own (7 ms on the test graph). Here it can pause every 16 nodes: nobody
+    -- else sees this graph yet. A pause cannot cross pcall, so only the
+    -- build in one piece guards it.
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+    local TRQ = QR.TravelRequirements
+    if TRQ and TRQ.StaticPhaseMaps then
+        if sliced then
+            local collected = TRQ:StaticPhaseMaps(self.graph, function(visited)
+                return visited % 16 ~= 0 or Pause()
+            end)
+            if not collected then return self.graph, self.lastBuildSucceeded == true end
+        else
+            pcall(TRQ.StaticPhaseMaps, TRQ, self.graph)
+        end
+    end
+
+    -- Counted before the graph is published, so a sliced build can pause in
+    -- it: the count over every edge took 3.5 ms in one piece on the test graph.
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
+    -- Log graph stats
+    local nodeCount, edgeCount = 0, 0
+    -- The fixed graph's shape: fixed nodes, edges between them and their
+    -- weights. A build that ends with the shape of the one before it most
+    -- likely changed nothing (equal shapes are a hint, not a proof), which
+    -- the diagnostic trace counts per reason.
+    local transient = QR.Graph.IsTransientNode
+    local fixedNodes, fixedEdges, fixedWeight = 0, 0, 0
+    for _, node in pairs(self.graph.nodes) do
+        nodeCount = nodeCount + 1
+        if not transient(node) then fixedNodes = fixedNodes + 1 end
+    end
+    local visited = 0
+    for from, edges in pairs(self.graph.edges) do
+        visited = visited + 1
+        if visited % 64 == 0 and not Pause() then return self.graph, self.lastBuildSucceeded == true end
+        local fixedFrom = not transient(self.graph.nodes[from])
+        for to, edge in pairs(edges) do
+            edgeCount = edgeCount + 1
+            if fixedFrom and not transient(self.graph.nodes[to]) then
+                fixedEdges = fixedEdges + 1
+                fixedWeight = fixedWeight + (edge.weight or 0)
+            end
+        end
+    end
     -- Counted so an asynchronous search can tell "the graph I searched was
     -- replaced underneath me" from "I rebuilt it myself on the way in".
     self.graphBuild = (self.graphBuild or 0) + 1
 
-    -- Only mark clean if all steps succeeded
-    self.graphDirty = not buildSuccess
+    -- Only mark clean if all steps succeeded, and nothing marked the graph
+    -- while the build paused.
+    self.graphDirty = not buildSuccess or markedWhilePaused
     -- Remembered so CalculatePath can notice a faction change. Recorded even
     -- on a failed build: a half-built graph belongs to the faction it was
     -- attempted for.
     self.graphFaction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
 
-    -- Log graph stats
-    local nodeCount, edgeCount = 0, 0
-    for _ in pairs(self.graph.nodes) do nodeCount = nodeCount + 1 end
-    for _, edges in pairs(self.graph.edges) do
-        for _ in pairs(edges) do edgeCount = edgeCount + 1 end
+    local shape = string_format("%d:%d:%.1f", fixedNodes, fixedEdges, fixedWeight)
+    if buildSuccess and shape == self.lastGraphShape and D and D.PerfCount then
+        D:PerfCount("rebuild-same:" .. reason)
     end
+    if buildSuccess then self.lastGraphShape = shape end
     QR:Log("INFO", string_format("BuildGraph complete: %d nodes, %d edges, success=%s",
         nodeCount, edgeCount, tostring(buildSuccess)))
+    self.lastBuildSucceeded = buildSuccess
+    -- A sliced build's span includes its pauses; only a build in one piece
+    -- is a duration of work.
+    if D and D.PerfSample and buildStarted then
+        if sliced then
+            D:PerfCount("build-sliced")
+        else
+            D:PerfSample("build", clock() - buildStarted)
+        end
+    end
 
-    return self.graph
+    return self.graph, buildSuccess
 end
 
 --- Add sourced access-gated portals and explicit NPC phase changes.
@@ -417,6 +608,17 @@ end
 --- Connect all nodes that share the same mapID with walking edges
 -- This is crucial for connecting teleport destinations to nearby portal hubs
 function PathCalculator:ConnectSameMapNodes()
+    local connectionsAdded = 0
+    for _, group in ipairs(self:SameMapGroups()) do
+        connectionsAdded = connectionsAdded + self:ConnectSameMapGroup(group)
+    end
+    QR:Debug(string_format("Connected %d same-map node pairs", connectionsAdded))
+end
+
+--- The graph's nodes grouped by map, for maps with more than one node, in
+-- the order ConnectSameMapNodes connects them.
+-- @return table Array of { mapID, nodes, canFly }
+function PathCalculator:SameMapGroups()
     -- Measured for the current map; unknown for any other one, so TravelTime
     -- decides from what that zone allows and what the character owns.
     local playerMapID = QR.TravelTime:GetCurrentMapID()
@@ -433,8 +635,7 @@ function PathCalculator:ConnectSameMapNodes()
         end
     end
 
-    -- Connect nodes on the same map
-    local connectionsAdded = 0
+    local groups = {}
     for mapID, nodes in pairs(nodesByMap) do
         if #nodes > 1 then
             -- The current map's flight permission is measured. A remote map is
@@ -443,44 +644,52 @@ function PathCalculator:ConnectSameMapNodes()
             -- being consulted. Nil says the caller does not know.
             local canFly
             if mapID == playerMapID then canFly = playerCanFly or false end
+            groups[#groups + 1] = { mapID = mapID, nodes = nodes, canFly = canFly }
+        end
+    end
+    return groups
+end
 
-            -- Connect each pair of nodes on this map
-            for i = 1, #nodes do
-                for j = i + 1, #nodes do
-                    local nodeA = nodes[i]
-                    local nodeB = nodes[j]
+--- Connect every pair of nodes of one map group with walking edges.
+-- @param group table One entry of SameMapGroups
+-- @return number Pairs connected
+function PathCalculator:ConnectSameMapGroup(group)
+    local mapID, nodes, canFly = group.mapID, group.nodes, group.canFly
+    local connectionsAdded = 0
+    -- Connect each pair of nodes on this map
+    for i = 1, #nodes do
+        for j = i + 1, #nodes do
+            local nodeA = nodes[i]
+            local nodeB = nodes[j]
 
-                    -- Check if edge already exists; override coarse "travel" estimates
-                    -- Check both directions since AddBidirectionalEdge writes both
-                    local existingEdge = self.graph:GetEdge(nodeA.name, nodeB.name)
-                    local reverseEdge = self.graph:GetEdge(nodeB.name, nodeA.name)
-                    if nodeA.name == PLAYER_NODE or nodeB.name == PLAYER_NODE
-                        or (existingEdge and existingEdge.edgeType == "flight" and existingEdge.data and existingEdge.data.requirements)
-                        or (reverseEdge and reverseEdge.edgeType == "flight" and reverseEdge.data and reverseEdge.data.requirements)
-                        or ((not existingEdge or existingEdge.edgeType == "travel")
-                        and (not reverseEdge or reverseEdge.edgeType == "travel")) then
-                        -- Calculate walking time
-                        local walkTime = SafeEstimateWalkingTime(
-                            nodeA.data.x or 0.5, nodeA.data.y or 0.5,
-                            nodeB.data.x or 0.5, nodeB.data.y or 0.5,
-                            canFly, mapID
-                        )
+            -- Check if edge already exists; override coarse "travel" estimates
+            -- Check both directions since AddBidirectionalEdge writes both
+            local existingEdge = self.graph:GetEdge(nodeA.name, nodeB.name)
+            local reverseEdge = self.graph:GetEdge(nodeB.name, nodeA.name)
+            if nodeA.name == PLAYER_NODE or nodeB.name == PLAYER_NODE
+                or (existingEdge and existingEdge.edgeType == "flight" and existingEdge.data and existingEdge.data.requirements)
+                or (reverseEdge and reverseEdge.edgeType == "flight" and reverseEdge.data and reverseEdge.data.requirements)
+                or ((not existingEdge or existingEdge.edgeType == "travel")
+                and (not reverseEdge or reverseEdge.edgeType == "travel")) then
+                -- Calculate walking time
+                local walkTime = SafeEstimateWalkingTime(
+                    nodeA.data.x or 0.5, nodeA.data.y or 0.5,
+                    nodeB.data.x or 0.5, nodeB.data.y or 0.5,
+                    canFly, mapID
+                )
 
-                        -- Add bidirectional walking edge
-                        local edgeData = {
-                            autoConnected = true,
-                            mapID = mapID,
-                        }
-                        self.graph:AddEdgeOption(nodeA.name, nodeB.name, walkTime, "walk", edgeData)
-                        self.graph:AddEdgeOption(nodeB.name, nodeA.name, walkTime, "walk", edgeData)
-                        connectionsAdded = connectionsAdded + 1
-                    end
-                end
+                -- Add bidirectional walking edge
+                local edgeData = {
+                    autoConnected = true,
+                    mapID = mapID,
+                }
+                self.graph:AddEdgeOption(nodeA.name, nodeB.name, walkTime, "walk", edgeData)
+                self.graph:AddEdgeOption(nodeB.name, nodeA.name, walkTime, "walk", edgeData)
+                connectionsAdded = connectionsAdded + 1
             end
         end
     end
-
-    QR:Debug(string_format("Connected %d same-map node pairs", connectionsAdded))
+    return connectionsAdded
 end
 
 --- Add capital cities and major hubs as nodes
@@ -698,6 +907,16 @@ end
 --- Add dungeon/raid entrance nodes to the graph
 -- Each entrance becomes a node connected to its parent zone via walking edge
 function PathCalculator:AddDungeonNodes()
+    -- BuildGraph runs the two passes itself, so it can pause between nodes.
+    local dungeonNodes = self:AddDungeonEntranceNodes()
+    for _, dn in ipairs(dungeonNodes or {}) do
+        self:ConnectViaContinentRouting(dn.name, dn.mapID, dn.x, dn.y)
+    end
+end
+
+--- First pass of AddDungeonNodes: add every entrance node, index the nodes.
+-- @return table|nil the entrances to connect: {name, mapID, x, y}
+function PathCalculator:AddDungeonEntranceNodes()
     if not QR.DungeonData or not QR.DungeonData.scanned then
         QR:Debug("PathCalculator: DungeonData not available, skipping dungeon nodes")
         return
@@ -727,11 +946,8 @@ function PathCalculator:AddDungeonNodes()
     -- The index is built once here rather than per node: without it each of the
     -- hundreds of dungeon nodes drives four full scans of the node table.
     self:BuildNodeIndex()
-    for _, dn in ipairs(dungeonNodes) do
-        self:ConnectViaContinentRouting(dn.name, dn.mapID, dn.x, dn.y)
-    end
-
     QR:Debug(string_format("PathCalculator: added %d dungeon/raid entrance nodes", addedCount))
+    return dungeonNodes
 end
 
 -------------------------------------------------------------------------------
@@ -829,10 +1045,14 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         QR:Debug("PathCalculator: faction changed from " .. tostring(self.graphFaction)
             .. " to " .. tostring(faction) .. ", rebuilding the graph")
         self.graphDirty = true
+        self.dirtyReason = "faction"
     end
     if self.graphDirty or not self.graph then
-        self:BuildGraph()
-        if self.graphDirty or not self.graph then return nil, Failure(self.FAILURE.GRAPH_UNAVAILABLE) end
+        -- Whether the build itself succeeded, not graphDirty: a build that a
+        -- newer mark reached while it paused leaves the graph marked for the
+        -- next calculation, and this one still uses the graph it just built.
+        local _, built = self:BuildGraph()
+        if not built or not self.graph then return nil, Failure(self.FAILURE.GRAPH_UNAVAILABLE) end
     end
     -- Recorded after any rebuild this calculation did itself, so the guard in
     -- ResumeAsync only fires on a rebuild by somebody else. Capturing the graph
@@ -879,12 +1099,14 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         destName = baseName .. " #" .. suffix
     end
 
-    -- Add destination node
+    -- Add destination node. Transient: it exists for this search only, and
+    -- what is derived from the fixed graph (QR.Graph.IsTransientNode) ignores it.
     self.graph:AddNode(destName, {
         mapID = destMapID,
         x = destX,
         y = destY,
         nodeType = "destination",
+        transient = true,
     })
 
     -- Debug: Show destination continent info
@@ -935,14 +1157,17 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         end
     end
 
-    -- Run Dijkstra's algorithm
+    -- Run Dijkstra's algorithm. Only this search may yield to the asynchronous
+    -- driver (see QR.Graph.AllowYield); the graph is complete here.
     local path, totalTime, pathEdges, searchReason, blocked
+    QR.Graph.AllowYield(true)
     if QR.TravelRequirements then
         path, totalTime, pathEdges, searchReason, blocked =
             QR.TravelRequirements:FindPath(self.graph, PLAYER_NODE, destName)
     else
         path, totalTime, pathEdges, searchReason = self.graph:FindShortestPath(PLAYER_NODE, destName)
     end
+    QR.Graph.AllowYield(false)
 
     if not path then
         -- Clean up destination node on failure
@@ -1146,6 +1371,13 @@ end
 
 -- Milliseconds of graph search per slice.
 PathCalculator.FRAME_BUDGET_MS = 6
+-- Milliseconds per slice for a background request (the quest buttons). Nobody
+-- waits for its answer, so it takes a third of a route the player asked for.
+-- While a foreground request waits behind it, it runs at FRAME_BUDGET_MS so it
+-- is out of the way sooner.
+PathCalculator.BACKGROUND_BUDGET_MS = 2
+-- Seconds between two looks at a background request parked by combat.
+PathCalculator.BACKGROUND_COMBAT_RECHECK = 1
 PathCalculator.asyncGeneration = 0
 -- Requests waiting for the calculator, oldest first.
 PathCalculator.asyncQueue = {}
@@ -1231,29 +1463,52 @@ function PathCalculator:CancelAsync()
     return self.asyncGeneration
 end
 
+--- Is a request other than a background one waiting for the calculator?
+-- @return boolean
+function PathCalculator:HasForegroundWaiting()
+    for _, request in ipairs(self.asyncQueue or {}) do
+        if not request.background then return true end
+    end
+    return false
+end
+
 --- Calculate a route across frames.
 -- @param callback function Receives (route, failure) unless this request is
 --   superseded first
 -- @param options table|nil `consumer` names the owner whose earlier requests
---   this one replaces; `onSuperseded` is called if this request is replaced
+--   this one replaces; `onSuperseded` is called if this request is replaced;
+--   `background` marks a request nobody is waiting for: it queues behind every
+--   other request, runs at BACKGROUND_BUDGET_MS, waits out combat and writes no
+--   trace entries
 -- @return number The generation of this request
 function PathCalculator:CalculatePathAsync(destMapID, destX, destY, destTitle, callback, options)
     options = options or {}
     local consumer = options.consumer or CONSUMER.ROUTE_PANEL
+    local background = options.background == true
     local generation = (self.asyncGeneration or 0) + 1
     self.asyncGeneration = generation
     -- Before the new request is queued, so a consumer's own supersession
     -- notice cannot announce the new request as replaced by itself.
     self:SupersedeConsumer(consumer)
     self.asyncQueue = self.asyncQueue or {}
-    self.asyncQueue[#self.asyncQueue + 1] = {
+    local queue = self.asyncQueue
+    -- A foreground request goes ahead of every waiting background request; a
+    -- background request goes to the end.
+    local position = #queue + 1
+    if not background then
+        for index, waiting in ipairs(queue) do
+            if waiting.background then position = index; break end
+        end
+    end
+    table_insert(queue, position, {
         generation = generation,
         consumer = consumer,
+        background = background,
         onSuperseded = options.onSuperseded,
         args = { destMapID, destX, destY, destTitle },
         callback = callback,
-    }
-    if QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
+    })
+    if not background and QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
         QR.Diagnostics:Trace("route", "route requested", {
             destMap = destMapID, destX = destX, destY = destY, destTitle = destTitle,
             consumer = tostring(consumer), generation = generation,
@@ -1280,6 +1535,38 @@ function PathCalculator:StepAsync()
         return self:CalculatePath(pending.args[1], pending.args[2], pending.args[3], pending.args[4])
     end)
     self.asyncRunning = pending
+    self:ContinueAsync()
+end
+
+-- A background request does no work in combat, nor in the wait after a fight
+-- (QR.POST_COMBAT_GRACE), unless a foreground request waits behind it. Parked,
+-- it keeps the temporary destination node it may have added; it is resumed
+-- afterwards, never dropped (see the section header).
+-- @return string|nil "combat" or "grace" when it must park
+local function MustPark(self, running)
+    if not running.background or self:HasForegroundWaiting() then return nil end
+    local inCombat = _G.InCombatLockdown
+    if type(inCombat) == "function" and inCombat() == true then return "combat" end
+    if QR.PostCombatGraceLeft and QR:PostCombatGraceLeft() > 0 then return "grace" end
+    return nil
+end
+
+--- Run the next slice of the running calculation, or look again later when it
+-- is a background request parked by combat.
+function PathCalculator:ContinueAsync()
+    local running = self.asyncRunning
+    if not running then return end
+    local parked = MustPark(self, running)
+    if parked then
+        local D = QR.Diagnostics
+        if D and D.PerfCount then D:PerfCount(parked == "grace" and "bg-grace" or "bg-parked") end
+        if C_Timer and C_Timer.After then
+            C_Timer.After(self.BACKGROUND_COMBAT_RECHECK or 1, function()
+                if self.asyncRunning == running then self:ContinueAsync() end
+            end)
+        end
+        return
+    end
     self:ResumeAsync()
 end
 
@@ -1288,7 +1575,18 @@ function PathCalculator:ResumeAsync()
     local running = self.asyncRunning
     if not running then return end
     local clock = ProfileClock()
-    local deadline = clock and (clock() + (self.FRAME_BUDGET_MS or 6))
+    local budget = self.FRAME_BUDGET_MS or 6
+    local D = QR.Diagnostics
+    if running.background then
+        if self:HasForegroundWaiting() then
+            if D and D.PerfCount then D:PerfCount("bg-raised") end
+        else
+            budget = self.BACKGROUND_BUDGET_MS or 2
+        end
+    end
+    -- One reading for both: when the slice started and where its budget ends.
+    local sliceStarted = clock and clock()
+    local deadline = sliceStarted and (sliceStarted + budget)
     QR.Graph.SetYieldHook(clock and function() return clock() >= deadline end or nil)
     -- The journey the search belongs to travels with the request: restored for
     -- the slice, captured again after it, and the outer one put back so a
@@ -1303,13 +1601,16 @@ function PathCalculator:ResumeAsync()
     local outerJourney = currentJourney
     currentJourney = running.journey or currentJourney
     local ok, route, failure = coroutine.resume(running.thread)
+    if sliceStarted and D and D.PerfSample then
+        D:PerfSample(running.background and "slice-bg" or "slice-fg", clock() - sliceStarted)
+    end
     running.journey = currentJourney
     currentJourney = outerJourney
     QR.Graph.SetYieldHook(nil)
 
     if ok and coroutine.status(running.thread) ~= "dead" then
         if C_Timer and C_Timer.After then
-            C_Timer.After(0, function() self:ResumeAsync() end)
+            C_Timer.After(0, function() self:ContinueAsync() end)
         else
             self:ResumeAsync()
         end
@@ -1330,7 +1631,7 @@ function PathCalculator:ResumeAsync()
     -- The callback is guarded. It belongs to whoever asked, and with a queue
     -- behind it a raising callback would strand every request waiting on the
     -- calculator until somebody happened to ask again.
-    if QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
+    if not running.background and QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
         local args = running.args or {}
         QR.Diagnostics:Trace("route", route and "route found" or "no route", {
             destMap = args[1], destX = args[2], destY = args[3], destTitle = args[4],
@@ -1341,6 +1642,9 @@ function PathCalculator:ResumeAsync()
             failure = failure and tostring(failure.reason) or nil,
             superseded = running.superseded and true or false,
         })
+    end
+    if D and D.PerfSample and running.startedAt and GetTime then
+        D:PerfSample(running.background and "route-bg" or "route-fg", (GetTime() - running.startedAt) * 1000)
     end
     if not running.superseded and type(running.callback) == "function" then
         local delivered, err = pcall(running.callback, route, failure)
@@ -1503,6 +1807,7 @@ function PathCalculator:UpdatePlayerLocation()
     local node = self.graph.nodes[PLAYER_NODE]
     if not node then
         self.graphDirty = true
+        self.dirtyReason = "player-node"
         return false
     end
 
@@ -2207,7 +2512,17 @@ end
 -- one continent routing edges so Dijkstra can traverse across maps.
 function PathCalculator:ConnectIslandNodes()
     local connectedCount = 0
+    for _, nodeName in ipairs(self:IslandCandidates()) do
+        if self:ConnectIslandNode(nodeName) then connectedCount = connectedCount + 1 end
+    end
+    QR:Debug(string_format("ConnectIslandNodes: connected %d isolated nodes", connectedCount))
+end
 
+--- The nodes ConnectIslandNode looks at: neither the player nor a city or
+-- hub, in the order of the graph's node table.
+-- @return table Array of node names
+function PathCalculator:IslandCandidates()
+    local candidates = {}
     for nodeName, nodeData in pairs(self.graph.nodes) do
         -- Skip player node and well-connected city/hub nodes
         if nodeName ~= PLAYER_NODE
@@ -2215,39 +2530,39 @@ function PathCalculator:ConnectIslandNodes()
             and nodeData.nodeType ~= "city"
             and nodeData.nodeType ~= "hub"
         then
-            -- Check if this node is connected to the broader graph:
-            -- either has an edge to a different map, or to a city/hub node
-            -- (which have portal edges to other maps)
-            local isConnected = false
-            local edges = self.graph.edges[nodeName]
-            if edges then
-                for destName, _ in pairs(edges) do
-                    local destData = self.graph.nodes[destName]
-                    if destData then
-                        if destData.mapID ~= nodeData.mapID then
-                            isConnected = true
-                            break
-                        end
-                        if destData.nodeType == "city" or destData.nodeType == "hub" then
-                            isConnected = true
-                            break
-                        end
-                    end
-                end
-            end
+            candidates[#candidates + 1] = nodeName
+        end
+    end
+    return candidates
+end
 
-            if not isConnected then
-                self:ConnectViaContinentRouting(
-                    nodeName, nodeData.mapID,
-                    nodeData.x or DEFAULT_COORDINATE,
-                    nodeData.y or DEFAULT_COORDINATE
-                )
-                connectedCount = connectedCount + 1
+--- Give one node continent routing edges unless it already reaches the
+-- broader graph. Decided when the node's turn comes, so an earlier node's
+-- new edges count.
+-- @param nodeName string
+-- @return boolean Whether the node was connected
+function PathCalculator:ConnectIslandNode(nodeName)
+    local nodeData = self.graph.nodes[nodeName]
+    if not nodeData then return false end
+    -- Check if this node is connected to the broader graph:
+    -- either has an edge to a different map, or to a city/hub node
+    -- (which have portal edges to other maps)
+    local edges = self.graph.edges[nodeName]
+    if edges then
+        for destName, _ in pairs(edges) do
+            local destData = self.graph.nodes[destName]
+            if destData then
+                if destData.mapID ~= nodeData.mapID then return false end
+                if destData.nodeType == "city" or destData.nodeType == "hub" then return false end
             end
         end
     end
-
-    QR:Debug(string_format("ConnectIslandNodes: connected %d isolated nodes", connectedCount))
+    self:ConnectViaContinentRouting(
+        nodeName, nodeData.mapID,
+        nodeData.x or DEFAULT_COORDINATE,
+        nodeData.y or DEFAULT_COORDINATE
+    )
+    return true
 end
 
 --- Build human-readable steps from path and edges
@@ -2621,6 +2936,7 @@ end
 -- Marks graph as dirty for rebuild
 function PathCalculator:OnInventoryChanged()
     self.graphDirty = true
+    self.dirtyReason = "inventory"
 
     QR:Debug("Inventory changed, graph marked for rebuild")
 end

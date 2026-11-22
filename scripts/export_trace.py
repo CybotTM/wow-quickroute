@@ -137,6 +137,47 @@ def window_opens(records):
     return opens
 
 
+def performance(records):
+    """The "perf" entries summed per flavor: for each sample kind the count,
+    the longest sample and the histogram; then every counter. Empty when the
+    trace holds none."""
+    samples, counts, truncated = {}, {}, set()
+    for record in records:
+        if record.get("category") != "perf":
+            continue
+        fields = record.get("fields") or {}
+        flavor = record["flavor"]
+        if fields.get("_truncated"):
+            truncated.add(flavor)
+        if record.get("message") == "counts":
+            bucket = counts.setdefault(flavor, collections.Counter())
+            for key, value in fields.items():
+                if key not in ("reason", "seconds", "part") and isinstance(value, (int, float)):
+                    bucket[key] += value
+            continue
+        kind = samples.setdefault((flavor, record.get("message")), {"n": 0, "total": 0.0, "max": 0.0,
+                                                                       "buckets": collections.Counter()})
+        kind["n"] += fields.get("n", 0)
+        kind["total"] += fields.get("total", 0)
+        kind["max"] = max(kind["max"], fields.get("max", 0))
+        for key, value in fields.items():
+            if key.startswith(("lt", "ge")) and isinstance(value, (int, float)):
+                kind["buckets"][key] += value
+    if not samples and not counts:
+        return []
+    lines = ["", "Performance (ms):"]
+    for (flavor, name), kind in sorted(samples.items()):
+        mean = kind["total"] / kind["n"] if kind["n"] else 0
+        buckets = " ".join(f"{key}={value}" for key, value in
+                           sorted(kind["buckets"].items(), key=lambda kv: (kv[0][:2] == "ge", int(kv[0][2:]))))
+        lines.append(f"  {flavor:8} {name:12} n={kind['n']} mean={mean:.2f} max={kind['max']:.2f} {buckets}")
+    for flavor, bucket in sorted(counts.items()):
+        lines.append(f"  {flavor:8} counts: " + ", ".join(f"{key}={value:g}" for key, value in sorted(bucket.items())))
+    for flavor in sorted(truncated):
+        lines.append(f"  {flavor:8} WARNING: a perf entry was cut at the trace's key limit; its sums are incomplete")
+    return lines
+
+
 def summary(records, headers):
     lines = []
     for header in headers:
@@ -164,6 +205,7 @@ def summary(records, headers):
             lines.append(f"    (nothing in the {WINDOW_SECONDS:g} s before)")
         for prior in before:
             lines.append(f"    {offset(record['gameTime'], prior)} {describe(prior)}")
+    lines.extend(performance(records))
     return "\n".join(lines)
 
 
