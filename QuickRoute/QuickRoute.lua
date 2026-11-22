@@ -164,6 +164,7 @@ function QR:Initialize()
         sidebarCollapsed = false,     -- Map sidebar collapsed state
         activeTab = "route",          -- Last active tab in unified window
         groupByDestination = false,   -- Group teleports by destination
+        miniPanelView = "tiles",      -- Quick Teleports popup: "tiles", "table" or "journal"
         multiRouteTrips = {},        -- Pending trips, partitioned by character
         currencyVendors = {},         -- Verified merchant observations, partitioned by character
         hearthstoneBinds = {},        -- Observed inn bindings, partitioned by character
@@ -199,6 +200,7 @@ function QR:Initialize()
         activeTab = { route = true, teleports = true },
         waypointPriority = { mappin = true, quest = true, tomtom = true },
         availabilityFilter = { all = true, available = true, ready = true },
+        miniPanelView = { tiles = true, table = true, journal = true },
     }
     for key, allowed in pairs(choices) do
         if not allowed[QuickRouteDB[key]] then QuickRouteDB[key] = defaults[key] end
