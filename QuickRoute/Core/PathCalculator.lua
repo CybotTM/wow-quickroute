@@ -157,9 +157,15 @@ for _, event in ipairs({ "ZONE_CHANGED_NEW_AREA", "TAXI_NODE_STATUS_CHANGED", "T
     "PLAYER_MOUNT_DISPLAY_CHANGED", "PLAYER_CONTROL_GAINED" }) do
     flyableCacheFrame:RegisterEvent(event)
 end
-flyableCacheFrame:SetScript("OnEvent", function()
+--- A flight or movement event: speeds and flight permission may have changed.
+-- @param event string The event name, recorded as the rebuild's reason
+function PathCalculator:OnMovementEvent(event)
     if QR.TravelTime.ClearMovementCache then QR.TravelTime:ClearMovementCache() end
-    PathCalculator.graphDirty = true
+    self.graphDirty = true
+    self.dirtyReason = "movement:" .. tostring(event)
+end
+flyableCacheFrame:SetScript("OnEvent", function(_, event)
+    PathCalculator:OnMovementEvent(event)
 end)
 
 --- Get a localized display name for a graph node
@@ -269,6 +275,12 @@ function PathCalculator:BuildGraph()
         return true
     end
 
+    -- How long each step of the build took, as "step:<name>" samples in the
+    -- diagnostic trace, so a long slice in the game can be attributed.
+    local function Timed(name, started)
+        if started and D and D.PerfSample then D:PerfSample("step:" .. name, clock() - started) end
+    end
+
     -- Create new graph
     self.graph = QR.Graph:New()
     -- The index belongs to the graph that was just discarded. Leaving it in
@@ -289,9 +301,11 @@ function PathCalculator:BuildGraph()
     local buildError = nil
 
     -- Add zone/city nodes
+    local t_zones = clock and clock()
     local success, err = pcall(function()
         self:AddZoneNodes()
     end)
+    Timed("zones", t_zones)
     if not success then
         QR:Error("AddZoneNodes failed: " .. tostring(err))
         buildSuccess = false
@@ -301,10 +315,12 @@ function PathCalculator:BuildGraph()
     if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     -- Add portal hub connections
+    local t_portals = clock and clock()
     success, err = pcall(function()
         self:AddPortalConnections()
         self:AddConditionalConnections()
     end)
+    Timed("portals", t_portals)
     if not success then
         QR:Error("AddPortalConnections failed: " .. tostring(err))
         buildSuccess = false
@@ -314,9 +330,11 @@ function PathCalculator:BuildGraph()
     if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     -- Add player teleport edges
+    local t_teleports = clock and clock()
     success, err = pcall(function()
         self:AddPlayerTeleportEdges()
     end)
+    Timed("teleports", t_teleports)
     if not success then
         QR:Error("AddPlayerTeleportEdges failed: " .. tostring(err))
         buildSuccess = false
@@ -327,16 +345,19 @@ function PathCalculator:BuildGraph()
 
     -- Add dungeon/raid entrance nodes. The two passes of AddDungeonNodes, run
     -- here so the second one -- three quarters of a build, measured on the
-    -- test graph -- can pause between nodes.
+    -- test graph -- can pause after every node: one node took up to 3.7 ms
+    -- there, and the game ran the build about five times slower.
     local dungeonNodes
     success, err = pcall(function()
         dungeonNodes = self:AddDungeonEntranceNodes()
     end)
     if success then
         for index, dn in ipairs(dungeonNodes or {}) do
+            local started = clock and clock()
             success, err = pcall(self.ConnectViaContinentRouting, self, dn.name, dn.mapID, dn.x, dn.y)
+            Timed("dungeon-node", started)
             if not success then break end
-            if index % 8 == 0 and not Pause() then return self.graph, self.lastBuildSucceeded == true end
+            if not Pause() then return self.graph, self.lastBuildSucceeded == true end
         end
     end
     if not success then
@@ -348,21 +369,27 @@ function PathCalculator:BuildGraph()
 
     -- Dungeon teleports the player knows. Must come after AddDungeonNodes:
     -- the nodes these edges point at do not exist before it.
+    local t_dungeon_teleports = clock and clock()
     success, err = pcall(function()
         self:AddDungeonTeleportEdges()
     end)
+    Timed("dungeon-teleports", t_dungeon_teleports)
     if not success then
         QR:Error("AddDungeonTeleportEdges failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
 
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
     -- A zone whose only reason to be in the graph is its flight master. Before
     -- the island and flight passes, so the node gets its overland edges and
     -- AddFlightEdges finds an anchor on the map.
+    local t_flight_masters = clock and clock()
     success, err = pcall(function()
         self:AddFlightMasterNodes()
     end)
+    Timed("flight-masters", t_flight_masters)
     if not success then
         QR:Error("AddFlightMasterNodes failed: " .. tostring(err))
         buildSuccess = false
@@ -373,23 +400,38 @@ function PathCalculator:BuildGraph()
 
     -- IMPORTANT: Connect all nodes on the same map with walking edges
     -- This ensures teleport destinations connect to portal hubs on the same map
+    -- One map at a time, so the build can pause between maps.
+    local sameMapGroups
     success, err = pcall(function()
-        self:ConnectSameMapNodes()
+        sameMapGroups = self:SameMapGroups()
     end)
+    if success then
+        for _, group in ipairs(sameMapGroups or {}) do
+            local started = clock and clock()
+            success, err = pcall(self.ConnectSameMapGroup, self, group)
+            Timed("same-map", started)
+            if not success then break end
+            if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+        end
+    end
     if not success then
         QR:Error("ConnectSameMapNodes failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
 
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+
     -- Connect island nodes to the continent graph.
     -- Portal destinations and dungeon entrances may be the only node on their
     -- map, leaving them isolated. Give each one a hub/continent edge so
     -- Dijkstra can traverse across maps.
     -- The player node last, once every other node and edge exists.
+    local t_player_node = clock and clock()
     success, err = pcall(function()
         self:ConnectPlayerNode()
     end)
+    Timed("player-node", t_player_node)
     if not success then
         QR:Error("ConnectPlayerNode failed: " .. tostring(err))
         buildSuccess = false
@@ -398,9 +440,20 @@ function PathCalculator:BuildGraph()
 
     if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
+    -- One node at a time, so the build can pause between nodes.
+    local islandCandidates
     success, err = pcall(function()
-        self:ConnectIslandNodes()
+        islandCandidates = self:IslandCandidates()
     end)
+    if success then
+        for _, nodeName in ipairs(islandCandidates or {}) do
+            local started = clock and clock()
+            success, err = pcall(self.ConnectIslandNode, self, nodeName)
+            Timed("island-node", started)
+            if not success then break end
+            if not Pause() then return self.graph, self.lastBuildSucceeded == true end
+        end
+    end
     if not success then
         QR:Error("ConnectIslandNodes failed: " .. tostring(err))
         buildSuccess = false
@@ -416,9 +469,11 @@ function PathCalculator:BuildGraph()
     -- routes slower than the ones they displaced. Now the guard decides it.
     if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
+    local t_flight_edges = clock and clock()
     success, err = pcall(function()
         self:AddFlightEdges()
     end)
+    Timed("flight-edges", t_flight_edges)
     if not success then
         QR:Error("AddFlightEdges failed: " .. tostring(err))
         buildSuccess = false
@@ -427,14 +482,15 @@ function PathCalculator:BuildGraph()
 
     -- The phase maps of the fixed graph, collected now rather than in the
     -- first search that needs them, where the collection took a slice of its
-    -- own (7 ms on the test graph). Here it can pause every 64 nodes: nobody
+    -- own (7 ms on the test graph). Here it can pause every 16 nodes: nobody
     -- else sees this graph yet. A pause cannot cross pcall, so only the
     -- build in one piece guards it.
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
     local TRQ = QR.TravelRequirements
     if TRQ and TRQ.StaticPhaseMaps then
         if sliced then
             local collected = TRQ:StaticPhaseMaps(self.graph, function(visited)
-                return visited % 64 ~= 0 or Pause()
+                return visited % 16 ~= 0 or Pause()
             end)
             if not collected then return self.graph, self.lastBuildSucceeded == true end
         else
@@ -442,17 +498,9 @@ function PathCalculator:BuildGraph()
         end
     end
 
-    -- Counted so an asynchronous search can tell "the graph I searched was
-    -- replaced underneath me" from "I rebuilt it myself on the way in".
-    self.graphBuild = (self.graphBuild or 0) + 1
-
-    -- Only mark clean if all steps succeeded, and nothing marked the graph
-    -- while the build paused.
-    self.graphDirty = not buildSuccess or markedWhilePaused
-    -- Remembered so CalculatePath can notice a faction change. Recorded even
-    -- on a failed build: a half-built graph belongs to the faction it was
-    -- attempted for.
-    self.graphFaction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+    -- Counted before the graph is published, so a sliced build can pause in
+    -- it: the count over every edge took 3.5 ms in one piece on the test graph.
+    if not Pause() then return self.graph, self.lastBuildSucceeded == true end
 
     -- Log graph stats
     local nodeCount, edgeCount = 0, 0
@@ -466,7 +514,10 @@ function PathCalculator:BuildGraph()
         nodeCount = nodeCount + 1
         if not transient(node) then fixedNodes = fixedNodes + 1 end
     end
+    local visited = 0
     for from, edges in pairs(self.graph.edges) do
+        visited = visited + 1
+        if visited % 64 == 0 and not Pause() then return self.graph, self.lastBuildSucceeded == true end
         local fixedFrom = not transient(self.graph.nodes[from])
         for to, edge in pairs(edges) do
             edgeCount = edgeCount + 1
@@ -476,6 +527,18 @@ function PathCalculator:BuildGraph()
             end
         end
     end
+    -- Counted so an asynchronous search can tell "the graph I searched was
+    -- replaced underneath me" from "I rebuilt it myself on the way in".
+    self.graphBuild = (self.graphBuild or 0) + 1
+
+    -- Only mark clean if all steps succeeded, and nothing marked the graph
+    -- while the build paused.
+    self.graphDirty = not buildSuccess or markedWhilePaused
+    -- Remembered so CalculatePath can notice a faction change. Recorded even
+    -- on a failed build: a half-built graph belongs to the faction it was
+    -- attempted for.
+    self.graphFaction = QR.PlayerInfo and QR.PlayerInfo:GetFaction()
+
     local shape = string_format("%d:%d:%.1f", fixedNodes, fixedEdges, fixedWeight)
     if buildSuccess and shape == self.lastGraphShape and D and D.PerfCount then
         D:PerfCount("rebuild-same:" .. reason)
@@ -545,6 +608,17 @@ end
 --- Connect all nodes that share the same mapID with walking edges
 -- This is crucial for connecting teleport destinations to nearby portal hubs
 function PathCalculator:ConnectSameMapNodes()
+    local connectionsAdded = 0
+    for _, group in ipairs(self:SameMapGroups()) do
+        connectionsAdded = connectionsAdded + self:ConnectSameMapGroup(group)
+    end
+    QR:Debug(string_format("Connected %d same-map node pairs", connectionsAdded))
+end
+
+--- The graph's nodes grouped by map, for maps with more than one node, in
+-- the order ConnectSameMapNodes connects them.
+-- @return table Array of { mapID, nodes, canFly }
+function PathCalculator:SameMapGroups()
     -- Measured for the current map; unknown for any other one, so TravelTime
     -- decides from what that zone allows and what the character owns.
     local playerMapID = QR.TravelTime:GetCurrentMapID()
@@ -561,8 +635,7 @@ function PathCalculator:ConnectSameMapNodes()
         end
     end
 
-    -- Connect nodes on the same map
-    local connectionsAdded = 0
+    local groups = {}
     for mapID, nodes in pairs(nodesByMap) do
         if #nodes > 1 then
             -- The current map's flight permission is measured. A remote map is
@@ -571,44 +644,52 @@ function PathCalculator:ConnectSameMapNodes()
             -- being consulted. Nil says the caller does not know.
             local canFly
             if mapID == playerMapID then canFly = playerCanFly or false end
+            groups[#groups + 1] = { mapID = mapID, nodes = nodes, canFly = canFly }
+        end
+    end
+    return groups
+end
 
-            -- Connect each pair of nodes on this map
-            for i = 1, #nodes do
-                for j = i + 1, #nodes do
-                    local nodeA = nodes[i]
-                    local nodeB = nodes[j]
+--- Connect every pair of nodes of one map group with walking edges.
+-- @param group table One entry of SameMapGroups
+-- @return number Pairs connected
+function PathCalculator:ConnectSameMapGroup(group)
+    local mapID, nodes, canFly = group.mapID, group.nodes, group.canFly
+    local connectionsAdded = 0
+    -- Connect each pair of nodes on this map
+    for i = 1, #nodes do
+        for j = i + 1, #nodes do
+            local nodeA = nodes[i]
+            local nodeB = nodes[j]
 
-                    -- Check if edge already exists; override coarse "travel" estimates
-                    -- Check both directions since AddBidirectionalEdge writes both
-                    local existingEdge = self.graph:GetEdge(nodeA.name, nodeB.name)
-                    local reverseEdge = self.graph:GetEdge(nodeB.name, nodeA.name)
-                    if nodeA.name == PLAYER_NODE or nodeB.name == PLAYER_NODE
-                        or (existingEdge and existingEdge.edgeType == "flight" and existingEdge.data and existingEdge.data.requirements)
-                        or (reverseEdge and reverseEdge.edgeType == "flight" and reverseEdge.data and reverseEdge.data.requirements)
-                        or ((not existingEdge or existingEdge.edgeType == "travel")
-                        and (not reverseEdge or reverseEdge.edgeType == "travel")) then
-                        -- Calculate walking time
-                        local walkTime = SafeEstimateWalkingTime(
-                            nodeA.data.x or 0.5, nodeA.data.y or 0.5,
-                            nodeB.data.x or 0.5, nodeB.data.y or 0.5,
-                            canFly, mapID
-                        )
+            -- Check if edge already exists; override coarse "travel" estimates
+            -- Check both directions since AddBidirectionalEdge writes both
+            local existingEdge = self.graph:GetEdge(nodeA.name, nodeB.name)
+            local reverseEdge = self.graph:GetEdge(nodeB.name, nodeA.name)
+            if nodeA.name == PLAYER_NODE or nodeB.name == PLAYER_NODE
+                or (existingEdge and existingEdge.edgeType == "flight" and existingEdge.data and existingEdge.data.requirements)
+                or (reverseEdge and reverseEdge.edgeType == "flight" and reverseEdge.data and reverseEdge.data.requirements)
+                or ((not existingEdge or existingEdge.edgeType == "travel")
+                and (not reverseEdge or reverseEdge.edgeType == "travel")) then
+                -- Calculate walking time
+                local walkTime = SafeEstimateWalkingTime(
+                    nodeA.data.x or 0.5, nodeA.data.y or 0.5,
+                    nodeB.data.x or 0.5, nodeB.data.y or 0.5,
+                    canFly, mapID
+                )
 
-                        -- Add bidirectional walking edge
-                        local edgeData = {
-                            autoConnected = true,
-                            mapID = mapID,
-                        }
-                        self.graph:AddEdgeOption(nodeA.name, nodeB.name, walkTime, "walk", edgeData)
-                        self.graph:AddEdgeOption(nodeB.name, nodeA.name, walkTime, "walk", edgeData)
-                        connectionsAdded = connectionsAdded + 1
-                    end
-                end
+                -- Add bidirectional walking edge
+                local edgeData = {
+                    autoConnected = true,
+                    mapID = mapID,
+                }
+                self.graph:AddEdgeOption(nodeA.name, nodeB.name, walkTime, "walk", edgeData)
+                self.graph:AddEdgeOption(nodeB.name, nodeA.name, walkTime, "walk", edgeData)
+                connectionsAdded = connectionsAdded + 1
             end
         end
     end
-
-    QR:Debug(string_format("Connected %d same-map node pairs", connectionsAdded))
+    return connectionsAdded
 end
 
 --- Add capital cities and major hubs as nodes
@@ -2426,7 +2507,17 @@ end
 -- one continent routing edges so Dijkstra can traverse across maps.
 function PathCalculator:ConnectIslandNodes()
     local connectedCount = 0
+    for _, nodeName in ipairs(self:IslandCandidates()) do
+        if self:ConnectIslandNode(nodeName) then connectedCount = connectedCount + 1 end
+    end
+    QR:Debug(string_format("ConnectIslandNodes: connected %d isolated nodes", connectedCount))
+end
 
+--- The nodes ConnectIslandNode looks at: neither the player nor a city or
+-- hub, in the order of the graph's node table.
+-- @return table Array of node names
+function PathCalculator:IslandCandidates()
+    local candidates = {}
     for nodeName, nodeData in pairs(self.graph.nodes) do
         -- Skip player node and well-connected city/hub nodes
         if nodeName ~= PLAYER_NODE
@@ -2434,39 +2525,39 @@ function PathCalculator:ConnectIslandNodes()
             and nodeData.nodeType ~= "city"
             and nodeData.nodeType ~= "hub"
         then
-            -- Check if this node is connected to the broader graph:
-            -- either has an edge to a different map, or to a city/hub node
-            -- (which have portal edges to other maps)
-            local isConnected = false
-            local edges = self.graph.edges[nodeName]
-            if edges then
-                for destName, _ in pairs(edges) do
-                    local destData = self.graph.nodes[destName]
-                    if destData then
-                        if destData.mapID ~= nodeData.mapID then
-                            isConnected = true
-                            break
-                        end
-                        if destData.nodeType == "city" or destData.nodeType == "hub" then
-                            isConnected = true
-                            break
-                        end
-                    end
-                end
-            end
+            candidates[#candidates + 1] = nodeName
+        end
+    end
+    return candidates
+end
 
-            if not isConnected then
-                self:ConnectViaContinentRouting(
-                    nodeName, nodeData.mapID,
-                    nodeData.x or DEFAULT_COORDINATE,
-                    nodeData.y or DEFAULT_COORDINATE
-                )
-                connectedCount = connectedCount + 1
+--- Give one node continent routing edges unless it already reaches the
+-- broader graph. Decided when the node's turn comes, so an earlier node's
+-- new edges count.
+-- @param nodeName string
+-- @return boolean Whether the node was connected
+function PathCalculator:ConnectIslandNode(nodeName)
+    local nodeData = self.graph.nodes[nodeName]
+    if not nodeData then return false end
+    -- Check if this node is connected to the broader graph:
+    -- either has an edge to a different map, or to a city/hub node
+    -- (which have portal edges to other maps)
+    local edges = self.graph.edges[nodeName]
+    if edges then
+        for destName, _ in pairs(edges) do
+            local destData = self.graph.nodes[destName]
+            if destData then
+                if destData.mapID ~= nodeData.mapID then return false end
+                if destData.nodeType == "city" or destData.nodeType == "hub" then return false end
             end
         end
     end
-
-    QR:Debug(string_format("ConnectIslandNodes: connected %d isolated nodes", connectedCount))
+    self:ConnectViaContinentRouting(
+        nodeName, nodeData.mapID,
+        nodeData.x or DEFAULT_COORDINATE,
+        nodeData.y or DEFAULT_COORDINATE
+    )
+    return true
 end
 
 --- Build human-readable steps from path and edges

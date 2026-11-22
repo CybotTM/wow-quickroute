@@ -57,8 +57,8 @@ T:run("Graph build slices: a build inside the driver pauses and others see the p
         t:assertEqual(previous, PC.graph, "between slices the previous, complete graph is the published one")
         t:assertTrue(PC.graphDirty and true or false, "and it is still marked for rebuild")
         drain()
-        -- Seven pause points between the steps, and more inside the dungeon
-        -- pass, one per eight entrances.
+        -- Pause points between the steps, and more inside the dungeon,
+        -- same-map and island passes, one per unit.
         t:assertGreaterThan((PC.graphPauses or 0) - pauses, 12,
             "the build paused between its steps and inside the dungeon pass, pauses " .. ((PC.graphPauses or 0) - pauses))
         t:assertNotNil(route, "the route is published at the end")
@@ -105,6 +105,94 @@ T:run("Graph build slices: a mark written while the build pauses survives it", f
         t:assertTrue(PC.graphDirty, "but the graph stays marked for the newer data")
         t:assertEqual("zone", PC.dirtyReason, "with the reason of that mark")
     end)
+end)
+
+T:run("Graph build slices: the heavy passes pause after every unit, and the edge count pauses too", function(t)
+    withDriver(function(drain)
+        PC:BuildGraph()
+        PC.graphDirty = true
+        PC.FRAME_BUDGET_MS = 0 -- every pause point pauses
+        -- Each unit of the dungeon, same-map and island passes runs in a slice
+        -- of its own: the pause counter moved since the previous unit.
+        local TRQ = QR.TravelRequirements
+        local saved = { routing = PC.ConnectViaContinentRouting, group = PC.ConnectSameMapGroup,
+            island = PC.ConnectIslandNode, spm = TRQ.StaticPhaseMaps, find = TRQ.FindPath }
+        local last, units, shared = {}, {}, {}
+        local function watch(kind, original)
+            return function(...)
+                local now = PC.graphPauses or 0
+                units[kind] = (units[kind] or 0) + 1
+                if last[kind] == now then shared[kind] = (shared[kind] or 0) + 1 end
+                last[kind] = now
+                return original(...)
+            end
+        end
+        local building = true
+        PC.ConnectViaContinentRouting = function(...)
+            if building then return watch("routing", saved.routing)(...) end
+            return saved.routing(...)
+        end
+        PC.ConnectSameMapGroup = watch("group", saved.group)
+        PC.ConnectIslandNode = watch("island", saved.island)
+        local afterPhaseMaps, atSearch
+        TRQ.StaticPhaseMaps = function(...)
+            local a, b = saved.spm(...)
+            afterPhaseMaps = PC.graphPauses or 0
+            return a, b
+        end
+        TRQ.FindPath = function(...)
+            building = false
+            atSearch = atSearch or (PC.graphPauses or 0)
+            return saved.find(...)
+        end
+        local ok, err = pcall(function()
+            local route
+            PC:CalculatePathAsync(84, 0.6, 0.6, nil, function(r) route = r end)
+            drain()
+            t:assertNotNil(route, "the route is answered")
+        end)
+        PC.ConnectViaContinentRouting, PC.ConnectSameMapGroup = saved.routing, saved.group
+        PC.ConnectIslandNode, TRQ.StaticPhaseMaps, TRQ.FindPath = saved.island, saved.spm, saved.find
+        if not ok then error(err, 0) end
+        for _, kind in ipairs({ "routing", "group", "island" }) do
+            t:assertGreaterThan(units[kind] or 0, 1, kind .. " ran more than once")
+            t:assertNil(shared[kind], kind .. ": no two units shared a slice, shared " .. tostring(shared[kind]))
+        end
+        t:assertNotNil(afterPhaseMaps, "the phase maps were collected")
+        t:assertGreaterThan((atSearch or 0) - (afterPhaseMaps or 0), 1,
+            "the build paused while it counted the edges after the phase maps")
+    end)
+end)
+
+T:run("Graph build slices: every step of a build is sampled in the trace", function(t)
+    local D = QR.Diagnostics
+    local savedTracing = D.IsTracing
+    D.IsTracing = function() return true end
+    D._perf = nil
+    local ok, err = pcall(function()
+        PC.graphDirty = true
+        PC:BuildGraph()
+        local samples = D._perf and D._perf.samples or {}
+        for _, step in ipairs({ "zones", "portals", "teleports", "dungeon-node", "dungeon-teleports",
+                "flight-masters", "same-map", "player-node", "island-node", "flight-edges" }) do
+            local sample = samples["step:" .. step]
+            t:assertNotNil(sample, "step:" .. step .. " is sampled")
+        end
+        local perNode = samples["step:dungeon-node"]
+        t:assertGreaterThan(perNode and perNode.n or 0, 1, "the dungeon pass is sampled once per entrance")
+    end)
+    D._perf = nil
+    D.IsTracing = savedTracing
+    if not ok then error(err, 0) end
+end)
+
+T:run("Graph build slices: a mount or flight event names itself as the build's reason", function(t)
+    PC.graphDirty, PC.dirtyReason = false, nil
+    PC:OnMovementEvent("PLAYER_MOUNT_DISPLAY_CHANGED")
+    t:assertTrue(PC.graphDirty, "the event marks the graph")
+    t:assertEqual("movement:PLAYER_MOUNT_DISPLAY_CHANGED", PC.dirtyReason, "with the event as its reason")
+    PC.dirtyReason = nil
+    PC.graphDirty = true
 end)
 
 T:run("Graph build slices: outside the driver a build runs in one piece", function(t)
