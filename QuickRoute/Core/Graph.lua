@@ -19,15 +19,30 @@ local coroutine_running, coroutine_yield = coroutine.running, coroutine.yield
 -- The hook is only consulted every YIELD_INTERVAL expansions, and only when the
 -- search is running inside a coroutine. Outside one the behaviour and the
 -- results are exactly as before.
-local YIELD_INTERVAL = 200
+--
+-- 25, not 200: one expansion of the phase-aware search builds a state
+-- signature per edge, so 200 of them overran a 2 ms budget by up to 23 ms
+-- (measured standalone, Lua 5.1, the test graph of 529 nodes; with 25 the
+-- longest slice was 14 ms and 90% stayed under 3.5 ms). Reading the profiling
+-- clock every 25 expansions costs nothing measurable.
+local YIELD_INTERVAL = 25
 
 -- Set by the asynchronous driver; returns true when the current frame's budget
 -- is spent. Nil during a synchronous search.
 local shouldYield = nil
 
+-- The coroutines whose current search may yield. Only the route search of a
+-- calculation opts in (PathCalculator:CalculatePath). Every other search that
+-- runs inside the same coroutine -- the zone travel graph that BuildGraph asks
+-- while it builds -- must never yield: a slice ending there would leave a half
+-- built graph for whoever runs before the next slice.
+local yieldAllowed = setmetatable({}, { __mode = "k" })
+
 local function Cooperate(expansions)
     if expansions % YIELD_INTERVAL ~= 0 then return end
-    if not shouldYield or not coroutine_running() then return end
+    if not shouldYield then return end
+    local thread = coroutine_running()
+    if not thread or not yieldAllowed[thread] then return end
     if shouldYield() then coroutine_yield() end
 end
 
@@ -39,6 +54,14 @@ QR.Graph.__index = QR.Graph
 -- @param hook function|nil Returns true when the current frame's budget is spent
 function QR.Graph.SetYieldHook(hook)
     shouldYield = hook
+end
+
+--- Let the searches of the running coroutine yield, or stop them yielding.
+-- Outside a coroutine this does nothing.
+-- @param allowed boolean
+function QR.Graph.AllowYield(allowed)
+    local thread = coroutine_running()
+    if thread then yieldAllowed[thread] = allowed and true or nil end
 end
 
 QR.Graph.YIELD_INTERVAL = YIELD_INTERVAL

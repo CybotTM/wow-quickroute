@@ -935,14 +935,17 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         end
     end
 
-    -- Run Dijkstra's algorithm
+    -- Run Dijkstra's algorithm. Only this search may yield to the asynchronous
+    -- driver (see QR.Graph.AllowYield); the graph is complete here.
     local path, totalTime, pathEdges, searchReason, blocked
+    QR.Graph.AllowYield(true)
     if QR.TravelRequirements then
         path, totalTime, pathEdges, searchReason, blocked =
             QR.TravelRequirements:FindPath(self.graph, PLAYER_NODE, destName)
     else
         path, totalTime, pathEdges, searchReason = self.graph:FindShortestPath(PLAYER_NODE, destName)
     end
+    QR.Graph.AllowYield(false)
 
     if not path then
         -- Clean up destination node on failure
@@ -1146,6 +1149,13 @@ end
 
 -- Milliseconds of graph search per slice.
 PathCalculator.FRAME_BUDGET_MS = 6
+-- Milliseconds per slice for a background request (the quest buttons). Nobody
+-- waits for its answer, so it takes a third of a route the player asked for.
+-- While a foreground request waits behind it, it runs at FRAME_BUDGET_MS so it
+-- is out of the way sooner.
+PathCalculator.BACKGROUND_BUDGET_MS = 2
+-- Seconds between two looks at a background request parked by combat.
+PathCalculator.BACKGROUND_COMBAT_RECHECK = 1
 PathCalculator.asyncGeneration = 0
 -- Requests waiting for the calculator, oldest first.
 PathCalculator.asyncQueue = {}
@@ -1231,29 +1241,52 @@ function PathCalculator:CancelAsync()
     return self.asyncGeneration
 end
 
+--- Is a request other than a background one waiting for the calculator?
+-- @return boolean
+function PathCalculator:HasForegroundWaiting()
+    for _, request in ipairs(self.asyncQueue or {}) do
+        if not request.background then return true end
+    end
+    return false
+end
+
 --- Calculate a route across frames.
 -- @param callback function Receives (route, failure) unless this request is
 --   superseded first
 -- @param options table|nil `consumer` names the owner whose earlier requests
---   this one replaces; `onSuperseded` is called if this request is replaced
+--   this one replaces; `onSuperseded` is called if this request is replaced;
+--   `background` marks a request nobody is waiting for: it queues behind every
+--   other request, runs at BACKGROUND_BUDGET_MS, waits out combat and writes no
+--   trace entries
 -- @return number The generation of this request
 function PathCalculator:CalculatePathAsync(destMapID, destX, destY, destTitle, callback, options)
     options = options or {}
     local consumer = options.consumer or CONSUMER.ROUTE_PANEL
+    local background = options.background == true
     local generation = (self.asyncGeneration or 0) + 1
     self.asyncGeneration = generation
     -- Before the new request is queued, so a consumer's own supersession
     -- notice cannot announce the new request as replaced by itself.
     self:SupersedeConsumer(consumer)
     self.asyncQueue = self.asyncQueue or {}
-    self.asyncQueue[#self.asyncQueue + 1] = {
+    local queue = self.asyncQueue
+    -- A foreground request goes ahead of every waiting background request; a
+    -- background request goes to the end.
+    local position = #queue + 1
+    if not background then
+        for index, waiting in ipairs(queue) do
+            if waiting.background then position = index; break end
+        end
+    end
+    table_insert(queue, position, {
         generation = generation,
         consumer = consumer,
+        background = background,
         onSuperseded = options.onSuperseded,
         args = { destMapID, destX, destY, destTitle },
         callback = callback,
-    }
-    if QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
+    })
+    if not background and QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
         QR.Diagnostics:Trace("route", "route requested", {
             destMap = destMapID, destX = destX, destY = destY, destTitle = destTitle,
             consumer = tostring(consumer), generation = generation,
@@ -1280,6 +1313,31 @@ function PathCalculator:StepAsync()
         return self:CalculatePath(pending.args[1], pending.args[2], pending.args[3], pending.args[4])
     end)
     self.asyncRunning = pending
+    self:ContinueAsync()
+end
+
+-- A background request does no work in combat unless a foreground request
+-- waits behind it. Parked, it keeps the temporary destination node it may have
+-- added; it is resumed after the fight, never dropped (see the section header).
+local function MustPark(self, running)
+    if not running.background or self:HasForegroundWaiting() then return false end
+    local inCombat = _G.InCombatLockdown
+    return type(inCombat) == "function" and inCombat() == true
+end
+
+--- Run the next slice of the running calculation, or look again later when it
+-- is a background request parked by combat.
+function PathCalculator:ContinueAsync()
+    local running = self.asyncRunning
+    if not running then return end
+    if MustPark(self, running) then
+        if C_Timer and C_Timer.After then
+            C_Timer.After(self.BACKGROUND_COMBAT_RECHECK or 1, function()
+                if self.asyncRunning == running then self:ContinueAsync() end
+            end)
+        end
+        return
+    end
     self:ResumeAsync()
 end
 
@@ -1288,7 +1346,11 @@ function PathCalculator:ResumeAsync()
     local running = self.asyncRunning
     if not running then return end
     local clock = ProfileClock()
-    local deadline = clock and (clock() + (self.FRAME_BUDGET_MS or 6))
+    local budget = self.FRAME_BUDGET_MS or 6
+    if running.background and not self:HasForegroundWaiting() then
+        budget = self.BACKGROUND_BUDGET_MS or 2
+    end
+    local deadline = clock and (clock() + budget)
     QR.Graph.SetYieldHook(clock and function() return clock() >= deadline end or nil)
     -- The journey the search belongs to travels with the request: restored for
     -- the slice, captured again after it, and the outer one put back so a
@@ -1309,7 +1371,7 @@ function PathCalculator:ResumeAsync()
 
     if ok and coroutine.status(running.thread) ~= "dead" then
         if C_Timer and C_Timer.After then
-            C_Timer.After(0, function() self:ResumeAsync() end)
+            C_Timer.After(0, function() self:ContinueAsync() end)
         else
             self:ResumeAsync()
         end
@@ -1330,7 +1392,7 @@ function PathCalculator:ResumeAsync()
     -- The callback is guarded. It belongs to whoever asked, and with a queue
     -- behind it a raising callback would strand every request waiting on the
     -- calculator until somebody happened to ask again.
-    if QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
+    if not running.background and QR.Diagnostics and QR.Diagnostics.IsTracing and QR.Diagnostics:IsTracing() then
         local args = running.args or {}
         QR.Diagnostics:Trace("route", route and "route found" or "no route", {
             destMap = args[1], destX = args[2], destY = args[3], destTitle = args[4],

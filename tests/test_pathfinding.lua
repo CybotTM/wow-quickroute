@@ -2940,6 +2940,7 @@ T:run("Cooperative search: expansion yields when the frame budget is spent", fun
     local asked, yielded = 0, 0
     QR.Graph.SetYieldHook(function() asked = asked + 1; return true end)
     local thread = coroutine.create(function()
+        QR.Graph.AllowYield(true)
         return graph:FindShortestPath("N1", "N900")
     end)
     local path
@@ -2954,6 +2955,27 @@ T:run("Cooperative search: expansion yields when the frame budget is spent", fun
     t:assertEqual(900, #path, "the path is the same one the synchronous search finds")
     t:assertGreaterThan(yielded, 0, "the search yielded during expansion, got " .. yielded)
     t:assertGreaterThan(asked, 0, "the budget hook was consulted, got " .. asked)
+end)
+
+T:run("Cooperative search: a coroutine that did not opt in never yields", function(t)
+    -- BuildGraph asks the zone travel graph for distances inside the same
+    -- coroutine as the route search. A slice ending there would hand a half
+    -- built graph to whoever runs before the next slice.
+    local graph = QR.Graph:New()
+    for index = 1, 900 do
+        graph:AddNode("N" .. index, {mapID = 84, x = index / 1000, y = 0.5})
+        if index > 1 then graph:AddEdge("N" .. (index - 1), "N" .. index, 1, "walk", {}) end
+    end
+    QR.Graph.SetYieldHook(function() return true end)
+    local thread = coroutine.create(function()
+        return graph:FindShortestPath("N1", "N900")
+    end)
+    local ok, path = coroutine.resume(thread)
+    local status = coroutine.status(thread)
+    QR.Graph.SetYieldHook(nil)
+    t:assertTrue(ok, "the search does not error: " .. tostring(path))
+    t:assertEqual("dead", status, "the search ran to its end in one resume, status " .. status)
+    t:assertEqual(900, type(path) == "table" and #path or nil, "and returned the whole path")
 end)
 
 T:run("Cooperative search: the hook is ignored outside a coroutine", function(t)
