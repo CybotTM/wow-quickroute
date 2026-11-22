@@ -52,6 +52,9 @@ local function reinitialize()
     MockWoW.config.questTitles = {}
 
     -- Reset the module state
+    -- The route bound (QTB.ROUTES_PER_MINUTE) counts by GetTime, and the mock's
+    -- clock stands still, so the routes of earlier tests would fill it.
+    QR.QuestTeleportButtons:ResetRouteBudget()
     QR.QuestTeleportButtons.initialized = false
     QR.QuestTeleportButtons.pool = {}
     QR.QuestTeleportButtons.activeButtons = {}
@@ -186,7 +189,11 @@ T:run("QuestTeleportButtons: the route search runs under the quest-buttons tag",
     local stub = QR.PathCalculator.CalculatePath
     local tags = {}
     QR.PathCalculator.CalculatePath = function(...)
-        tags[#tags + 1] = tostring(QR.DataCollection and QR.DataCollection.syncTag)
+        -- What DataCollection:AfterCalculation files the search under: the
+        -- running request's consumer, else a synchronous caller's tag.
+        local running = QR.PathCalculator.asyncRunning
+        tags[#tags + 1] = tostring(running and running.consumer
+            or (QR.DataCollection and QR.DataCollection.syncTag))
         return stub(...)
     end
     setupTrackedQuest(12346, 84, "Tagged Quest")

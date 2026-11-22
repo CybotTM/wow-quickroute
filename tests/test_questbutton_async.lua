@@ -33,6 +33,12 @@ local function withRefresh(fn)
     qtb._pendingRefreshAt=nil
     qtb._nextCooldownExpiry=nil
     qtb.flightChoices={}
+    -- The route bound (QTB.ROUTES_PER_MINUTE) counts by GetTime, and the mock's
+    -- clock stands still, so the routes of earlier tests would fill it.
+    -- This file is about what a refresh does, not about the bound.
+    saved.routesPerMinute = qtb.ROUTES_PER_MINUTE
+    qtb.ROUTES_PER_MINUTE = math.huge
+    qtb:ResetRouteBudget()
     _G.IsFlying=function()return false end
     for index=1,qtb:GetPoolSize() do
         local btn = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
@@ -98,6 +104,8 @@ local function withRefresh(fn)
     qtb.movementFrame,qtb._movementElapsed,qtb._refreshRunning=saved.movement,saved.elapsed,saved.running
     qtb._lastRefreshPosition,qtb._lastRefreshGraph=saved.lastPosition,saved.lastGraph
     qtb._pendingRefreshAt=saved.pendingRefresh
+    qtb.ROUTES_PER_MINUTE = saved.routesPerMinute
+    qtb:ResetRouteBudget()
     qtb.flightChoices,_G.IsFlying=saved.flightChoices,saved.flying
     MockWoW.config.inCombatLockdown=saved.inCombat
     MockWoW.config.baseTime=saved.baseTime

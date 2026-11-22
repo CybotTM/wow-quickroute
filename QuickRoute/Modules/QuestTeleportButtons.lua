@@ -22,10 +22,41 @@ local BUTTON_OFFSET_X = -4   -- pixels left of quest header
 local MOVEMENT_CHECK_INTERVAL = 1
 local PENDING_GRACE = 2     -- retain an inactive icon across a brief data gap
 
+-- Routes for the buttons are background work: nobody waits for them, so they
+-- are asked for as background requests (PathCalculator:CalculatePathAsync),
+-- which queue behind every route the player asked for, take a small slice per
+-- frame and wait out combat. The consumer key is also the tag the travel
+-- observations file the timings under.
+local ROUTE_CONSUMER = "quest-buttons"
+
+-- At most this many routes in any ROUTE_WINDOW seconds. Without a bound the
+-- buttons routed 1,189 times in 46 minutes of the owner's retail session of
+-- 2026-11-22, 26 a minute on average and in runs of 8 to 14 when the player
+-- moved. A quest whose route would go over the bound keeps the answer it has,
+-- where that answer still holds for the quest's destination, and is asked for
+-- again when the window has room.
+local ROUTE_WINDOW = 60
+
+-- Entries expire up to this many seconds before CACHE_TTL, offset by quest ID,
+-- so the entries one refresh filled do not all expire in the same second.
+local EXPIRY_SPREAD = 10
+
+-- Inside a dungeon, raid, scenario (delves included), battleground or arena a
+-- quest outside cannot be travelled to before the player leaves, and leaving
+-- changes the zone, which refreshes the buttons anyway. The buttons are left as
+-- they are rather than hidden: a hearthstone button is how a finished dungeon
+-- is left.
+local PAUSED_INSTANCE_TYPES = { party = true, raid = true, scenario = true, pvp = true, arena = true }
+
+-- What GetCachedTeleportForQuest returns while its route is still being
+-- calculated. The answer arrives through its callback.
+local PENDING = {}
+
 -------------------------------------------------------------------------------
 -- QuestTeleportButtons Module
 -------------------------------------------------------------------------------
 QR.QuestTeleportButtons = {
+    ROUTES_PER_MINUTE = 20,
     pool = {},            -- Pre-created SecureActionButtonTemplate buttons
     activeButtons = {},   -- { [questID] = button }
     questCache = {},      -- { [questID] = { teleportID, sourceType, data, time } }
@@ -35,6 +66,16 @@ QR.QuestTeleportButtons = {
 }
 
 local QTB = QR.QuestTeleportButtons
+
+--- Is the player in an instance where the buttons pause (PAUSED_INSTANCE_TYPES)?
+local function IsInPausedInstance()
+    local check = _G.IsInInstance
+    if type(check) ~= "function" then return false end
+    local ok, inInstance, instanceType = pcall(check)
+    if not ok or inInstance ~= true then return false end
+    if issecretvalue and issecretvalue(instanceType) then return false end
+    return PAUSED_INSTANCE_TYPES[instanceType] == true
+end
 
 --- Drop the cooldown answers remembered for one refresh batch.
 -- Called from every path that leaves a batch, including the ones that abandon
@@ -195,19 +236,13 @@ local function ResolveQuestWaypoint(questID, scanBatch)
     return QR.WaypointIntegration:GetQuestWaypoint(questID, retry, scanBatch)
 end
 
-local function FindBestTeleportForQuest(questID, waypoint)
-    if not (QR.WaypointIntegration and QR.PathCalculator and QR.PlayerInventory) then
-        return nil, nil, true
-    end
-    if not waypoint then return nil, nil, true end
+local function CanRoute(waypoint)
+    return waypoint and QR.WaypointIntegration and QR.PathCalculator and QR.PlayerInventory and true or false
+end
 
-    local route
-    local DC = QR.DataCollection
-    if DC and DC.CalculateTagged then
-        route = DC:CalculateTagged("quest-buttons", waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
-    else
-        route = QR.PathCalculator:CalculatePath(waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
-    end
+--- The first step of a computed route, as the button's teleport.
+-- @return teleportID, entry, incomplete, direct
+local function TeleportFromRoute(route)
     if not route then return nil, nil, true end
     local step = route and route.steps and route.steps[1]
     if not step or step.type ~= "teleport" or not step.teleportID then
@@ -226,12 +261,58 @@ end
 -- Cache Management
 -------------------------------------------------------------------------------
 
+local function Pack(...)
+    return { n = select("#", ...), ... }
+end
+
+--- Seconds this quest's entries expire before CACHE_TTL.
+local function ExpirySpread(questID)
+    if type(questID) ~= "number" then return 0 end
+    return questID % (EXPIRY_SPREAD + 1)
+end
+
+local function EntryExpired(cached, now)
+    if type(cached.time) ~= "number" then return true end
+    return now - cached.time >= CACHE_TTL - (cached.spread or 0)
+end
+
+-- When the routes of the last ROUTE_WINDOW seconds started, oldest first.
+local routeStarts = {}
+
+--- Take one of the window's slots, or say there is none.
+-- @return boolean
+local function TakeRouteSlot(now)
+    local kept = {}
+    for _, started in ipairs(routeStarts) do
+        if now - started < ROUTE_WINDOW then kept[#kept + 1] = started end
+    end
+    routeStarts = kept
+    if #routeStarts >= (QTB.ROUTES_PER_MINUTE or 20) then
+        -- Look again when the oldest slot frees.
+        local retryAt = routeStarts[1] + ROUTE_WINDOW
+        if not QTB._pendingRefreshAt or retryAt < QTB._pendingRefreshAt then QTB._pendingRefreshAt = retryAt end
+        return false
+    end
+    routeStarts[#routeStarts + 1] = now
+    return true
+end
+
+--- Forget the window's slots (tests, and a disabled feature).
+function QTB:ResetRouteBudget()
+    routeStarts = {}
+end
+
+--- How many slots of the window are taken.
+function QTB:GetRouteBudgetUsed()
+    return #routeStarts
+end
+
 --- Get or compute the best teleport for a quest, with caching
 -- @param questID number
 -- @return number|nil teleportID
 -- @return string|nil sourceType
 -- @return table|nil data from TeleportItemsData
-local function GetCachedTeleportForQuest(questID, scanBatch)
+local function GetCachedTeleportForQuest(questID, scanBatch, onLate)
     local now = GetTime()
     local mapID, px, py = GetPlayerPosition()
     if not mapID then QTB.questCache[questID] = nil; return nil, nil, nil, true end
@@ -267,7 +348,7 @@ local function GetCachedTeleportForQuest(questID, scanBatch)
         and PositionStillValid(cached.position, mapID, px, py)
         and cached.graph == (calculator and calculator.graph)
         and (not destinationKnown or cached.destination == destination)
-        and not (calculator and calculator.graphDirty) and (now - cached.time) < CACHE_TTL then
+        and not (calculator and calculator.graphDirty) and not EntryExpired(cached, now) then
         local cooldown = cached.teleportID and QR.CooldownTracker
             and QR.CooldownTracker:GetCooldown(cached.teleportID, cached.sourceType)
         if not cached.teleportID or (cooldown and cooldown.ready) then
@@ -275,34 +356,85 @@ local function GetCachedTeleportForQuest(questID, scanBatch)
         end
     end
 
-    local generation = QTB._refreshGeneration
-    local teleportID, entry, incomplete, direct = FindBestTeleportForQuest(questID, waypoint)
-    -- Reentrant invalidation cancels this result as well as its UI callback.
-    -- Never refill the cache with a route from the cancelled calculation.
-    if generation ~= QTB._refreshGeneration then return nil, nil, nil, true end
-    if incomplete then
-        -- An API/route gap is not a confirmed walking result. In particular,
-        -- do not suppress a pending button's short retry with a 30s negative.
+    if not CanRoute(waypoint) then
         QTB.questCache[questID] = nil
         return nil, nil, nil, true
     end
-    if teleportID and entry then
-        QTB.questCache[questID] = {
-            teleportID = teleportID,
-            sourceType = entry.sourceType,
-            data = entry.data,
-            time = now,
-            position = { mapID = mapID, x = px, y = py },
-            destination = destination,
-            graph = QR.PathCalculator and QR.PathCalculator.graph,
-        }
-        return teleportID, entry.sourceType, entry.data
+
+    -- Over the bound: keep the answer we have, where it is still an answer for
+    -- this destination on this graph and its teleport is still ready. Moving
+    -- or waiting changes only how fast the route is, never where it goes.
+    if not TakeRouteSlot(now) then
+        local cooldown = cached and cached.teleportID and QR.CooldownTracker
+            and QR.CooldownTracker:GetCooldown(cached.teleportID, cached.sourceType)
+        if cached and not (QTB.flightChoices and QTB.flightChoices[questID])
+            and cached.graph == (calculator and calculator.graph)
+            and not (calculator and calculator.graphDirty)
+            and (not destinationKnown or cached.destination == destination)
+            and (not cached.teleportID or (cooldown and cooldown.ready)) then
+            return cached.teleportID, cached.sourceType, cached.data, nil, cached.direct
+        end
+        -- A button already on screen may stay only for the destination it was
+        -- made for; a quest that moved on must lose its old teleport.
+        local sameDestination = not destinationKnown
+            or (QTB.lastDestinations and QTB.lastDestinations[questID] == destination)
+        return nil, nil, nil, true, nil, sameDestination
     end
 
-    QTB.questCache[questID] = { time = now, position = { mapID = mapID, x = px, y = py },
-        destination = destination,
-        graph = QR.PathCalculator and QR.PathCalculator.graph, direct = direct }
-    return nil, nil, nil, nil, direct
+    local generation = QTB._refreshGeneration
+    local function Store(route)
+        -- Reentrant invalidation cancels this result as well as its UI
+        -- callback. Never refill the cache with a route from the cancelled
+        -- calculation.
+        if generation ~= QTB._refreshGeneration then return nil, nil, nil, true end
+        local teleportID, entry, incomplete, direct = TeleportFromRoute(route)
+        if incomplete then
+            -- An API/route gap is not a confirmed walking result. In
+            -- particular, do not suppress a pending button's short retry with
+            -- a 30s negative.
+            QTB.questCache[questID] = nil
+            return nil, nil, nil, true
+        end
+        local graph = QR.PathCalculator and QR.PathCalculator.graph
+        QTB.lastDestinations = QTB.lastDestinations or {}
+        QTB.lastDestinations[questID] = destination
+        if teleportID and entry then
+            QTB.questCache[questID] = {
+                teleportID = teleportID,
+                sourceType = entry.sourceType,
+                data = entry.data,
+                time = now,
+                spread = ExpirySpread(questID),
+                position = { mapID = mapID, x = px, y = py },
+                destination = destination,
+                graph = graph,
+            }
+            return teleportID, entry.sourceType, entry.data
+        end
+        QTB.questCache[questID] = { time = now, spread = ExpirySpread(questID),
+            position = { mapID = mapID, x = px, y = py },
+            destination = destination, graph = graph, direct = direct }
+        return nil, nil, nil, nil, direct
+    end
+
+    local PC = QR.PathCalculator
+    if not PC.CalculatePathAsync then
+        local ok, route = pcall(PC.CalculatePath, PC, waypoint.mapID, waypoint.x, waypoint.y, waypoint.title)
+        return Store(ok and route or nil)
+    end
+    -- A request that finishes inside the call (nothing else was running and
+    -- the search fitted one slice) answers here; a later one through onLate.
+    local delivered, waiting
+    PC:CalculatePathAsync(waypoint.mapID, waypoint.x, waypoint.y, waypoint.title, function(route)
+        if waiting then
+            if type(onLate) == "function" then onLate(Store(route)) end
+        else
+            delivered = Pack(Store(route))
+        end
+    end, { consumer = ROUTE_CONSUMER, background = true })
+    if delivered then return unpack(delivered, 1, delivered.n) end
+    waiting = true
+    return PENDING
 end
 
 --- Invalidate the cache for all quests
@@ -315,6 +447,9 @@ end
 function QTB:CancelRefresh()
     self._refreshGeneration = (self._refreshGeneration or 0) + 1
     self._refreshRunning = false
+    -- A route still being calculated for the old refresh must not answer.
+    local PC = QR.PathCalculator
+    if PC and PC.SupersedeConsumer then PC:SupersedeConsumer(ROUTE_CONSUMER) end
     EndCooldownBatch()
 end
 
@@ -323,10 +458,15 @@ end
 -- can otherwise retain an entire obsolete travel graph.
 local function PruneQuestCache(watched)
     local now = GetTime()
+    if watched and QTB.lastDestinations then
+        for questID in pairs(QTB.lastDestinations) do
+            if not watched[questID] then QTB.lastDestinations[questID] = nil end
+        end
+    end
     local graph = QR.PathCalculator and QR.PathCalculator.graph
     for questID, cached in pairs(QTB.questCache) do
         if (watched and not watched[questID]) or type(cached.time) ~= "number"
-            or now - cached.time >= CACHE_TTL or cached.graph ~= graph then
+            or EntryExpired(cached, now) or cached.graph ~= graph then
             QTB.questCache[questID] = nil
         end
     end
@@ -542,6 +682,18 @@ local function ReleaseButton(btn)
     end
 end
 
+--- Is the button's teleport still one the player can use right now?
+local function ButtonStillUsable(btn)
+    local id, source = btn._pendingTeleportID or btn.teleportID, btn._pendingSourceType or btn.sourceType
+    if btn._pendingSince then return false end
+    local inventory = QR.PlayerInventory and QR.PlayerInventory:GetAllTeleports()
+    local entry = inventory and inventory[id]
+    local cooldown = id and QR.CooldownTracker and QR.CooldownTracker:GetCooldown(id, source)
+    return entry and entry.data and entry.sourceType == source
+        and not (issecretvalue and issecretvalue(entry.isUsable)) and entry.isUsable ~= false
+        and cooldown and cooldown.ready and true or false
+end
+
 local function KeepPendingButton(btn)
     local id, source = btn._pendingTeleportID or btn.teleportID, btn._pendingSourceType or btn.sourceType
     local inventory = QR.PlayerInventory and QR.PlayerInventory:GetAllTeleports()
@@ -570,6 +722,7 @@ end
 function QTB:ReleaseAllButtons()
     self:CancelRefresh()
     wipe(self.questCache)
+    if self.lastDestinations then wipe(self.lastDestinations) end
     self._lastRefreshGraph, self._lastRefreshPosition = nil, nil
     self._pendingRefreshAt = nil
     self._nextCooldownExpiry = nil
@@ -656,6 +809,7 @@ function QTB:RefreshButtons()
     self:CancelRefresh()
     if not self.initialized then return end
     if InCombatLockdown() then return end
+    if IsInPausedInstance() then return end
     if not self.enabled then
         self:ReleaseAllButtons()
         return
@@ -718,98 +872,110 @@ function QTB:RefreshButtons()
         -- one replacement batch; keeping the first successful graph as the
         -- baseline avoids restarting for the normal initial dirty build.
         if GraphChanged() then QTB:RefreshButtons(); return end
-        -- A route calculation can take several milliseconds. Never calculate
-        -- every watched quest in the same quest-log/event frame.
-        local ok, teleportID, sourceType, data, incomplete, direct = pcall(GetCachedTeleportForQuest, questID, scanBatch)
-        if not IsCurrent() then EndCooldownBatch(generation); return end
-        if not ok then
-            QR:Debug("Quest button route unavailable: " .. tostring(teleportID))
-            teleportID = nil
-            incomplete = true
-        end
-        -- A calculation itself may discover a faction change and rebuild.
-        if GraphChanged() then QTB:RefreshButtons(); return end
-        local calculator = QR.PathCalculator
-        if not incomplete and calculator and calculator.graph and not calculator.graphDirty then
-            -- Reuse the movement observer's reference rather than retaining a
-            -- graph inside callbacks after cancellation or pool release.
-            QTB._lastRefreshGraph = calculator.graph
-            hasBatchGraph = true
-        end
-        local previous = QTB.flightChoices[questID]
-        if flying and direct and (previous or QTB.activeButtons[questID]) then
-            -- Instantaneous flight speed can cross the direct/teleport tie on
-            -- adjacent samples. Retire a slower teleport immediately, but ask
-            -- for a fresh confirmation before showing it again.
-            QTB.flightChoices[questID] = {}
-        elseif flying and teleportID and sourceType and previous then
-            local now = GetTime()
-            if previous.id ~= teleportID or previous.source ~= sourceType then
-                previous.id, previous.source, previous.since = teleportID, sourceType, now
-            end
-            if now - previous.since < MOVEMENT_CHECK_INTERVAL then
-                QTB.questCache[questID] = nil -- confirmation must calculate a fresh route
-                local retryAt = previous.since + MOVEMENT_CHECK_INTERVAL
-                if not QTB._pendingRefreshAt or retryAt < QTB._pendingRefreshAt then QTB._pendingRefreshAt = retryAt end
+        -- What to do with this quest's answer. Called at once when the answer
+        -- is at hand (a cached route, or a search that fitted one slice), or
+        -- from the route's callback frames later.
+        local function Finish(ok, teleportID, sourceType, data, incomplete, direct, deferred)
+            if not IsCurrent() then EndCooldownBatch(generation); return end
+            if not ok then
+                QR:Debug("Quest button route unavailable: " .. tostring(teleportID))
                 teleportID = nil
-            else
+                incomplete = true
+            end
+            -- A calculation itself may discover a faction change and rebuild.
+            if GraphChanged() then QTB:RefreshButtons(); return end
+            local calculator = QR.PathCalculator
+            if not incomplete and calculator and calculator.graph and not calculator.graphDirty then
+                -- Reuse the movement observer's reference rather than retaining a
+                -- graph inside callbacks after cancellation or pool release.
+                QTB._lastRefreshGraph = calculator.graph
+                hasBatchGraph = true
+            end
+            local previous = QTB.flightChoices[questID]
+            if flying and direct and (previous or QTB.activeButtons[questID]) then
+                -- Instantaneous flight speed can cross the direct/teleport tie on
+                -- adjacent samples. Retire a slower teleport immediately, but ask
+                -- for a fresh confirmation before showing it again.
+                QTB.flightChoices[questID] = {}
+            elseif flying and teleportID and sourceType and previous then
+                local now = GetTime()
+                if previous.id ~= teleportID or previous.source ~= sourceType then
+                    previous.id, previous.source, previous.since = teleportID, sourceType, now
+                end
+                if now - previous.since < MOVEMENT_CHECK_INTERVAL then
+                    QTB.questCache[questID] = nil -- confirmation must calculate a fresh route
+                    local retryAt = previous.since + MOVEMENT_CHECK_INTERVAL
+                    if not QTB._pendingRefreshAt or retryAt < QTB._pendingRefreshAt then QTB._pendingRefreshAt = retryAt end
+                    teleportID = nil
+                else
+                    QTB.flightChoices[questID] = nil
+                end
+            elseif incomplete and previous then
+                QTB.flightChoices[questID] = {}
+            elseif not incomplete then
                 QTB.flightChoices[questID] = nil
             end
-        elseif incomplete and previous then
-            QTB.flightChoices[questID] = {}
-        elseif not incomplete then
-            QTB.flightChoices[questID] = nil
-        end
-        if teleportID and sourceType then
-            local btn = QTB.activeButtons[questID] or GetFreeButton()
-            if not btn then
-                -- A new higher-priority quest may replace a full pool's last
-                -- unprocessed entry. Already-confirmed quests keep their slot.
-                for candidate = #trackedQuests, index + 1, -1 do
-                    local oldID = trackedQuests[candidate]
-                    local old = QTB.activeButtons[oldID]
-                    if old and not retained[oldID] then
-                        ReleaseButton(old)
-                        QTB.activeButtons[oldID] = nil
-                        btn = GetFreeButton()
-                        break
+            if deferred and QTB.activeButtons[questID] and ButtonStillUsable(QTB.activeButtons[questID]) then
+                -- Over the route bound with no answer to fall back on: the
+                -- button already on screen stays as it is until a slot frees.
+                retained[questID] = true
+                activeCount = activeCount + 1
+            elseif teleportID and sourceType then
+                local btn = QTB.activeButtons[questID] or GetFreeButton()
+                if not btn then
+                    -- A new higher-priority quest may replace a full pool's last
+                    -- unprocessed entry. Already-confirmed quests keep their slot.
+                    for candidate = #trackedQuests, index + 1, -1 do
+                        local oldID = trackedQuests[candidate]
+                        local old = QTB.activeButtons[oldID]
+                        if old and not retained[oldID] then
+                            ReleaseButton(old)
+                            QTB.activeButtons[oldID] = nil
+                            btn = GetFreeButton()
+                            break
+                        end
                     end
                 end
-            end
-            if btn then
-                if ConfigureButton(btn, teleportID, sourceType, data) then
-                    btn.questID = questID
-                    QTB.activeButtons[questID] = btn
-                    retained[questID] = true
-                    activeCount = activeCount + 1
-                    if QTB.updateFrame then QTB.updateFrame:Show() end
-                else
-                    ReleaseButton(btn)
-                    QTB.activeButtons[questID] = nil
+                if btn then
+                    if ConfigureButton(btn, teleportID, sourceType, data) then
+                        btn.questID = questID
+                        QTB.activeButtons[questID] = btn
+                        retained[questID] = true
+                        activeCount = activeCount + 1
+                        if QTB.updateFrame then QTB.updateFrame:Show() end
+                    else
+                        ReleaseButton(btn)
+                        QTB.activeButtons[questID] = nil
+                    end
                 end
+            elseif incomplete and QTB.activeButtons[questID] and KeepPendingButton(QTB.activeButtons[questID]) then
+                retained[questID] = true
+                activeCount = activeCount + 1
+            elseif QTB.activeButtons[questID] then
+                ReleaseButton(QTB.activeButtons[questID])
+                QTB.activeButtons[questID] = nil
             end
-        elseif incomplete and QTB.activeButtons[questID] and KeepPendingButton(QTB.activeButtons[questID]) then
-            retained[questID] = true
-            activeCount = activeCount + 1
-        elseif QTB.activeButtons[questID] then
-            ReleaseButton(QTB.activeButtons[questID])
-            QTB.activeButtons[questID] = nil
-        end
-        index = index + 1
-        if index <= #trackedQuests and activeCount < POOL_SIZE then
-            C_Timer.After(0, RefreshOne)
-        else
-            PruneQuestCache(watched) -- A route in this batch may have rebuilt the graph.
-            for oldID, btn in pairs(QTB.activeButtons) do
-                if not retained[oldID] then
-                    ReleaseButton(btn)
-                    QTB.activeButtons[oldID] = nil
+            index = index + 1
+            if index <= #trackedQuests and activeCount < POOL_SIZE then
+                C_Timer.After(0, RefreshOne)
+            else
+                PruneQuestCache(watched) -- A route in this batch may have rebuilt the graph.
+                for oldID, btn in pairs(QTB.activeButtons) do
+                    if not retained[oldID] then
+                        ReleaseButton(btn)
+                        QTB.activeButtons[oldID] = nil
+                    end
                 end
+                if not next(QTB.activeButtons) and QTB.updateFrame then QTB.updateFrame:Hide() end
+                QTB._refreshRunning = false
+                EndCooldownBatch(generation)
             end
-            if not next(QTB.activeButtons) and QTB.updateFrame then QTB.updateFrame:Hide() end
-            QTB._refreshRunning = false
-            EndCooldownBatch(generation)
         end
+        local answer = Pack(pcall(GetCachedTeleportForQuest, questID, scanBatch, function(...)
+            Finish(true, ...)
+        end))
+        if answer[1] and answer[2] == PENDING then return end
+        Finish(unpack(answer, 1, answer.n))
     end
     C_Timer.After(0, RefreshOne)
 end
@@ -819,7 +985,8 @@ function QTB:OnMovementUpdate(elapsed)
     self._movementElapsed = (self._movementElapsed or 0) + elapsed
     if self._movementElapsed < MOVEMENT_CHECK_INTERVAL then return end
     self._movementElapsed = 0
-    if not self.initialized or not self.enabled or InCombatLockdown() or self._refreshRunning then return end
+    if not self.initialized or not self.enabled or InCombatLockdown() or self._refreshRunning
+        or IsInPausedInstance() then return end
     if self._nextCooldownExpiry and GetTime() >= self._nextCooldownExpiry and UpdateCooldownState() then
         self:InvalidateCache()
         self:RefreshButtons()

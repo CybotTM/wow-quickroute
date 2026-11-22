@@ -191,6 +191,9 @@ T:run("Quest replanning: the global cooldown is not a readiness change", functio
     end
     QR.WaypointIntegration:ClearQuestCoordCache()
     QTB:InvalidateCache()
+    -- The route bound (QTB.ROUTES_PER_MINUTE) counts by GetTime, and the mock's
+    -- clock stands still, so the routes of earlier tests would fill it.
+    QTB:ResetRouteBudget()
     if not QR.PathCalculator.graph then QR.PathCalculator:BuildGraph() end
     QR.PathCalculator.graphDirty = false
 
