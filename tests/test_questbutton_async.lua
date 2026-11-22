@@ -84,6 +84,31 @@ local function withRefresh(fn)
         state.calls = state.calls + 1
         return {steps={{type="teleport",teleportID=3561,sourceType="spell"}}}
     end}
+    -- The buttons ask the shipped calculator through CalculatePathAsync. Like
+    -- the real driver with a search that fits one slice, this one answers
+    -- inside the call; a new request supersedes the waiting one of its
+    -- consumer. Answers on a later frame are covered against the real driver
+    -- in test_questbutton_background.lua.
+    local waiting = {}
+    function QR.PathCalculator:SupersedeConsumer(consumer)
+        local request = waiting[consumer]
+        if request and not request.superseded then
+            request.superseded = true
+            waiting[consumer] = nil
+            if request.onSuperseded then request.onSuperseded() end
+        end
+    end
+    function QR.PathCalculator:CalculatePathAsync(mapID, x, y, title, callback, options)
+        options = options or {}
+        self:SupersedeConsumer(options.consumer)
+        local request = { onSuperseded = options.onSuperseded }
+        waiting[options.consumer] = request
+        state.asyncRequests = (state.asyncRequests or 0) + 1
+        local route = self:CalculatePath(mapID, x, y, title)
+        if request.superseded then return end
+        waiting[options.consumer] = nil
+        callback(route)
+    end
     QR.SecureButtons.ConfigureButton = function(_,btn,id)
         state.configured = state.configured + 1
         btn:SetAttribute("type","spell")

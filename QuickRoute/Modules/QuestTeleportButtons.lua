@@ -361,6 +361,17 @@ local function GetCachedTeleportForQuest(questID, scanBatch, onLate)
         return nil, nil, nil, true
     end
 
+    -- A route for this quest and destination may still be running for a
+    -- refresh that an event replaced. Wait for it instead of starting over:
+    -- the events arrive about once a second while the player moves, and a
+    -- search in 2 ms slices can take longer than that.
+    QTB.inflight = QTB.inflight or {}
+    local running = QTB.inflight[questID]
+    if running and running.destination == destination and running.epoch == QTB._cacheEpoch then
+        running.onLate = onLate
+        return PENDING
+    end
+
     -- Over the bound: keep the answer we have, where it is still an answer for
     -- this destination on this graph and its teleport is still ready. Moving
     -- or waiting changes only how fast the route is, never where it goes.
@@ -381,12 +392,13 @@ local function GetCachedTeleportForQuest(questID, scanBatch, onLate)
         return nil, nil, nil, true, nil, sameDestination
     end
 
-    local generation = QTB._refreshGeneration
+    local epoch = QTB._cacheEpoch
     local function Store(route)
-        -- Reentrant invalidation cancels this result as well as its UI
-        -- callback. Never refill the cache with a route from the cancelled
-        -- calculation.
-        if generation ~= QTB._refreshGeneration then return nil, nil, nil, true end
+        -- An invalidation since the request (a cooldown that moved, the
+        -- feature switched off) cancels this result. Never refill the cache
+        -- with a route from before it. A refresh merely replaced by an event
+        -- does not: the entry's key is checked again on every read.
+        if epoch ~= QTB._cacheEpoch then return nil, nil, nil, true end
         local teleportID, entry, incomplete, direct = TeleportFromRoute(route)
         if incomplete then
             -- An API/route gap is not a confirmed walking result. In
@@ -423,23 +435,47 @@ local function GetCachedTeleportForQuest(questID, scanBatch, onLate)
         return Store(ok and route or nil)
     end
     -- A request that finishes inside the call (nothing else was running and
-    -- the search fitted one slice) answers here; a later one through onLate.
+    -- the search fitted one slice) answers here; a later one through the
+    -- onLate of whichever refresh waits for it last.
+    local request = { destination = destination, epoch = epoch, onLate = onLate }
     local delivered, waiting
+    local function Forget()
+        if QTB.inflight and QTB.inflight[questID] == request then QTB.inflight[questID] = nil end
+    end
     PC:CalculatePathAsync(waypoint.mapID, waypoint.x, waypoint.y, waypoint.title, function(route)
-        if waiting then
-            if type(onLate) == "function" then onLate(Store(route)) end
-        else
-            delivered = Pack(Store(route))
-        end
-    end, { consumer = ROUTE_CONSUMER, background = true })
+        Forget()
+        local result = Pack(Store(route))
+        if not waiting then delivered = result; return end
+        if type(request.onLate) == "function" then request.onLate(unpack(result, 1, result.n)) end
+    end, {
+        consumer = ROUTE_CONSUMER,
+        background = true,
+        -- Replaced by another quest's route or an invalidation: the refresh
+        -- waiting for it goes on as for any route that could not be had.
+        onSuperseded = function()
+            Forget()
+            if waiting and type(request.onLate) == "function" then request.onLate(nil, nil, nil, true) end
+        end,
+    })
     if delivered then return unpack(delivered, 1, delivered.n) end
     waiting = true
+    QTB.inflight[questID] = request
     return PENDING
+end
+
+--- Start a new cache epoch: routes still running for the old one neither
+-- answer nor fill the cache.
+function QTB:BumpCacheEpoch()
+    self._cacheEpoch = (self._cacheEpoch or 0) + 1
+    if self.inflight then wipe(self.inflight) end
+    local PC = QR.PathCalculator
+    if PC and PC.SupersedeConsumer then PC:SupersedeConsumer(ROUTE_CONSUMER) end
 end
 
 --- Invalidate the cache for all quests
 function QTB:InvalidateCache()
     self:CancelRefresh()
+    self:BumpCacheEpoch()
     wipe(self.questCache)
 end
 
@@ -447,9 +483,6 @@ end
 function QTB:CancelRefresh()
     self._refreshGeneration = (self._refreshGeneration or 0) + 1
     self._refreshRunning = false
-    -- A route still being calculated for the old refresh must not answer.
-    local PC = QR.PathCalculator
-    if PC and PC.SupersedeConsumer then PC:SupersedeConsumer(ROUTE_CONSUMER) end
     EndCooldownBatch()
 end
 
@@ -721,6 +754,7 @@ end
 --- Release all active buttons
 function QTB:ReleaseAllButtons()
     self:CancelRefresh()
+    self:BumpCacheEpoch()
     wipe(self.questCache)
     if self.lastDestinations then wipe(self.lastDestinations) end
     self._lastRefreshGraph, self._lastRefreshPosition = nil, nil
@@ -809,14 +843,16 @@ function QTB:RefreshButtons()
     self:CancelRefresh()
     if not self.initialized then return end
     if InCombatLockdown() then return end
-    if IsInPausedInstance() then return end
     if not self.enabled then
         self:ReleaseAllButtons()
         return
     end
 
     -- Combat may have deferred the event that made a faster option ready.
-    if UpdateCooldownState() then wipe(self.questCache) end
+    if UpdateCooldownState() then
+        self:BumpCacheEpoch()
+        wipe(self.questCache)
+    end
 
     local trackedQuests = GetTrackedQuestIDs()
     local watched = {}
@@ -840,6 +876,8 @@ function QTB:RefreshButtons()
     end
     PruneQuestCache(watched)
     if #trackedQuests == 0 then self:ReleaseAllButtons(); return end
+    -- After the untracked quests lost their buttons, before any routing.
+    if IsInPausedInstance() then return end
     if self.movementFrame then self.movementFrame:Show() end
     self._lastRefreshPosition = GetPositionBucket()
     self._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph

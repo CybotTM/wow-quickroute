@@ -122,18 +122,121 @@ T:run("Quest button background: a route that finishes on a later frame configure
     end)
 end)
 
-T:run("Quest button background: a cancelled refresh does not take a late answer", function(t)
+T:run("Quest button background: a refresh replaced by an event lets its route finish into the cache", function(t)
     withButtons(function(s)
         s.yield = true
         s.track(71103)
         QTB:RefreshButtons()
         s.drain(1)
         QTB:CancelRefresh()
-        t:assertTrue(PC.asyncRunning and PC.asyncRunning.superseded,
-            "the calculation still running for the old refresh is superseded")
+        t:assertFalse(PC.asyncRunning and PC.asyncRunning.superseded or false,
+            "the route keeps running after a plain event")
         s.drain()
-        t:assertNil(QTB.activeButtons[71103], "the superseded answer configures nothing")
-        t:assertNil(QTB.questCache[71103], "and fills no cache entry")
+        t:assertNil(QTB.activeButtons[71103], "the replaced refresh configures nothing")
+        t:assertNotNil(QTB.questCache[71103], "but the answer fills the cache for the next refresh")
+        local routes = #s.routes
+        s.refresh()
+        t:assertEqual(routes, #s.routes, "which routes nothing again, routes " .. #s.routes)
+        t:assertEqual(3561, spellOf(71103), "and shows the cached teleport, got " .. tostring(spellOf(71103)))
+    end)
+end)
+
+T:run("Quest button background: an invalidation drops the route that is still running", function(t)
+    withButtons(function(s)
+        s.yield = true
+        s.track(71109)
+        QTB:RefreshButtons()
+        s.drain(1)
+        QTB:InvalidateCache()
+        t:assertTrue(PC.asyncRunning and PC.asyncRunning.superseded,
+            "the route of the old cache epoch is superseded")
+        s.drain()
+        t:assertNil(QTB.activeButtons[71109], "it configures nothing")
+        t:assertNil(QTB.questCache[71109], "and fills no cache entry")
+    end)
+end)
+
+T:run("Quest button background: quest events during a long search do not start it over", function(t)
+    withButtons(function(s)
+        -- A search that needs several frames, with QUEST_LOG_UPDATE arriving
+        -- before it finishes, again and again, as while the player moves.
+        local slices = 0
+        PC.CalculatePath = function(_, destMapID)
+            s.routes[#s.routes + 1] = destMapID
+            for _ = 1, 5 do slices = slices + 1; coroutine.yield() end
+            return { totalTime = 10, steps = { { type = "teleport", teleportID = 3561, sourceType = "spell" } } }
+        end
+        s.track(71111)
+        local frame = QTB.eventFrame
+        QTB:RefreshButtons()
+        for _ = 1, 6 do
+            s.drain(2)
+            frame:GetScript("OnEvent")(frame, "QUEST_LOG_UPDATE")
+        end
+        s.drain()
+        t:assertEqual(1, #s.routes, "one search for the quest, routes " .. #s.routes)
+        t:assertEqual(1, QTB:GetRouteBudgetUsed(), "one slot of the bound, used " .. QTB:GetRouteBudgetUsed())
+        t:assertEqual(3561, spellOf(71111), "and the quest gets its button, got " .. tostring(spellOf(71111)))
+    end)
+end)
+
+T:run("Quest button background: late answers still fill no more than the secure pool", function(t)
+    withButtons(function(s)
+        s.yield = true
+        for id = 71120, 71129 do s.track(id) end
+        s.refresh()
+        local shown = 0
+        for _ in pairs(QTB.activeButtons) do shown = shown + 1 end
+        t:assertEqual(QTB:GetPoolSize(), shown, "the pool's buttons are configured, shown " .. shown)
+        t:assertEqual(QTB:GetPoolSize(), #s.routes, "and no quest past the full pool is routed, routes " .. #s.routes)
+    end)
+end)
+
+T:run("Quest button background: a late answer without a route keeps the icon but not its action", function(t)
+    withButtons(function(s)
+        s.track(71130)
+        s.refresh()
+        t:assertEqual(3561, spellOf(71130), "a button from the first refresh")
+        PC.CalculatePath = function(_, destMapID)
+            s.routes[#s.routes + 1] = destMapID
+            coroutine.yield()
+            return nil
+        end
+        QTB:InvalidateCache()
+        s.refresh()
+        local btn = QTB.activeButtons[71130]
+        t:assertNotNil(btn, "the icon stays through a short gap")
+        t:assertNotNil(btn and btn._pendingSince, "marked as waiting for a route")
+        t:assertNil(btn and btn:GetAttribute("type"), "with no action while it waits")
+    end)
+end)
+
+T:run("Quest button background: a route cancelled from outside does not strand the refresh", function(t)
+    withButtons(function(s)
+        s.yield = true
+        s.track(71131)
+        s.track(71132)
+        QTB:RefreshButtons()
+        s.drain(1)
+        -- PathCalculator:CancelAsync supersedes every request, whoever asked.
+        PC:CancelAsync()
+        s.drain()
+        t:assertFalse(QTB._refreshRunning, "the refresh ran to its end")
+        t:assertEqual(3561, spellOf(71132), "and routed the next quest, got " .. tostring(spellOf(71132)))
+    end)
+end)
+
+T:run("Quest button background: inside an instance an untracked quest still loses its button", function(t)
+    withButtons(function(s)
+        s.track(71112)
+        s.track(71113)
+        s.refresh()
+        t:assertEqual(3561, spellOf(71112), "a button before entering")
+        MockWoW.config.inInstance, MockWoW.config.instanceType = true, "party"
+        MockWoW.config.questWatches = { 71113 }
+        s.refresh()
+        t:assertNil(QTB.activeButtons[71112], "the untracked quest's button is released")
+        t:assertEqual(3561, spellOf(71113), "the tracked one stays")
     end)
 end)
 
