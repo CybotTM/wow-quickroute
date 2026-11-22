@@ -658,3 +658,99 @@ T:run(prefix .. "the session entry names the character's race, faction, class an
     end)
     _G.UnitRace = savedRace
 end)
+
+
+-------------------------------------------------------------------------------
+-- Performance samples
+-------------------------------------------------------------------------------
+
+local function perfEntry(message)
+    return find("perf", function(e) return e.m == message end)
+end
+
+T:run(prefix .. "performance samples are summed into one entry per kind", function(t)
+    withTrace(true, function()
+        D._perf = nil
+        for _, ms in ipairs({ 1, 3, 20, 40 }) do D:PerfSample("slice-bg", ms) end
+        D:PerfCount("qtb-route")
+        D:PerfCount("qtb-route")
+        D:FlushPerf("test")
+        local e = perfEntry("slice-bg")
+        t:assertNotNil(e, "a perf entry for the kind")
+        local f = e and e.f or {}
+        t:assertEqual(4, f.n, "four samples, got " .. tostring(f.n))
+        t:assertEqual(40, f.max, "the longest, got " .. tostring(f.max))
+        t:assertEqual(64, f.total, "their sum, got " .. tostring(f.total))
+        t:assertEqual(1, f.lt2, "1 ms below 2")
+        t:assertEqual(1, f.lt4, "3 ms below 4")
+        t:assertEqual(0, f.lt8, "nothing below 8")
+        t:assertEqual(1, f.lt33, "20 ms below 33")
+        t:assertEqual(1, f.ge33, "40 ms at or above 33")
+        local counts = perfEntry("counts")
+        t:assertEqual(2, counts and counts.f and counts.f["qtb-route"], "and the counts in their own entry")
+        t:assertNil(D._perf, "the window starts afresh")
+    end)
+end)
+
+T:run(prefix .. "performance samples are not kept while the trace is off", function(t)
+    withTrace(false, function()
+        D._perf = nil
+        D:PerfSample("slice-bg", 5)
+        D:PerfCount("qtb-route")
+        t:assertNil(D._perf, "nothing is summed")
+    end)
+end)
+
+T:run(prefix .. "performance samples are written when the window is over", function(t)
+    withTrace(true, function()
+        D._perf = nil
+        D:PerfCount("qtb-route")
+        t:assertNil(perfEntry("counts"), "nothing written inside the window")
+        MockWoW.config.baseTime = MockWoW.config.baseTime + D.PERF_WINDOW_SECONDS + 1
+        D:PerfCount("qtb-route")
+        local counts = perfEntry("counts")
+        t:assertEqual(2, counts and counts.f and counts.f["qtb-route"], "the window is written with both counts")
+        t:assertEqual("window", counts and counts.f and counts.f.reason, "because it was over")
+    end)
+end)
+
+T:run(prefix .. "performance samples are written before WoW saves", function(t)
+    withTrace(true, function()
+        for _, event in ipairs({ "PLAYER_LEAVING_WORLD", "PLAYER_LOGOUT" }) do
+            D._perf = nil
+            D:PerfCount("qtb-route")
+            D:OnTraceEvent(event)
+            local written = find("perf", function(e) return e.m == "counts" and e.f and e.f.reason == event end)
+            t:assertNotNil(written, event .. " writes the window")
+        end
+        local registered = {}
+        for _, event in ipairs(D.TRACE_EVENTS) do registered[event] = true end
+        t:assertTrue(registered.PLAYER_LOGOUT and registered.PLAYER_LEAVING_WORLD, "both events are traced")
+    end)
+end)
+
+T:run(prefix .. "a graph build records what marked the graph and how long it took", function(t)
+    withTrace(true, function()
+        local PC = QR.PathCalculator
+        D._perf = nil
+        PC.graphDirty, PC.dirtyReason = true, "zone"
+        PC:BuildGraph()
+        t:assertNil(PC.dirtyReason, "the reason is used up by the build")
+        D:FlushPerf("test")
+        local counts = perfEntry("counts")
+        t:assertEqual(1, counts and counts.f and counts.f["rebuild:zone"], "the build is counted under its reason")
+        local build = perfEntry("build")
+        t:assertEqual(1, build and build.f and build.f.n, "and its duration is sampled")
+    end)
+end)
+
+T:run(prefix .. "a zone change marks the graph with its reason", function(t)
+    local PC, TR = QR.PathCalculator, QR.TravelRequirements
+    local saved = PC.dirtyReason
+    if not TR.frame then TR:Initialize() end
+    TR.frame:GetScript("OnEvent")(TR.frame, "ZONE_CHANGED_NEW_AREA")
+    t:assertEqual("zone", PC.dirtyReason, "a zone change, got " .. tostring(PC.dirtyReason))
+    TR.frame:GetScript("OnEvent")(TR.frame, "PLAYER_ENTERING_WORLD")
+    t:assertEqual("entering-world", PC.dirtyReason, "a loading screen, got " .. tostring(PC.dirtyReason))
+    PC.dirtyReason = saved
+end)

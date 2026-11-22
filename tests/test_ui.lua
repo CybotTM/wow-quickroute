@@ -910,6 +910,11 @@ T:run("RefreshRoute does NOT update subtitle when on teleports tab", function(t)
         "Subtitle still TELEPORT_INVENTORY after RefreshRoute on teleports tab")
 
     C_Timer.After = origTimerAfter
+    -- The no-op timer dropped the continuation of a route that paused (a graph
+    -- build can pause between its steps). Withdraw it and run it to its end,
+    -- or it holds the calculator for every later file.
+    QR.PathCalculator:CancelAsync()
+    QR.PathCalculator:ContinueAsync()
 end)
 
 T:run("RefreshRoute subtitle shows destination when waypoint found", function(t)

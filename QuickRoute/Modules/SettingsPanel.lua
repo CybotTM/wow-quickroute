@@ -163,13 +163,13 @@ local function RegisterNativeSettings()
         L["SETTINGS_MAX_COOLDOWN"] or "Max Cooldown (hours)",
         L["SETTINGS_MAX_COOLDOWN_TT"] or "Exclude teleports with cooldowns longer than this",
         "maxCooldownHours", 1, 24, 1,
-        function(v) if QR.PathCalculator then QR.PathCalculator.graphDirty = true end end)
+        function(v) if QR.PathCalculator then QR.PathCalculator.graphDirty = true; QR.PathCalculator.dirtyReason = "settings" end end)
 
     RegisterSlider(category,
         L["SETTINGS_LOADING_TIME"] or "Loading Screen Time (seconds)",
         L["SETTINGS_LOADING_TIME_TT"] or "Extra time to account for loading screens when using portals/teleports",
         "loadingScreenTime", 0, 30, 1,
-        function(v) if QR.PathCalculator then QR.PathCalculator.graphDirty = true end end)
+        function(v) if QR.PathCalculator then QR.PathCalculator.graphDirty = true; QR.PathCalculator.dirtyReason = "settings" end end)
 
     -- Appearance
     RegisterSlider(category,

@@ -62,6 +62,7 @@ local function StorePoint(guid, name, point, source)
         mapID = point.mapID, x = point.x, y = point.y, bindName = name, source = source,
     }
     QR.PathCalculator.graphDirty = true
+    QR.PathCalculator.dirtyReason = "hearthstone"
     return true
 end
 
@@ -105,6 +106,7 @@ function Hearthstone:BuildInnIndex()
         -- A tooltip can discover an inn after the planner built its graph.
         -- Repricing old edges alone would not add the new hearth destination.
         QR.PathCalculator.graphDirty = true
+        QR.PathCalculator.dirtyReason = "hearthstone"
     end
 end
 
@@ -136,6 +138,7 @@ function Hearthstone:RecordBind()
     -- old location in use, including two different inns with the same name.
     QR.db.hearthstoneBinds[guid] = nil
     QR.PathCalculator.graphDirty = true
+    QR.PathCalculator.dirtyReason = "hearthstone"
     local point = Position()
     local name = BindName()
     if not point or not name then return false end
@@ -199,6 +202,7 @@ function Hearthstone:OnEvent(event, unit, castGUID, spellID)
     if event == "PLAYER_ENTERING_WORLD" and self.innIndexIncomplete then
         self.innIndex, self.innIndexIncomplete = nil, nil
         QR.PathCalculator.graphDirty = true
+        QR.PathCalculator.dirtyReason = "hearthstone"
     end
     if event == "HEARTHSTONE_BOUND" then self:RecordBind(); return end
     if event == "GET_ITEM_INFO_RECEIVED" then

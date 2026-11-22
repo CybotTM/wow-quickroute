@@ -87,7 +87,7 @@ function TR:SetPhaseOverride(mapID, artID)
     for _, phase in ipairs(phases) do if phase.artID == artID then valid = true end end
     if not valid then return false end
     self.phaseOverrides[mapID] = artID
-    if QR.PathCalculator then QR.PathCalculator.graphDirty = true end
+    if QR.PathCalculator then QR.PathCalculator.graphDirty = true; QR.PathCalculator.dirtyReason = "phase-override" end
     return true
 end
 
@@ -299,6 +299,74 @@ function TR:CanTraverseZoneMaps(fromMapID, toMapID)
     return not (from and to and from.mapID == to.mapID and from.artID ~= to.artID)
 end
 
+--- The phase maps the fixed part of a graph refers to: every node except the
+-- transient ones (QR.Graph.IsTransientNode) and every edge that neither starts
+-- nor ends at one. Kept on the graph and computed again when its fixed part
+-- changed (graph.staticVersion).
+--
+-- Edges that end at a transient node are left out without being read. Their
+-- writers (ConnectNearbyNodes, ConnectViaContinentRouting) attach walk and
+-- travel data only, which carries no requirements and no phaseMapID.
+--
+-- `pause`, when given, is called after every node of both passes with a running
+-- count; it may yield, which is safe only while nobody else can change the
+-- graph (BuildGraph's own, unpublished one). When it returns false the
+-- collection is abandoned: nothing is kept and nil is returned.
+-- @return table|nil set of mapIDs
+function TR:StaticPhaseMaps(graph, pause)
+    -- GetNodePhase replaces its table when the travel data changed; ask it
+    -- first, so the comparison below sees the current one.
+    self:GetNodePhase(0)
+    local version = graph.staticVersion or 0
+    local cached = graph.phaseMapCache
+    if cached and cached.version == version and cached.nodePhases == self.nodePhases then
+        return cached.maps
+    end
+    local maps = {}
+    local function collect(requirements)
+        if type(requirements) ~= "table" then return end
+        if type(requirements.mapArtID) == "table" then
+            local mapID = requirements.mapArtID.mapID or requirements.mapArtID[1]
+            if Number(mapID) then maps[mapID] = true end
+        end
+        if type(requirements.anyOf) == "table" then
+            for kind, value in pairs(requirements.anyOf) do
+                collect(type(kind) == "number" and value or { [kind] = value })
+            end
+        end
+    end
+    local transient = QR.Graph.IsTransientNode
+    local visited = 0
+    for _, node in pairs(graph.nodes) do
+        visited = visited + 1
+        if pause and not pause(visited) then return nil end
+        if not transient(node) then
+            local implicit = self:GetNodePhase(node.mapID)
+            if implicit then maps[implicit.mapID] = true end
+            if node.mapArtID then maps[node.phaseCheckMapID or node.mapID] = true end
+            collect(node.requirements)
+        end
+    end
+    for from, outgoing in pairs(graph.edges) do
+        visited = visited + 1
+        if pause and not pause(visited) then return nil end
+        if not transient(graph.nodes[from]) then
+            for to, selected in pairs(outgoing) do
+                if not transient(graph.nodes[to]) then
+                    for _, edge in ipairs(selected.alternatives or { selected }) do
+                        collect(edge.data and edge.data.requirements)
+                        if edge.data and edge.data.phaseMapID then maps[edge.data.phaseMapID] = true end
+                    end
+                end
+            end
+        end
+    end
+    -- GetNodePhase rebuilds its table when the travel data changes; an entry
+    -- computed against the old one is stale.
+    graph.phaseMapCache = { version = version, maps = maps, nodePhases = self.nodePhases }
+    return maps
+end
+
 function TR:FindPath(graph, start, goal)
     local startNode = graph.nodes[start]
     local origin = startNode and startNode.mapID
@@ -478,10 +546,18 @@ function TR:FindPath(graph, start, goal)
     -- A rejected lower bound can require a detour through unrelated phase
     -- controls. Discover all alternatives before the existing stateful search,
     -- extending the original live state rather than the failed route's state.
-    for _, node in pairs(graph.nodes) do collectNode(node) end
-    for _, outgoing in pairs(graph.edges) do
-        for _, selected in pairs(outgoing) do
-            for _, edge in ipairs(selected.alternatives or { selected }) do collectEdge(edge) end
+    --
+    -- The fixed part of the graph is collected once per graph and kept
+    -- (StaticPhaseMaps); only the transient nodes -- the player and a search's
+    -- destination -- and the edges leaving them are read here. Collecting all
+    -- of it on every search was the larger half of the longest slices.
+    for mapID in pairs(self:StaticPhaseMaps(graph)) do phaseMaps[mapID] = true end
+    for name, node in pairs(graph.nodes) do
+        if QR.Graph.IsTransientNode(node) then
+            collectNode(node)
+            for _, selected in pairs(graph.edges[name] or {}) do
+                for _, edge in ipairs(selected.alternatives or { selected }) do collectEdge(edge) end
+            end
         end
     end
     initializePhases()
@@ -528,6 +604,7 @@ function TR:Initialize()
         -- calendar updates do not rebuild the entire retained transport graph.
         if (event == "ZONE_CHANGED_NEW_AREA" or event == "PLAYER_ENTERING_WORLD") and QR.PathCalculator then
             QR.PathCalculator.graphDirty = true
+            QR.PathCalculator.dirtyReason = event == "ZONE_CHANGED_NEW_AREA" and "zone" or "entering-world"
         end
     end)
     self.frame = frame

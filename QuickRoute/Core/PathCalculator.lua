@@ -213,6 +213,48 @@ end
 -- Creates nodes for locations and edges for travel methods
 -- @return Graph|nil The constructed travel graph, or nil on error
 function PathCalculator:BuildGraph()
+    -- Inside the asynchronous driver the build pauses between its steps when
+    -- the slice's budget is spent. A pause puts the previous, complete graph
+    -- back for everybody else and takes the half-built one along; a build that
+    -- finds on resuming that somebody else rebuilt meanwhile gives up and
+    -- leaves that graph in place.
+    local sliced = self.asyncRunning ~= nil and coroutine.running() == self.asyncRunning.thread
+    -- What marked the graph for this build, for the diagnostic trace. A build
+    -- nobody asked for by a recorded reason (the first one, a test) is "other".
+    local reason = self.dirtyReason or (self.graph and "other" or "first")
+    self.dirtyReason = nil
+    local D = QR.Diagnostics
+    if D and D.PerfCount then D:PerfCount("rebuild:" .. reason) end
+    local clock = type(_G.debugprofilestop) == "function" and _G.debugprofilestop or nil
+    local buildStarted = clock and clock()
+    local published = sliced and {
+        graph = self.graph, nodeIndex = self.nodeIndex,
+        zoneTravelGraph = self.zoneTravelGraph, zoneTravelCache = self.zoneTravelCache,
+        build = self.graphBuild or 0,
+    } or nil
+    local function Pause()
+        if not sliced or not QR.Graph.BudgetSpent() then return true end
+        local mine = {
+            graph = self.graph, nodeIndex = self.nodeIndex,
+            zoneTravelGraph = self.zoneTravelGraph, zoneTravelCache = self.zoneTravelCache,
+        }
+        self.graph, self.nodeIndex = published.graph, published.nodeIndex
+        self.zoneTravelGraph, self.zoneTravelCache = published.zoneTravelGraph, published.zoneTravelCache
+        self.graphPauses = (self.graphPauses or 0) + 1
+        if D and D.PerfCount then D:PerfCount("build-pause") end
+        coroutine.yield()
+        if self.graph ~= published.graph or (self.graphBuild or 0) ~= published.build then
+            QR:Log("INFO", "BuildGraph abandoned: the graph was rebuilt while it paused")
+            return false
+        end
+        -- What a reader built for the previous graph meanwhile stays with it.
+        published.nodeIndex = self.nodeIndex
+        published.zoneTravelGraph, published.zoneTravelCache = self.zoneTravelGraph, self.zoneTravelCache
+        self.graph, self.nodeIndex = mine.graph, mine.nodeIndex
+        self.zoneTravelGraph, self.zoneTravelCache = mine.zoneTravelGraph, mine.zoneTravelCache
+        return true
+    end
+
     -- Create new graph
     self.graph = QR.Graph:New()
     -- The index belongs to the graph that was just discarded. Leaving it in
@@ -227,7 +269,7 @@ function PathCalculator:BuildGraph()
         return nil
     end
 
-    QR:Log("INFO", "BuildGraph started")
+    QR:Log("INFO", "BuildGraph started (" .. reason .. ")")
 
     local buildSuccess = true
     local buildError = nil
@@ -242,6 +284,8 @@ function PathCalculator:BuildGraph()
         buildError = err
     end
 
+    if not Pause() then return self.graph end
+
     -- Add portal hub connections
     success, err = pcall(function()
         self:AddPortalConnections()
@@ -253,6 +297,8 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
+    if not Pause() then return self.graph end
+
     -- Add player teleport edges
     success, err = pcall(function()
         self:AddPlayerTeleportEdges()
@@ -263,15 +309,28 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
-    -- Add dungeon/raid entrance nodes
+    if not Pause() then return self.graph end
+
+    -- Add dungeon/raid entrance nodes. The two passes of AddDungeonNodes, run
+    -- here so the second one -- three quarters of a build, measured on the
+    -- test graph -- can pause between nodes.
+    local dungeonNodes
     success, err = pcall(function()
-        self:AddDungeonNodes()
+        dungeonNodes = self:AddDungeonEntranceNodes()
     end)
+    if success then
+        for index, dn in ipairs(dungeonNodes or {}) do
+            success, err = pcall(self.ConnectViaContinentRouting, self, dn.name, dn.mapID, dn.x, dn.y)
+            if not success then break end
+            if index % 8 == 0 and not Pause() then return self.graph end
+        end
+    end
     if not success then
         QR:Error("AddDungeonNodes failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
     end
+    if not Pause() then return self.graph end
 
     -- Dungeon teleports the player knows. Must come after AddDungeonNodes:
     -- the nodes these edges point at do not exist before it.
@@ -295,6 +354,8 @@ function PathCalculator:BuildGraph()
         buildSuccess = false
         buildError = buildError or err
     end
+
+    if not Pause() then return self.graph end
 
     -- IMPORTANT: Connect all nodes on the same map with walking edges
     -- This ensures teleport destinations connect to portal hubs on the same map
@@ -321,6 +382,8 @@ function PathCalculator:BuildGraph()
         buildError = buildError or err
     end
 
+    if not Pause() then return self.graph end
+
     success, err = pcall(function()
         self:ConnectIslandNodes()
     end)
@@ -337,6 +400,8 @@ function PathCalculator:BuildGraph()
     -- have written. The result was still faster at the shipped FLIGHT_SPEED,
     -- but only by margin -- recalibrating the speed below ~17 yd/s made flight
     -- routes slower than the ones they displaced. Now the guard decides it.
+    if not Pause() then return self.graph end
+
     success, err = pcall(function()
         self:AddFlightEdges()
     end)
@@ -344,6 +409,23 @@ function PathCalculator:BuildGraph()
         QR:Error("AddFlightEdges failed: " .. tostring(err))
         buildSuccess = false
         buildError = buildError or err
+    end
+
+    -- The phase maps of the fixed graph, collected now rather than in the
+    -- first search that needs them, where the collection took a slice of its
+    -- own (7 ms on the test graph). Here it can pause every 64 nodes: nobody
+    -- else sees this graph yet. A pause cannot cross pcall, so only the
+    -- build in one piece guards it.
+    local TRQ = QR.TravelRequirements
+    if TRQ and TRQ.StaticPhaseMaps then
+        if sliced then
+            local collected = TRQ:StaticPhaseMaps(self.graph, function(visited)
+                return visited % 64 ~= 0 or Pause()
+            end)
+            if not collected then return self.graph end
+        else
+            pcall(TRQ.StaticPhaseMaps, TRQ, self.graph)
+        end
     end
 
     -- Counted so an asynchronous search can tell "the graph I searched was
@@ -365,6 +447,15 @@ function PathCalculator:BuildGraph()
     end
     QR:Log("INFO", string_format("BuildGraph complete: %d nodes, %d edges, success=%s",
         nodeCount, edgeCount, tostring(buildSuccess)))
+    -- A sliced build's span includes its pauses; only a build in one piece
+    -- is a duration of work.
+    if D and D.PerfSample and buildStarted then
+        if sliced then
+            D:PerfCount("build-sliced")
+        else
+            D:PerfSample("build", clock() - buildStarted)
+        end
+    end
 
     return self.graph
 end
@@ -698,6 +789,16 @@ end
 --- Add dungeon/raid entrance nodes to the graph
 -- Each entrance becomes a node connected to its parent zone via walking edge
 function PathCalculator:AddDungeonNodes()
+    -- BuildGraph runs the two passes itself, so it can pause between nodes.
+    local dungeonNodes = self:AddDungeonEntranceNodes()
+    for _, dn in ipairs(dungeonNodes or {}) do
+        self:ConnectViaContinentRouting(dn.name, dn.mapID, dn.x, dn.y)
+    end
+end
+
+--- First pass of AddDungeonNodes: add every entrance node, index the nodes.
+-- @return table|nil the entrances to connect: {name, mapID, x, y}
+function PathCalculator:AddDungeonEntranceNodes()
     if not QR.DungeonData or not QR.DungeonData.scanned then
         QR:Debug("PathCalculator: DungeonData not available, skipping dungeon nodes")
         return
@@ -727,11 +828,8 @@ function PathCalculator:AddDungeonNodes()
     -- The index is built once here rather than per node: without it each of the
     -- hundreds of dungeon nodes drives four full scans of the node table.
     self:BuildNodeIndex()
-    for _, dn in ipairs(dungeonNodes) do
-        self:ConnectViaContinentRouting(dn.name, dn.mapID, dn.x, dn.y)
-    end
-
     QR:Debug(string_format("PathCalculator: added %d dungeon/raid entrance nodes", addedCount))
+    return dungeonNodes
 end
 
 -------------------------------------------------------------------------------
@@ -829,6 +927,7 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         QR:Debug("PathCalculator: faction changed from " .. tostring(self.graphFaction)
             .. " to " .. tostring(faction) .. ", rebuilding the graph")
         self.graphDirty = true
+        self.dirtyReason = "faction"
     end
     if self.graphDirty or not self.graph then
         self:BuildGraph()
@@ -879,12 +978,14 @@ function PathCalculator:CalculatePath(destMapID, destX, destY, destTitle)
         destName = baseName .. " #" .. suffix
     end
 
-    -- Add destination node
+    -- Add destination node. Transient: it exists for this search only, and
+    -- what is derived from the fixed graph (QR.Graph.IsTransientNode) ignores it.
     self.graph:AddNode(destName, {
         mapID = destMapID,
         x = destX,
         y = destY,
         nodeType = "destination",
+        transient = true,
     })
 
     -- Debug: Show destination continent info
@@ -1331,6 +1432,8 @@ function PathCalculator:ContinueAsync()
     local running = self.asyncRunning
     if not running then return end
     if MustPark(self, running) then
+        local D = QR.Diagnostics
+        if D and D.PerfCount then D:PerfCount("bg-parked") end
         if C_Timer and C_Timer.After then
             C_Timer.After(self.BACKGROUND_COMBAT_RECHECK or 1, function()
                 if self.asyncRunning == running then self:ContinueAsync() end
@@ -1347,10 +1450,17 @@ function PathCalculator:ResumeAsync()
     if not running then return end
     local clock = ProfileClock()
     local budget = self.FRAME_BUDGET_MS or 6
-    if running.background and not self:HasForegroundWaiting() then
-        budget = self.BACKGROUND_BUDGET_MS or 2
+    local D = QR.Diagnostics
+    if running.background then
+        if self:HasForegroundWaiting() then
+            if D and D.PerfCount then D:PerfCount("bg-raised") end
+        else
+            budget = self.BACKGROUND_BUDGET_MS or 2
+        end
     end
-    local deadline = clock and (clock() + budget)
+    -- One reading for both: when the slice started and where its budget ends.
+    local sliceStarted = clock and clock()
+    local deadline = sliceStarted and (sliceStarted + budget)
     QR.Graph.SetYieldHook(clock and function() return clock() >= deadline end or nil)
     -- The journey the search belongs to travels with the request: restored for
     -- the slice, captured again after it, and the outer one put back so a
@@ -1365,6 +1475,9 @@ function PathCalculator:ResumeAsync()
     local outerJourney = currentJourney
     currentJourney = running.journey or currentJourney
     local ok, route, failure = coroutine.resume(running.thread)
+    if sliceStarted and D and D.PerfSample then
+        D:PerfSample(running.background and "slice-bg" or "slice-fg", clock() - sliceStarted)
+    end
     running.journey = currentJourney
     currentJourney = outerJourney
     QR.Graph.SetYieldHook(nil)
@@ -1403,6 +1516,9 @@ function PathCalculator:ResumeAsync()
             failure = failure and tostring(failure.reason) or nil,
             superseded = running.superseded and true or false,
         })
+    end
+    if D and D.PerfSample and running.startedAt and GetTime then
+        D:PerfSample(running.background and "route-bg" or "route-fg", (GetTime() - running.startedAt) * 1000)
     end
     if not running.superseded and type(running.callback) == "function" then
         local delivered, err = pcall(running.callback, route, failure)
@@ -1565,6 +1681,7 @@ function PathCalculator:UpdatePlayerLocation()
     local node = self.graph.nodes[PLAYER_NODE]
     if not node then
         self.graphDirty = true
+        self.dirtyReason = "player-node"
         return false
     end
 
@@ -2683,6 +2800,7 @@ end
 -- Marks graph as dirty for rebuild
 function PathCalculator:OnInventoryChanged()
     self.graphDirty = true
+    self.dirtyReason = "inventory"
 
     QR:Debug("Inventory changed, graph marked for rebuild")
 end

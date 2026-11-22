@@ -48,7 +48,7 @@ local function Position()
 end
 
 local function Dirty()
-    if QR.PathCalculator then QR.PathCalculator.graphDirty = true end
+    if QR.PathCalculator then QR.PathCalculator.graphDirty = true; QR.PathCalculator.dirtyReason = "destinations" end
 end
 
 local function Read(fn, ...)

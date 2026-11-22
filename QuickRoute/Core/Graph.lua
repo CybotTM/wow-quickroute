@@ -56,6 +56,12 @@ function QR.Graph.SetYieldHook(hook)
     shouldYield = hook
 end
 
+--- Has the running slice spent its budget? False outside a slice.
+-- @return boolean
+function QR.Graph.BudgetSpent()
+    return shouldYield ~= nil and shouldYield() == true
+end
+
 --- Let the searches of the running coroutine yield, or stop them yielding.
 -- Outside a coroutine this does nothing.
 -- @param allowed boolean
@@ -152,7 +158,27 @@ function QR.Graph:New()
     local graph = setmetatable({}, QR.Graph)
     graph.nodes = {}
     graph.edges = {}
+    -- Counts changes to the fixed part of the graph: nodes other than the
+    -- transient ones, and edges between two such nodes. What is derived from
+    -- the fixed part alone (TravelRequirements:StaticPhaseMaps) is kept until
+    -- this moves.
+    graph.staticVersion = 0
     return graph
+end
+
+--- Is this node one a calculation adds and moves for itself: the player, or
+-- a search's own destination (marked `transient` by CalculatePath)?
+-- @param node table|nil node data
+-- @return boolean
+function QR.Graph.IsTransientNode(node)
+    return type(node) == "table" and (node.nodeType == "player" or node.transient == true) or false
+end
+
+local IsTransientNode = QR.Graph.IsTransientNode
+
+local function TouchStatic(graph, from, to)
+    if IsTransientNode(graph.nodes[from]) or (to and IsTransientNode(graph.nodes[to])) then return end
+    graph.staticVersion = (graph.staticVersion or 0) + 1
 end
 
 -- Adds a node to the graph
@@ -164,6 +190,7 @@ function QR.Graph:AddNode(name, data)
 
     self.nodes[name] = data or {}
     self.edges[name] = {}
+    TouchStatic(self, name)
     return true
 end
 
@@ -172,6 +199,7 @@ function QR.Graph:RemoveNode(name)
     if not self.nodes[name] then
         return false
     end
+    TouchStatic(self, name)
 
     -- Remove the node
     self.nodes[name] = nil
@@ -209,6 +237,7 @@ function QR.Graph:AddEdge(from, to, weight, edgeType, data)
         edgeType = edgeType or "walk",
         data = data or {}
     }
+    TouchStatic(self, from, to)
 
     return true
 end
@@ -231,6 +260,7 @@ function QR.Graph:SetEdgeOptions(from, to, options)
             best = option
         end
     end
+    TouchStatic(self, from, to)
     if not best then
         self.edges[from][to] = nil
         return

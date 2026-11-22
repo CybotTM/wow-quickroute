@@ -68,13 +68,21 @@ QR.QuestTeleportButtons = {
 local QTB = QR.QuestTeleportButtons
 
 --- Is the player in an instance where the buttons pause (PAUSED_INSTANCE_TYPES)?
+-- @return boolean paused
+-- @return string|nil the instance type the client reported, when in one
 local function IsInPausedInstance()
     local check = _G.IsInInstance
     if type(check) ~= "function" then return false end
     local ok, inInstance, instanceType = pcall(check)
     if not ok or inInstance ~= true then return false end
     if issecretvalue and issecretvalue(instanceType) then return false end
-    return PAUSED_INSTANCE_TYPES[instanceType] == true
+    return PAUSED_INSTANCE_TYPES[instanceType] == true, type(instanceType) == "string" and instanceType or nil
+end
+
+--- Count one occurrence for the diagnostic trace's performance window.
+local function PerfCount(key)
+    local D = QR.Diagnostics
+    if D and D.PerfCount then D:PerfCount(key) end
 end
 
 --- Drop the cooldown answers remembered for one refresh batch.
@@ -369,6 +377,7 @@ local function GetCachedTeleportForQuest(questID, scanBatch, onLate)
     local running = QTB.inflight[questID]
     if running and running.destination == destination and running.epoch == QTB._cacheEpoch then
         running.onLate = onLate
+        PerfCount("qtb-joined")
         return PENDING
     end
 
@@ -376,6 +385,7 @@ local function GetCachedTeleportForQuest(questID, scanBatch, onLate)
     -- this destination on this graph and its teleport is still ready. Moving
     -- or waiting changes only how fast the route is, never where it goes.
     if not TakeRouteSlot(now) then
+        PerfCount("qtb-deferred")
         local cooldown = cached and cached.teleportID and QR.CooldownTracker
             and QR.CooldownTracker:GetCooldown(cached.teleportID, cached.sourceType)
         if cached and not (QTB.flightChoices and QTB.flightChoices[questID])
@@ -383,6 +393,7 @@ local function GetCachedTeleportForQuest(questID, scanBatch, onLate)
             and not (calculator and calculator.graphDirty)
             and (not destinationKnown or cached.destination == destination)
             and (not cached.teleportID or (cooldown and cooldown.ready)) then
+            PerfCount("qtb-kept")
             return cached.teleportID, cached.sourceType, cached.data, nil, cached.direct
         end
         -- A button already on screen may stay only for the destination it was
@@ -392,6 +403,7 @@ local function GetCachedTeleportForQuest(questID, scanBatch, onLate)
         return nil, nil, nil, true, nil, sameDestination
     end
 
+    PerfCount("qtb-route")
     local epoch = QTB._cacheEpoch
     local function Store(route)
         -- An invalidation since the request (a cooldown that moved, the
@@ -877,7 +889,12 @@ function QTB:RefreshButtons()
     PruneQuestCache(watched)
     if #trackedQuests == 0 then self:ReleaseAllButtons(); return end
     -- After the untracked quests lost their buttons, before any routing.
-    if IsInPausedInstance() then return end
+    PerfCount("qtb-refresh")
+    local paused, instanceType = IsInPausedInstance()
+    -- Which instance types the client reports, so the paused list can be
+    -- checked against the game: the housing types are documented, not seen.
+    if instanceType then PerfCount("instance:" .. instanceType) end
+    if paused then PerfCount("qtb-paused"); return end
     if self.movementFrame then self.movementFrame:Show() end
     self._lastRefreshPosition = GetPositionBucket()
     self._lastRefreshGraph = QR.PathCalculator and QR.PathCalculator.graph

@@ -620,6 +620,7 @@ function PlayerInventory:RunDeferredScan()
     if changed and QR.PathCalculator and QR.PathCalculator.OnInventoryChanged then
         if InCombatLockdown() then
             QR.PathCalculator.graphDirty = true
+            QR.PathCalculator.dirtyReason = "inventory"
         else
             QR.PathCalculator:OnInventoryChanged()
         end

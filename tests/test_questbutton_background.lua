@@ -308,12 +308,19 @@ T:run("Quest button background: inside an instance nothing is routed and the but
     end)
 end)
 
-T:run("Quest button background: an instance type outside the list does not pause", function(t)
+T:run("Quest button background: housing does not pause", function(t)
     withButtons(function(s)
+        -- The Warcraft Wiki's IsInInstance page lists "neighborhood" and
+        -- "interior" for a housing neighbourhood and a house; a teleport
+        -- often starts there.
         s.track(71108)
         MockWoW.config.inInstance, MockWoW.config.instanceType = true, "neighborhood"
         s.refresh()
-        t:assertEqual(1, #s.routes, "an unlisted instance type routes as before, routes " .. #s.routes)
+        t:assertEqual(1, #s.routes, "a housing neighbourhood routes as before, routes " .. #s.routes)
+        MockWoW.config.instanceType = "interior"
+        QTB:InvalidateCache()
+        s.refresh()
+        t:assertEqual(2, #s.routes, "and so does a house, routes " .. #s.routes)
     end)
 end)
 
@@ -330,4 +337,37 @@ T:run("Quest button background: entries of one refresh expire at different times
         t:assertEqual(3, #s.routes, "after 25 s one of them routes again, routes " .. #s.routes)
         t:assertEqual(85, s.routes[3], "the one with the widest spread, got map " .. tostring(s.routes[3]))
     end)
+end)
+
+T:run("Quest button background: the trace counts routes, deferrals, joins and instance types", function(t)
+    local D = QR.Diagnostics
+    local saved = D.PerfCount
+    local counted = {}
+    D.PerfCount = function(_, key) counted[key] = (counted[key] or 0) + 1 end
+    local ok, err = pcall(withButtons, function(s)
+        QTB.ROUTES_PER_MINUTE = 1
+        -- A search of several frames, so the second refresh finds it running.
+        PC.CalculatePath = function(_, destMapID)
+            s.routes[#s.routes + 1] = destMapID
+            for _ = 1, 3 do coroutine.yield() end
+            return { totalTime = 10, steps = { { type = "teleport", teleportID = 3561, sourceType = "spell" } } }
+        end
+        s.track(71140)
+        QTB:RefreshButtons()
+        s.drain(1)
+        QTB:CancelRefresh()
+        QTB:RefreshButtons()
+        s.drain()
+        s.track(71141)
+        s.refresh()
+        MockWoW.config.inInstance, MockWoW.config.instanceType = true, "party"
+        s.refresh()
+    end)
+    D.PerfCount = saved
+    if not ok then error(err, 0) end
+    t:assertEqual(1, counted["qtb-route"], "one route, got " .. tostring(counted["qtb-route"]))
+    t:assertEqual(1, counted["qtb-joined"], "a refresh that waited for it, got " .. tostring(counted["qtb-joined"]))
+    t:assertTrue((counted["qtb-deferred"] or 0) >= 1, "a quest over the bound, got " .. tostring(counted["qtb-deferred"]))
+    t:assertEqual(1, counted["instance:party"], "the instance type, got " .. tostring(counted["instance:party"]))
+    t:assertEqual(1, counted["qtb-paused"], "and the pause, got " .. tostring(counted["qtb-paused"]))
 end)

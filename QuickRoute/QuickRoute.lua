@@ -376,6 +376,7 @@ do
                 (restricted and ("active (" .. tostring(which) .. ")") or "clear"))
             if not restricted and QR.PathCalculator then
                 QR.PathCalculator.graphDirty = true
+                QR.PathCalculator.dirtyReason = "restriction"
             end
         end
     end)

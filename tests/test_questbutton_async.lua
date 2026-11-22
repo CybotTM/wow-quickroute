@@ -320,7 +320,9 @@ T:run("Quest button graph freshness: a bind change between frames repairs earlie
             QR.PathCalculator = calculator
             qtb:RefreshButtons()
             local generation = qtb._refreshGeneration
-            if state.pending[1] then table.remove(state.pending, 1)() end
+            -- Until the first quest has its button: the graph build inside its
+            -- route may pause across several frames.
+            while state.pending[1] and not qtb.activeButtons[10001] do table.remove(state.pending, 1)() end
             t:assertEqual(6948, qtb.activeButtons[10001] and qtb.activeButtons[10001].teleportID,
                 "The first real route initially selects the old observed hearth")
             t:assertTrue(QR.Hearthstone:RecordBind(), "The actual bind observer changes the destination and dirties the graph")
