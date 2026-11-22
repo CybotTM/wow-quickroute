@@ -495,8 +495,19 @@ function SecureButtons:ConfigureButton(btn, id, sourceType, teleportData)
     btn:SetAttribute("*type3", "")
 
     local ok
-    if id == 1233637 and type(teleportData) == "table" and type(teleportData.housing) == "table" then
-        local house = teleportData.housing
+    -- The housing teleport goes through the secure "teleporthome" action
+    -- (C_Housing.TeleportHome), as on Blizzard's housing dashboard. A
+    -- destination resolved to a plot carries its house; any other caller (the
+    -- Quick Teleports popup lists the spell itself) uses the first house the
+    -- client reported (PLAYER_HOUSE_LIST_UPDATED). Casting the spell by name
+    -- did nothing in the client on 2026-11-22: no cast, no error.
+    local housing = type(teleportData) == "table" and teleportData.housing
+    if id == 1233637 and type(housing) ~= "table" then
+        local houses = QR.TeleportDestinations and QR.TeleportDestinations.houses
+        housing = type(houses) == "table" and houses[1] or nil
+    end
+    if id == 1233637 and type(housing) == "table" then
+        local house = housing
         local neighborhood, guid, plot = house.neighborhoodGUID, house.houseGUID, house.plotID
         if (issecretvalue and (issecretvalue(neighborhood) or issecretvalue(guid) or issecretvalue(plot)))
             or type(neighborhood) ~= "string" or neighborhood == ""

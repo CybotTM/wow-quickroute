@@ -114,6 +114,29 @@ T:run("Travel destinations: housing requires observed plot coordinates and keeps
     QR.TeleportDestinations.houses = oldHouses
 end)
 
+T:run("Travel destinations: the housing spell without a plot position still teleports to the owned house", function(t)
+    -- What the Quick Teleports popup passes: the spell's own data, no plot
+    -- position recorded. Casting it by name did nothing in the client.
+    MockWoW:Reset()
+    local oldHouses = QR.TeleportDestinations.houses
+    local data = QR.GeneralTeleportSpells[1233637]
+    local button = CreateFrame("Button", nil, UIParent, "SecureActionButtonTemplate")
+    local ok, err = pcall(function()
+        QR.TeleportDestinations:SetHouses({ { neighborhoodGUID = "Neighborhood-Own", houseGUID = "House-Own", plotID = 7 } })
+        t:assertTrue(QR.SecureButtons:ConfigureButton(button, 1233637, "spell", data), "the row configures")
+        t:assertEqual("teleporthome", button:GetAttribute("type"), "through Blizzard's housing action")
+        t:assertEqual("Neighborhood-Own", button:GetAttribute("house-neighborhood-guid"), "with the owned house's neighborhood")
+        t:assertEqual("House-Own", button:GetAttribute("house-guid"), "its house")
+        t:assertEqual(7, button:GetAttribute("house-plot-id"), "and its plot")
+        QR.TeleportDestinations.houses = {}
+        t:assertTrue(QR.SecureButtons:ConfigureButton(button, 1233637, "spell", data), "without a known house it still configures")
+        t:assertTrue(button:GetAttribute("type") ~= "teleporthome", "but not as a housing action without a house")
+        t:assertNil(button:GetAttribute("house-guid"), "and carries no house")
+    end)
+    QR.TeleportDestinations.houses = oldHouses
+    if not ok then error(err, 0) end
+end)
+
 T:run("Travel inventory: engineer toys and modern spellbook ownership are detected", function(t)
     MockWoW:Reset()
     local savedData = QR.TeleportItemsData[999900]
